@@ -1,0 +1,148 @@
+@import "tailwindcss";
+@import './styles/vendor/markstream-react.css';
+
+/* Global theme tokens — synced with Ant Design ConfigProvider via JS */
+:root {
+  --border-color: #f0f0f0;
+  --color-bg-container: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-text: rgba(0, 0, 0, 0.88);
+  --color-text-secondary: rgba(0, 0, 0, 0.45);
+  --color-primary: #1677ff;
+  --font-size-base: 14px;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-weight: 300;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Re-enable text selection for content areas */
+.ant-bubble-content,
+.markstream-react,
+textarea,
+input,
+[contenteditable="true"],
+pre,
+code,
+.code-block-node,
+.code-block-container,
+.inline-code {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Override antd CSS-in-JS font-weight for all components */
+[class*="ant-"] {
+  font-weight: 300 !important;
+}
+
+/* Fix icon alignment in dropdown menus (lucide SVGs) */
+.ant-dropdown-menu .ant-dropdown-menu-item-icon,
+.ant-dropdown-menu .ant-dropdown-menu-submenu-title > .ant-dropdown-menu-item-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+b, strong, th,
+[class*="ant-"] b,
+[class*="ant-"] strong,
+.ant-typography strong,
+.ant-menu-item-selected,
+.ant-tabs-tab-active {
+  font-weight: 500 !important;
+}
+
+/* Global scrollbar styling — thin, semi-transparent, auto-hide on idle */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+html[data-theme="dark"] :hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+html[data-theme="dark"] :hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+html[data-theme="dark"] * {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* Ant Design style overrides */
+.ant-layout {
+  height: 100%;
+}
+
+/* Make lucide-react SVGs behave like antd icons inside antd components */
+svg.lucide {
+  display: inline-block;
+  vertical-align: -0.125em;
+}
+
+/* Title bar drag region */
+.title-bar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.title-bar-drag button,
+.title-bar-drag .ant-dropdown-trigger {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.title-bar-nodrag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Unify all Ant Design component borders via CSS variable */
+.ant-conversations .ant-conversations-list {
+  border-color: var(--border-color) !important;
+}
+
+.ant-menu {
+  border-inline-end: none !important;
+}
+
+.gateway-quick-connect-card.ant-card {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.gateway-quick-connect-card.ant-card:hover {
+  border-color: var(--color-primary) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
