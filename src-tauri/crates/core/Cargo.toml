@@ -1,0 +1,33 @@
+[package]
+name = "aqbot-core"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sea-orm = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+aes-gcm = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["json"] }
+regex = "1"
+hex = "0.4"
+toml_edit = "0.22"
+lancedb = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+pdf-extract = "0.7"
+zip = "2"
+dirs = "5"
+aqbot-migration = { path = "../migration" }
+
+[dev-dependencies]
+tempfile = "3"

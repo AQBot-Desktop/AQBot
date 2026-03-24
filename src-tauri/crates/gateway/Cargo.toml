@@ -1,0 +1,22 @@
+[package]
+name = "aqbot-gateway"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+aqbot-core = { path = "../core" }
+aqbot-providers = { path = "../providers" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+axum = { version = "0.8", features = ["ws"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+uuid = { workspace = true }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = { workspace = true }
+sea-orm = { workspace = true }
+futures = "0.3"
+async-trait = "0.1"
+tokio-stream = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }

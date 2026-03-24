@@ -1,0 +1,758 @@
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox } from 'antd';
+import type { MenuProps } from 'antd';
+import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, Plug, SlidersHorizontal, ArrowUp, Square, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore } from '@/stores';
+import { useUIStore } from '@/stores/uiStore';
+import { findModelByIds, supportsReasoning } from '@/lib/modelCapabilities';
+import { VoiceCall } from './VoiceCall';
+import { ConversationSettingsModal } from './ConversationSettingsModal';
+import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
+import type { AttachmentInput, RealtimeConfig } from '@/types';
+
+async function fileToAttachmentInput(file: File): Promise<AttachmentInput> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1] || '';
+      resolve({
+        file_name: file.name,
+        file_type: file.type || 'application/octet-stream',
+        file_size: file.size,
+        data: base64,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export function InputArea() {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const [value, setValue] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [voiceCallVisible, setVoiceCallVisible] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mcpPopoverOpen, setMcpPopoverOpen] = useState(false);
+  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const { message: messageApi, modal } = App.useApp();
+  const streaming = useConversationStore((s) => s.streaming);
+  const stopStreamListening = useConversationStore((s) => s.stopStreamListening);
+  const activeConversationId = useConversationStore((s) => s.activeConversationId);
+  const sendMessage = useConversationStore((s) => s.sendMessage);
+  const createConversation = useConversationStore((s) => s.createConversation);
+  const messages = useConversationStore((s) => s.messages);
+  const contextCount = (() => {
+    const activeMessages = messages.filter((m) => m.is_active !== false && !m.content.startsWith('%%ERROR%%'));
+    const lastClearIdx = activeMessages.map(m => m.content).lastIndexOf('<!-- context-clear -->');
+    if (lastClearIdx === -1) return activeMessages.length;
+    return activeMessages.slice(lastClearIdx + 1).length;
+  })();
+
+  const conversations = useConversationStore((s) => s.conversations);
+  const providers = useProviderStore((s) => s.providers);
+  const settings = useSettingsStore((s) => s.settings);
+
+  // Search state
+  const searchEnabled = useConversationStore((s) => s.searchEnabled);
+  const searchProviderId = useConversationStore((s) => s.searchProviderId);
+  const setSearchEnabled = useConversationStore((s) => s.setSearchEnabled);
+  const setSearchProviderId = useConversationStore((s) => s.setSearchProviderId);
+  const searchProviders = useSearchStore((s) => s.providers);
+  const loadSearchProviders = useSearchStore((s) => s.loadProviders);
+
+  // MCP state
+  const mcpServers = useMcpStore((s) => s.servers);
+  const loadMcpServers = useMcpStore((s) => s.loadServers);
+  const enabledMcpServerIds = useConversationStore((s) => s.enabledMcpServerIds);
+  const toggleMcpServer = useConversationStore((s) => s.toggleMcpServer);
+
+  // Thinking state
+  const thinkingBudget = useConversationStore((s) => s.thinkingBudget);
+  const setThinkingBudget = useConversationStore((s) => s.setThinkingBudget);
+  const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+
+  // Knowledge base state — disabled (Coming Soon)
+  // const knowledgeBases = useKnowledgeStore((s) => s.bases);
+  // const loadKnowledgeBases = useKnowledgeStore((s) => s.loadBases);
+  // const enabledKnowledgeBaseIds = useConversationStore((s) => s.enabledKnowledgeBaseIds);
+  // const toggleKnowledgeBase = useConversationStore((s) => s.toggleKnowledgeBase);
+  // const [kbPopoverOpen, setKbPopoverOpen] = useState(false);
+
+  // Memory state — disabled (Coming Soon)
+  // const memoryNamespaces = useMemoryStore((s) => s.namespaces);
+  // const loadMemoryNamespaces = useMemoryStore((s) => s.loadNamespaces);
+  // const enabledMemoryNamespaceIds = useConversationStore((s) => s.enabledMemoryNamespaceIds);
+  // const toggleMemoryNamespace = useConversationStore((s) => s.toggleMemoryNamespace);
+  // const [memoryPopoverOpen, setMemoryPopoverOpen] = useState(false);
+
+  // Context clear
+  const insertContextClear = useConversationStore((s) => s.insertContextClear);
+  const clearAllMessages = useConversationStore((s) => s.clearAllMessages);
+
+  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+
+  const setActivePage = useUIStore((s) => s.setActivePage);
+  const setSettingsSection = useUIStore((s) => s.setSettingsSection);
+
+  // Load search providers on mount
+  useEffect(() => {
+    if (searchProviders.length === 0) loadSearchProviders();
+  }, [searchProviders.length, loadSearchProviders]);
+
+  // Load MCP servers on mount
+  useEffect(() => {
+    if (mcpServers.length === 0) loadMcpServers();
+  }, [mcpServers.length, loadMcpServers]);
+
+  // Load knowledge bases on mount — disabled (Coming Soon)
+  // useEffect(() => {
+  //   if (knowledgeBases.length === 0) loadKnowledgeBases();
+  // }, [knowledgeBases.length, loadKnowledgeBases]);
+
+  // Load memory namespaces on mount — disabled (Coming Soon)
+  // useEffect(() => {
+  //   if (memoryNamespaces.length === 0) loadMemoryNamespaces();
+  // }, [memoryNamespaces.length, loadMemoryNamespaces]);
+
+  // Search dropdown menu items
+  const searchMenuItems = useMemo(() => {
+    const available = searchProviders;
+    if (available.length === 0) {
+      return [
+        {
+          key: '__empty',
+          label: (
+            <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+              {t('chat.search.noProviders', '请先在设置中配置搜索引擎')}
+            </span>
+          ),
+          disabled: true,
+        },
+      ];
+    }
+    return available.map((p) => ({
+      key: p.id,
+      label: (
+        <div className="flex items-center gap-2" style={{ minWidth: 140 }}>
+          <Tag
+            color="blue"
+            style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+          >
+            <SearchProviderTypeIcon type={p.providerType} size={14} />
+            {PROVIDER_TYPE_LABELS[p.providerType] || p.providerType}
+          </Tag>
+          <span className="flex-1" style={{ fontSize: 13 }}>{p.name}</span>
+          {searchEnabled && searchProviderId === p.id && (
+            <Check size={14} style={{ color: token.colorPrimary }} />
+          )}
+        </div>
+      ),
+    }));
+  }, [searchProviders, searchEnabled, searchProviderId, token, t]);
+
+  const handleSearchMenuClick = useCallback(
+    ({ key }: { key: string }) => {
+      if (key === '__empty') return;
+      setSearchEnabled(true);
+      setSearchProviderId(key);
+    },
+    [setSearchEnabled, setSearchProviderId],
+  );
+
+  // MCP popover content — grouped by builtin/custom with checkboxes
+  const mcpPopoverContent = useMemo(() => {
+    const enabledServers = mcpServers.filter((s) => s.enabled);
+    if (enabledServers.length === 0) {
+      return (
+        <div style={{ padding: '8px 0', minWidth: 180 }}>
+          <div style={{ color: token.colorTextSecondary, fontSize: 12, marginBottom: 8 }}>
+            {t('chat.mcp.noServers', '请先在设置中配置并启用 MCP 服务器')}
+          </div>
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0, fontSize: 12 }}
+            onClick={() => {
+              setMcpPopoverOpen(false);
+              setSettingsSection('mcpServers');
+              setActivePage('settings');
+            }}
+          >
+            {t('chat.mcp.goConfig', '前往配置 →')}
+          </Button>
+        </div>
+      );
+    }
+
+    const builtinServers = enabledServers.filter((s) => s.source === 'builtin');
+    const customServers = enabledServers.filter((s) => s.source === 'custom');
+
+    const renderGroup = (title: string, servers: typeof mcpServers) => (
+      <div key={title}>
+        <div style={{ fontSize: 11, color: token.colorTextSecondary, padding: '4px 0', fontWeight: 600 }}>
+          {title}
+        </div>
+        {servers.map((server) => (
+          <div key={server.id} style={{ padding: '3px 0' }}>
+            <Checkbox
+              checked={enabledMcpServerIds.includes(server.id)}
+              onChange={() => toggleMcpServer(server.id)}
+            >
+              <span style={{ fontSize: 13 }}>{server.name}</span>
+            </Checkbox>
+          </div>
+        ))}
+      </div>
+    );
+
+    return (
+      <div style={{ minWidth: 180, maxHeight: 300, overflowY: 'auto' }}>
+        {builtinServers.length > 0 && renderGroup(t('settings.mcp.builtin', '内置工具'), builtinServers)}
+        {builtinServers.length > 0 && customServers.length > 0 && (
+          <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}`, margin: '6px 0' }} />
+        )}
+        {customServers.length > 0 && renderGroup(t('settings.mcp.custom', '自定义'), customServers)}
+      </div>
+    );
+  }, [mcpServers, enabledMcpServerIds, toggleMcpServer, token, t]);
+
+  const thinkingOptions = useMemo(() => ([
+    { key: 'default', label: t('chat.thinking.default', '默认'), value: null },
+    { key: 'none', label: t('chat.thinking.none', '禁止思考'), value: 0 },
+    { key: 'low', label: t('chat.thinking.low', '低强度'), value: 1024 },
+    { key: 'medium', label: t('chat.thinking.medium', '中强度'), value: 4096 },
+    { key: 'high', label: t('chat.thinking.high', '高强度'), value: 8192 },
+    { key: 'xhigh', label: t('chat.thinking.xhigh', '超高强度'), value: 16384 },
+  ]), [t]);
+
+  const selectedThinkingOption = useMemo(
+    () => thinkingOptions.find((opt) => opt.value === thinkingBudget) ?? thinkingOptions[0],
+    [thinkingBudget, thinkingOptions],
+  );
+
+  const thinkingMenuItems = useMemo<MenuProps['items']>(
+    () => thinkingOptions.map((opt) => ({
+      key: opt.key,
+      label: opt.label,
+    })),
+    [thinkingOptions],
+  );
+
+  const handleThinkingMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ key }) => {
+      const selected = thinkingOptions.find((opt) => opt.key === key);
+      if (!selected) return;
+      setThinkingBudget(selected.value);
+      setThinkingDropdownOpen(false);
+    },
+    [setThinkingBudget, thinkingOptions],
+  );
+
+  // Knowledge base popover content — disabled (Coming Soon)
+  // const kbPopoverContent = useMemo(() => {
+  //   if (knowledgeBases.length === 0) {
+  //     return (
+  //       <div style={{ padding: '8px 0', minWidth: 180 }}>
+  //         <div style={{ color: token.colorTextSecondary, fontSize: 12, marginBottom: 8 }}>
+  //           {t('chat.knowledge.empty', '请先在设置中添加知识库')}
+  //         </div>
+  //         <Button
+  //           type="link"
+  //           size="small"
+  //           style={{ padding: 0, fontSize: 12 }}
+  //           onClick={() => {
+  //             setKbPopoverOpen(false);
+  //             setSettingsSection('knowledge');
+  //             setActivePage('settings');
+  //           }}
+  //         >
+  //           {t('chat.mcp.goConfig', '前往配置 →')}
+  //         </Button>
+  //       </div>
+  //     );
+  //   }
+  //   return (
+  //     <div style={{ minWidth: 180, maxHeight: 300, overflowY: 'auto' }}>
+  //       {knowledgeBases.map((kb) => (
+  //         <div key={kb.id} style={{ padding: '3px 0' }}>
+  //           <Checkbox
+  //             checked={enabledKnowledgeBaseIds.includes(kb.id)}
+  //             onChange={() => toggleKnowledgeBase(kb.id)}
+  //           >
+  //             <span style={{ fontSize: 13 }}>{kb.name}</span>
+  //           </Checkbox>
+  //         </div>
+  //       ))}
+  //     </div>
+  //   );
+  // }, [knowledgeBases, enabledKnowledgeBaseIds, toggleKnowledgeBase, token, t]);
+
+  // Memory namespace popover content — disabled (Coming Soon)
+  // const memoryPopoverContent = useMemo(() => {
+  //   if (memoryNamespaces.length === 0) {
+  //     return (
+  //       <div style={{ padding: '8px 0', minWidth: 180 }}>
+  //         <div style={{ color: token.colorTextSecondary, fontSize: 12, marginBottom: 8 }}>
+  //           {t('chat.memory.empty', '请先在设置中添加记忆命名空间')}
+  //         </div>
+  //         <Button
+  //           type="link"
+  //           size="small"
+  //           style={{ padding: 0, fontSize: 12 }}
+  //           onClick={() => {
+  //             setMemoryPopoverOpen(false);
+  //             setSettingsSection('memory');
+  //             setActivePage('settings');
+  //           }}
+  //         >
+  //           {t('chat.mcp.goConfig', '前往配置 →')}
+  //         </Button>
+  //       </div>
+  //     );
+  //   }
+  //   return (
+  //     <div style={{ minWidth: 180, maxHeight: 300, overflowY: 'auto' }}>
+  //       {memoryNamespaces.map((ns) => (
+  //         <div key={ns.id} style={{ padding: '3px 0' }}>
+  //           <Checkbox
+  //             checked={enabledMemoryNamespaceIds.includes(ns.id)}
+  //             onChange={() => toggleMemoryNamespace(ns.id)}
+  //           >
+  //             <span style={{ fontSize: 13 }}>{ns.name}</span>
+  //           </Checkbox>
+  //         </div>
+  //       ))}
+  //     </div>
+  //   );
+  // }, [memoryNamespaces, enabledMemoryNamespaceIds, toggleMemoryNamespace, token, t]);
+
+  const currentModel = React.useMemo(() => {
+    if (activeConversation) {
+      return findModelByIds(providers, activeConversation.provider_id, activeConversation.model_id);
+    }
+
+    if (settings.default_provider_id && settings.default_model_id) {
+      const defaultModel = findModelByIds(providers, settings.default_provider_id, settings.default_model_id);
+      if (defaultModel?.enabled) return defaultModel;
+    }
+
+    for (const provider of providers) {
+      if (!provider.enabled) continue;
+      const model = provider.models.find((item) => item.enabled);
+      if (model) return model;
+    }
+
+    return null;
+  }, [activeConversation, providers, settings.default_provider_id, settings.default_model_id]);
+
+  const { hasRealtimeVoice, hasReasoning } = React.useMemo(() => ({
+    hasRealtimeVoice: activeConversation
+      ? !!findModelByIds(providers, activeConversation.provider_id, activeConversation.model_id)?.capabilities.includes('RealtimeVoice')
+      : false,
+    hasReasoning: supportsReasoning(currentModel),
+  }), [activeConversation, currentModel, providers]);
+
+  const voiceConfig: RealtimeConfig = React.useMemo(
+    () => ({
+      model_id: activeConversation?.model_id ?? '',
+      voice: null,
+      audio_format: { sample_rate: 24000, channels: 1, encoding: 'Pcm16' },
+    }),
+    [activeConversation?.model_id],
+  );
+
+  const handleSend = useCallback(async () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    const submittedFiles = attachedFiles;
+
+    try {
+      if (!activeConversationId) {
+        let provider = settings.default_provider_id
+          ? providers.find((p) => p.id === settings.default_provider_id && p.enabled)
+          : undefined;
+        let model = provider?.models.find(
+          (m) => m.model_id === settings.default_model_id && m.enabled,
+        );
+        if (!provider || !model) {
+          provider = providers.find((p) => p.enabled && p.models.some((m) => m.enabled));
+          model = provider?.models.find((m) => m.enabled);
+        }
+        if (!provider || !model) {
+          messageApi.warning(t('chat.noModelsAvailable'));
+          return;
+        }
+        await createConversation(trimmed.slice(0, 30), model.model_id, provider.id);
+      }
+
+      let attachments: AttachmentInput[] | undefined;
+      if (submittedFiles.length > 0) {
+        attachments = await Promise.all(submittedFiles.map(fileToAttachmentInput));
+      }
+
+      setValue('');
+      setAttachedFiles([]);
+      await sendMessage(trimmed, attachments, searchEnabled ? searchProviderId : null);
+    } catch (e) {
+      setValue((current) => current || trimmed);
+      setAttachedFiles((current) => (current.length > 0 ? current : submittedFiles));
+      console.error('[handleSend] error:', e);
+      messageApi.error(String(e));
+    }
+  }, [value, attachedFiles, sendMessage, activeConversationId, providers, settings, createConversation, messageApi, t, searchEnabled, searchProviderId]);
+
+  const handleFillLastMessage = useCallback(() => {
+    if (streaming) return;
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user' && !message.content.startsWith('%%ERROR%%'));
+    if (!lastUserMessage?.content) return;
+    setValue(lastUserMessage.content);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    });
+  }, [messages, streaming]);
+
+  const handleCancel = useCallback(() => {
+    stopStreamListening();
+  }, [stopStreamListening]);
+
+  const handleFileSelect = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  const removeFile = useCallback((index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.nativeEvent.isComposing || e.key === 'Process' || e.keyCode === 229) {
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
+
+  // Auto-resize textarea
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  }, []);
+
+  // Listen for Escape to close voice overlay
+  React.useEffect(() => {
+    const onEscape = () => setVoiceCallVisible(false);
+    window.addEventListener('aqbot:escape', onEscape);
+    return () => window.removeEventListener('aqbot:escape', onEscape);
+  }, []);
+
+  React.useEffect(() => {
+    const onFillLast = () => handleFillLastMessage();
+    const onClearContext = () => {
+      if (activeConversationId && !streaming) {
+        void insertContextClear();
+      }
+    };
+    const onClearConversation = () => {
+      if (!activeConversationId || streaming || messages.length === 0) return;
+      modal.confirm({
+        title: t('chat.clearConversationConfirmTitle', '确认清空对话'),
+        content: t('chat.clearConversationConfirmContent', '将删除当前对话中的所有消息记录，此操作不可撤销。'),
+        okButtonProps: { danger: true },
+        okText: t('common.confirm', '确认'),
+        cancelText: t('common.cancel', '取消'),
+        onOk: async () => {
+          await clearAllMessages();
+        },
+      });
+    };
+
+    window.addEventListener('aqbot:fill-last-message', onFillLast);
+    window.addEventListener('aqbot:clear-context', onClearContext);
+    window.addEventListener('aqbot:clear-conversation-messages', onClearConversation);
+    return () => {
+      window.removeEventListener('aqbot:fill-last-message', onFillLast);
+      window.removeEventListener('aqbot:clear-context', onClearContext);
+      window.removeEventListener('aqbot:clear-conversation-messages', onClearConversation);
+    };
+  }, [
+    activeConversationId,
+    clearAllMessages,
+    handleFillLastMessage,
+    insertContextClear,
+    messages.length,
+    modal,
+    streaming,
+    t,
+  ]);
+
+  return (
+    <div className="px-4 pb-3 pt-1">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+
+      {/* Attachment preview */}
+      {attachedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {attachedFiles.map((file, idx) => (
+            <span
+              key={`${file.name}-${idx}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs"
+              style={{
+                backgroundColor: token.colorFillTertiary,
+                borderRadius: token.borderRadius,
+              }}
+            >
+              {file.name}
+              <Trash2
+                size={14}
+                className="cursor-pointer"
+                style={{ color: token.colorTextSecondary }}
+                onClick={() => removeFile(idx)}
+              />
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Main input container */}
+      <div
+        style={{
+          border: '1px solid var(--border-color)',
+          borderRadius: 16,
+          backgroundColor: token.colorBgContainer,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Textarea */}
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          placeholder={t('chat.inputPlaceholder')}
+          rows={1}
+          style={{
+            width: '100%',
+            border: 'none',
+            outline: 'none',
+            resize: 'none',
+            padding: '14px 16px 8px',
+            fontSize: token.fontSize,
+            lineHeight: 1.6,
+            backgroundColor: 'transparent',
+            color: token.colorText,
+            fontFamily: 'inherit',
+            minHeight: 44,
+            maxHeight: 200,
+          }}
+        />
+
+        {/* Bottom action bar */}
+        <div className="flex items-center justify-between px-2 pb-2">
+          <div className="flex items-center gap-0.5">
+            {searchEnabled ? (
+              <Tooltip title={t('chat.search.title', '联网搜索')}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Globe size={14} />}
+                  style={{ color: token.colorPrimary }}
+                  onClick={() => {
+                    setSearchEnabled(false);
+                    setSearchProviderId(null);
+                  }}
+                />
+              </Tooltip>
+            ) : (
+              <Dropdown
+                trigger={['click']}
+                placement="topLeft"
+                menu={{ items: searchMenuItems, onClick: handleSearchMenuClick }}
+                open={searchDropdownOpen}
+                onOpenChange={setSearchDropdownOpen}
+              >
+                <Tooltip title={searchDropdownOpen ? '' : t('chat.search.title', '联网搜索')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Globe size={14} />}
+                  />
+                </Tooltip>
+              </Dropdown>
+            )}
+            {hasReasoning && (
+              <Dropdown
+                trigger={['click']}
+                placement="topLeft"
+                menu={{
+                  items: thinkingMenuItems,
+                  onClick: handleThinkingMenuClick,
+                  selectable: true,
+                  selectedKeys: [selectedThinkingOption.key],
+                }}
+                open={thinkingDropdownOpen}
+                onOpenChange={setThinkingDropdownOpen}
+              >
+                <Tooltip
+                  title={thinkingDropdownOpen
+                    ? ''
+                    : `${t('chat.thinkingIntensity', '思维强度')}: ${selectedThinkingOption.label}`}
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Brain size={14} />}
+                    style={
+                      thinkingBudget === 0
+                        ? { color: token.colorError }
+                        : thinkingBudget !== null
+                          ? { color: token.colorPrimary }
+                          : undefined
+                    }
+                  />
+                </Tooltip>
+              </Dropdown>
+            )}
+            <Tooltip title={t('chat.attachFile')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Paperclip size={14} />}
+                onClick={handleFileSelect}
+              />
+            </Tooltip>
+            <Popover
+              trigger="click"
+              placement="topLeft"
+              content={mcpPopoverContent}
+              arrow={false}
+              open={mcpPopoverOpen}
+              onOpenChange={setMcpPopoverOpen}
+            >
+              <Tooltip title={mcpPopoverOpen ? '' : t('chat.mcp.title', 'MCP 工具')}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Plug size={14} />}
+                  style={enabledMcpServerIds.some((id) => mcpServers.some((s) => s.id === id && s.enabled)) ? { color: token.colorPrimary } : undefined}
+                />
+              </Tooltip>
+            </Popover>
+            {/* Knowledge base & Memory buttons — hidden (Coming Soon) */}
+            <Tooltip title={t('chat.clearContext', '清空上下文')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Scissors size={14} />}
+                onClick={insertContextClear}
+                disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
+              />
+            </Tooltip>
+            <Tooltip title={t('chat.clearConversation', '清空对话')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Eraser size={14} />}
+                onClick={() => {
+                  if (!activeConversationId) return;
+                  modal.confirm({
+                    title: t('chat.clearConversationConfirmTitle', '确认清空对话'),
+                    content: t('chat.clearConversationConfirmContent', '将删除当前对话中的所有消息记录，此操作不可撤销。'),
+                    okButtonProps: { danger: true },
+                    okText: t('common.confirm', '确认'),
+                    cancelText: t('common.cancel', '取消'),
+                    onOk: async () => {
+                      await clearAllMessages();
+                    },
+                  });
+                }}
+                disabled={!activeConversationId || streaming || messages.length === 0}
+              />
+            </Tooltip>
+            <Tooltip title={t('chat.conversationSettings', '对话设置')}>
+              <Button type="text" size="small" icon={<SlidersHorizontal size={14} />} onClick={() => setSettingsOpen(true)} />
+            </Tooltip>
+            {hasRealtimeVoice && (
+              <Tooltip title={t('voice.startCall') + '（暂未实现）'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Mic size={14} />}
+                  disabled
+                />
+              </Tooltip>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {contextCount > 0 && (
+              <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                {contextCount} 条上下文
+              </span>
+            )}
+            {streaming ? (
+              <Button
+                shape="circle"
+                size="small"
+                danger
+                icon={<Square size={14} />}
+                onClick={handleCancel}
+              />
+            ) : (
+              <Button
+                type="primary"
+                shape="circle"
+                size="small"
+                icon={<ArrowUp size={14} />}
+                onClick={handleSend}
+                disabled={!value.trim()}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ConversationSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {hasRealtimeVoice && (
+        <VoiceCall
+          visible={voiceCallVisible}
+          onClose={() => setVoiceCallVisible(false)}
+          config={voiceConfig}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,9 @@
+[package]
+name = "aqbot-migration"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-native-tls"] }
+async-trait = "0.1"
+tokio = { workspace = true }

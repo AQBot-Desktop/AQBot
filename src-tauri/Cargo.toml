@@ -1,0 +1,62 @@
+[workspace]
+members = [".", "crates/core", "crates/providers", "crates/gateway", "crates/migration"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1"
+lancedb = "0.16"
+arrow-array = "53"
+arrow-schema = "53"
+
+[package]
+name = "aqbot"
+version = "0.0.1"
+description = "AQBot - AI Chat Desktop App"
+authors = ["you"]
+license = "AGPL-3.0-only"
+edition = "2021"
+default-run = "AQBot"
+
+[lib]
+name = "aqbot_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "AQBot"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+aqbot-core = { path = "crates/core" }
+aqbot-providers = { path = "crates/providers" }
+aqbot-gateway = { path = "crates/gateway" }
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = "0.3"
+base64 = "0.22"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+tauri-plugin-mcp-bridge = "0.2"
