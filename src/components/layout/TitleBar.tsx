@@ -151,6 +151,7 @@ export function TitleBar() {
         paddingRight: 12,
         backgroundColor: 'transparent',
         flexShrink: 0,
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
       <div className="title-bar-nodrag" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
