@@ -37,6 +37,7 @@ pub fn create_tray(app: &AppHandle, language: &str) -> Result<(), Box<dyn std::e
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .tooltip("AQBot")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
