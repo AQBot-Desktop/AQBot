@@ -153,12 +153,12 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
   }, []);
 
   useEffect(() => {
-    const onToggle = () => setOpen((prev) => !prev);
+    const onToggle = () => setOpen(!open);
     window.addEventListener('aqbot:toggle-model-selector', onToggle);
     return () => {
       window.removeEventListener('aqbot:toggle-model-selector', onToggle);
     };
-  }, []);
+  }, [open, setOpen]);
 
   const renderModelRow = (
     providerId: string,

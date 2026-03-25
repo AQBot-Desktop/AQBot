@@ -1179,7 +1179,6 @@ export function ChatView() {
   const loadOlderMessages = useConversationStore((s) => s.loadOlderMessages);
   const sendMessage = useConversationStore((s) => s.sendMessage);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
-  const deleteMessage = useConversationStore((s) => s.deleteMessage);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
   const removeContextClear = useConversationStore((s) => s.removeContextClear);
   const createConversation = useConversationStore((s) => s.createConversation);
