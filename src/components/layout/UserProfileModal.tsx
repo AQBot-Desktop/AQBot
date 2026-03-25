@@ -6,17 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { useUserProfileStore } from '@/stores/userProfileStore';
 import type { AvatarType } from '@/stores/userProfileStore';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
+import { EmojiPicker } from '@/components/shared/EmojiPicker';
 
 interface UserProfileModalProps {
   open: boolean;
   onClose: () => void;
 }
-
-const EMOJI_PICKS = [
-  '😀', '😎', '🤖', '👨‍💻', '👩‍💻', '🦊', '🐱', '🐶',
-  '🦄', '🐼', '🦁', '🐯', '🐸', '🐵', '🐰', '🐲',
-  '🌟', '🔥', '💎', '🚀', '🎯', '🎨', '🎵', '🌈',
-];
 
 export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
   const { t } = useTranslation();
@@ -192,40 +187,11 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
         )}
 
         {/* Emoji picker */}
-        {showEmojiPicker && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(8, 1fr)',
-              gap: 4,
-              padding: 8,
-              borderRadius: token.borderRadius,
-              backgroundColor: token.colorFillQuaternary,
-              maxWidth: 280,
-            }}
-          >
-            {EMOJI_PICKS.map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => handleEmojiSelect(emoji)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  fontSize: 18,
-                  border: 'none',
-                  borderRadius: token.borderRadiusSM,
-                  backgroundColor: avatarValue === emoji ? token.colorPrimaryBg : 'transparent',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
+        <EmojiPicker
+          open={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onEmojiSelect={handleEmojiSelect}
+        />
 
         {/* Name input */}
         <Input

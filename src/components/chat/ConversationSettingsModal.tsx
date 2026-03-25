@@ -5,6 +5,7 @@ import { ModelIcon } from '@lobehub/icons';
 import { Info, Undo2, FileImage, Link, Smile, Bot } from 'lucide-react';
 import { useConversationStore, useSettingsStore } from '@/stores';
 import { CONV_ICON_KEY, type ConvIconType, type ConvIcon } from '@/lib/convIcon';
+import { EmojiPicker } from '@/components/shared/EmojiPicker';
 
 interface ConversationSettingsModalProps {
   open: boolean;
@@ -12,12 +13,6 @@ interface ConversationSettingsModalProps {
 }
 
 const CONTEXT_LIMIT_KEY = (id: string) => `aqbot_context_limit_${id}`;
-
-const EMOJI_PICKS = [
-  '😀', '😎', '🤖', '👨‍💻', '👩‍💻', '🦊', '🐱', '🐶',
-  '🦄', '🐼', '🦁', '🐯', '🐸', '🐵', '🐰', '🐲',
-  '🌟', '🔥', '💎', '🚀', '🎯', '🎨', '🎵', '🌈',
-];
 
 export function ConversationSettingsModal({ open, onClose }: ConversationSettingsModalProps) {
   const { token } = theme.useToken();
@@ -244,39 +239,15 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
         </div>
 
         {/* Emoji Picker */}
-        {showEmojiPicker && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(8, 1fr)',
-            gap: 4,
-            marginBottom: 16,
-            padding: 8,
-            borderRadius: token.borderRadius,
-            background: token.colorBgContainer,
-            border: `1px solid ${token.colorBorder}`,
-          }}>
-            {EMOJI_PICKS.map((emoji) => (
-              <div
-                key={emoji}
-                onClick={() => {
-                  setIconType('emoji');
-                  setIconValue(emoji);
-                  setShowEmojiPicker(false);
-                }}
-                style={{
-                  fontSize: 22,
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  borderRadius: 4,
-                  padding: '4px 0',
-                  background: iconType === 'emoji' && iconValue === emoji ? token.colorPrimaryBg : undefined,
-                }}
-              >
-                {emoji}
-              </div>
-            ))}
-          </div>
-        )}
+        <EmojiPicker
+          open={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onEmojiSelect={(emoji) => {
+            setIconType('emoji');
+            setIconValue(emoji);
+            setShowEmojiPicker(false);
+          }}
+        />
 
         {/* URL Input */}
         {showUrlInput && (

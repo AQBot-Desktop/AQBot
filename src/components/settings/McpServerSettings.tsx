@@ -23,13 +23,8 @@ import { useTranslation } from 'react-i18next';
 import { useMcpStore } from '@/stores';
 import { invoke, isTauri } from '@/lib/invoke';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
+import { EmojiPicker } from '@/components/shared/EmojiPicker';
 import type { McpServer, CreateMcpServerInput, ToolDescriptor } from '@/types';
-
-const MCP_EMOJI_PICKS = [
-  '🔌', '🤖', '🧠', '🔧', '🛠️', '⚡', '🌐', '🔍',
-  '📡', '💻', '🖥️', '📦', '🗄️', '🔗', '🎯', '🚀',
-  '📊', '📝', '🗺️', '🎨', '🔒', '💬', '📁', '⚙️',
-];
 
 const BUILTIN_DISPLAY_NAME_KEYS: Record<string, string> = {
   '@aqbot/fetch': 'settings.mcpServers.builtinFetch',
@@ -166,7 +161,6 @@ function McpServerDetail({
   onToggle: (enable: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const { token } = theme.useToken();
   const { updateServer, deleteServer, toolDescriptors, loadToolDescriptors, discoverTools } = useMcpStore();
   const [discovering, setDiscovering] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -316,23 +310,12 @@ function McpServerDetail({
       </div>
 
       {/* Emoji picker / URL input for avatar */}
-      {!isBuiltin && showEmojiPicker && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 4,
-          padding: 8, borderRadius: token.borderRadius,
-          backgroundColor: token.colorFillQuaternary, marginBottom: 12, maxWidth: 300,
-        }}>
-          {MCP_EMOJI_PICKS.map((emoji) => (
-            <button key={emoji} onClick={() => handleEmojiSelect(emoji)} style={{
-              width: 32, height: 32, fontSize: 18, border: 'none',
-              borderRadius: token.borderRadiusSM, cursor: 'pointer',
-              backgroundColor: server.iconValue === emoji ? token.colorPrimaryBg : 'transparent',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {emoji}
-            </button>
-          ))}
-        </div>
+      {!isBuiltin && (
+        <EmojiPicker
+          open={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onEmojiSelect={handleEmojiSelect}
+        />
       )}
       {!isBuiltin && showUrlInput && (
         <Input
