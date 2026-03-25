@@ -1,20 +1,24 @@
 import { Button, Card, Divider, Typography, message, App, Progress } from 'antd';
 import { Github, RefreshCw, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { isTauri, invoke } from '@/lib/invoke';
 import logoUrl from '@/assets/image/logo.png';
+import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
+import { useSettingsStore } from '@/stores';
+
+const NodeRenderer = lazy(() => import('markstream-react'));
 
 const { Text } = Typography;
 
 export function AboutPage() {
   const { t } = useTranslation();
   const { modal } = App.useApp();
+  const themeMode = useSettingsStore((s) => s.settings.theme_mode);
+  const isDarkMode = useResolvedDarkMode(themeMode);
   const [checking, setChecking] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [appVersion, setAppVersion] = useState('...');
 
   useEffect(() => {
@@ -32,12 +36,44 @@ export function AboutPage() {
       if (update) {
         modal.confirm({
           title: t('settings.updateAvailable'),
-          content: `${t('settings.newVersion')}: ${update.version}`,
+          content: (
+            <div>
+              <p>{t('settings.newVersion')}: {update.version}</p>
+              {update.body && (
+                <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
+                  <Suspense fallback={<div style={{ whiteSpace: 'pre-wrap', fontSize: 13, opacity: 0.85 }}>{update.body}</div>}>
+                    <NodeRenderer content={update.body} isDark={isDarkMode} final />
+                  </Suspense>
+                </div>
+              )}
+            </div>
+          ),
           okText: t('settings.updateNow'),
           cancelText: t('settings.updateLater'),
           onOk: async () => {
-            setUpdating(true);
-            setProgress(0);
+            let cancelled = false;
+            const handleCancel = async () => {
+              cancelled = true;
+              try { await update.close(); } catch { /* ignore */ }
+            };
+            const renderContent = (percent: number, status: 'active' | 'success') => (
+              <div>
+                <Progress percent={percent} status={status} />
+                {status !== 'success' && (
+                  <div style={{ textAlign: 'right', marginTop: 12 }}>
+                    <Button onClick={handleCancel}>{t('settings.cancelUpdate')}</Button>
+                  </div>
+                )}
+              </div>
+            );
+            const progressModal = modal.info({
+              title: t('settings.updating', '正在更新...'),
+              content: renderContent(0, 'active'),
+              closable: false,
+              footer: null,
+              maskClosable: false,
+              keyboard: false,
+            });
             try {
               let totalSize = 0;
               let downloaded = 0;
@@ -47,16 +83,22 @@ export function AboutPage() {
                 } else if (event.event === 'Progress') {
                   downloaded += event.data.chunkLength;
                   if (totalSize > 0) {
-                    setProgress(Math.round((downloaded / totalSize) * 100));
+                    progressModal.update({
+                      content: renderContent(Math.round((downloaded / totalSize) * 100), 'active'),
+                    });
                   }
                 } else if (event.event === 'Finished') {
-                  setProgress(100);
+                  progressModal.update({
+                    content: renderContent(100, 'success'),
+                  });
                 }
               });
               await relaunch();
             } catch (e) {
-              message.error(String(e));
-              setUpdating(false);
+              progressModal.destroy();
+              if (!cancelled) {
+                message.error(String(e));
+              }
             }
           },
         });
@@ -138,19 +180,10 @@ export function AboutPage() {
             icon={<RefreshCw size={16} className={checking ? 'animate-spin' : ''} />}
             onClick={handleCheckUpdate}
             loading={checking}
-            disabled={updating}
           >
             {t('settings.checkUpdate')}
           </Button>
         </div>
-        {updating && (
-          <>
-            <Divider style={{ margin: '4px 0' }} />
-            <div style={{ padding: '8px 0' }}>
-              <Progress percent={progress} size="small" />
-            </div>
-          </>
-        )}
         {isTauri() && (
           <>
             <Divider style={{ margin: '4px 0' }} />

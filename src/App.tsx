@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { ConfigProvider, App as AntdApp, Layout, theme } from 'antd';
+import { useEffect, lazy, Suspense } from 'react';
+import { ConfigProvider, App as AntdApp, Layout, Progress, Button, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -19,6 +19,7 @@ import './i18n';
 
 const { Sider, Content } = Layout;
 const { useToken } = theme;
+const NodeRenderer = lazy(() => import('markstream-react'));
 
 function AppInner() {
   const { token } = useToken();
@@ -27,6 +28,8 @@ function AppInner() {
   const activePage = useUIStore((s) => s.activePage);
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
   const isInSettings = activePage === 'settings';
+  const themeMode = useSettingsStore((s) => s.settings.theme_mode);
+  const isDarkMode = useResolvedDarkMode(themeMode);
 
   // Sync Ant Design tokens to CSS custom properties for global usage
   useEffect(() => {
@@ -49,16 +52,70 @@ function AppInner() {
         if (!update) return;
         modal.confirm({
           title: t('settings.updateAvailable'),
-          content: `${t('settings.newVersion')}: ${update.version}`,
+          content: (
+            <div>
+              <p>{t('settings.newVersion')}: {update.version}</p>
+              {update.body && (
+                <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
+                  <Suspense fallback={<div style={{ whiteSpace: 'pre-wrap', fontSize: 13, opacity: 0.85 }}>{update.body}</div>}>
+                    <NodeRenderer content={update.body} isDark={isDarkMode} final />
+                  </Suspense>
+                </div>
+              )}
+            </div>
+          ),
           okText: t('settings.updateNow'),
           cancelText: t('settings.updateLater'),
           onOk: async () => {
+            let cancelled = false;
+            const handleCancel = async () => {
+              cancelled = true;
+              try { await update.close(); } catch { /* ignore */ }
+            };
+            const renderContent = (percent: number, status: 'active' | 'success') => (
+              <div>
+                <Progress percent={percent} status={status} />
+                {status !== 'success' && (
+                  <div style={{ textAlign: 'right', marginTop: 12 }}>
+                    <Button onClick={handleCancel}>{t('settings.cancelUpdate')}</Button>
+                  </div>
+                )}
+              </div>
+            );
+            const progressModal = modal.info({
+              title: t('settings.updating', '正在更新...'),
+              content: renderContent(0, 'active'),
+              closable: false,
+              footer: null,
+              maskClosable: false,
+              keyboard: false,
+            });
             try {
-              await update.downloadAndInstall();
+              let totalSize = 0;
+              let downloaded = 0;
+              await update.downloadAndInstall((event) => {
+                if (event.event === 'Started' && event.data.contentLength) {
+                  totalSize = event.data.contentLength;
+                } else if (event.event === 'Progress') {
+                  downloaded += event.data.chunkLength;
+                  if (totalSize > 0) {
+                    progressModal.update({
+                      content: renderContent(Math.round((downloaded / totalSize) * 100), 'active'),
+                    });
+                  }
+                } else if (event.event === 'Finished') {
+                  progressModal.update({
+                    content: renderContent(100, 'success'),
+                  });
+                }
+              });
               const { relaunch } = await import('@tauri-apps/plugin-process');
               await relaunch();
             } catch (e) {
-              console.error('Update install failed:', e);
+              progressModal.destroy();
+              if (!cancelled) {
+                console.error('Update install failed:', e);
+              }
             }
           },
         });

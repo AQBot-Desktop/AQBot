@@ -351,6 +351,7 @@
     "newVersion": "New version",
     "updateNow": "Update Now",
     "updateLater": "Later",
+    "cancelUpdate": "Cancel Update",
     "noUpdate": "You are using the latest version",
     "checkUpdateFailed": "Failed to check for updates, please try again later",
     "developerTools": "Developer Tools",
