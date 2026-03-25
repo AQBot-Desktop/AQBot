@@ -23,9 +23,10 @@ import {
   App,
   theme,
 } from 'antd';
-import { Maximize2, Mic, Lightbulb, Copy, Database, Trash2, Eye, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp } from 'lucide-react';
+import { Maximize2, Mic, Lightbulb, Copy, Database, Trash2, Eye, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp, ChevronRight, ChevronDown } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { useProviderStore, useUIStore } from '@/stores';
 import { SmartProviderIcon } from '@/lib/providerIcons';
@@ -184,6 +185,43 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     return { filtered, entries: Object.entries(groups) };
   }, [pickerModels, pickerSearch]);
 
+  // Flatten picker groups into virtual rows
+  type PickerRow = { type: 'group'; group: string; models: Model[] } | { type: 'model'; model: Model } | { type: 'spacer'; beforeGroup: string };
+  const flatPickerRows = useMemo<PickerRow[]>(() => {
+    const rows: PickerRow[] = [];
+    const entries = pickerGroups.entries;
+    for (let i = 0; i < entries.length; i++) {
+      const [group, models] = entries[i];
+      if (i > 0) rows.push({ type: 'spacer', beforeGroup: group });
+      rows.push({ type: 'group', group, models });
+      if (!pickerCollapsed.has(group)) {
+        for (const model of models) {
+          rows.push({ type: 'model', model });
+        }
+      }
+    }
+    return rows;
+  }, [pickerGroups.entries, pickerCollapsed]);
+
+  const pickerListParentRef = useRef<HTMLDivElement>(null);
+  const pickerVirtualizer = useVirtualizer({
+    count: flatPickerRows.length,
+    getScrollElement: () => pickerListParentRef.current,
+    estimateSize: (index) => {
+      const row = flatPickerRows[index];
+      if (row.type === 'spacer') return 8;
+      if (row.type === 'group') return 40;
+      return 40;
+    },
+    getItemKey: (index) => {
+      const row = flatPickerRows[index];
+      if (row.type === 'spacer') return `spacer-${row.beforeGroup}`;
+      if (row.type === 'group') return `group-${row.group}`;
+      return `model-${row.model.model_id}`;
+    },
+    overscan: 15,
+  });
+
   // Sync local state when provider changes (e.g. switching providers)
   useEffect(() => {
     setApiHostLocal(provider?.api_host ?? '');
@@ -284,6 +322,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setPickerModels(newModels);
       setPickerSelected(new Set(newModels.map((m) => m.model_id)));
       setPickerSearch('');
+      setPickerCollapsed(new Set());
       setPickerOpen(true);
     } catch (e) {
       const errMsg = String(e);
@@ -482,6 +521,43 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   useEffect(() => { setExpandedGroups(groupKeys); }, [groupKeys]);
   const allExpanded = expandedGroups.length >= groupKeys.length;
+
+  // Flatten grouped models into virtual rows
+  type ModelListRow = { type: 'group'; group: string; models: Model[] } | { type: 'model'; model: Model; group: string } | { type: 'spacer'; beforeGroup: string };
+  const flatModelRows = useMemo<ModelListRow[]>(() => {
+    const rows: ModelListRow[] = [];
+    const entries = Object.entries(groupedModels);
+    for (let i = 0; i < entries.length; i++) {
+      const [group, models] = entries[i];
+      if (i > 0) rows.push({ type: 'spacer', beforeGroup: group });
+      rows.push({ type: 'group', group, models });
+      if (expandedGroups.includes(group)) {
+        for (const model of models) {
+          rows.push({ type: 'model', model, group });
+        }
+      }
+    }
+    return rows;
+  }, [groupedModels, expandedGroups]);
+
+  const modelListParentRef = useRef<HTMLDivElement>(null);
+  const modelListVirtualizer = useVirtualizer({
+    count: flatModelRows.length,
+    getScrollElement: () => modelListParentRef.current,
+    estimateSize: (index) => {
+      const row = flatModelRows[index];
+      if (row.type === 'spacer') return 8;
+      if (row.type === 'group') return 40;
+      return 44;
+    },
+    getItemKey: (index) => {
+      const row = flatModelRows[index];
+      if (row.type === 'spacer') return `spacer-${row.beforeGroup}`;
+      if (row.type === 'group') return `group-${row.group}`;
+      return `model-${row.model.model_id}`;
+    },
+    overscan: 10,
+  });
 
   const handleRemoveModel = useCallback(async (modelId: string) => {
     const updatedModels = (provider?.models ?? []).filter((m) => m.model_id !== modelId);
@@ -738,153 +814,163 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
             autoFocus
           />
         )}
-        <div className="flex flex-col gap-2">
-          {Object.entries(groupedModels).map(([group, models]) => {
-            const allEnabled = models.every((m) => m.enabled);
-            const someEnabled = models.some((m) => m.enabled);
-            return (
-              <Collapse
-                key={group}
-                activeKey={expandedGroups.includes(group) ? [group] : []}
-                onChange={(keys) => {
-                  if (keys.length > 0) setExpandedGroups((prev) => [...prev, group]);
-                  else setExpandedGroups((prev) => prev.filter((k) => k !== group));
-                }}
-                items={[{
-                  key: group,
-                  label: (
-                    <div className="flex items-center gap-2">
-                      <Text>{group}</Text>
+        <div
+          ref={modelListParentRef}
+          style={{ maxHeight: 520, overflow: 'auto' }}
+        >
+          <div style={{ height: modelListVirtualizer.getTotalSize(), position: 'relative' }}>
+            {modelListVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = flatModelRows[virtualRow.index];
+              if (row.type === 'spacer') {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={modelListVirtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 8, transform: `translateY(${virtualRow.start}px)` }}
+                  />
+                );
+              }
+              if (row.type === 'group') {
+                const { group, models } = row;
+                const allEnabled = models.every((m) => m.enabled);
+                const someEnabled = models.some((m) => m.enabled);
+                const isExpanded = expandedGroups.includes(group);
+                return (
+                  <div
+                    key={`g-${group}`}
+                    data-index={virtualRow.index}
+                    ref={modelListVirtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md"
+                      style={{ cursor: 'pointer', userSelect: 'none', background: 'var(--ant-color-fill-quaternary, rgba(0,0,0,0.02))' }}
+                      onClick={() => {
+                        if (isExpanded) setExpandedGroups((prev) => prev.filter((k) => k !== group));
+                        else setExpandedGroups((prev) => [...prev, group]);
+                      }}
+                    >
+                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      <ModelIcon model={models[0]?.model_id ?? group} size={20} type="avatar" />
+                      <Text style={{ fontWeight: 600 }}>{group}</Text>
                       <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>{models.length}</Tag>
-                    </div>
-                  ),
-                  extra: (
-                    <Space size="small" onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title={t('settings.addModelToGroup', '添加到当前分组')}>
-                        <Button
-                          size="small"
-                          type="text"
-                          icon={<Plus size={14} />}
-                          onClick={() => handleOpenAddModel(group)}
-                        />
-                      </Tooltip>
-                      <Switch
-                        size="small"
-                        checked={someEnabled}
-                        style={someEnabled && !allEnabled ? { backgroundColor: token.colorWarning } : undefined}
-                        onChange={(checked) => {
-                          models.forEach((m) => toggleModel(providerId, m.model_id, checked));
-                        }}
-                      />
-                    </Space>
-                  ),
-                  children: (
-                    <div className="flex flex-col gap-1">
-                      {models.map((model) => (
-                        <div
-                          key={model.model_id}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded-md"
-                          style={{
-                            opacity: model.enabled ? 1 : 0.45,
-                          }}
-                        >
-                          <ModelIcon
-                            model={iconOverrides[model.model_id] ?? model.model_id}
-                            size={20}
-                            type="avatar"
+                      <div style={{ flex: 1 }} />
+                      <Space size="small" onClick={(e) => e.stopPropagation()}>
+                        <Tooltip title={t('settings.addModelToGroup', '添加到当前分组')}>
+                          <Button size="small" type="text" icon={<Plus size={14} />} onClick={() => handleOpenAddModel(group)} />
+                        </Tooltip>
+                        <Tooltip title={t('settings.testGroup', '检测当前分组')}>
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<Heart size={14} />}
+                            loading={models.some((m) => testingModels.has(m.model_id))}
+                            onClick={() => {
+                              for (const m of models) {
+                                handleTestInlineModel(m.model_id);
+                              }
+                            }}
                           />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <span>{model.name || model.model_id}</span>
-                              {model.name && model.name !== model.model_id && (
-                                <Text type="secondary" style={{ fontSize: 11 }}>({model.model_id})</Text>
-                              )}
-                              <Tag
-                                color={MODEL_TYPE_CONFIG[model.model_type || 'Chat'].color}
-                                bordered={false}
-                                style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
-                              >
-                                {MODEL_TYPE_CONFIG[model.model_type || 'Chat'].icon}
-                                <span style={{ marginLeft: 2 }}>{t(`settings.modelType.${model.model_type || 'Chat'}`, MODEL_TYPE_CONFIG[model.model_type || 'Chat'].label)}</span>
-                              </Tag>
-                              {getVisibleModelCapabilities(model).map((cap) => (
-                                <Tooltip key={cap} title={t(`settings.capability.${cap}`, CAPABILITY_LABEL_KEYS[cap])}>
-                                  <Tag
-                                    color={CAPABILITY_COLORS[cap]}
-                                    bordered={false}
-                                    style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
-                                  >
-                                    {CAPABILITY_ICONS[cap]}
-                                  </Tag>
-                                </Tooltip>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
-                            {testingModels.has(model.model_id) && (
-                              <Spin size="small" />
-                            )}
-                            {!testingModels.has(model.model_id) && testResults.has(model.model_id) && (() => {
-                              const result = testResults.get(model.model_id)!;
-                              if (result.latencyMs != null) {
-                                return (
-                                  <span style={{ fontSize: 11, color: token.colorSuccess }}>
-                                    {(result.latencyMs / 1000).toFixed(1)}s
-                                  </span>
-                                );
-                              }
-                              return (
-                                <Popover
-                                  content={<div style={{ maxWidth: 300, wordBreak: 'break-all' }}>{result.error}</div>}
-                                  title={t('common.errorDetail')}
-                                  trigger="click"
-                                >
-                                  <span style={{ fontSize: 11, color: token.colorError, cursor: 'pointer' }}>
-                                    {t('common.failed')}
-                                  </span>
-                                </Popover>
-                              );
-                            })()}
-                            <Switch
-                              size="small"
-                              checked={model.enabled}
-                              onChange={(checked) =>
-                                toggleModel(providerId, model.model_id, checked)
-                              }
-                            />
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<Settings size={14} />}
-                              onClick={() => handleOpenSettings(model)}
-                            />
-                            <Tooltip title={t('settings.testModels')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<Heart size={14} />}
-                                loading={testingModels.has(model.model_id)}
-                                onClick={() => handleTestInlineModel(model.model_id)}
-                              />
-                            </Tooltip>
-                            <Popconfirm
-                              title={t('settings.removeModelConfirm')}
-                              onConfirm={() => handleRemoveModel(model.model_id)}
-                              okText={t('common.confirm')}
-                              cancelText={t('common.cancel')}
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
-                            </Popconfirm>
-                          </div>
-                        </div>
-                      ))}
+                        </Tooltip>
+                        <Switch
+                          size="small"
+                          checked={someEnabled}
+                          style={someEnabled && !allEnabled ? { backgroundColor: token.colorWarning } : undefined}
+                          onChange={(checked) => { models.forEach((m) => toggleModel(providerId, m.model_id, checked)); }}
+                        />
+                        <Popconfirm
+                          title={t('settings.deleteGroupConfirm')}
+                          onConfirm={async () => {
+                            const modelIds = new Set(models.map((m) => m.model_id));
+                            const updatedModels = (provider?.models ?? []).filter((m) => !modelIds.has(m.model_id));
+                            try {
+                              await saveModels(providerId, updatedModels);
+                            } catch {
+                              message.error(t('error.saveFailed'));
+                            }
+                          }}
+                          okText={t('common.confirm')}
+                          cancelText={t('common.cancel')}
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button size="small" type="text" danger icon={<Trash2 size={14} />} />
+                        </Popconfirm>
+                      </Space>
                     </div>
-                  ),
-                }]}
-              />
-            );
-          })}
+                  </div>
+                );
+              }
+              // model row
+              const { model } = row;
+              return (
+                <div
+                  key={`m-${model.model_id}`}
+                  data-index={virtualRow.index}
+                  ref={modelListVirtualizer.measureElement}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md"
+                    style={{ opacity: model.enabled ? 1 : 0.45, paddingLeft: 36 }}
+                  >
+                    <ModelIcon model={iconOverrides[model.model_id] ?? model.model_id} size={20} type="avatar" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span>{model.name || model.model_id}</span>
+                        {model.name && model.name !== model.model_id && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>({model.model_id})</Text>
+                        )}
+                        <Tag
+                          color={MODEL_TYPE_CONFIG[model.model_type || 'Chat'].color}
+                          bordered={false}
+                          style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
+                        >
+                          {MODEL_TYPE_CONFIG[model.model_type || 'Chat'].icon}
+                          <span style={{ marginLeft: 2 }}>{t(`settings.modelType.${model.model_type || 'Chat'}`, MODEL_TYPE_CONFIG[model.model_type || 'Chat'].label)}</span>
+                        </Tag>
+                        {getVisibleModelCapabilities(model).map((cap) => (
+                          <Tooltip key={cap} title={t(`settings.capability.${cap}`, CAPABILITY_LABEL_KEYS[cap])}>
+                            <Tag color={CAPABILITY_COLORS[cap]} bordered={false} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                              {CAPABILITY_ICONS[cap]}
+                            </Tag>
+                          </Tooltip>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                      {testingModels.has(model.model_id) && <Spin size="small" />}
+                      {!testingModels.has(model.model_id) && testResults.has(model.model_id) && (() => {
+                        const result = testResults.get(model.model_id)!;
+                        if (result.latencyMs != null) {
+                          return <span style={{ fontSize: 11, color: token.colorSuccess }}>{(result.latencyMs / 1000).toFixed(1)}s</span>;
+                        }
+                        return (
+                          <Popover content={<div style={{ maxWidth: 300, wordBreak: 'break-all' }}>{result.error}</div>} title={t('common.errorDetail')} trigger="click">
+                            <span style={{ fontSize: 11, color: token.colorError, cursor: 'pointer' }}>{t('common.failed')}</span>
+                          </Popover>
+                        );
+                      })()}
+                      <Switch size="small" checked={model.enabled} onChange={(checked) => toggleModel(providerId, model.model_id, checked)} />
+                      <Button type="text" size="small" icon={<Settings size={14} />} onClick={() => handleOpenSettings(model)} />
+                      <Tooltip title={t('settings.testModels')}>
+                        <Button type="text" size="small" icon={<Heart size={14} />} loading={testingModels.has(model.model_id)} onClick={() => handleTestInlineModel(model.model_id)} />
+                      </Tooltip>
+                      <Popconfirm
+                        title={t('settings.removeModelConfirm')}
+                        onConfirm={() => handleRemoveModel(model.model_id)}
+                        okText={t('common.confirm')}
+                        cancelText={t('common.cancel')}
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
+                      </Popconfirm>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </Card>
 
@@ -1239,14 +1325,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         okButtonProps={{ disabled: pickerSelected.size === 0 }}
         width={560}
         styles={{ body: { padding: 0 } }}
+        afterOpenChange={(open) => { if (open) pickerVirtualizer.measure(); }}
       >
         {(() => {
-          const { filtered, entries: groupEntries } = pickerGroups;
+          const { filtered } = pickerGroups;
           const allFilteredChecked = filtered.length > 0 && filtered.every((m) => pickerSelected.has(m.model_id));
           const someFilteredChecked = filtered.some((m) => pickerSelected.has(m.model_id));
           return (
             <>
-              <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'inherit', padding: '8px 24px', borderBottom: '1px solid var(--color-border, #f0f0f0)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'inherit', padding: '8px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}`, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Checkbox
                   checked={allFilteredChecked}
                   indeterminate={someFilteredChecked && !allFilteredChecked}
@@ -1273,69 +1360,122 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   size="small"
                   style={{ flex: 1 }}
                 />
+                <Tooltip title={pickerCollapsed.size === 0 ? t('settings.collapseAll', '收起所有') : t('settings.expandAll', '展开所有')}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={pickerCollapsed.size === 0 ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    onClick={() => {
+                      if (pickerCollapsed.size === 0) {
+                        setPickerCollapsed(new Set(pickerGroups.entries.map(([g]) => g)));
+                      } else {
+                        setPickerCollapsed(new Set());
+                      }
+                    }}
+                  />
+                </Tooltip>
               </div>
-              <div className="model-picker-list" style={{ maxHeight: 420, overflow: 'auto', padding: '4px 16px 12px' }}>
-                {groupEntries.map(([group, models]) => {
-                  const allChecked = models.every((m) => pickerSelected.has(m.model_id));
-                  const someChecked = models.some((m) => pickerSelected.has(m.model_id));
-                  const collapsed = pickerCollapsed.has(group);
-                  return (
-                    <div key={group} style={{ marginBottom: 2 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0', cursor: 'pointer', userSelect: 'none' }}>
-                        <span
-                          onClick={() => setPickerCollapsed((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(group)) next.delete(group); else next.add(group);
-                            return next;
-                          })}
-                          style={{ display: 'inline-flex', width: 16, justifyContent: 'center', fontSize: 10, transition: 'transform 0.15s', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
-                        >▼</span>
-                        <Checkbox
-                          checked={allChecked}
-                          indeterminate={someChecked && !allChecked}
-                          onChange={(e) => {
-                            setPickerSelected((prev) => {
-                              const next = new Set(prev);
-                              for (const m of models) {
-                                if (e.target.checked) next.add(m.model_id);
-                                else next.delete(m.model_id);
-                              }
-                              return next;
-                            });
-                          }}
-                          style={{ fontWeight: 600 }}
+              <div
+                ref={pickerListParentRef}
+                className="model-picker-list"
+                style={{ maxHeight: 420, overflow: 'auto', padding: '8px 16px 12px' }}
+              >
+                <div style={{ height: pickerVirtualizer.getTotalSize(), position: 'relative' }}>
+                  {pickerVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = flatPickerRows[virtualRow.index];
+                    if (row.type === 'spacer') {
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          data-index={virtualRow.index}
+                          ref={pickerVirtualizer.measureElement}
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 8, transform: `translateY(${virtualRow.start}px)` }}
+                        />
+                      );
+                    }
+                    if (row.type === 'group') {
+                      const { group, models } = row;
+                      const allChecked = models.every((m) => pickerSelected.has(m.model_id));
+                      const someChecked = models.some((m) => pickerSelected.has(m.model_id));
+                      const collapsed = pickerCollapsed.has(group);
+                      return (
+                        <div
+                          key={`g-${group}`}
+                          data-index={virtualRow.index}
+                          ref={pickerVirtualizer.measureElement}
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
                         >
-                          {group}
-                        </Checkbox>
-                        <Tag style={{ marginLeft: 4, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{models.length}</Tag>
-                      </div>
-                      {!collapsed && (
-                        <div style={{ paddingLeft: 40 }}>
-                          {models.map((m) => (
-                            <div key={m.model_id} style={{ padding: '1px 0' }}>
+                          <div
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md"
+                            style={{ cursor: 'pointer', userSelect: 'none', background: 'var(--ant-color-fill-quaternary, rgba(0,0,0,0.02))' }}
+                            onClick={() => setPickerCollapsed((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(group)) next.delete(group); else next.add(group);
+                              return next;
+                            })}
+                          >
+                            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            <div onClick={(e) => e.stopPropagation()}>
                               <Checkbox
-                                checked={pickerSelected.has(m.model_id)}
+                                checked={allChecked}
+                                indeterminate={someChecked && !allChecked}
                                 onChange={(e) => {
                                   setPickerSelected((prev) => {
                                     const next = new Set(prev);
-                                    if (e.target.checked) next.add(m.model_id);
-                                    else next.delete(m.model_id);
+                                    for (const m of models) {
+                                      if (e.target.checked) next.add(m.model_id);
+                                      else next.delete(m.model_id);
+                                    }
                                     return next;
                                   });
                                 }}
-                              >
-                                {m.name || m.model_id}
-                                {m.name && m.name !== m.model_id && (
-                                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>({m.model_id})</Text>
-                                )}
-                              </Checkbox>
+                              />
                             </div>
-                          ))}
+                            <ModelIcon model={models[0]?.model_id ?? group} size={20} type="avatar" />
+                            <Text style={{ fontWeight: 600 }}>{group}</Text>
+                            <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>{models.length}</Tag>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    }
+                    // model row
+                    const { model: m } = row;
+                    return (
+                      <div
+                        key={`m-${m.model_id}`}
+                        data-index={virtualRow.index}
+                        ref={pickerVirtualizer.measureElement}
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                      >
+                        <div
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-md"
+                          style={{ paddingLeft: 36 }}
+                        >
+                          <Checkbox
+                            checked={pickerSelected.has(m.model_id)}
+                            onChange={(e) => {
+                              setPickerSelected((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(m.model_id);
+                                else next.delete(m.model_id);
+                                return next;
+                              });
+                            }}
+                          />
+                          <ModelIcon model={m.model_id} size={20} type="avatar" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span>{m.name || m.model_id}</span>
+                              {m.name && m.name !== m.model_id && (
+                                <Text type="secondary" style={{ fontSize: 11 }}>({m.model_id})</Text>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </>
           );

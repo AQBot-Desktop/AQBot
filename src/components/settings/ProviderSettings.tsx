@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
-import { theme } from 'antd';
+import { Suspense, lazy, useEffect } from 'react';
+import { Spin, theme } from 'antd';
 import { useProviderStore, useUIStore } from '@/stores';
 import { ProviderList } from './ProviderList';
-import { ProviderDetail } from './ProviderDetail';
 import { useTranslation } from 'react-i18next';
+
+const ProviderDetail = lazy(() => import('./ProviderDetail').then((m) => ({ default: m.ProviderDetail })));
 
 export function ProviderSettings() {
   const { t } = useTranslation();
@@ -22,7 +23,9 @@ export function ProviderSettings() {
       </div>
       <div className="min-w-0 flex-1 overflow-y-auto p-4 pt-4">
         {selectedProviderId ? (
-          <ProviderDetail providerId={selectedProviderId} />
+          <Suspense fallback={<div className="flex h-full items-center justify-center"><Spin /></div>}>
+            <ProviderDetail providerId={selectedProviderId} />
+          </Suspense>
         ) : (
           <div className="flex h-full items-center justify-center" style={{ color: token.colorTextSecondary }}>
             <p>{t('settings.selectProvider')}</p>
