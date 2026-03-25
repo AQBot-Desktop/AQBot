@@ -20,9 +20,19 @@ function savePinnedModels(ids: string[]) {
 
 interface ModelSelectorProps {
   style?: React.CSSProperties;
+  /** Custom select callback. When provided, overrides the default conversation/settings update. */
+  onSelect?: (providerId: string, modelId: string) => void;
+  /** Override which model is highlighted as current (e.g. for per-message model switching). */
+  overrideCurrentModel?: { providerId: string; modelId: string } | null;
+  /** Custom trigger element. When provided, renders this instead of the default Tag. */
+  children?: React.ReactNode;
+  /** Controlled open state */
+  open?: boolean;
+  /** Callback when open state changes */
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ModelSelector({ style }: ModelSelectorProps) {
+export function ModelSelector({ style, onSelect, overrideCurrentModel, children, open: controlledOpen, onOpenChange }: ModelSelectorProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { providers } = useProviderStore();
@@ -31,7 +41,13 @@ export function ModelSelector({ style }: ModelSelectorProps) {
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
 
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = useCallback((v: boolean) => {
+    if (onOpenChange) onOpenChange(v);
+    if (!isControlled) setInternalOpen(v);
+  }, [isControlled, onOpenChange]);
   const [search, setSearch] = useState('');
   const [pinnedModels, setPinnedModels] = useState<string[]>(loadPinnedModels);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
@@ -66,7 +82,9 @@ export function ModelSelector({ style }: ModelSelectorProps) {
     return { pid, mid, name: model?.name ?? mid, providerName: provider?.name ?? '' };
   }, [activeConversation, settings.default_provider_id, settings.default_model_id, providers]);
 
-  const currentValue = currentModel ? `${currentModel.pid}::${currentModel.mid}` : undefined;
+  const currentValue = overrideCurrentModel
+    ? `${overrideCurrentModel.providerId}::${overrideCurrentModel.modelId}`
+    : currentModel ? `${currentModel.pid}::${currentModel.mid}` : undefined;
 
   // All enabled models flat list (for pinned section)
   const allEnabledModels = useMemo(() => {
@@ -110,7 +128,9 @@ export function ModelSelector({ style }: ModelSelectorProps) {
 
   const handleSelect = useCallback(
     (providerId: string, modelId: string) => {
-      if (activeConversationId) {
+      if (onSelect) {
+        onSelect(providerId, modelId);
+      } else if (activeConversationId) {
         updateConversation(activeConversationId, {
           provider_id: providerId,
           model_id: modelId,
@@ -121,7 +141,7 @@ export function ModelSelector({ style }: ModelSelectorProps) {
       setOpen(false);
       setSearch('');
     },
-    [activeConversationId, updateConversation, saveSettings],
+    [activeConversationId, updateConversation, saveSettings, onSelect, setOpen],
   );
 
   const togglePin = useCallback((key: string) => {
@@ -187,29 +207,33 @@ export function ModelSelector({ style }: ModelSelectorProps) {
 
   return (
     <>
-      <Tag
-        onClick={() => setOpen(true)}
-        style={{
-          cursor: 'pointer',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '2px 10px',
-          fontSize: 13,
-          borderRadius: 6,
-          ...style,
-        }}
-      >
-        {currentModel && (
-          <>
-            <ModelIcon model={currentModel.mid} size={16} type="avatar" />
-            {currentModel.providerName && (
-              <Tag style={{ fontSize: 11, margin: 0, padding: '0 4px', lineHeight: '16px', color: token.colorPrimary, backgroundColor: token.colorPrimaryBg, border: 'none' }}>{currentModel.providerName}</Tag>
-            )}
-            <span>{currentModel.name}</span>
-          </>
-        )}
-      </Tag>
+      {children ? (
+        <span onClick={() => setOpen(true)}>{children}</span>
+      ) : (
+        <Tag
+          onClick={() => setOpen(true)}
+          style={{
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '2px 10px',
+            fontSize: 13,
+            borderRadius: 6,
+            ...style,
+          }}
+        >
+          {currentModel && (
+            <>
+              <ModelIcon model={currentModel.mid} size={16} type="avatar" />
+              {currentModel.providerName && (
+                <Tag style={{ fontSize: 11, margin: 0, padding: '0 4px', lineHeight: '16px', color: token.colorPrimary, backgroundColor: token.colorPrimaryBg, border: 'none' }}>{currentModel.providerName}</Tag>
+              )}
+              <span>{currentModel.name}</span>
+            </>
+          )}
+        </Tag>
+      )}
 
       <Modal
         open={open}

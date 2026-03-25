@@ -133,6 +133,20 @@ html[data-theme="dark"] .ant-bubble-list-scroll-box:hover::-webkit-scrollbar-thu
   background-color: rgba(255, 255, 255, 0.18) !important;
 }
 
+/* Custom action item hover style (for actionRender items in @ant-design/x Actions) */
+.aqbot-action-item {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: all 0.2s ease-in-out;
+}
+.aqbot-action-item:hover {
+  background: var(--ant-color-bg-text-hover, rgba(0, 0, 0, 0.06));
+}
+
 /* Ant Design style overrides */
 .ant-layout {
   height: 100%;

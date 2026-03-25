@@ -286,6 +286,7 @@ interface ConversationState {
   batchArchive: (ids: string[]) => Promise<void>;
   sendMessage: (content: string, attachments?: AttachmentInput[], searchProviderId?: string | null) => Promise<void>;
   regenerateMessage: (targetMessageId?: string) => Promise<void>;
+  regenerateWithModel: (targetMessageId: string, providerId: string, modelId: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   fetchMessages: (conversationId: string, preserveMessageIds?: string[]) => Promise<void>;
   loadOlderMessages: () => Promise<void>;
@@ -1088,8 +1089,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       conversation_id: conversationId,
       role: 'assistant',
       content: '',
-      provider_id: null,
-      model_id: null,
+      provider_id: originalAiMsg?.provider_id ?? null,
+      model_id: originalAiMsg?.model_id ?? null,
       token_count: null,
       attachments: [],
       thinking: null,
@@ -1155,6 +1156,112 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
     } catch (e) {
       console.error('[regenerateMessage] error:', e);
+      const errMsg = String(e);
+      set((s) => ({
+        streaming: false,
+        streamingMessageId: null,
+        streamingConversationId: null,
+        thinkingActiveMessageId: null,
+        messages: s.streamingMessageId
+          ? s.messages.map(m =>
+              m.id === s.streamingMessageId
+                ? { ...m, content: `%%ERROR%%${errMsg}` }
+                : m
+            )
+          : s.messages,
+      }));
+    }
+  },
+
+  regenerateWithModel: async (targetMessageId: string, providerId: string, modelId: string) => {
+    const conversationId = get().activeConversationId;
+    if (!conversationId) throw new Error('No active conversation');
+
+    const msgs = get().messages;
+    // Find the AI message, then its parent user message
+    const aiMsg = msgs.find(m => m.id === targetMessageId);
+    if (!aiMsg?.parent_message_id) throw new Error('Cannot find parent user message');
+    const userMsg = msgs.find(m => m.id === aiMsg.parent_message_id);
+    if (!userMsg) throw new Error('User message not found');
+
+    const parentId = userMsg.id;
+    const originalAiMsg = msgs.find(m => m.parent_message_id === parentId && m.is_active);
+
+    // Create placeholder with the target model info
+    const tempAssistantId = `temp-assistant-${Date.now()}`;
+    const placeholderAssistant: Message = {
+      id: tempAssistantId,
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: '',
+      provider_id: providerId,
+      model_id: modelId,
+      token_count: null,
+      attachments: [],
+      thinking: null,
+      tool_calls_json: null,
+      tool_call_id: null,
+      created_at: originalAiMsg?.created_at ?? Date.now(),
+      parent_message_id: userMsg.id,
+      version_index: 0,
+      is_active: true,
+    };
+
+    // Replace the active AI message in-place with placeholder
+    set((s) => {
+      let inserted = false;
+      const updated: Message[] = [];
+      for (const m of s.messages) {
+        if (m.parent_message_id === parentId && m.is_active) {
+          updated.push({ ...m, is_active: false });
+          if (!inserted) {
+            updated.push(placeholderAssistant);
+            inserted = true;
+          }
+        } else {
+          updated.push(m);
+        }
+      }
+      if (!inserted) {
+        updated.push(placeholderAssistant);
+      }
+      return {
+        messages: updated,
+        streaming: true,
+        streamingMessageId: tempAssistantId,
+        streamingConversationId: conversationId,
+        thinkingActiveMessageId: null,
+      };
+    });
+    _pendingUiChunk = null;
+    if (_streamUiFlushTimer !== null) {
+      clearTimeout(_streamUiFlushTimer);
+      _streamUiFlushTimer = null;
+    }
+
+    try {
+      const rMcpIds = get().enabledMcpServerIds;
+      const rThinkingBudget = getEffectiveThinkingBudget(get, conversationId);
+      const rKbIds = get().enabledKnowledgeBaseIds;
+      const rMemIds = get().enabledMemoryNamespaceIds;
+      await invoke('regenerate_with_model', {
+        conversationId,
+        userMessageId: userMsg.id,
+        targetProviderId: providerId,
+        targetModelId: modelId,
+        enabledMcpServerIds: rMcpIds.length > 0 ? rMcpIds : undefined,
+        thinkingBudget: rThinkingBudget,
+        enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
+        enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
+      });
+
+      if (!isTauri()) {
+        await new Promise((r) => setTimeout(r, 600));
+        set({ streaming: false, streamingMessageId: null, streamingConversationId: null, thinkingActiveMessageId: null });
+        get().fetchMessages(conversationId);
+      }
+    } catch (e) {
+      console.error('[regenerateWithModel] error:', e);
       const errMsg = String(e);
       set((s) => ({
         streaming: false,
@@ -1411,9 +1518,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   switchMessageVersion: async (conversationId, parentMessageId, messageId) => {
     try {
       await invoke('switch_message_version', { conversationId, parentMessageId, messageId });
-      await get().fetchMessages(conversationId);
+      // Fetch all versions to find the newly active one and swap in-place
+      const versions = await get().listMessageVersions(conversationId, parentMessageId);
+      const newActive = versions.find((v) => v.id === messageId);
+      if (newActive) {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.parent_message_id === parentMessageId && m.role === 'assistant'
+              ? { ...newActive, is_active: true }
+              : m
+          ),
+        }));
+      }
     } catch (e) {
       set({ error: String(e) });
+      await get().fetchMessages(conversationId);
     }
   },
 

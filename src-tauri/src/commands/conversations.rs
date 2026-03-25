@@ -934,6 +934,11 @@ pub async fn regenerate_message(
     // Preserve original created_at from first version to maintain message position
     let original_created_at = existing_versions.first().map(|v| v.created_at);
 
+    // Find the currently active version's model to regenerate with the same model
+    let active_version = existing_versions.iter().find(|v| v.is_active);
+    let active_model_id = active_version.and_then(|v| v.model_id.clone());
+    let active_provider_id = active_version.and_then(|v| v.provider_id.clone());
+
     // 3. Deactivate all existing AI reply versions for this user message
     use aqbot_core::entity::messages as msg_entity;
     use sea_orm::sea_query::Expr;
@@ -946,10 +951,18 @@ pub async fn regenerate_message(
         .map_err(|e| e.to_string())?;
 
     // 4. Get conversation details
-    let conversation =
+    let mut conversation =
         aqbot_core::repo::conversation::get_conversation(&state.sea_db, &conversation_id)
             .await
             .map_err(|e| e.to_string())?;
+
+    // Override conversation model_id/provider_id so spawn_stream_task uses the correct model
+    if let Some(ref mid) = active_model_id {
+        conversation.model_id = mid.clone();
+    }
+    if let Some(ref pid) = active_provider_id {
+        conversation.provider_id = pid.clone();
+    }
 
     // 5. Get provider config + decrypt key
     let provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &conversation.provider_id)
@@ -1112,6 +1125,216 @@ pub async fn regenerate_message(
         false,
         last_user_msg.content,
         last_user_msg.id,
+        new_version_index,
+        tools,
+        thinking_budget,
+        mcp_ids,
+        original_created_at,
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn regenerate_with_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    conversation_id: String,
+    user_message_id: String,
+    target_provider_id: String,
+    target_model_id: String,
+    enabled_mcp_server_ids: Option<Vec<String>>,
+    thinking_budget: Option<u32>,
+    enabled_knowledge_base_ids: Option<Vec<String>>,
+    enabled_memory_namespace_ids: Option<Vec<String>>,
+) -> Result<(), String> {
+    let messages = aqbot_core::repo::message::list_messages(&state.sea_db, &conversation_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let user_msg = messages
+        .iter()
+        .find(|m| m.id == user_message_id && m.role == MessageRole::User)
+        .ok_or_else(|| format!("User message {} not found", user_message_id))?
+        .clone();
+
+    // Count existing versions and preserve original created_at
+    let existing_versions = aqbot_core::repo::message::list_message_versions(
+        &state.sea_db,
+        &conversation_id,
+        &user_msg.id,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let new_version_index = existing_versions.len() as i32;
+    let original_created_at = existing_versions.first().map(|v| v.created_at);
+
+    // Deactivate all existing versions
+    use aqbot_core::entity::messages as msg_entity;
+    use sea_orm::sea_query::Expr;
+    msg_entity::Entity::update_many()
+        .filter(msg_entity::Column::ConversationId.eq(&conversation_id))
+        .filter(msg_entity::Column::ParentMessageId.eq(&user_msg.id))
+        .col_expr(msg_entity::Column::IsActive, Expr::value(0))
+        .exec(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Get conversation, but override model_id
+    let mut conversation =
+        aqbot_core::repo::conversation::get_conversation(&state.sea_db, &conversation_id)
+            .await
+            .map_err(|e| e.to_string())?;
+    conversation.model_id = target_model_id;
+
+    // Use target provider instead of conversation's default
+    let provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &target_provider_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let key_row =
+        aqbot_core::repo::provider::get_active_key(&state.sea_db, &target_provider_id)
+            .await
+            .map_err(|e| e.to_string())?;
+    let decrypted_key =
+        aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
+            .map_err(|e| e.to_string())?;
+
+    // Build context messages (same logic as regenerate_message)
+    let remaining_messages = aqbot_core::repo::message::list_messages(&state.sea_db, &conversation_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let file_store = aqbot_core::file_store::FileStore::new();
+    let mut chat_messages: Vec<ChatMessage> = Vec::new();
+
+    if let Some(ref sys) = conversation.system_prompt {
+        if !sys.is_empty() {
+            chat_messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: ChatContent::Text(sys.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+    }
+
+    // RAG retrieval
+    {
+        let mut rag_parts: Vec<String> = Vec::new();
+        let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
+        for kb_id in &kb_ids {
+            match crate::indexing::search_knowledge(
+                &state.sea_db, &state.master_key, &state.vector_store,
+                kb_id, &user_msg.content, 5,
+            ).await {
+                Ok(results) if !results.is_empty() => {
+                    let snippets: Vec<String> = results.iter().map(|r| r.content.clone()).collect();
+                    rag_parts.push(format!("[Knowledge Base Reference]\n{}", snippets.join("\n---\n")));
+                }
+                _ => {}
+            }
+        }
+        let mem_ids = enabled_memory_namespace_ids.unwrap_or_default();
+        for ns_id in &mem_ids {
+            match crate::indexing::search_memory(
+                &state.sea_db, &state.master_key, &state.vector_store,
+                ns_id, &user_msg.content, 5,
+            ).await {
+                Ok(results) if !results.is_empty() => {
+                    let snippets: Vec<String> = results.iter().map(|r| r.content.clone()).collect();
+                    rag_parts.push(format!("[Memory Reference]\n{}", snippets.join("\n---\n")));
+                }
+                _ => {}
+            }
+        }
+        if !rag_parts.is_empty() {
+            chat_messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: ChatContent::Text(format!(
+                    "The following reference materials may be relevant to the user's question. Use them if helpful:\n\n{}",
+                    rag_parts.join("\n\n")
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+    }
+
+    // Context building with context-clear handling
+    let target_pos = remaining_messages.iter().position(|m| m.id == user_msg.id);
+    let search_range = match target_pos {
+        Some(pos) => &remaining_messages[..pos],
+        None => &remaining_messages[..],
+    };
+    let clear_idx = search_range.iter().rposition(|m| {
+        m.role == MessageRole::System && m.content == "<!-- context-clear -->"
+    });
+    let effective_messages = match clear_idx {
+        Some(idx) => &remaining_messages[idx + 1..],
+        None => &remaining_messages[..],
+    };
+    for m in effective_messages {
+        if m.role == MessageRole::System && m.content == "<!-- context-clear -->" {
+            continue;
+        }
+        chat_messages.push(chat_message_from_message(&file_store, m).map_err(|e| e.to_string())?);
+        if m.id == user_msg.id {
+            break;
+        }
+    }
+
+    let assistant_message_id = aqbot_core::utils::gen_id();
+    let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .unwrap_or_default();
+    let resolved_proxy = ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
+
+    let ctx = ProviderRequestContext {
+        api_key: decrypted_key,
+        key_id: key_row.id.clone(),
+        provider_id: provider.id.clone(),
+        base_url: Some(resolve_base_url(&provider.api_host)),
+        api_path: provider.api_path.clone(),
+        proxy_config: resolved_proxy,
+    };
+
+    let mcp_ids = enabled_mcp_server_ids.unwrap_or_default();
+    let tools: Option<Vec<ChatTool>> = if mcp_ids.is_empty() {
+        None
+    } else {
+        let mut all_tools = Vec::new();
+        for server_id in &mcp_ids {
+            if let Ok(descriptors) = aqbot_core::repo::mcp_server::list_tools_for_server(&state.sea_db, server_id).await {
+                for td in descriptors {
+                    let parameters: Option<serde_json::Value> = td
+                        .input_schema_json
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(s).ok());
+                    all_tools.push(ChatTool {
+                        r#type: "function".to_string(),
+                        function: ChatToolFunction {
+                            name: td.name,
+                            description: td.description,
+                            parameters,
+                        },
+                    });
+                }
+            }
+        }
+        if all_tools.is_empty() { None } else { Some(all_tools) }
+    };
+
+    spawn_stream_task(
+        app,
+        state.sea_db.clone(),
+        conversation_id,
+        assistant_message_id,
+        conversation,
+        provider,
+        ctx,
+        chat_messages,
+        false,
+        user_msg.content,
+        user_msg.id,
         new_version_index,
         tools,
         thinking_budget,

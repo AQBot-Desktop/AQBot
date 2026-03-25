@@ -1,0 +1,41 @@
+# git-cliff configuration
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | trim }}\
+  {% if commit.remote.username %} (@{{ commit.remote.username }}){% endif %}\
+  {% if commit.remote.pr_number %} (#{{ commit.remote.pr_number }}){% endif %}
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_preprocessors = [
+  { pattern = '\(#([0-9]+)\)', replace = "" },
+]
+commit_parsers = [
+  { message = "^feat", group = "🚀 新功能" },
+  { message = "^fix", group = "🐛 Bug 修复" },
+  { message = "^perf", group = "⚡ 性能提升" },
+  { message = "^refactor", group = "🔨 重构" },
+  { message = "^style", group = "🎨 样式" },
+  { message = "^docs", group = "📝 文档" },
+  { message = "^ci", group = "🔧 CI/CD" },
+  { message = "^chore", group = "📦 杂项" },
+  { message = "^test", group = "🧪 测试" },
+  { message = "^build", group = "🏗️ 构建" },
+  { body = ".*security", group = "🔒 安全" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"

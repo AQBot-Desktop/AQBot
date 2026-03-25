@@ -80,6 +80,7 @@ pub fn run() {
             commands::conversations::toggle_archive_conversation,
             commands::conversations::list_archived_conversations,
             commands::conversations::regenerate_message,
+            commands::conversations::regenerate_with_model,
             commands::conversations::list_message_versions,
             commands::conversations::switch_message_version,
             commands::conversations::delete_message_group,

@@ -33,24 +33,27 @@ jobs:
           fi
           echo "✅ Version $TAG is consistent"
 
-  # ── Generate release notes via Release Drafter ─────────
+  # ── Generate release notes via git-cliff ─────────────
   draft-release-notes:
-    name: Draft Release Notes
+    name: Generate Release Notes
     needs: [check-version]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      body: ${{ steps.drafter.outputs.body }}
+      body: ${{ steps.cliff.outputs.content }}
     steps:
-      - uses: release-drafter/release-drafter@v7
-        id: drafter
+      - uses: actions/checkout@v4
         with:
-          tag: ${{ github.ref_name }}
-          name: 'AQBot ${{ github.ref_name }}'
-          publish: false
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
 
   # ── Build for macOS / Windows / Linux x86_64 ───────────
   release:

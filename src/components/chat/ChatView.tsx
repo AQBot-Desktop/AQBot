@@ -1,8 +1,8 @@
 import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import { CloseCircleFilled, SyncOutlined } from '@ant-design/icons';
-import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, theme, Tag, Image } from 'antd';
+import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, theme, Tag, Image, Tooltip } from 'antd';
 import type { InputRef } from 'antd';
-import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp } from 'lucide-react';
+import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { getConvIcon } from '@/lib/convIcon';
 import Bubble from '@ant-design/x/es/bubble';
@@ -887,26 +887,22 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
 function VersionPagination({
   msg,
   conversationId,
+  allVersions,
 }: {
   msg: Message;
   conversationId: string;
+  allVersions: Message[];
 }) {
   const { token } = theme.useToken();
-  const [versions, setVersions] = useState<Message[]>([]);
-  const listMessageVersions = useConversationStore((s) => s.listMessageVersions);
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
 
-  useEffect(() => {
-    if (msg.parent_message_id && conversationId) {
-      listMessageVersions(conversationId, msg.parent_message_id).then((v) => {
-        if (v && v.length > 1) setVersions(v);
-      });
-    }
-  }, [msg.parent_message_id, conversationId, listMessageVersions]);
+  // Scope to current model's versions
+  const currentModelId = msg.model_id;
+  const modelVersions = allVersions.filter((v) => v.model_id === currentModelId);
 
-  if (versions.length <= 1) return null;
+  if (modelVersions.length <= 1) return null;
 
-  const sorted = [...versions].sort((a, b) => a.version_index - b.version_index);
+  const sorted = [...modelVersions].sort((a, b) => a.version_index - b.version_index);
   const currentIdx = sorted.findIndex((v) => v.id === msg.id);
   const current = currentIdx >= 0 ? currentIdx : sorted.findIndex((v) => v.is_active);
 
@@ -945,6 +941,217 @@ function VersionPagination({
     </span>
   );
 }
+
+function ModelTags({
+  msg,
+  conversationId,
+  allVersions,
+  getModelDisplayInfo,
+}: {
+  msg: Message;
+  conversationId: string;
+  allVersions: Message[];
+  getModelDisplayInfo: (modelId?: string | null, providerId?: string | null) => { modelName: string; providerName: string };
+}) {
+  const { token } = theme.useToken();
+  const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
+
+  const modelGroups = useMemo(() => {
+    const groups = new Map<string, Message[]>();
+    for (const v of allVersions) {
+      const key = v.model_id ?? '__unknown__';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(v);
+    }
+    return groups;
+  }, [allVersions]);
+
+  if (modelGroups.size <= 1) return null;
+
+  const currentModelId = msg.model_id ?? '__unknown__';
+
+  const handleTagClick = (modelId: string) => {
+    if (modelId === currentModelId || !msg.parent_message_id) return;
+    const versions = modelGroups.get(modelId);
+    if (!versions || versions.length === 0) return;
+    const sorted = [...versions].sort((a, b) => b.version_index - a.version_index);
+    switchMessageVersion(conversationId, msg.parent_message_id, sorted[0].id);
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+      {Array.from(modelGroups.keys()).map((modelId) => {
+        const isActive = modelId === currentModelId;
+        const { modelName } = getModelDisplayInfo(modelId, modelGroups.get(modelId)?.[0]?.provider_id);
+        return (
+          <Tooltip key={modelId} title={modelName} mouseEnterDelay={0.3}>
+            <div
+              onClick={() => handleTagClick(modelId)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: '50%',
+                border: `1.5px solid ${isActive ? token.colorPrimary : 'transparent'}`,
+                cursor: isActive ? 'default' : 'pointer',
+                transition: 'border-color 0.2s',
+                flexShrink: 0,
+              }}
+            >
+              <ModelIcon model={modelId} size={20} type="avatar" />
+            </div>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssistantFooter({
+  msg,
+  conversationId,
+  assistantCopyText,
+  getModelDisplayInfo,
+}: {
+  msg: Message;
+  conversationId: string;
+  assistantCopyText: string;
+  getModelDisplayInfo: (modelId?: string | null, providerId?: string | null) => { modelName: string; providerName: string };
+}) {
+  const { token } = theme.useToken();
+  const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
+  const [allVersions, setAllVersions] = useState<Message[]>([]);
+  const listMessageVersions = useConversationStore((s) => s.listMessageVersions);
+  const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
+  const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
+  const deleteMessage = useConversationStore((s) => s.deleteMessage);
+
+  useEffect(() => {
+    if (msg.parent_message_id && conversationId) {
+      listMessageVersions(conversationId, msg.parent_message_id).then((v) => {
+        if (v) setAllVersions(v);
+      });
+    }
+  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions]);
+
+  // Current message's model for ModelSelector highlight
+  const currentModelOverride = useMemo(() => {
+    if (msg.provider_id && msg.model_id) {
+      return { providerId: msg.provider_id, modelId: msg.model_id };
+    }
+    return null;
+  }, [msg.provider_id, msg.model_id]);
+
+  const handleModelSelect = useCallback(async (providerId: string, modelId: string) => {
+    try {
+      if (providerId === msg.provider_id && modelId === msg.model_id) {
+        // Same model → regular regenerate
+        await regenerateMessage(msg.id);
+      } else {
+        // Different model → generate with new model
+        await regenerateWithModel(msg.id, providerId, modelId);
+      }
+    } catch (e) {
+      messageApi.error(String(e));
+    }
+  }, [msg.id, msg.provider_id, msg.model_id, regenerateMessage, regenerateWithModel, messageApi]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {(msg.prompt_tokens != null || msg.completion_tokens != null) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: token.colorTextDescription, lineHeight: '16px', marginTop: -6, marginBottom: 4 }}>
+          {msg.prompt_tokens != null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <ArrowUp size={10} />
+              {formatTokenCount(msg.prompt_tokens)} tokens
+            </span>
+          )}
+          {msg.completion_tokens != null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <ArrowDown size={10} />
+              {formatTokenCount(msg.completion_tokens)} tokens
+            </span>
+          )}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <VersionPagination msg={msg} conversationId={conversationId} allVersions={allVersions} />
+        <Actions
+          items={[
+            {
+              key: 'copy',
+              icon: <Copy size={14} />,
+              label: t('chat.copy'),
+              onItemClick: () => {
+                const text = assistantCopyText.startsWith('%%ERROR%%')
+                  ? assistantCopyText.replace('%%ERROR%%', '')
+                  : assistantCopyText;
+                navigator.clipboard
+                  .writeText(text)
+                  .then(() => messageApi.success(t('chat.copied')));
+              },
+            },
+            {
+              key: 'regenerate',
+              icon: <RotateCcw size={14} />,
+              label: t('chat.regenerate'),
+              onItemClick: async () => {
+                try {
+                  await regenerateMessage(msg.id);
+                } catch (e) {
+                  messageApi.error(String(e));
+                }
+              },
+            },
+            {
+              key: 'model',
+              actionRender: () => (
+                <ModelSelector
+                  onSelect={handleModelSelect}
+                  overrideCurrentModel={currentModelOverride}
+                >
+                  <Tooltip title={t('chat.switchModel', '切换模型')}>
+                    <span className="aqbot-action-item" style={{ color: token.colorTextSecondary }}>
+                      <ArrowLeftRight size={14} />
+                    </span>
+                  </Tooltip>
+                </ModelSelector>
+              ),
+            },
+            {
+              key: 'delete',
+              actionRender: () => (
+                <Popconfirm
+                  title={t('chat.confirmDeleteMessage', '确定删除这条回复吗？')}
+                  onConfirm={async () => {
+                    try {
+                      await deleteMessage(msg.id);
+                    } catch (e) {
+                      messageApi.error(String(e));
+                    }
+                  }}
+                  okText={t('common.confirm', '确定')}
+                  cancelText={t('common.cancel', '取消')}
+                >
+                  <Tooltip title={t('chat.delete', '删除')}>
+                    <span className="aqbot-action-item" style={{ color: token.colorError }}>
+                      <Trash2 size={14} />
+                    </span>
+                  </Tooltip>
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
+      </div>
+      <ModelTags msg={msg} conversationId={conversationId} allVersions={allVersions} getModelDisplayInfo={getModelDisplayInfo} />
+    </div>
+  );
+}
+
 
 // ── Export helpers ──────────────────────────────────────────────────────
 
@@ -1239,6 +1446,16 @@ export function ChatView() {
     () => new Map(messages.map((msg) => [msg.id, msg])),
     [messages],
   );
+  // Separate lookup: parent_message_id → active assistant message (for stable bubble keys)
+  const assistantByParentId = useMemo(() => {
+    const map = new Map<string, Message>();
+    for (const msg of messages) {
+      if (msg.role === 'assistant' && msg.parent_message_id) {
+        map.set(msg.parent_message_id, msg);
+      }
+    }
+    return map;
+  }, [messages]);
   const userSearchContentById = useMemo(() => {
     const next = new Map<string, ReturnType<typeof parseSearchContent>>();
     for (const msg of activeMessages) {
@@ -1308,12 +1525,15 @@ export function ChatView() {
         aiContent = `<thinking data-message-id="${msg.id}">${thinkingMarker}${msg.thinking}</thinking>\n\n${aiContent}`;
       }
 
-      const signature = `ai:${aiContent}`;
-      const cached = cache.get(msg.id);
+      // Use parent_message_id as stable key for assistant bubbles to avoid
+      // unmount/remount flash when switching versions
+      const stableKey = msg.parent_message_id ?? msg.id;
+      const signature = `ai:${msg.id}:${aiContent}`;
+      const cached = cache.get(stableKey);
       const item = cached?.signature === signature
         ? cached.item
-        : { key: msg.id, role: 'ai', content: aiContent };
-      nextCache.set(msg.id, { signature, item });
+        : { key: stableKey, role: 'ai', content: aiContent };
+      nextCache.set(stableKey, { signature, item });
       nextItems.push(item);
     }
 
@@ -1469,9 +1689,11 @@ export function ChatView() {
                   okText={t('common.confirm', '确定')}
                   cancelText={t('common.cancel', '取消')}
                 >
-                  <span style={{ cursor: 'pointer', color: token.colorError, display: 'inline-flex', alignItems: 'center', padding: '0 4px' }}>
-                    <Trash2 size={14} />
-                  </span>
+                  <Tooltip title={t('chat.delete', '删除')}>
+                    <span className="aqbot-action-item" style={{ color: token.colorError }}>
+                      <Trash2 size={14} />
+                    </span>
+                  </Tooltip>
                 </Popconfirm>
               ),
             },
@@ -1482,8 +1704,9 @@ export function ChatView() {
   }, [activeConversationId, deleteMessageGroup, formatTime, getBubbleVariant, messageApi, messageById, profile.name, regenerateMessage, t, token.colorError, token.colorPrimary, userAvatar]);
 
   const aiRole = useCallback((bubbleData: BubbleItemType) => {
-    const msg = messageById.get(String(bubbleData.key));
-    const isStreaming = streaming && bubbleData.key === streamingMessageId;
+    // bubbleData.key is parent_message_id for stable rendering
+    const msg = assistantByParentId.get(String(bubbleData.key)) ?? messageById.get(String(bubbleData.key));
+    const isStreaming = streaming && msg?.id === streamingMessageId;
     const assistantCopyText = msg?.content ?? (typeof bubbleData.content === 'string' ? bubbleData.content : '');
     const parsedNodes = aiContentNodesById.get(String(bubbleData.key));
     const { bubbleLoading, footerLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
@@ -1542,85 +1765,16 @@ export function ChatView() {
             <span />
           </span>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {msg && (msg.prompt_tokens != null || msg.completion_tokens != null) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: token.colorTextDescription, lineHeight: '16px', marginTop: -6, marginBottom: 4 }}>
-              {msg.prompt_tokens != null && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <ArrowUp size={10} />
-                  {formatTokenCount(msg.prompt_tokens)} tokens
-                </span>
-              )}
-              {msg.completion_tokens != null && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <ArrowDown size={10} />
-                  {formatTokenCount(msg.completion_tokens)} tokens
-                </span>
-              )}
-            </div>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-          {msg && activeConversationId && (
-            <VersionPagination msg={msg} conversationId={activeConversationId} />
-          )}
-          <Actions
-            items={[
-              {
-                key: 'copy',
-                icon: <Copy size={14} />,
-                label: t('chat.copy'),
-                onItemClick: () => {
-                  const text = assistantCopyText.startsWith('%%ERROR%%')
-                    ? assistantCopyText.replace('%%ERROR%%', '')
-                    : assistantCopyText;
-                  navigator.clipboard
-                    .writeText(text)
-                    .then(() => messageApi.success(t('chat.copied')));
-                },
-              },
-              {
-                key: 'regenerate',
-                icon: <RotateCcw size={14} />,
-                label: t('chat.regenerate'),
-                onItemClick: async () => {
-                  try {
-                    await regenerateMessage(msg?.id);
-                  } catch (e) {
-                    messageApi.error(String(e));
-                  }
-                },
-              },
-              {
-                key: 'delete',
-                actionRender: () => (
-                  <Popconfirm
-                    title={t('chat.confirmDeleteMessage', '确定删除这条回复吗？')}
-                    onConfirm={async () => {
-                      if (msg) {
-                        try {
-                          await deleteMessage(msg.id);
-                        } catch (e) {
-                          messageApi.error(String(e));
-                        }
-                      }
-                    }}
-                    okText={t('common.confirm', '确定')}
-                    cancelText={t('common.cancel', '取消')}
-                  >
-                    <span style={{ cursor: 'pointer', color: token.colorError, display: 'inline-flex', alignItems: 'center', padding: '0 4px' }}>
-                      <Trash2 size={14} />
-                    </span>
-                  </Popconfirm>
-                ),
-              },
-            ]}
-          />
-          </div>
-        </div>
-      ),
+      ) : msg && activeConversationId ? (
+        <AssistantFooter
+          msg={msg}
+          conversationId={activeConversationId}
+          assistantCopyText={assistantCopyText}
+          getModelDisplayInfo={getModelDisplayInfo}
+        />
+      ) : null,
     };
-  }, [activeConversationId, aiContentNodesById, codeBlockDarkTheme, codeBlockThemes, deleteMessage, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageApi, messageById, regenerateMessage, renderConvIconForChat, streaming, streamingMessageId, t, token.colorError, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversationId, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockThemes, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageById, renderConvIconForChat, streaming, streamingMessageId, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');
