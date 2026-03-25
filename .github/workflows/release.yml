@@ -38,6 +38,8 @@ jobs:
     name: Generate Release Notes
     needs: [check-version]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       body: ${{ steps.cliff.outputs.content }}
     steps:
@@ -54,6 +56,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 'AQBot ${{ github.ref_name }}'
+          body: ${{ steps.cliff.outputs.content }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Build for macOS / Windows / Linux x86_64 ───────────
   release:

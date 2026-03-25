@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import { CloseCircleFilled, SyncOutlined } from '@ant-design/icons';
-import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, theme, Tag, Image, Tooltip } from 'antd';
+import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, Popover, theme, Tag, Image, Tooltip } from 'antd';
 import type { InputRef } from 'antd';
 import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
@@ -1009,6 +1009,80 @@ function ModelTags({
   );
 }
 
+// 3-button delete popover for last AI version
+function DeleteLastVersionPopover({
+  msg,
+  conversationId,
+  deleteMessageGroup,
+  messageApi,
+  token,
+  t,
+}: {
+  msg: Message;
+  conversationId: string;
+  deleteMessageGroup: (convId: string, parentMsgId: string) => Promise<void>;
+  messageApi: ReturnType<typeof App.useApp>['message'];
+  token: ReturnType<typeof theme.useToken>['token'];
+  t: (key: string, fallback?: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const handleDeleteThisOnly = async () => {
+    setOpen(false);
+    try {
+      await invoke('delete_message', { id: msg.id });
+      useConversationStore.getState().fetchMessages(conversationId);
+    } catch (e) {
+      messageApi.error(String(e));
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    setOpen(false);
+    try {
+      if (msg.parent_message_id) {
+        await deleteMessageGroup(conversationId, msg.parent_message_id);
+      }
+    } catch (e) {
+      messageApi.error(String(e));
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      placement="top"
+      content={
+        <div style={{ maxWidth: 280 }}>
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <AlertCircle size={16} style={{ color: token.colorWarning, marginTop: 2, flexShrink: 0 }} />
+            <span>{t('chat.deleteLastVersionHint', '这是最后一条 AI 回复，您可以选择仅删除回复或连同用户消息一起删除。')}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button size="small" onClick={() => setOpen(false)}>
+              {t('common.cancel', '取消')}
+            </Button>
+            <Button size="small" onClick={handleDeleteThisOnly}>
+              {t('chat.deleteThisOnly', '仅此条')}
+            </Button>
+            <Button size="small" danger type="primary" onClick={handleDeleteAll}>
+              {t('chat.deleteAll', '全删')}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <Tooltip title={t('chat.delete', '删除')}>
+        <span className="aqbot-action-item" style={{ color: token.colorError }}>
+          <Trash2 size={14} />
+        </span>
+      </Tooltip>
+    </Popover>
+  );
+}
+
 function AssistantFooter({
   msg,
   conversationId,
@@ -1027,7 +1101,8 @@ function AssistantFooter({
   const listMessageVersions = useConversationStore((s) => s.listMessageVersions);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
-  const deleteMessage = useConversationStore((s) => s.deleteMessage);
+  const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
+  const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
 
   useEffect(() => {
     if (msg.parent_message_id && conversationId) {
@@ -1123,26 +1198,53 @@ function AssistantFooter({
             },
             {
               key: 'delete',
-              actionRender: () => (
-                <Popconfirm
-                  title={t('chat.confirmDeleteMessage', '确定删除这条回复吗？')}
-                  onConfirm={async () => {
-                    try {
-                      await deleteMessage(msg.id);
-                    } catch (e) {
-                      messageApi.error(String(e));
-                    }
-                  }}
-                  okText={t('common.confirm', '确定')}
-                  cancelText={t('common.cancel', '取消')}
-                >
-                  <Tooltip title={t('chat.delete', '删除')}>
-                    <span className="aqbot-action-item" style={{ color: token.colorError }}>
-                      <Trash2 size={14} />
-                    </span>
-                  </Tooltip>
-                </Popconfirm>
-              ),
+              actionRender: () => {
+                const isLastVersion = allVersions.filter((v) => v.id !== msg.id).length === 0;
+
+                if (isLastVersion) {
+                  // Last version — Popover with 3 buttons
+                  return (
+                    <DeleteLastVersionPopover
+                      msg={msg}
+                      conversationId={conversationId}
+                      deleteMessageGroup={deleteMessageGroup}
+                      messageApi={messageApi}
+                      token={token}
+                      t={t}
+                    />
+                  );
+                }
+
+                // Multiple versions — standard Popconfirm
+                return (
+                  <Popconfirm
+                    title={t('chat.confirmDeleteVersion', '确定删除当前版本吗？')}
+                    onConfirm={async () => {
+                      try {
+                        const remaining = allVersions.filter((v) => v.id !== msg.id);
+                        const sameModel = remaining.filter((v) => v.model_id === msg.model_id);
+                        const nextActive = sameModel.length > 0
+                          ? sameModel.sort((a, b) => b.version_index - a.version_index)[0]
+                          : remaining.sort((a, b) => b.version_index - a.version_index)[0];
+                        await invoke('delete_message', { id: msg.id });
+                        if (msg.parent_message_id) {
+                          await switchMessageVersion(conversationId, msg.parent_message_id, nextActive.id);
+                        }
+                      } catch (e) {
+                        messageApi.error(String(e));
+                      }
+                    }}
+                    okText={t('common.confirm', '确定')}
+                    cancelText={t('common.cancel', '取消')}
+                  >
+                    <Tooltip title={t('chat.delete', '删除')}>
+                      <span className="aqbot-action-item" style={{ color: token.colorError }}>
+                        <Trash2 size={14} />
+                      </span>
+                    </Tooltip>
+                  </Popconfirm>
+                );
+              },
             },
           ]}
         />
@@ -1445,12 +1547,12 @@ export function ChatView() {
     () => new Map(messages.map((msg) => [msg.id, msg])),
     [messages],
   );
-  // Separate lookup: parent_message_id → active assistant message (for stable bubble keys)
+  // Separate lookup: prefixed parent key → active assistant message (for stable bubble keys)
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();
     for (const msg of messages) {
       if (msg.role === 'assistant' && msg.parent_message_id) {
-        map.set(msg.parent_message_id, msg);
+        map.set(`ai:${msg.parent_message_id}`, msg);
       }
     }
     return map;
@@ -1525,8 +1627,9 @@ export function ChatView() {
       }
 
       // Use parent_message_id as stable key for assistant bubbles to avoid
-      // unmount/remount flash when switching versions
-      const stableKey = msg.parent_message_id ?? msg.id;
+      // unmount/remount flash when switching versions. Prefix with "ai:" to
+      // prevent key collision with the user message (which shares the same id).
+      const stableKey = msg.parent_message_id ? `ai:${msg.parent_message_id}` : msg.id;
       const signature = `ai:${msg.id}:${aiContent}`;
       const cached = cache.get(stableKey);
       const item = cached?.signature === signature
