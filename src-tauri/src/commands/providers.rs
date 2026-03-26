@@ -121,10 +121,10 @@ pub async fn validate_provider_key(
         key_id: key_id.clone(),
         provider_id: provider.id.clone(),
         base_url: Some(aqbot_providers::resolve_base_url(&provider.api_host)),
-        api_path: None,
+        api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
     };
-    let valid = adapter.list_models(&ctx).await.is_ok();
+    let valid = adapter.validate_key(&ctx).await.unwrap_or(false);
     // Update validation timestamp
     aqbot_core::repo::provider::update_key_validation(&state.sea_db, &key_id, valid)
         .await
@@ -205,7 +205,7 @@ pub async fn fetch_remote_models(
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
         base_url: Some(aqbot_providers::resolve_base_url(&provider.api_host)),
-        api_path: None,
+        api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
     };
     adapter.list_models(&ctx)

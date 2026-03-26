@@ -24,6 +24,12 @@ pub trait ProviderAdapter: Send + Sync {
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>>;
 
     async fn embed(&self, ctx: &ProviderRequestContext, request: EmbedRequest) -> Result<EmbedResponse>;
+
+    /// Validate the API key. Default: try list_models.
+    /// Providers may override for endpoints that don't support model listing.
+    async fn validate_key(&self, ctx: &ProviderRequestContext) -> Result<bool> {
+        self.list_models(ctx).await.map(|_| true)
+    }
 }
 
 #[derive(Debug, Clone)]

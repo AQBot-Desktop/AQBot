@@ -698,6 +698,30 @@ impl ProviderAdapter for AnthropicAdapter {
             .collect())
     }
 
+    async fn validate_key(&self, ctx: &ProviderRequestContext) -> Result<bool> {
+        // Try list_models first (works with official Anthropic API)
+        if self.list_models(ctx).await.is_ok() {
+            return Ok(true);
+        }
+        // Fallback: probe the /messages endpoint with an empty body.
+        // Valid key → 400 (bad request); invalid key → 401/403.
+        // This avoids token consumption and works with proxy services
+        // that don't support the /models endpoint.
+        let url = Self::chat_url(ctx);
+        let resp = self
+            .get_client(ctx)?
+            .post(&url)
+            .header("x-api-key", &ctx.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .map_err(|e| AQBotError::Provider(format!("Validation request failed: {e}")))?;
+        let status = resp.status().as_u16();
+        Ok(status != 401 && status != 403)
+    }
+
     async fn embed(&self, _ctx: &ProviderRequestContext, _request: EmbedRequest) -> Result<EmbedResponse> {
         Err(AQBotError::Provider("Anthropic does not support embedding API. Please use an OpenAI-compatible or Gemini provider for embeddings.".into()))
     }
