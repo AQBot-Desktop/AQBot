@@ -24,6 +24,7 @@ import { useMcpStore } from '@/stores';
 import { invoke, isTauri } from '@/lib/invoke';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
 import { EmojiPicker } from '@/components/shared/EmojiPicker';
+import { AvatarEditBadge } from '@/components/shared/AvatarEditBadge';
 import type { McpServer, CreateMcpServerInput, ToolDescriptor } from '@/types';
 
 const BUILTIN_DISPLAY_NAME_KEYS: Record<string, string> = {
@@ -293,11 +294,13 @@ function McpServerDetail({
           {isBuiltin ? (
             <McpServerIcon server={server} size={36} />
           ) : (
-            <Dropdown menu={{ items: avatarMenuItems }} trigger={['click']} placement="bottomLeft">
-              <span style={{ cursor: 'pointer' }}>
-                <McpServerIcon server={server} size={36} />
-              </span>
-            </Dropdown>
+            <AvatarEditBadge size={36}>
+              <Dropdown menu={{ items: avatarMenuItems }} trigger={['click']} placement="bottomLeft">
+                <span style={{ cursor: 'pointer' }}>
+                  <McpServerIcon server={server} size={36} />
+                </span>
+              </Dropdown>
+            </AvatarEditBadge>
           )}
           <span style={{ fontWeight: 600, fontSize: 16 }}>{displayName}</span>
           {isBuiltin && (

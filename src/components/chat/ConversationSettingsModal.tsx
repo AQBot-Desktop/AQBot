@@ -6,6 +6,7 @@ import { Info, Undo2, FileImage, Link, Smile, Bot } from 'lucide-react';
 import { useConversationStore, useSettingsStore } from '@/stores';
 import { CONV_ICON_KEY, type ConvIconType, type ConvIcon } from '@/lib/convIcon';
 import { EmojiPicker } from '@/components/shared/EmojiPicker';
+import { AvatarEditBadge } from '@/components/shared/AvatarEditBadge';
 
 interface ConversationSettingsModalProps {
   open: boolean;
@@ -226,9 +227,11 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
       <div data-os-scrollbar style={{ maxHeight: '70vh', overflowY: 'auto', paddingRight: 4 }}>
         {/* Avatar with Dropdown */}
         <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 16px' }}>
-          <Dropdown menu={{ items: avatarMenuItems }} trigger={['click']} placement="bottom">
-            {renderConvAvatar()}
-          </Dropdown>
+          <AvatarEditBadge size={64}>
+            <Dropdown menu={{ items: avatarMenuItems }} trigger={['click']} placement="bottom">
+              {renderConvAvatar()}
+            </Dropdown>
+          </AvatarEditBadge>
           <input
             ref={fileInputRef}
             type="file"

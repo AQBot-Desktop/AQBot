@@ -7,6 +7,7 @@ import { useUserProfileStore } from '@/stores/userProfileStore';
 import type { AvatarType } from '@/stores/userProfileStore';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import { EmojiPicker } from '@/components/shared/EmojiPicker';
+import { AvatarEditBadge } from '@/components/shared/AvatarEditBadge';
 
 interface UserProfileModalProps {
   open: boolean;
@@ -152,13 +153,15 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '16px 0' }}>
         {/* Avatar with dropdown */}
-        <Dropdown
-          menu={{ items: avatarMenuItems }}
-          trigger={['click']}
-          placement="bottom"
-        >
-          {renderAvatar()}
-        </Dropdown>
+        <AvatarEditBadge size={72}>
+          <Dropdown
+            menu={{ items: avatarMenuItems }}
+            trigger={['click']}
+            placement="bottom"
+          >
+            {renderAvatar()}
+          </Dropdown>
+        </AvatarEditBadge>
 
         {/* Hidden file input */}
         <input
