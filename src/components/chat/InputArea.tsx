@@ -750,15 +750,6 @@ export function InputArea() {
               </Tooltip>
             </Popover>
             {/* Knowledge base & Memory buttons — hidden (Coming Soon) */}
-            <Tooltip title={shortcutHint(t('chat.clearContext', '清空上下文'), 'clearContext')}>
-              <Button
-                type="text"
-                size="small"
-                icon={<Scissors size={14} />}
-                onClick={insertContextClear}
-                disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
-              />
-            </Tooltip>
             <Dropdown
               menu={{
                 items: [
@@ -806,6 +797,15 @@ export function InputArea() {
                 />
               </Tooltip>
             </Dropdown>
+            <Tooltip title={shortcutHint(t('chat.clearContext', '清空上下文'), 'clearContext')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Scissors size={14} />}
+                onClick={insertContextClear}
+                disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
+              />
+            </Tooltip>
             <Tooltip title={shortcutHint(t('chat.clearConversation', '清空对话'), 'clearConversationMessages')}>
               <Button
                 type="text"
