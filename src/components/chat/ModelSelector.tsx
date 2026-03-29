@@ -315,7 +315,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       {children ? (
         <span onClick={() => setOpen(true)}>{children}</span>
       ) : (
-        <Tooltip title={`${t('chat.switchModel', '切换模型')} (${formatShortcutForDisplay(getShortcutBinding(settings, 'toggleModelSelector'))})`}>
+        <Tooltip title={`${t('chat.switchModel', '切换模型')} (${formatShortcutForDisplay(getShortcutBinding(settings, 'toggleModelSelector'))})`} placement="bottom">
         <Tag
           onClick={() => setOpen(true)}
           style={{
