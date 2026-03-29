@@ -74,10 +74,7 @@ describe('FilesContent — error visibility', () => {
       error: 'cleanup failed',
     });
 
-    const { rerender } = render(<FilesContent activeCategory="files" />);
-    expect(screen.getByTestId('files-error-alert').textContent).toContain('cleanup failed');
-
-    rerender(<FilesContent activeCategory="backups" />);
+    render(<FilesContent activeCategory="files" />);
     expect(screen.getByTestId('files-error-alert').textContent).toContain('cleanup failed');
   });
 });

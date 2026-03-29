@@ -82,27 +82,6 @@ describe('fileStore', () => {
       expect(useFileStore.getState().rows.find((r) => r.id === '2')?.missing).toBe(true);
     });
 
-    it('requests backups from the shared backup-backed category without rewriting the stored path', async () => {
-      const rows = [
-        makeRow('backup_manifest::1', {
-          category: 'backups',
-          path: '/Users/test/.aqbot/backups/aqbot-backup-1.db',
-        }),
-      ];
-      invokeMock.mockResolvedValueOnce(rows);
-      const { useFileStore } = await import('../fileStore');
-
-      await useFileStore.getState().loadCategory('backups');
-
-      expect(invokeMock).toHaveBeenCalledWith(
-        'list_files_page_entries',
-        expect.objectContaining({ category: 'backups' }),
-      );
-      expect(useFileStore.getState().rows[0]?.path).toBe(
-        '/Users/test/.aqbot/backups/aqbot-backup-1.db',
-      );
-    });
-
     it('normalizes real files-page backend entries into frontend rows', async () => {
       invokeMock.mockResolvedValueOnce([
         {

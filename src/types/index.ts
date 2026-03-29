@@ -422,7 +422,7 @@ export type PageKey = 'chat' | 'gateway' | 'files' | 'settings';
 export type SettingsSection = 'providers' | 'defaultModel' | 'general' | 'display' | 'proxy' | 'shortcuts' | 'data' | 'storage' | 'about' | 'searchProviders' | 'mcpServers' | 'knowledge' | 'memory' | 'backup';
 
 // === Files Module ===
-export type FileCategory = 'images' | 'files' | 'backups';
+export type FileCategory = 'images' | 'files';
 
 export type FileSortKey = 'createdAt' | 'size' | 'name';
 
