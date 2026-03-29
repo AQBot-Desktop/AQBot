@@ -2775,6 +2775,8 @@ mod tests {
                 provider_id: None,
                 model_id: None,
                 token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
                 attachments: vec![Attachment {
                     id: "att-1".into(),
                     file_type: "image/png".into(),
@@ -2790,6 +2792,7 @@ mod tests {
                 parent_message_id: None,
                 version_index: 0,
                 is_active: true,
+                status: "done".into(),
             };
 
             build_message_content(&file_store, &message).unwrap()
@@ -2826,6 +2829,8 @@ mod tests {
                 provider_id: None,
                 model_id: None,
                 token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
                 attachments: vec![Attachment {
                     id: String::new(),
                     file_type: "image/png".into(),
@@ -2841,6 +2846,7 @@ mod tests {
                 parent_message_id: None,
                 version_index: 0,
                 is_active: true,
+                status: "done".into(),
             };
 
             build_message_content(&file_store, &message).unwrap()
@@ -2957,7 +2963,9 @@ mod tests {
             app_data_dir: temp_dir.clone(),
             db_path: "sqlite::memory:".to_string(),
             auto_backup_handle: Arc::new(Mutex::new(None)),
+            webdav_sync_handle: Arc::new(Mutex::new(None)),
             vector_store,
+            stream_cancel_flags: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
 
         let attachments = vec![AttachmentInput {

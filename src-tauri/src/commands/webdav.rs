@@ -4,9 +4,37 @@ use aqbot_core::repo::{backup, settings as settings_repo};
 use aqbot_core::webdav::{self, WebDavClient, WebDavConfig, WebDavFileInfo};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait, Statement};
 use std::path::Path;
+use std::path::PathBuf;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use tauri::State;
+
+#[derive(Default)]
+struct RestoreCleanup {
+    files: Vec<PathBuf>,
+    dirs: Vec<PathBuf>,
+}
+
+impl RestoreCleanup {
+    fn track_file<P: Into<PathBuf>>(&mut self, path: P) {
+        self.files.push(path.into());
+    }
+
+    fn track_dir<P: Into<PathBuf>>(&mut self, path: P) {
+        self.dirs.push(path.into());
+    }
+}
+
+impl Drop for RestoreCleanup {
+    fn drop(&mut self) {
+        for path in &self.files {
+            let _ = std::fs::remove_file(path);
+        }
+        for path in &self.dirs {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
 
 /// Get WebDAV configuration (password decrypted).
 #[tauri::command]
@@ -91,8 +119,11 @@ pub async fn webdav_restore(
         backup::resolve_backup_dir(settings.backup_dir.as_deref(), &state.app_data_dir);
     backup::ensure_backup_dir(&backup_dir).map_err(|e| e.to_string())?;
 
+    let mut cleanup = RestoreCleanup::default();
+
     // 1. Download ZIP
     let zip_path = backup_dir.join(&file_name);
+    cleanup.track_file(&zip_path);
     let client = WebDavClient::new(config).map_err(|e| e.to_string())?;
     client
         .download_file(&file_name, &zip_path)
@@ -102,6 +133,7 @@ pub async fn webdav_restore(
     // 2. Extract to temp directory
     let temp_dir = backup_dir.join("_webdav_restore_temp");
     let _ = std::fs::remove_dir_all(&temp_dir);
+    cleanup.track_dir(&temp_dir);
     let contents = webdav::extract_backup_zip(&zip_path, &temp_dir).map_err(|e| e.to_string())?;
 
     // 3. Verify checksum
@@ -113,8 +145,6 @@ pub async fn webdav_restore(
         let ok =
             webdav::verify_db_checksum(&contents.db_path, expected).map_err(|e| e.to_string())?;
         if !ok {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            let _ = std::fs::remove_file(&zip_path);
             return Err("Backup checksum verification failed — file may be corrupted".to_string());
         }
     }
@@ -127,8 +157,14 @@ pub async fn webdav_restore(
     let safety_backup = backup_dir.join("_pre_webdav_restore_safety.db");
     let _ = std::fs::copy(db_path, &safety_backup);
     let master_key_dest = state.app_data_dir.join("master.key");
-    let safety_key_backup = backup_dir.join("_pre_webdav_restore_safety.key");
+    let safety_key_backup = temp_dir.join("_pre_webdav_restore_safety.key");
     let _ = std::fs::copy(&master_key_dest, &safety_key_backup);
+    cleanup.track_file(&safety_key_backup);
+    #[cfg(unix)]
+    {
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&safety_key_backup, perms);
+    }
 
     // 5. Restore master.key if present in backup (required for decrypting API keys)
     if let Some(ref key_path) = contents.master_key_path {
@@ -159,11 +195,7 @@ pub async fn webdav_restore(
         }
     }
 
-    // 8. Clean up
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    let _ = std::fs::remove_file(&zip_path);
-
-    // 9. Auto-restart to pick up the restored database
+    // 8. Auto-restart to pick up the restored database
     app.restart();
 
     #[allow(unreachable_code)]
@@ -429,4 +461,56 @@ pub(crate) fn spawn_webdav_sync_task(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RestoreCleanup;
+
+    #[test]
+    fn restore_cleanup_removes_tracked_safety_key_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "aqbot-webdav-restore-cleanup-{}",
+            aqbot_core::utils::gen_id()
+        ));
+        std::fs::create_dir_all(&temp_root).expect("create temp root");
+        let safety_key = temp_root.join("_pre_webdav_restore_safety.key");
+        std::fs::write(&safety_key, b"secret").expect("write safety key");
+
+        {
+            let mut cleanup = RestoreCleanup::default();
+            cleanup.track_file(&safety_key);
+        }
+
+        assert!(
+            !safety_key.exists(),
+            "restore cleanup must delete the plaintext safety key backup"
+        );
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_cleanup_keeps_safety_key_backup_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "aqbot-webdav-restore-perms-{}",
+            aqbot_core::utils::gen_id()
+        ));
+        std::fs::create_dir_all(&temp_root).expect("create temp root");
+        let safety_key = temp_root.join("_pre_webdav_restore_safety.key");
+        std::fs::write(&safety_key, b"secret").expect("write safety key");
+        std::fs::set_permissions(&safety_key, std::fs::Permissions::from_mode(0o600))
+            .expect("set permissions");
+
+        let mode = std::fs::metadata(&safety_key)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(mode, 0o600, "safety key backups must be owner-readable only");
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
 }
