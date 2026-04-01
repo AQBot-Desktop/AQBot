@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, Input, Slider, InputNumber, Button, Tooltip, Card, Dropdown, Avatar, theme } from 'antd';
+import { Modal, Input, Slider, Button, Tooltip, Card, Dropdown, Avatar, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
 import { Info, Undo2, FileImage, Link, Smile, Bot } from 'lucide-react';
@@ -7,6 +7,7 @@ import { useConversationStore, useSettingsStore } from '@/stores';
 import { CONV_ICON_KEY, type ConvIconType, type ConvIcon } from '@/lib/convIcon';
 import { EmojiPicker } from '@/components/shared/EmojiPicker';
 import { AvatarEditBadge } from '@/components/shared/AvatarEditBadge';
+import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 
 interface ConversationSettingsModalProps {
   open: boolean;
@@ -48,10 +49,10 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
     if (open && conversation) {
       setTitle(conversation.title);
       setSystemPrompt(conversation.system_prompt ?? '');
-      setTemperature(conversation.temperature);
-      setTopP(conversation.top_p);
-      setMaxTokens(conversation.max_tokens);
-      setFrequencyPenalty(conversation.frequency_penalty);
+      setTemperature(conversation.temperature ?? settings.default_temperature ?? 0.7);
+      setTopP(conversation.top_p ?? settings.default_top_p ?? 1.0);
+      setMaxTokens(conversation.max_tokens ?? settings.default_max_tokens ?? 4096);
+      setFrequencyPenalty(conversation.frequency_penalty ?? settings.default_frequency_penalty ?? 0);
 
       const stored = localStorage.getItem(CONTEXT_LIMIT_KEY(conversation.id));
       setContextLimit(stored ? Number(stored) : 50);
@@ -78,10 +79,6 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
 
   if (!conversation) return null;
 
-  const effectiveTemp = temperature ?? settings.default_temperature ?? 0.7;
-  const effectiveTopP = topP ?? settings.default_top_p ?? 1.0;
-  const effectiveMaxTokens = maxTokens ?? settings.default_max_tokens ?? 4096;
-  const effectiveFreqPenalty = frequencyPenalty ?? settings.default_frequency_penalty ?? 0.0;
 
   const handleReset = () => {
     setTemperature(null);
@@ -341,122 +338,27 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
             </div>
           </div>
 
-          {/* Temperature */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={labelStyle}>
-              温度
-              <Tooltip title="较高的值会使输出更随机，较低的值会使输出更确定。">
-                <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
-              </Tooltip>
-            </div>
-            <div style={sliderRowStyle}>
-              <Slider
-                style={{ flex: 1 }}
-                min={0}
-                max={2}
-                step={0.1}
-                value={effectiveTemp}
-                onChange={(v) => setTemperature(v)}
-              />
-              <InputNumber
-                style={{ width: 70 }}
-                min={0}
-                max={2}
-                step={0.1}
-                value={effectiveTemp}
-                onChange={(v) => setTemperature(v)}
-                size="small"
-              />
-            </div>
-          </div>
-
-          {/* Top P */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={labelStyle}>
-              Top P
-              <Tooltip title="核采样参数。模型考虑概率质量前 P 的结果。">
-                <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
-              </Tooltip>
-            </div>
-            <div style={sliderRowStyle}>
-              <Slider
-                style={{ flex: 1 }}
-                min={0}
-                max={1}
-                step={0.1}
-                value={effectiveTopP}
-                onChange={(v) => setTopP(v)}
-              />
-              <InputNumber
-                style={{ width: 70 }}
-                min={0}
-                max={1}
-                step={0.1}
-                value={effectiveTopP}
-                onChange={(v) => setTopP(v)}
-                size="small"
-              />
-            </div>
-          </div>
-
-          {/* Max Output Tokens */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={labelStyle}>
-              最大输出
-              <Tooltip title="模型在单次回复中生成的最大 token 数量。">
-                <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
-              </Tooltip>
-            </div>
-            <div style={sliderRowStyle}>
-              <Slider
-                style={{ flex: 1 }}
-                min={256}
-                max={10485760}
-                step={256}
-                marks={{ 256: '', 32768: '32K', 131072: '128K', 1048576: '1M', 10485760: '10M' }}
-                value={effectiveMaxTokens}
-                onChange={(v) => setMaxTokens(v)}
-              />
-              <InputNumber
-                style={{ width: 90 }}
-                min={256}
-                max={10485760}
-                step={256}
-                value={effectiveMaxTokens}
-                onChange={(v) => setMaxTokens(v)}
-                size="small"
-              />
-            </div>
-          </div>
-
-          {/* Frequency Penalty */}
-          <div>
-            <div style={labelStyle}>
-              频率惩罚
-              <Tooltip title="对重复 token 施加惩罚，减少重复内容的生成。">
-                <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
-              </Tooltip>
-            </div>
-            <div style={sliderRowStyle}>
-              <Slider
-                style={{ flex: 1 }}
-                min={0}
-                max={2}
-                step={0.1}
-                value={effectiveFreqPenalty}
-                onChange={(v) => setFrequencyPenalty(v)}
-              />
-              <InputNumber
-                style={{ width: 70 }}
-                min={0}
-                max={2}
-                step={0.1}
-                value={effectiveFreqPenalty}
-                onChange={(v) => setFrequencyPenalty(v)}
-                size="small"
-              />
-            </div>
-          </div>
+          {/* Temperature / Top P / Max Tokens / Frequency Penalty */}
+          <ModelParamSliders
+            values={{
+              temperature,
+              topP,
+              maxTokens,
+              frequencyPenalty,
+            }}
+            onChange={(v) => {
+              if ('temperature' in v) setTemperature(v.temperature!);
+              if ('topP' in v) setTopP(v.topP!);
+              if ('maxTokens' in v) setMaxTokens(v.maxTokens!);
+              if ('frequencyPenalty' in v) setFrequencyPenalty(v.frequencyPenalty!);
+            }}
+            defaults={{
+              temperature: settings.default_temperature ?? 0.7,
+              topP: settings.default_top_p ?? 1.0,
+              maxTokens: settings.default_max_tokens ?? 4096,
+              frequencyPenalty: settings.default_frequency_penalty ?? 0,
+            }}
+          />
         </Card>
       </div>
     </Modal>

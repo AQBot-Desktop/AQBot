@@ -1,79 +1,17 @@
-import { Card, Slider, InputNumber, Button, Input, Tooltip, Modal, Switch, Divider, theme } from 'antd';
+import { Card, Slider, InputNumber, Button, Input, Tooltip, Modal, Divider, theme } from 'antd';
 import { Settings, Info, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, useProviderStore } from '@/stores';
 import { useEffect, useCallback, useState } from 'react';
 import type { AppSettings } from '@/types';
 import { ModelSelect, parseModelValue } from '@/components/shared/ModelSelect';
+import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 
 const { TextArea } = Input;
 
 const DEFAULT_TITLE_SUMMARY_PROMPT = '请根据以下对话内容，生成一个简短精炼的标题（不超过20个字），直接返回标题文本，不要包含引号或任何额外说明。';
 
 const DEFAULT_COMPRESSION_PROMPT = '你是一个对话摘要助手。请将以下对话历史压缩为简洁摘要。\n\n要求：\n1. 保留所有用户明确表达的需求、偏好和决策\n2. 保留关键技术细节（代码片段、配置、错误信息等）\n3. 保留待办事项和未解决的问题\n4. 用简洁的要点形式组织\n5. 保持摘要简洁，不超过 500 字';
-
-// ── Switch-controlled parameter row ────────────────────────
-
-function SwitchParam({
-  label,
-  tooltip,
-  value,
-  defaultValue,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  tooltip?: string;
-  value: number | null;
-  defaultValue: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number | null) => void;
-}) {
-  const { token } = theme.useToken();
-  const isOn = value !== null;
-
-  return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14 }}>
-          {label}
-          {tooltip && (
-            <Tooltip title={tooltip}>
-              <Info size={12} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
-            </Tooltip>
-          )}
-        </span>
-        <Switch
-          size="small"
-          checked={isOn}
-          onChange={(checked) => onChange(checked ? defaultValue : null)}
-        />
-      </div>
-      {isOn && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 8 }}>
-          <Slider
-            style={{ flex: 1 }}
-            min={min} max={max} step={step}
-            value={value!}
-            onChange={(v) => onChange(v)}
-          />
-          <InputNumber
-            style={{ width: 72 }}
-            min={min} max={max} step={step}
-            value={value!}
-            onChange={(v) => v !== null && onChange(v)}
-            size="small"
-          />
-        </div>
-      )}
-      <Divider style={{ margin: 0 }} />
-    </>
-  );
-}
 
 // ── Context count slider ───────────────────────────────────
 
@@ -212,22 +150,22 @@ function ModelParamsModal({
       </div>
       <Divider style={{ margin: '4px 0 0' }} />
 
-      <SwitchParam
-        label={t('settings.modelTemperature', '模型温度')}
-        tooltip={t('settings.temperatureTooltip', '较高的值会使输出更随机，较低的值会使输出更确定')}
-        value={settings[temperatureKey] as number | null}
-        defaultValue={defaultTemperature}
-        min={0} max={2} step={0.1}
-        onChange={(v) => saveSettings({ [temperatureKey]: v } as Partial<AppSettings>)}
-      />
-
-      <SwitchParam
-        label="Top-P"
-        tooltip={t('settings.topPTooltip', '控制采样范围，较低的值会限制模型只从最可能的词中选择')}
-        value={settings[topPKey] as number | null}
-        defaultValue={defaultTopP}
-        min={0} max={1} step={0.05}
-        onChange={(v) => saveSettings({ [topPKey]: v } as Partial<AppSettings>)}
+      <ModelParamSliders
+        values={{
+          temperature: (settings[temperatureKey] as number | null) ?? defaultTemperature,
+          topP: (settings[topPKey] as number | null) ?? defaultTopP,
+          maxTokens: (settings[maxTokensKey] as number | null) ?? defaultMaxTokens,
+          frequencyPenalty: null,
+        }}
+        onChange={(v) => {
+          const patch: Record<string, unknown> = {};
+          if ('temperature' in v) patch[temperatureKey] = v.temperature;
+          if ('topP' in v) patch[topPKey] = v.topP;
+          if ('maxTokens' in v) patch[maxTokensKey] = v.maxTokens;
+          saveSettings(patch as Partial<AppSettings>);
+        }}
+        defaults={{ temperature: defaultTemperature, topP: defaultTopP, maxTokens: defaultMaxTokens }}
+        visibleParams={['temperature', 'topP', 'maxTokens']}
       />
 
       {showContextCount && contextCountKey && (
@@ -238,15 +176,6 @@ function ModelParamsModal({
           onChange={(v) => saveSettings({ [contextCountKey]: v } as Partial<AppSettings>)}
         />
       )}
-
-      <SwitchParam
-        label={t('settings.maxTokenCount', '最大 Token 数')}
-        tooltip={t('settings.maxTokensTooltip', '模型生成的最大 Token 数量')}
-        value={settings[maxTokensKey] as number | null}
-        defaultValue={defaultMaxTokens}
-        min={256} max={10485760} step={256}
-        onChange={(v) => saveSettings({ [maxTokensKey]: v } as Partial<AppSettings>)}
-      />
     </Modal>
   );
 }

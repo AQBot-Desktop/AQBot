@@ -13,7 +13,6 @@ import {
   Popconfirm,
   Popover,
   Select,
-  Slider,
   Space,
   Spin,
   Switch,
@@ -35,6 +34,7 @@ import IconPickerModal from './IconPickerModal';
 import { AvatarEditBadge } from '@/components/shared/AvatarEditBadge';
 import { DynamicLobeIcon } from '@/components/shared/DynamicLobeIcon';
 import type { Model, ModelCapability, ModelType, ModelParamOverrides, ProviderType } from '@/types';
+import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 
 const { Text, Title } = Typography;
 
@@ -168,10 +168,10 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [editCapabilities, setEditCapabilities] = useState<ModelCapability[]>([]);
   const [editModelType, setEditModelType] = useState<ModelType>('Chat');
   const [editMaxTokens, setEditMaxTokens] = useState<number | null>(null);
-  const [editTemperature, setEditTemperature] = useState(0.7);
-  const [editMaxTokensParam, setEditMaxTokensParam] = useState(4096);
-  const [editTopP, setEditTopP] = useState(1.0);
-  const [editFreqPenalty, setEditFreqPenalty] = useState(0.0);
+  const [editTemperature, setEditTemperature] = useState<number | null>(0.7);
+  const [editMaxTokensParam, setEditMaxTokensParam] = useState<number | null>(4096);
+  const [editTopP, setEditTopP] = useState<number | null>(1.0);
+  const [editFreqPenalty, setEditFreqPenalty] = useState<number | null>(0.0);
   const [editUseMaxCompletionTokens, setEditUseMaxCompletionTokens] = useState(false);
   const [editNoSystemRole, setEditNoSystemRole] = useState(false);
   const [editForceMaxTokens, setEditForceMaxTokens] = useState(false);
@@ -497,10 +497,10 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const handleSaveSettings = useCallback(async () => {
     if (!editingModel) return;
     const values: ModelParamOverrides = {
-      temperature: editTemperature,
-      max_tokens: editMaxTokensParam,
-      top_p: editTopP,
-      frequency_penalty: editFreqPenalty,
+      temperature: editTemperature ?? undefined,
+      max_tokens: editMaxTokensParam ?? undefined,
+      top_p: editTopP ?? undefined,
+      frequency_penalty: editFreqPenalty ?? undefined,
       use_max_completion_tokens: editUseMaxCompletionTokens,
       no_system_role: editNoSystemRole,
       force_max_tokens: editForceMaxTokens,
@@ -1360,33 +1360,21 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   />
                 </div>
 
-                {/* Temperature */}
-                <div className="flex items-center gap-3">
-                  <span className="text-sm shrink-0" style={{ color: token.colorText, width: 80 }}>{t('settings.temperature')}</span>
-                  <Slider style={{ flex: 1 }} min={0} max={2} step={0.1} marks={{ 0: '0', 0.5: '', 1: '1', 1.5: '', 2: '2' }} value={editTemperature} onChange={setEditTemperature} />
-                  <InputNumber style={{ width: 60 }} min={0} max={2} step={0.1} size="small" value={editTemperature} onChange={(v) => setEditTemperature(v ?? 0)} />
-                </div>
-
-                {/* Max Tokens */}
-                <div className="flex items-center gap-3">
-                  <span className="text-sm shrink-0" style={{ color: token.colorText, width: 80 }}>{t('settings.maxTokens')}</span>
-                  <Slider style={{ flex: 1 }} min={256} max={10485760} step={256} marks={{ 256: '', 32768: '32K', 131072: '128K', 1048576: '1M', 10485760: '10M' }} value={editMaxTokensParam} onChange={setEditMaxTokensParam} />
-                  <InputNumber style={{ width: 90 }} min={256} max={10485760} step={256} size="small" value={editMaxTokensParam} onChange={(v) => setEditMaxTokensParam(v ?? 256)} />
-                </div>
-
-                {/* Top P */}
-                <div className="flex items-center gap-3">
-                  <span className="text-sm shrink-0" style={{ color: token.colorText, width: 80 }}>Top P</span>
-                  <Slider style={{ flex: 1 }} min={0} max={1} step={0.05} marks={{ 0: '0', 0.5: '', 1: '1' }} value={editTopP} onChange={setEditTopP} />
-                  <InputNumber style={{ width: 60 }} min={0} max={1} step={0.05} size="small" value={editTopP} onChange={(v) => setEditTopP(v ?? 0)} />
-                </div>
-
-                {/* Frequency Penalty */}
-                <div className="flex items-center gap-3">
-                  <span className="text-sm shrink-0" style={{ color: token.colorText, width: 80 }}>{t('settings.frequencyPenalty')}</span>
-                  <Slider style={{ flex: 1 }} min={-2} max={2} step={0.1} marks={{ '-2': '-2', 0: '0', 2: '2' }} value={editFreqPenalty} onChange={setEditFreqPenalty} />
-                  <InputNumber style={{ width: 60 }} min={-2} max={2} step={0.1} size="small" value={editFreqPenalty} onChange={(v) => setEditFreqPenalty(v ?? 0)} />
-                </div>
+                <ModelParamSliders
+                  values={{
+                    temperature: editTemperature,
+                    topP: editTopP,
+                    maxTokens: editMaxTokensParam,
+                    frequencyPenalty: editFreqPenalty,
+                  }}
+                  onChange={(v) => {
+                    if ('temperature' in v) setEditTemperature(v.temperature!);
+                    if ('topP' in v) setEditTopP(v.topP!);
+                    if ('maxTokens' in v) setEditMaxTokensParam(v.maxTokens!);
+                    if ('frequencyPenalty' in v) setEditFreqPenalty(v.frequencyPenalty!);
+                  }}
+                  showDividers={false}
+                />
 
                 <Divider className="!my-2" />
 
