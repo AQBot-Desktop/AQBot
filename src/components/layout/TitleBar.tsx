@@ -130,10 +130,6 @@ export function TitleBar() {
           const d = new Date(s.lastSyncTime);
           if (!Number.isNaN(d.getTime())) {
             setLastWebDavSync(d.toLocaleString());
-            const interval = settings.webdav_sync_interval_minutes ?? 60;
-            if (settings.webdav_sync_enabled && interval > 0) {
-              setNextWebDavTs(d.getTime() + interval * 60000);
-            }
           }
         }
       })
@@ -151,6 +147,22 @@ export function TitleBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backupPopoverOpen]);
 
+  // Calculate next WebDAV sync timestamp (re-run when settings or lastWebDavSync change)
+  useEffect(() => {
+    if (!lastWebDavSync) {
+      setNextWebDavTs(null);
+      return;
+    }
+    const d = new Date(lastWebDavSync);
+    if (Number.isNaN(d.getTime())) return;
+    const interval = settings.webdav_sync_interval_minutes ?? 60;
+    if (settings.webdav_sync_enabled && interval > 0) {
+      setNextWebDavTs(d.getTime() + interval * 60000);
+    } else {
+      setNextWebDavTs(null);
+    }
+  }, [settings.webdav_sync_enabled, settings.webdav_sync_interval_minutes, lastWebDavSync]);
+
   // Calculate next local backup timestamp from backup settings
   useEffect(() => {
     if (!backupSettings?.enabled || !lastLocalBackup) {
@@ -163,16 +175,15 @@ export function TitleBar() {
     setNextLocalTs(lastTime + intervalMs);
   }, [backupSettings, lastLocalBackup]);
 
-  // Live countdown on button — tick every second when within 10 minutes
+  // Live countdown on button — tick every second while any backup is scheduled
   useEffect(() => {
-    const TEN_MIN = 10 * 60 * 1000;
     const tick = () => {
       const now = Date.now();
       let soonest: number | null = null;
-      if (nextLocalTs && nextLocalTs - now > 0 && nextLocalTs - now <= TEN_MIN) {
+      if (nextLocalTs && nextLocalTs - now > 0) {
         soonest = nextLocalTs;
       }
-      if (nextWebDavTs && nextWebDavTs - now > 0 && nextWebDavTs - now <= TEN_MIN) {
+      if (nextWebDavTs && nextWebDavTs - now > 0) {
         if (!soonest || nextWebDavTs < soonest) soonest = nextWebDavTs;
       }
       if (soonest) {
