@@ -1,5 +1,5 @@
 import { Button, Card, Divider, Typography, message, App, Progress } from 'antd';
-import { Github, RefreshCw, Terminal } from 'lucide-react';
+import { Github, Globe, RefreshCw, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
@@ -162,6 +162,18 @@ export function AboutPage() {
         </div>
       </Card>
       <Card size="small" title={t('settings.groupLinks')}>
+        <div style={rowStyle} className="flex items-center justify-between">
+          <span>{t('settings.website')}</span>
+          <Button
+            icon={<Globe size={16} />}
+            href="https://app.aqbot.top"
+            target="_blank"
+            type="link"
+          >
+            {t('settings.website')}
+          </Button>
+        </div>
+        <Divider style={{ margin: '4px 0' }} />
         <div style={rowStyle} className="flex items-center justify-between">
           <span>GitHub</span>
           <Button
