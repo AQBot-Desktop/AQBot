@@ -563,6 +563,7 @@ pub struct AppSettings {
     pub webdav_sync_interval_minutes: u32,
     pub webdav_max_remote_backups: u32,
     pub webdav_include_documents: bool,
+    pub last_selected_conversation_id: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -650,6 +651,7 @@ impl Default for AppSettings {
             webdav_sync_interval_minutes: 60,
             webdav_max_remote_backups: 10,
             webdav_include_documents: false,
+            last_selected_conversation_id: None,
         }
     }
 }

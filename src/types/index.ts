@@ -383,6 +383,7 @@ export interface AppSettings {
   webdav_sync_interval_minutes?: number;
   webdav_max_remote_backups?: number;
   webdav_include_documents?: boolean;
+  last_selected_conversation_id?: string | null;
 }
 
 // === Streaming ===

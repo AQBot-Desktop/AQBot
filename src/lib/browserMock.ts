@@ -226,6 +226,7 @@ const DEFAULT_SETTINGS = {
   auto_backup: false,
   backup_interval_hours: 24,
   content_safety_enabled: true,
+  last_selected_conversation_id: null,
 };
 
 // ── Command Handler ─────────────────────────────────────────────────────

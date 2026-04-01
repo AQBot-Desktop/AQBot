@@ -136,6 +136,7 @@ export function ChatSidebar() {
 
   const providers = useProviderStore((s) => s.providers)
   const settings = useSettingsStore((s) => s.settings)
+  const settingsLoading = useSettingsStore((s) => s.loading)
 
   const categories = useCategoryStore((s) => s.categories)
   const fetchCategories = useCategoryStore((s) => s.fetchCategories)
@@ -217,16 +218,29 @@ export function ChatSidebar() {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<ConversationCategory | null>(null)
 
-  // Auto-select first conversation if none selected
+  // Auto-select conversation: restore last selected, or fall back to first
   useEffect(() => {
-    if (!activeConversationId && conversations.length > 0) {
-      const sorted = [...conversations].sort((a, b) => {
-        if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
-        return b.updated_at - a.updated_at
-      })
-      setActiveConversation(sorted[0].id)
+    if (!activeConversationId && conversations.length > 0 && !settingsLoading) {
+      const lastId = settings.last_selected_conversation_id
+      const lastConv = lastId ? conversations.find((c) => c.id === lastId) : null
+      if (lastConv) {
+        setActiveConversation(lastConv.id)
+      } else {
+        const sorted = [...conversations].sort((a, b) => {
+          if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
+          return b.updated_at - a.updated_at
+        })
+        setActiveConversation(sorted[0].id)
+      }
     }
-  }, [activeConversationId, conversations, setActiveConversation])
+  }, [activeConversationId, conversations, setActiveConversation, settings.last_selected_conversation_id, settingsLoading])
+
+  // Persist last selected conversation
+  useEffect(() => {
+    if (activeConversationId && activeConversationId !== settings.last_selected_conversation_id) {
+      void useSettingsStore.getState().saveSettings({ last_selected_conversation_id: activeConversationId })
+    }
+  }, [activeConversationId, settings.last_selected_conversation_id])
 
   useEffect(() => { void fetchCategories() }, [fetchCategories])
 
