@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox } from 'antd';
 import type { MenuProps } from 'antd';
-import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, BrainCog, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, ZapOff, Gauge, Shrink, Upload } from 'lucide-react';
+import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, BrainCog, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, ZapOff, Gauge, Shrink, Upload, LayoutGrid, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
@@ -12,7 +12,9 @@ import { getShortcutBinding, formatShortcutForDisplay } from '@/lib/shortcuts';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
+import { ModelSelector } from './ModelSelector';
 import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
+import { ModelIcon } from '@lobehub/icons';
 import type { AttachmentInput, RealtimeConfig } from '@/types';
 
 async function fileToAttachmentInput(file: File): Promise<AttachmentInput> {
@@ -42,6 +44,12 @@ export function InputArea() {
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Multi-model companion state
+  const [companionModels, setCompanionModels] = useState<Array<{ providerId: string; modelId: string }>>([]);
+  const [multiModelOpen, setMultiModelOpen] = useState(false);
+  const sendMultiModelMessage = useConversationStore((s) => s.sendMultiModelMessage);
+  const pendingCompanionModels = useConversationStore((s) => s.pendingCompanionModels);
 
   const { message: messageApi, modal } = App.useApp();
   const streaming = useConversationStore((s) => s.streaming);
@@ -134,6 +142,18 @@ export function InputArea() {
   // useEffect(() => {
   //   if (memoryNamespaces.length === 0) loadMemoryNamespaces();
   // }, [memoryNamespaces.length, loadMemoryNamespaces]);
+
+  // Persist companion models per conversation in localStorage
+  const companionStorageKey = activeConversationId ? `aqbot:companion-models:${activeConversationId}` : null;
+
+  // Load companion models when conversation changes
+  useEffect(() => {
+    if (!companionStorageKey) { setCompanionModels([]); return; }
+    try {
+      const saved = localStorage.getItem(companionStorageKey);
+      setCompanionModels(saved ? JSON.parse(saved) : []);
+    } catch { setCompanionModels([]); }
+  }, [companionStorageKey]);
 
   // Search dropdown menu items
   const searchMenuItems = useMemo(() => {
@@ -419,6 +439,50 @@ export function InputArea() {
     hasVision: modelHasCapability(currentModel, 'Vision'),
   }), [activeConversation, currentModel, providers]);
 
+  // Current model key for excluding from multi-select (no longer used - users can select any model)
+
+  const companionDisplayInfos = useMemo(() => {
+    return companionModels.map((cm) => {
+      const provider = providers.find((p) => p.id === cm.providerId);
+      const model = provider?.models.find((m) => m.model_id === cm.modelId);
+      return {
+        ...cm,
+        modelName: model?.name ?? cm.modelId,
+        providerName: provider?.name ?? '',
+      };
+    });
+  }, [companionModels, providers]);
+
+  const handleMultiModelSelect = useCallback((models: Array<{ providerId: string; modelId: string }>) => {
+    setCompanionModels(models);
+    if (companionStorageKey) {
+      if (models.length > 0) {
+        localStorage.setItem(companionStorageKey, JSON.stringify(models));
+      } else {
+        localStorage.removeItem(companionStorageKey);
+      }
+    }
+  }, [companionStorageKey]);
+
+  const removeCompanionModel = useCallback((index: number) => {
+    setCompanionModels((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (companionStorageKey) {
+        if (next.length > 0) {
+          localStorage.setItem(companionStorageKey, JSON.stringify(next));
+        } else {
+          localStorage.removeItem(companionStorageKey);
+        }
+      }
+      return next;
+    });
+  }, [companionStorageKey]);
+
+  const clearAllCompanionModels = useCallback(() => {
+    setCompanionModels([]);
+    if (companionStorageKey) localStorage.removeItem(companionStorageKey);
+  }, [companionStorageKey]);
+
   const voiceConfig: RealtimeConfig = React.useMemo(
     () => ({
       model_id: activeConversation?.model_id ?? '',
@@ -460,14 +524,18 @@ export function InputArea() {
 
       setValue('');
       setAttachedFiles([]);
-      await sendMessage(trimmed, attachments, searchEnabled ? searchProviderId : null);
+      if (companionModels.length > 0) {
+        await sendMultiModelMessage(trimmed, companionModels, attachments, searchEnabled ? searchProviderId : null);
+      } else {
+        await sendMessage(trimmed, attachments, searchEnabled ? searchProviderId : null);
+      }
     } catch (e) {
       setValue((current) => current || trimmed);
       setAttachedFiles((current) => (current.length > 0 ? current : submittedFiles));
       console.error('[handleSend] error:', e);
       messageApi.error(String(e));
     }
-  }, [value, attachedFiles, sendMessage, activeConversationId, providers, settings, createConversation, messageApi, t, searchEnabled, searchProviderId]);
+  }, [value, attachedFiles, sendMessage, sendMultiModelMessage, companionModels, activeConversationId, providers, settings, createConversation, messageApi, t, searchEnabled, searchProviderId]);
 
   const handleFillLastMessage = useCallback(() => {
     if (streaming) return;
@@ -708,6 +776,57 @@ export function InputArea() {
           overflow: 'hidden',
         }}
       >
+        {/* Companion model tags */}
+        {companionModels.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-3 pb-1">
+            <span
+              className="inline-flex items-center px-2 py-0.5 text-xs"
+              style={{ color: token.colorTextTertiary }}
+            >
+              {t('chat.multiModel', '多模型同答')}:
+            </span>
+            {companionDisplayInfos.map((cm, idx) => (
+              <span
+                key={`${cm.providerId}-${cm.modelId}`}
+                className="inline-flex items-center gap-1.5 pl-1.5 pr-1 py-0.5 text-xs"
+                style={{
+                  backgroundColor: token.colorFillSecondary,
+                  borderRadius: token.borderRadiusSM,
+                  color: token.colorText,
+                }}
+              >
+                <ModelIcon provider={cm.providerId} model={cm.modelId} size={14} type="avatar" />
+                <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {cm.modelName}
+                </span>
+                {cm.providerName && (
+                  <span style={{ color: token.colorTextQuaternary, fontSize: 11 }}>
+                    {cm.providerName}
+                  </span>
+                )}
+                <X
+                  size={12}
+                  className="cursor-pointer flex-shrink-0"
+                  style={{ color: token.colorTextTertiary }}
+                  onClick={() => removeCompanionModel(idx)}
+                />
+              </span>
+            ))}
+            {/* Clear all companion models */}
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs cursor-pointer"
+              style={{
+                borderRadius: token.borderRadiusSM,
+                color: token.colorTextTertiary,
+              }}
+              onClick={clearAllCompanionModels}
+            >
+              <Trash2 size={11} />
+              {t('chat.clearAll', '清除')}
+            </span>
+          </div>
+        )}
+
         {/* Textarea */}
         <textarea
           ref={textareaRef}
@@ -826,6 +945,15 @@ export function InputArea() {
               </Tooltip>
             </Popover>
             {/* Knowledge base & Memory buttons — hidden (Coming Soon) */}
+            <Tooltip title={t('chat.multiModel', '多模型同答')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<LayoutGrid size={14} />}
+                onClick={() => setMultiModelOpen(true)}
+                style={companionModels.length > 0 ? { color: token.colorPrimary } : undefined}
+              />
+            </Tooltip>
             <Dropdown
               menu={{
                 items: [
@@ -1018,6 +1146,17 @@ export function InputArea() {
           </div>
         </div>
       )}
+
+      {/* Multi-model selector (trigger hidden, controlled via multiModelOpen state) */}
+      <ModelSelector
+        multiSelect
+        open={multiModelOpen}
+        onOpenChange={setMultiModelOpen}
+        onMultiSelect={handleMultiModelSelect}
+        defaultSelectedModels={companionModels}
+      >
+        <span />
+      </ModelSelector>
     </div>
   );
 }

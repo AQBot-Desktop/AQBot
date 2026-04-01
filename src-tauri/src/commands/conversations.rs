@@ -1028,7 +1028,15 @@ fn spawn_stream_task(
             // If no tool calls, we're done
             let tool_calls = match tool_calls {
                 Some(tc) if !tc.is_empty() => tc,
-                _ => break,
+                _ => {
+                    // Final iteration has no tool calls — clear any stale value so the
+                    // stored message won't carry orphaned tool_calls_json (which would
+                    // break context for subsequent requests since the matching tool
+                    // response messages are stored as is_active=0 and excluded from
+                    // list_messages).
+                    final_tool_calls_json = None;
+                    break;
+                }
             };
 
             // Determine where MCP blocks belong: if this iteration produced
@@ -1224,10 +1232,10 @@ fn spawn_stream_task(
         if had_stream_error && total_content.is_empty() {
             let err = last_stream_error.as_deref().unwrap_or("Unknown error");
             let base_url = ctx.base_url.as_deref().unwrap_or("(not set)");
-            let api_path = ctx.api_path.as_deref().unwrap_or("");
+            let api_path_display = ctx.api_path.as_deref().unwrap_or("(default)");
             total_content = format!(
-                "{}\n\nBase URL: {}{}\nModel: {}\nProvider: {} ({:?})",
-                err, base_url, api_path, model_id, provider.name, provider.provider_type,
+                "{}\n\nBase URL: {}\nAPI Path: {}\nModel: {}\nProvider: {} ({:?})",
+                err, base_url, api_path_display, model_id, provider.name, provider.provider_type,
             );
         }
         let token_count = total_usage.as_ref().map(|u| u.completion_tokens);

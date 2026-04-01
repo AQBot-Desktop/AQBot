@@ -384,7 +384,7 @@ fn html_to_markdown(html: &str) -> String {
         .to_string();
 
     // Bold
-    let re_b = Regex::new(r"(?is)<(b|strong)\s*[^>]*>(.*?)</\1>").unwrap();
+    let re_b = Regex::new(r"(?is)<(b|strong)\s*[^>]*>(.*?)</(b|strong)>").unwrap();
     text = re_b
         .replace_all(&text, |caps: &regex::Captures| {
             let inner = caps.get(2).map_or("", |m| m.as_str());
@@ -393,7 +393,7 @@ fn html_to_markdown(html: &str) -> String {
         .to_string();
 
     // Italic
-    let re_i = Regex::new(r"(?is)<(i|em)\s*[^>]*>(.*?)</\1>").unwrap();
+    let re_i = Regex::new(r"(?is)<(i|em)\s*[^>]*>(.*?)</(i|em)>").unwrap();
     text = re_i
         .replace_all(&text, |caps: &regex::Captures| {
             let inner = caps.get(2).map_or("", |m| m.as_str());

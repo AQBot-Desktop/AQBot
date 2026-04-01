@@ -971,6 +971,12 @@ function ModelTags({
 }) {
   const { token } = theme.useToken();
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
+  const pendingCompanionModels = useConversationStore((s) => s.pendingCompanionModels);
+  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
+  const multiModelDoneMessageIds = useConversationStore((s) => s.multiModelDoneMessageIds);
+
+  // Only show pending/streaming indicators for the specific multi-model target message
+  const isMultiModelTarget = msg.parent_message_id === multiModelParentId;
 
   const modelGroups = useMemo(() => {
     const groups = new Map<string, Message[]>();
@@ -982,7 +988,28 @@ function ModelTags({
     return groups;
   }, [allVersions]);
 
-  if (modelGroups.size <= 1) return null;
+  // Pending companions that haven't generated a version yet
+  const pendingModels = useMemo(() => {
+    if (!isMultiModelTarget || !pendingCompanionModels.length) return [];
+    return pendingCompanionModels.filter((cm) => !modelGroups.has(cm.modelId));
+  }, [isMultiModelTarget, pendingCompanionModels, modelGroups]);
+
+  // Check if a model is currently streaming (has a version but not yet completed)
+  const streamingModelIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!isMultiModelTarget) return ids;
+    for (const cm of pendingCompanionModels) {
+      if (modelGroups.has(cm.modelId)) {
+        // Check if this model's version has completed (per-model tracking)
+        const versions = modelGroups.get(cm.modelId)!;
+        const isDone = versions.some((v) => multiModelDoneMessageIds.includes(v.id));
+        if (!isDone) ids.add(cm.modelId);
+      }
+    }
+    return ids;
+  }, [isMultiModelTarget, pendingCompanionModels, modelGroups, multiModelDoneMessageIds]);
+
+  if (modelGroups.size <= 1 && pendingModels.length === 0) return null;
 
   const currentModelId = msg.model_id ?? '__unknown__';
 
@@ -998,11 +1025,13 @@ function ModelTags({
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
       {Array.from(modelGroups.keys()).map((modelId) => {
         const isActive = modelId === currentModelId;
+        const isStreaming = streamingModelIds.has(modelId);
         const { modelName } = getModelDisplayInfo(modelId, modelGroups.get(modelId)?.[0]?.provider_id);
         return (
           <Tooltip key={modelId} title={modelName} mouseEnterDelay={0.3}>
             <div
               onClick={() => handleTagClick(modelId)}
+              className={isStreaming ? 'model-tag-streaming' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1017,6 +1046,30 @@ function ModelTags({
               }}
             >
               <ModelIcon model={modelId} size={20} type="avatar" />
+            </div>
+          </Tooltip>
+        );
+      })}
+      {/* Pending companion models waiting to stream */}
+      {pendingModels.map((cm) => {
+        const { modelName } = getModelDisplayInfo(cm.modelId, cm.providerId);
+        return (
+          <Tooltip key={`pending-${cm.modelId}`} title={`${modelName} (waiting...)`} mouseEnterDelay={0.3}>
+            <div
+              className="model-tag-pending"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: '50%',
+                border: `1.5px dashed ${token.colorTextQuaternary}`,
+                opacity: 0.5,
+                flexShrink: 0,
+              }}
+            >
+              <ModelIcon model={cm.modelId} size={20} type="avatar" />
             </div>
           </Tooltip>
         );
@@ -1103,11 +1156,13 @@ function AssistantFooter({
   conversationId,
   assistantCopyText,
   getModelDisplayInfo,
+  isStreaming = false,
 }: {
   msg: Message;
   conversationId: string;
   assistantCopyText: string;
   getModelDisplayInfo: (modelId?: string | null, providerId?: string | null) => { modelName: string; providerName: string };
+  isStreaming?: boolean;
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
@@ -1118,6 +1173,8 @@ function AssistantFooter({
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
+  // Track message count to re-fetch versions when companion messages appear
+  const messagesLength = useConversationStore((s) => s.messages.length);
 
   useEffect(() => {
     if (msg.parent_message_id && conversationId) {
@@ -1125,7 +1182,7 @@ function AssistantFooter({
         if (v) setAllVersions(v);
       });
     }
-  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions]);
+  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, messagesLength]);
 
   // Current message's model for ModelSelector highlight
   const currentModelOverride = useMemo(() => {
@@ -1151,7 +1208,7 @@ function AssistantFooter({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {(msg.prompt_tokens != null || msg.completion_tokens != null) && (
+      {!isStreaming && (msg.prompt_tokens != null || msg.completion_tokens != null) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: token.colorTextDescription, lineHeight: '16px', marginTop: -6, marginBottom: 4 }}>
           {msg.prompt_tokens != null && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -1167,9 +1224,10 @@ function AssistantFooter({
           )}
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <VersionPagination msg={msg} conversationId={conversationId} allVersions={allVersions} />
-        <Actions
+      {!isStreaming && (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <VersionPagination msg={msg} conversationId={conversationId} allVersions={allVersions} />
+          <Actions
           items={[
             {
               key: 'copy',
@@ -1260,6 +1318,7 @@ function AssistantFooter({
           ]}
         />
       </div>
+      )}
       <ModelTags msg={msg} conversationId={conversationId} allVersions={allVersions} getModelDisplayInfo={getModelDisplayInfo} />
     </div>
   );
@@ -1287,6 +1346,7 @@ export function ChatView() {
   const streaming = useConversationStore((s) => s.streaming);
   const compressing = useConversationStore((s) => s.compressing);
   const streamingMessageId = useConversationStore((s) => s.streamingMessageId);
+  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
   const thinkingActiveMessageId = useConversationStore((s) => s.thinkingActiveMessageId);
   const storeError = useConversationStore((s) => s.error);
   const updateConversation = useConversationStore((s) => s.updateConversation);
@@ -1582,7 +1642,7 @@ export function ChatView() {
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();
     for (const msg of messages) {
-      if (msg.role === 'assistant' && msg.parent_message_id) {
+      if (msg.role === 'assistant' && msg.parent_message_id && msg.is_active !== false) {
         map.set(`ai:${msg.parent_message_id}`, msg);
       }
     }
@@ -1676,7 +1736,9 @@ export function ChatView() {
       // Use parent_message_id as stable key for assistant bubbles to avoid
       // unmount/remount flash when switching versions. Prefix with "ai:" to
       // prevent key collision with the user message (which shares the same id).
+      // Skip duplicate assistant messages with the same parent (multi-model parallel race).
       const stableKey = msg.parent_message_id ? `ai:${msg.parent_message_id}` : msg.id;
+      if (nextCache.has(stableKey)) continue; // already rendered for this parent
       const signature = `ai:${msg.id}:${aiContent}`;
       const cached = cache.get(stableKey);
       const item = cached?.signature === signature
@@ -1916,7 +1978,7 @@ export function ChatView() {
                   {formatTime(msg.created_at)}
                 </Typography.Text>
               )}
-              {msg?.status === 'partial' && !isStreaming && (
+              {msg?.status === 'partial' && !isStreaming && !(multiModelParentId && msg.parent_message_id === multiModelParentId) && (
                 <Tag color="warning" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px', border: 'none' }}>
                   {t('chat.partial', '主动停止')}
                 </Tag>
@@ -1925,7 +1987,33 @@ export function ChatView() {
           </div>
         );
       })(),
-      footer: footerLoading ? (
+      footer: msg && activeConversationId ? (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {footerLoading && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: token.colorPrimary,
+              }}
+              aria-label={t('chat.generating', '生成中…')}
+            >
+              <span className="aqbot-streaming-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          )}
+          <AssistantFooter
+            msg={msg}
+            conversationId={activeConversationId}
+            assistantCopyText={assistantCopyText}
+            getModelDisplayInfo={getModelDisplayInfo}
+            isStreaming={isStreaming}
+          />
+        </div>
+      ) : footerLoading ? (
         <div
           style={{
             display: 'inline-flex',
@@ -1940,16 +2028,9 @@ export function ChatView() {
             <span />
           </span>
         </div>
-      ) : msg && activeConversationId ? (
-        <AssistantFooter
-          msg={msg}
-          conversationId={activeConversationId}
-          assistantCopyText={assistantCopyText}
-          getModelDisplayInfo={getModelDisplayInfo}
-        />
       ) : null,
     };
-  }, [activeConversationId, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockThemes, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageById, renderConvIconForChat, streaming, streamingMessageId, t, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversationId, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockThemes, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageById, multiModelParentId, renderConvIconForChat, streaming, streamingMessageId, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

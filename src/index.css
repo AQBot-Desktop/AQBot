@@ -191,3 +191,32 @@ svg.lucide {
 .model-selector-modal .ant-modal-container {
   padding: 6px !important;
 }
+
+/* Multi-model streaming animation */
+@keyframes model-tag-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.model-tag-streaming {
+  position: relative;
+}
+.model-tag-streaming::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--color-primary, #1677ff);
+  animation: model-tag-spin 1s linear infinite;
+  pointer-events: none;
+}
+
+.model-tag-pending {
+  animation: model-tag-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes model-tag-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}

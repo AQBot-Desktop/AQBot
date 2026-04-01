@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { Tag, Modal, Input, theme, Tooltip } from 'antd';
-import { Search, Settings, Pin, PinOff, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, Wrench, Lightbulb, Mic, MessageSquare } from 'lucide-react';
+import { Tag, Modal, Input, theme, Tooltip, Button, Checkbox } from 'antd';
+import { Search, Settings, Pin, PinOff, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, Wrench, Lightbulb, Mic, MessageSquare, Check } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { useProviderStore, useConversationStore, useSettingsStore, useUIStore } from '@/stores';
@@ -48,9 +48,17 @@ interface ModelSelectorProps {
   open?: boolean;
   /** Callback when open state changes */
   onOpenChange?: (open: boolean) => void;
+  /** Enable multi-select mode (checkboxes + confirm button) */
+  multiSelect?: boolean;
+  /** Callback for multi-select mode. Returns array of selected models. */
+  onMultiSelect?: (models: Array<{ providerId: string; modelId: string }>) => void;
+  /** Pre-selected models for multi-select mode */
+  defaultSelectedModels?: Array<{ providerId: string; modelId: string }>;
+  /** Model keys to exclude from the list (format: "providerId::modelId") */
+  excludeModelKeys?: string[];
 }
 
-export function ModelSelector({ style, onSelect, overrideCurrentModel, children, open: controlledOpen, onOpenChange }: ModelSelectorProps) {
+export function ModelSelector({ style, onSelect, overrideCurrentModel, children, open: controlledOpen, onOpenChange, multiSelect, onMultiSelect, defaultSelectedModels, excludeModelKeys }: ModelSelectorProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { providers } = useProviderStore();
@@ -74,6 +82,19 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
   const setActivePage = useUIStore((s) => s.setActivePage);
   const setSettingsSection = useUIStore((s) => s.setSettingsSection);
   const setSelectedProviderId = useUIStore((s) => s.setSelectedProviderId);
+
+  // Multi-select state
+  const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(new Set());
+
+  // Reset multi-select state when modal opens with default selections
+  useEffect(() => {
+    if (open && multiSelect) {
+      const initial = new Set(
+        (defaultSelectedModels ?? []).map((m) => `${m.providerId}::${m.modelId}`),
+      );
+      setMultiSelectedKeys(initial);
+    }
+  }, [open, multiSelect, defaultSelectedModels]);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId),
@@ -113,11 +134,13 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       if (!p.enabled) continue;
       for (const m of p.models) {
         if (!m.enabled) continue;
+        const key = `${p.id}::${m.model_id}`;
+        if (excludeModelKeys?.includes(key)) continue;
         result.push({ pid: p.id, mid: m.model_id, name: m.name, providerName: p.name, model: m });
       }
     }
     return result;
-  }, [providers]);
+  }, [providers, excludeModelKeys]);
 
   // Pinned models resolved with search filter
   const pinnedItems = useMemo(() => {
@@ -140,14 +163,30 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       .map((p) => ({
         ...p,
         models: p.models.filter(
-          (m) => m.enabled && (!q || m.name.toLowerCase().includes(q) || m.model_id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)),
+          (m) => {
+            if (!m.enabled) return false;
+            if (excludeModelKeys?.includes(`${p.id}::${m.model_id}`)) return false;
+            if (!q) return true;
+            return m.name.toLowerCase().includes(q) || m.model_id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
+          },
         ),
       }))
       .filter((p) => p.models.length > 0);
-  }, [providers, search]);
+  }, [providers, search, excludeModelKeys]);
 
   const handleSelect = useCallback(
     (providerId: string, modelId: string) => {
+      if (multiSelect) {
+        // In multi-select mode, toggle the selection
+        const key = `${providerId}::${modelId}`;
+        setMultiSelectedKeys((prev) => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+        return;
+      }
       if (onSelect) {
         onSelect(providerId, modelId);
       } else if (activeConversationId) {
@@ -161,8 +200,19 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       setOpen(false);
       setSearch('');
     },
-    [activeConversationId, updateConversation, saveSettings, onSelect, setOpen],
+    [activeConversationId, updateConversation, saveSettings, onSelect, setOpen, multiSelect],
   );
+
+  const handleMultiConfirm = useCallback(() => {
+    if (!onMultiSelect) return;
+    const models = Array.from(multiSelectedKeys).map((key) => {
+      const [providerId, modelId] = key.split('::');
+      return { providerId, modelId };
+    });
+    onMultiSelect(models);
+    setOpen(false);
+    setSearch('');
+  }, [multiSelectedKeys, onMultiSelect, setOpen]);
 
   const togglePin = useCallback((key: string) => {
     setPinnedModels((prev) => {
@@ -207,6 +257,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     | { type: 'group'; provider: typeof filteredProviders[number] }
     | { type: 'model'; providerId: string; model: typeof filteredProviders[number]['models'][number]; providerName: string };
 
+  const hasSearchQuery = search.trim().length > 0;
   const flatRows = useMemo<ListRow[]>(() => {
     const rows: ListRow[] = [];
     if (pinnedItems.length > 0) {
@@ -218,14 +269,15 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     }
     for (const provider of filteredProviders) {
       rows.push({ type: 'group', provider });
-      if (expandedGroups.includes(provider.id)) {
+      // When searching, always expand all groups to avoid timing issues with expandedGroups state
+      if (hasSearchQuery || expandedGroups.includes(provider.id)) {
         for (const model of provider.models) {
           rows.push({ type: 'model', providerId: provider.id, model, providerName: provider.name });
         }
       }
     }
     return rows;
-  }, [pinnedItems, filteredProviders, expandedGroups]);
+  }, [pinnedItems, filteredProviders, expandedGroups, hasSearchQuery]);
 
   const virtualizer = useVirtualizer({
     count: flatRows.length,
@@ -260,7 +312,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     model?: Model,
   ) => {
     const key = `${providerId}::${modelId}`;
-    const isActive = currentValue === key;
+    const isActive = multiSelect ? multiSelectedKeys.has(key) : currentValue === key;
     const isHovered = hoveredKey === key;
     const visibleCaps = model ? getVisibleModelCapabilities(model) : [];
     return (
@@ -277,6 +329,12 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         onMouseEnter={() => setHoveredKey(key)}
         onMouseLeave={() => setHoveredKey(null)}
       >
+        {multiSelect && (
+          <Checkbox
+            checked={isActive}
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
         <ModelIcon model={modelId} size={20} type="avatar" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
@@ -298,14 +356,19 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-          <span
-            style={{ cursor: 'pointer', color: isPinned ? token.colorPrimary : token.colorTextQuaternary, fontSize: 14 }}
-            onClick={() => togglePin(key)}
-          >
-            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-          </span>
-        </div>
+        {!multiSelect && (
+          <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+            <span
+              style={{ cursor: 'pointer', color: isPinned ? token.colorPrimary : token.colorTextQuaternary, fontSize: 14 }}
+              onClick={() => togglePin(key)}
+            >
+              {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </span>
+          </div>
+        )}
+        {multiSelect && isActive && (
+          <Check size={14} style={{ color: token.colorPrimary, flexShrink: 0 }} />
+        )}
       </div>
     );
   };
@@ -346,8 +409,17 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         open={open}
         onCancel={() => { setOpen(false); setSearch(''); }}
         mask={{ enabled: true, blur: true }}
-        footer={null}
-        title={null}
+        footer={multiSelect ? (
+          <div className="flex items-center justify-between" style={{ padding: '8px 12px' }}>
+            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              {t('chat.multiModel.selectedCount', '已选 {{count}} 个模型').replace('{{count}}', String(multiSelectedKeys.size))}
+            </span>
+            <Button type="primary" size="small" onClick={handleMultiConfirm}>
+              {t('common.confirm', '确认')}
+            </Button>
+          </div>
+        ) : null}
+        title={multiSelect ? t('chat.multiModel.selectTitle', '选择同时回答的模型') : null}
         closable={false}
         width={420}
         styles={{
@@ -444,7 +516,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
               }
 
               if (row.type === 'group') {
-                const isExpanded = expandedGroups.includes(row.provider.id);
+                const isExpanded = hasSearchQuery || expandedGroups.includes(row.provider.id);
                 return (
                   <div
                     key={virtualRow.key}
