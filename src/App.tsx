@@ -1,5 +1,5 @@
-import { useEffect, lazy, Suspense } from 'react';
-import { ConfigProvider, App as AntdApp, Layout, Progress, Button, theme } from 'antd';
+import { useEffect, useRef } from 'react';
+import { ConfigProvider, App as AntdApp, Layout, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -13,6 +13,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useGlobalShortcutManager } from '@/hooks/useGlobalShortcutManager';
 import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { useGlobalOverlayScrollbars } from '@/hooks/useGlobalOverlayScrollbars';
+import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 import { useShadcnTheme } from '@/theme/shadcnTheme';
 import { isTauri } from '@/lib/invoke';
 import { preloadChatRenderers } from '@/lib/preloadChatRenderers';
@@ -21,7 +22,6 @@ import './i18n';
 
 const { Sider, Content } = Layout;
 const { useToken } = theme;
-const NodeRenderer = lazy(() => import('markstream-react'));
 
 /** Show the main window (it starts hidden to avoid white flash). */
 async function showWindow() {
@@ -35,13 +35,9 @@ async function showWindow() {
 
 function AppInner() {
   const { token } = useToken();
-  const { t } = useTranslation();
-  const { modal } = AntdApp.useApp();
   const activePage = useUIStore((s) => s.activePage);
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
   const isInSettings = activePage === 'settings';
-  const themeMode = useSettingsStore((s) => s.settings.theme_mode);
-  const isDarkMode = useResolvedDarkMode(themeMode);
 
   // Sync Ant Design tokens to CSS custom properties for global usage
   useEffect(() => {
@@ -62,90 +58,28 @@ function AppInner() {
     return () => stopStreamListening();
   }, [startStreamListening, stopStreamListening]);
 
-  // Auto-check for updates on startup (delayed to let app initialize first)
+  // Auto-check for updates on startup and periodically
+  const { checkForUpdate } = useUpdateChecker();
+  const updateCheckInterval = useSettingsStore((s) => s.settings.update_check_interval ?? 60);
+  const updateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     if (!isTauri()) return;
-    const timer = setTimeout(async () => {
-      try {
-        const { check } = await import('@tauri-apps/plugin-updater');
-        const update = await check();
-        if (!update) return;
-        modal.confirm({
-          title: t('settings.updateAvailable'),
-          content: (
-            <div>
-              <p>{t('settings.newVersion')}: {update.version}</p>
-              {update.body && (
-                <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
-                  <Suspense fallback={<div style={{ whiteSpace: 'pre-wrap', fontSize: 13, opacity: 0.85 }}>{update.body}</div>}>
-                    <NodeRenderer content={update.body} isDark={isDarkMode} final />
-                  </Suspense>
-                </div>
-              )}
-            </div>
-          ),
-          okText: t('settings.updateNow'),
-          cancelText: t('settings.updateLater'),
-          onOk: async () => {
-            let cancelled = false;
-            const handleCancel = async () => {
-              cancelled = true;
-              try { await update.close(); } catch { /* ignore */ }
-            };
-            const renderContent = (percent: number, status: 'active' | 'success') => (
-              <div>
-                <Progress percent={percent} status={status} />
-                {status !== 'success' && (
-                  <div style={{ textAlign: 'right', marginTop: 12 }}>
-                    <Button onClick={handleCancel}>{t('settings.cancelUpdate')}</Button>
-                  </div>
-                )}
-              </div>
-            );
-            const progressModal = modal.info({
-              title: t('settings.updating', '正在更新...'),
-              content: renderContent(0, 'active'),
-              closable: false,
-              footer: null,
-              maskClosable: false,
-              keyboard: false,
-            });
-            try {
-              let totalSize = 0;
-              let downloaded = 0;
-              await update.downloadAndInstall((event) => {
-                if (event.event === 'Started' && event.data.contentLength) {
-                  totalSize = event.data.contentLength;
-                } else if (event.event === 'Progress') {
-                  downloaded += event.data.chunkLength;
-                  if (totalSize > 0) {
-                    progressModal.update({
-                      content: renderContent(Math.round((downloaded / totalSize) * 100), 'active'),
-                    });
-                  }
-                } else if (event.event === 'Finished') {
-                  progressModal.update({
-                    content: renderContent(100, 'success'),
-                  });
-                }
-              });
-              const { relaunch } = await import('@tauri-apps/plugin-process');
-              await relaunch();
-            } catch (e) {
-              progressModal.destroy();
-              if (!cancelled) {
-                console.error('Update install failed:', e);
-              }
-            }
-          },
-        });
-      } catch (e) {
-        console.warn('Auto update check failed:', e);
-      }
-    }, 3000);
+    // Initial check after 3s delay
+    const timer = setTimeout(() => checkForUpdate({ silent: true }), 3000);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!isTauri() || !updateCheckInterval) return;
+    if (updateIntervalRef.current) clearInterval(updateIntervalRef.current);
+    const intervalMs = Math.max(updateCheckInterval, 1) * 60 * 1000;
+    updateIntervalRef.current = setInterval(() => checkForUpdate({ silent: true }), intervalMs);
+    return () => {
+      if (updateIntervalRef.current) clearInterval(updateIntervalRef.current);
+    };
+  }, [updateCheckInterval, checkForUpdate]);
 
   return (
     <div className="flex flex-col h-screen" style={{ backgroundColor: token.colorBgContainer }}>

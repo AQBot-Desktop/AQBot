@@ -1,25 +1,21 @@
-import { Button, Card, Divider, Typography, message, App, Progress } from 'antd';
+import { Button, Card, Divider, Typography, InputNumber } from 'antd';
 import { Github, Globe, RefreshCw, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { useState, useEffect, useCallback } from 'react';
 import { isTauri, invoke } from '@/lib/invoke';
 import logoUrl from '@/assets/image/logo.png';
-import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { useSettingsStore } from '@/stores';
-
-const NodeRenderer = lazy(() => import('markstream-react'));
+import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 
 const { Text } = Typography;
 
 export function AboutPage() {
   const { t } = useTranslation();
-  const { modal } = App.useApp();
-  const themeMode = useSettingsStore((s) => s.settings.theme_mode);
-  const isDarkMode = useResolvedDarkMode(themeMode);
   const [checking, setChecking] = useState(false);
   const [appVersion, setAppVersion] = useState('...');
+  const { checkForUpdate } = useUpdateChecker();
+  const updateCheckInterval = useSettingsStore((s) => s.settings.update_check_interval ?? 60);
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
 
   useEffect(() => {
     if (isTauri()) {
@@ -29,93 +25,14 @@ export function AboutPage() {
     }
   }, []);
 
-  const handleCheckUpdate = async () => {
+  const handleCheckUpdate = useCallback(async () => {
     setChecking(true);
     try {
-      const update = await check();
-      if (update) {
-        modal.confirm({
-          title: t('settings.updateAvailable'),
-          content: (
-            <div>
-              <p>{t('settings.newVersion')}: {update.version}</p>
-              {update.body && (
-                <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
-                  <Suspense fallback={<div style={{ whiteSpace: 'pre-wrap', fontSize: 13, opacity: 0.85 }}>{update.body}</div>}>
-                    <NodeRenderer content={update.body} isDark={isDarkMode} final />
-                  </Suspense>
-                </div>
-              )}
-            </div>
-          ),
-          okText: t('settings.updateNow'),
-          cancelText: t('settings.updateLater'),
-          onOk: async () => {
-            let cancelled = false;
-            const handleCancel = async () => {
-              cancelled = true;
-              try { await update.close(); } catch { /* ignore */ }
-            };
-            const renderContent = (percent: number, status: 'active' | 'success') => (
-              <div>
-                <Progress percent={percent} status={status} />
-                {status !== 'success' && (
-                  <div style={{ textAlign: 'right', marginTop: 12 }}>
-                    <Button onClick={handleCancel}>{t('settings.cancelUpdate')}</Button>
-                  </div>
-                )}
-              </div>
-            );
-            const progressModal = modal.info({
-              title: t('settings.updating', '正在更新...'),
-              content: renderContent(0, 'active'),
-              closable: false,
-              footer: null,
-              maskClosable: false,
-              keyboard: false,
-            });
-            try {
-              let totalSize = 0;
-              let downloaded = 0;
-              await update.downloadAndInstall((event) => {
-                if (event.event === 'Started' && event.data.contentLength) {
-                  totalSize = event.data.contentLength;
-                } else if (event.event === 'Progress') {
-                  downloaded += event.data.chunkLength;
-                  if (totalSize > 0) {
-                    progressModal.update({
-                      content: renderContent(Math.round((downloaded / totalSize) * 100), 'active'),
-                    });
-                  }
-                } else if (event.event === 'Finished') {
-                  progressModal.update({
-                    content: renderContent(100, 'success'),
-                  });
-                }
-              });
-              await relaunch();
-            } catch (e) {
-              progressModal.destroy();
-              if (!cancelled) {
-                message.error(String(e));
-              }
-            }
-          },
-        });
-      } else {
-        message.success(t('settings.noUpdate'));
-      }
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes('Could not fetch') || msg.includes('release JSON') || msg.includes('404')) {
-        message.warning(t('settings.noUpdate'));
-      } else {
-        message.error(t('settings.checkUpdateFailed'));
-      }
+      await checkForUpdate();
     } finally {
       setChecking(false);
     }
-  };
+  }, [checkForUpdate]);
 
   const rowStyle = { padding: '4px 0' };
 
@@ -123,9 +40,7 @@ export function AboutPage() {
     if (isTauri()) {
       try {
         await invoke('open_devtools');
-      } catch (e) {
-        message.error(String(e));
-      }
+      } catch { /* ignore */ }
     }
   }, []);
 
@@ -161,7 +76,7 @@ export function AboutPage() {
           <Text type="secondary">AGPL-3.0</Text>
         </div>
       </Card>
-      <Card size="small" title={t('settings.groupLinks')}>
+      <Card size="small" title={t('settings.groupLinks')} style={{ marginBottom: 16 }}>
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.website')}</span>
           <Button
@@ -195,6 +110,18 @@ export function AboutPage() {
           >
             {t('settings.checkUpdate')}
           </Button>
+        </div>
+        <Divider style={{ margin: '4px 0' }} />
+        <div style={rowStyle} className="flex items-center justify-between">
+          <span>{t('settings.updateCheckInterval', '自动检查更新间隔（分钟）')}</span>
+          <InputNumber
+            min={1}
+            max={1440}
+            value={updateCheckInterval}
+            onChange={(val) => val != null && saveSettings({ update_check_interval: val })}
+            style={{ width: 100 }}
+            addonAfter={t('settings.minutes', '分钟')}
+          />
         </div>
         {isTauri() && (
           <>

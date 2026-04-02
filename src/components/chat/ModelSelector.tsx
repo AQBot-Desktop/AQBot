@@ -223,12 +223,15 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
   }, []);
 
   useEffect(() => {
+    // Only the standalone header ModelSelector responds to the shortcut.
+    // Bubble-action instances (onSelect) and multi-select (multiSelect) should not.
+    if (multiSelect || onSelect) return;
     const onToggle = () => setOpen(!open);
     window.addEventListener('aqbot:toggle-model-selector', onToggle);
     return () => {
       window.removeEventListener('aqbot:toggle-model-selector', onToggle);
     };
-  }, [open, setOpen]);
+  }, [open, setOpen, multiSelect, onSelect]);
 
   // Auto-expand all groups when providers change or modal opens
   const providerIds = useMemo(() => filteredProviders.map((p) => p.id), [filteredProviders]);

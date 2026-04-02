@@ -1,12 +1,13 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
 import { Dropdown, Tooltip, App, theme, Popover, Divider, Typography, Space, Spin } from 'antd';
 import type { MenuProps } from 'antd';
-import { Settings, XCircle, Sun, Moon, Monitor, Globe, Pin, PinOff, RefreshCw, CloudUpload, Github, Star, MessageSquarePlus, Bug } from 'lucide-react';
+import { Settings, XCircle, Sun, Moon, Monitor, Globe, Pin, PinOff, RotateCcw, CloudUpload, Github, Star, MessageSquarePlus, Bug, ArrowDownCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, useSettingsStore } from '@/stores';
 import { useBackupStore } from '@/stores/backupStore';
 import { isTauri, invoke } from '@/lib/invoke';
 import { getShortcutBinding, formatShortcutForDisplay } from '@/lib/shortcuts';
+import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 
 const THEME_OPTIONS = [
   { key: 'system', icon: <Monitor size={14} />, labelKey: 'settings.themeSystem' },
@@ -54,6 +55,17 @@ export function TitleBar() {
       setPinned(!next);
     }
   }, [pinned, saveSettings]);
+
+  const { checkForUpdate } = useUpdateChecker();
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const handleCheckUpdate = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      await checkForUpdate();
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [checkForUpdate]);
 
   const themeMenuItems: MenuProps['items'] = THEME_OPTIONS.map((opt) => ({
     key: opt.key,
@@ -519,6 +531,20 @@ export function TitleBar() {
           </button>
         </Dropdown>
 
+        {/* Check Update */}
+        {isTauri() && (
+          <Tooltip title={t('settings.checkUpdate', '检查更新')}>
+            <button
+              onClick={handleCheckUpdate}
+              disabled={checkingUpdate}
+              style={{ ...buttonBase, color: token.colorTextSecondary, opacity: checkingUpdate ? 0.5 : 1 }}
+              {...hoverHandlers(token.colorTextSecondary)}
+            >
+              {checkingUpdate ? <Spin size="small" /> : <ArrowDownCircle size={14} />}
+            </button>
+          </Tooltip>
+        )}
+
         {/* Reload Page */}
         <Tooltip title={t('desktop.reloadPage')}>
           <button
@@ -526,7 +552,7 @@ export function TitleBar() {
             style={{ ...buttonBase, color: token.colorTextSecondary }}
             {...hoverHandlers(token.colorTextSecondary)}
           >
-            <RefreshCw size={14} />
+            <RotateCcw size={14} />
           </button>
         </Tooltip>
 

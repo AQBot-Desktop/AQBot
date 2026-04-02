@@ -384,6 +384,8 @@ export interface AppSettings {
   webdav_max_remote_backups?: number;
   webdav_include_documents?: boolean;
   last_selected_conversation_id?: string | null;
+  /** Auto update check interval in minutes (default 60, min 1) */
+  update_check_interval?: number;
 }
 
 // === Streaming ===

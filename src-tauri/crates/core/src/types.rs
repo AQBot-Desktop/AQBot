@@ -564,6 +564,8 @@ pub struct AppSettings {
     pub webdav_max_remote_backups: u32,
     pub webdav_include_documents: bool,
     pub last_selected_conversation_id: Option<String>,
+    /// Auto update check interval in minutes (default 60, min 1).
+    pub update_check_interval: u32,
 }
 
 impl Default for AppSettings {
@@ -652,6 +654,7 @@ impl Default for AppSettings {
             webdav_max_remote_backups: 10,
             webdav_include_documents: false,
             last_selected_conversation_id: None,
+            update_check_interval: 60,
         }
     }
 }
