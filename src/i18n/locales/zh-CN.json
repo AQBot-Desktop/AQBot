@@ -186,7 +186,15 @@
       "error": "记忆检索失败",
       "resultsCount": "检索到 {{count}} 条记忆",
       "label": "记忆"
-    }
+    },
+    "renderingChart": "正在渲染图表…",
+    "chartAboutToRender": "图表即将渲染…",
+    "loadingRenderContent": "正在加载渲染内容…",
+    "branchConversation": "分支对话",
+    "branchCreated": "分支对话已创建",
+    "branchTitlePlaceholder": "请输入对话名称",
+    "branchIndependent": "分支到独立对话",
+    "branchChild": "分支到子级"
   },
   "gateway": {
     "title": "网关",
@@ -313,7 +321,12 @@
     "copied": "已复制到剪贴板",
     "copySuccess": "已复制到剪贴板",
     "target": "目标平台",
-    "format": "格式"
+    "format": "格式",
+    "templateDescClaude": "Anthropic 官方 CLI 编程助手，在终端中直接与 Claude 协作编码",
+    "templateDescCodex": "OpenAI 轻量级编程代理，支持在沙盒中自主完成编码任务",
+    "templateDescOpencode": "开源终端 AI 编程助手，支持多模型后端的灵活代码工具",
+    "templateDescGemini": "Google Gemini CLI 编程代理，直接在终端中使用 Gemini 模型",
+    "templateDescCursor": "基于 VS Code 的 AI 原生编辑器，深度集成代码补全与对话"
   },
   "settings": {
     "title": "设置",
@@ -723,7 +736,21 @@
     "proxyTestFailed": "代理连接失败",
     "groupData": "数据管理",
     "groupAppInfo": "应用信息",
-    "groupLinks": "链接"
+    "groupLinks": "链接",
+    "useModelIcon": "使用模型图标",
+    "systemPromptLabel": "系统提示（角色设定）",
+    "systemPromptPlaceholder": "输入系统提示词...",
+    "contextMessageLimit": "上下文的消息数量上限",
+    "contextMessageLimitTooltip": "限制发送给模型的历史消息数量。设为 50 表示不限制。",
+    "iconGroupModel": "模型",
+    "iconGroupProvider": "厂商",
+    "indexStatus": {
+      "pending": "待索引",
+      "indexing": "索引中",
+      "indexed": "已索引",
+      "failed": "索引失败",
+      "notConfigured": "未配置"
+    }
   },
   "backup": {
     "title": "备份中心",
@@ -831,6 +858,9 @@
     "resetZoom": "重置缩放",
     "selectEmoji": "选择表情",
     "source": "源码",
+    "back": "返回",
+    "name": "名称",
+    "unlimited": "不限制",
     "zoomIn": "放大",
     "zoomOut": "缩小"
   },

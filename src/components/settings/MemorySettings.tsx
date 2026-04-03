@@ -55,12 +55,12 @@ const SOURCE_TAG_COLOR: Record<MemorySource, string> = {
   auto_extract: 'green',
 };
 
-const INDEX_STATUS_CONFIG: Record<string, { color: string; label: string }> = {
-  pending: { color: 'default', label: '待索引' },
-  indexing: { color: 'processing', label: '索引中' },
-  ready: { color: 'success', label: '已索引' },
-  failed: { color: 'error', label: '索引失败' },
-  skipped: { color: 'warning', label: '未配置' },
+const INDEX_STATUS_CONFIG: Record<string, { color: string; labelKey: string }> = {
+  pending: { color: 'default', labelKey: 'settings.indexStatus.pending' },
+  indexing: { color: 'processing', labelKey: 'settings.indexStatus.indexing' },
+  ready: { color: 'success', labelKey: 'settings.indexStatus.indexed' },
+  failed: { color: 'error', labelKey: 'settings.indexStatus.failed' },
+  skipped: { color: 'warning', labelKey: 'settings.indexStatus.notConfigured' },
 };
 
 // ── Sortable Namespace Item ──────────────────────────────
@@ -356,7 +356,7 @@ function MemoryItemsPanel({
         const tag = (
           <Tag color={cfg.color} style={{ fontSize: 11 }}>
             {status === 'indexing' && <Spin size="small" style={{ marginRight: 4 }} />}
-            {t(`settings.memory.indexStatus.${status}`, cfg.label)}
+            {t(cfg.labelKey)}
           </Tag>
         );
         if (status === 'failed' && record.indexError) {

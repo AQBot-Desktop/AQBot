@@ -490,6 +490,7 @@ function ChatD2BlockNode({
   isDark?: boolean;
 }) {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -696,10 +697,10 @@ function ChatD2BlockNode({
         <div className="flex items-center gap-x-2">
           <div className="flex items-center gap-x-1 rounded-md p-0.5" style={toggleStyle}>
             <button type="button" className={`mode-btn px-2 py-1 text-xs rounded ${!showSource ? 'is-active' : ''}`} onClick={() => setShowSource(false)}>
-              预览
+              {t('common.preview', '预览')}
             </button>
             <button type="button" className={`mode-btn px-2 py-1 text-xs rounded ${showSource ? 'is-active' : ''}`} onClick={() => setShowSource(true)}>
-              源码
+              {t('common.source', '源码')}
             </button>
           </div>
           <button type="button" className="d2-action-btn p-2 text-xs rounded-md transition-colors hover:bg-[var(--vscode-editor-selectionBackground)]" aria-label={copied ? 'Copied' : 'Copy'} onClick={() => void handleCopy()}>
@@ -726,7 +727,7 @@ function ChatD2BlockNode({
             ) : (
               <div className="flex items-center justify-center px-4 py-10" style={{ color: token.colorTextSecondary, gap: 8 }}>
                 <SyncOutlined spin />
-                <span className="text-sm">{canRenderPreview ? '正在渲染图表…' : '图表即将渲染…'}</span>
+                <span className="text-sm">{canRenderPreview ? t('chat.renderingChart', '正在渲染图表…') : t('chat.chartAboutToRender', '图表即将渲染…')}</span>
               </div>
             )}
             {error ? <p className="d2-error px-4 pb-3 text-xs">{error}</p> : null}
@@ -762,6 +763,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   codeFontFamily?: string;
 }) {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const codeBlockProps = useMemo(
     () => getChatCodeBlockProps(codeBlockDarkTheme),
@@ -849,7 +851,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
           style={{ color: token.colorTextSecondary, gap: 8 }}
         >
           <SyncOutlined spin />
-          <span className="text-sm">正在加载渲染内容…</span>
+          <span className="text-sm">{t('chat.loadingRenderContent', '正在加载渲染内容…')}</span>
         </div>
       </div>
     );

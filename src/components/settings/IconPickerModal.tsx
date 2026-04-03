@@ -64,8 +64,8 @@ export default function IconPickerModal({ open, onClose, onSelect, defaultTab = 
         onChange={setActiveTab}
         size="small"
         items={[
-          { key: 'model', label: `模型 (${toc.filter((i) => i.group === 'model').length})` },
-          { key: 'provider', label: `厂商 (${toc.filter((i) => i.group === 'provider').length})` },
+          { key: 'model', label: `${t('settings.iconGroupModel')} (${toc.filter((i) => i.group === 'model').length})` },
+          { key: 'provider', label: `${t('settings.iconGroupProvider')} (${toc.filter((i) => i.group === 'provider').length})` },
         ]}
       />
 

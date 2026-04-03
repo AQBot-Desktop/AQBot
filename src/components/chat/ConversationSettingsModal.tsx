@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Input, Slider, Button, Tooltip, Card, theme } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
 import { Info, Undo2, Bot } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useConversationStore, useSettingsStore } from '@/stores';
 import { CONV_ICON_KEY, type ConvIconType, type ConvIcon } from '@/lib/convIcon';
 import { IconEditor } from '@/components/shared/IconEditor';
@@ -17,6 +18,7 @@ const CONTEXT_LIMIT_KEY = (id: string) => `aqbot_context_limit_${id}`;
 
 export function ConversationSettingsModal({ open, onClose }: ConversationSettingsModalProps) {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
 
   const conversations = useConversationStore((s) => s.conversations);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
@@ -108,7 +110,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
     {
       key: 'use_model',
       icon: <Bot size={14} />,
-      label: '使用模型图标',
+      label: t('settings.useModelIcon', '使用模型图标'),
       onClick: () => { setIconType('model'); setIconValue(''); },
     },
   ];
@@ -130,7 +132,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
 
   return (
     <Modal
-      title="对话设置"
+      title={t('settings.conversationSettings', '对话设置')}
       open={open}
       mask={{ enabled: true, blur: true }}
       onCancel={onClose}
@@ -138,9 +140,9 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
       destroyOnHidden
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t('common.cancel', '取消')}</Button>
           <Button type="primary" onClick={handleSave} loading={saving}>
-            保存
+            {t('common.save', '保存')}
           </Button>
         </div>
       }
@@ -169,24 +171,24 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
 
         {/* Name */}
         <div style={{ marginBottom: 16 }}>
-          <div style={labelStyle}>名称</div>
+          <div style={labelStyle}>{t('common.name', '名称')}</div>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
 
         {/* System Prompt */}
         <div style={{ marginBottom: 16 }}>
-          <div style={labelStyle}>系统提示（角色设定）</div>
+          <div style={labelStyle}>{t('settings.systemPromptLabel', '系统提示（角色设定）')}</div>
           <Input.TextArea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
             rows={3}
-            placeholder="输入系统提示词..."
+            placeholder={t('settings.systemPromptPlaceholder', '输入系统提示词...')}
           />
         </div>
 
         {/* Model Settings Card */}
         <Card
-          title="模型设置"
+          title={t('settings.modelSettings', '模型设置')}
           size="small"
           extra={
             <Button
@@ -195,7 +197,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
               icon={<Undo2 size={14} />}
               onClick={handleReset}
             >
-              重置
+              {t('common.reset', '重置')}
             </Button>
           }
         >
@@ -203,12 +205,12 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
           {/* Context Message Limit */}
           <div style={{ marginBottom: 20 }}>
             <div style={labelStyle}>
-              上下文的消息数量上限
-              <Tooltip title="限制发送给模型的历史消息数量。设为 50 表示不限制。">
+              {t('settings.contextMessageLimit', '上下文的消息数量上限')}
+              <Tooltip title={t('settings.contextMessageLimitTooltip', '限制发送给模型的历史消息数量。设为 50 表示不限制。')}>
                 <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
               </Tooltip>
               <span style={{ marginLeft: 'auto', color: token.colorTextSecondary, fontSize: 12 }}>
-                {contextLimit >= 50 ? '不限制' : contextLimit}
+                {contextLimit >= 50 ? t('common.unlimited', '不限制') : contextLimit}
               </span>
             </div>
             <div style={sliderRowStyle}>

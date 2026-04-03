@@ -186,7 +186,15 @@
       "error": "Memory search failed",
       "resultsCount": "Retrieved {{count}} memory items",
       "label": "Memory"
-    }
+    },
+    "renderingChart": "Rendering chart…",
+    "chartAboutToRender": "Chart about to render…",
+    "loadingRenderContent": "Loading render content…",
+    "branchConversation": "Branch Conversation",
+    "branchCreated": "Branch conversation created",
+    "branchTitlePlaceholder": "Enter conversation name",
+    "branchIndependent": "Branch as independent",
+    "branchChild": "Branch as child"
   },
   "gateway": {
     "title": "Gateway",
@@ -313,7 +321,12 @@
     "copied": "Copied to clipboard",
     "copySuccess": "Copied to clipboard",
     "target": "Target",
-    "format": "Format"
+    "format": "Format",
+    "templateDescClaude": "Anthropic's official CLI coding assistant, collaborate with Claude directly in the terminal",
+    "templateDescCodex": "OpenAI's lightweight coding agent, autonomously complete coding tasks in a sandbox",
+    "templateDescOpencode": "Open-source terminal AI coding assistant, flexible code tool supporting multiple model backends",
+    "templateDescGemini": "Google Gemini CLI coding agent, use Gemini models directly in the terminal",
+    "templateDescCursor": "AI-native editor based on VS Code, with deep integration of code completion and chat"
   },
   "settings": {
     "title": "Settings",
@@ -723,7 +736,21 @@
     "proxyTestFailed": "Proxy connection failed",
     "groupData": "Data Management",
     "groupAppInfo": "App Info",
-    "groupLinks": "Links"
+    "groupLinks": "Links",
+    "useModelIcon": "Use Model Icon",
+    "systemPromptLabel": "System Prompt (Role Setting)",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "contextMessageLimit": "Context message count limit",
+    "contextMessageLimitTooltip": "Limit the number of history messages sent to the model. Set to 50 for unlimited.",
+    "iconGroupModel": "Model",
+    "iconGroupProvider": "Provider",
+    "indexStatus": {
+      "pending": "Pending",
+      "indexing": "Indexing",
+      "indexed": "Indexed",
+      "failed": "Failed",
+      "notConfigured": "Not configured"
+    }
   },
   "backup": {
     "title": "Backup Center",
@@ -831,6 +858,9 @@
     "resetZoom": "Reset zoom",
     "selectEmoji": "Select Emoji",
     "source": "Source",
+    "back": "Back",
+    "name": "Name",
+    "unlimited": "Unlimited",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out"
   },

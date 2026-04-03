@@ -24,31 +24,31 @@ const CONNECT_ITEMS: QuickConnectItem[] = [
     key: 'claude_code',
     name: 'Claude Code',
     avatar: (size) => <ClaudeCode.Avatar size={size} />,
-    description: 'Anthropic 官方 CLI 编程助手，在终端中直接与 Claude 协作编码',
+    description: 'gateway.templateDescClaude',
   },
   {
     key: 'codex',
     name: 'Codex',
     avatar: (size) => <Codex.Avatar size={size} />,
-    description: 'OpenAI 轻量级编程代理，支持在沙盒中自主完成编码任务',
+    description: 'gateway.templateDescCodex',
   },
   {
     key: 'opencode',
     name: 'OpenCode',
     avatar: (size) => <OpenCode.Avatar size={size} />,
-    description: '开源终端 AI 编程助手，支持多模型后端的灵活代码工具',
+    description: 'gateway.templateDescOpencode',
   },
   {
     key: 'gemini',
     name: 'Gemini CLI',
     avatar: (size) => <Gemini.Avatar size={size} />,
-    description: 'Google Gemini CLI 编程代理，直接在终端中使用 Gemini 模型',
+    description: 'gateway.templateDescGemini',
   },
   {
     key: 'cursor',
     name: 'Cursor',
     avatar: (size) => <Cursor.Avatar size={size} />,
-    description: '基于 VS Code 的 AI 原生编辑器，深度集成代码补全与对话',
+    description: 'gateway.templateDescCursor',
   },
 ];
 
@@ -190,7 +190,7 @@ function ToolCard({
             style={{ fontSize: 13, margin: 0, marginTop: 4 }}
             ellipsis={{ rows: 1 }}
           >
-            {item.description}
+            {t(item.description)}
           </Paragraph>
           {toolInfo?.configPath && (
             <Text type="secondary" style={{ fontSize: 11 }}>

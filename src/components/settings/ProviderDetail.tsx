@@ -39,11 +39,11 @@ import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 const { Text, Title } = Typography;
 
 const CAPABILITY_LABEL_KEYS: Record<ModelCapability, string> = {
-  TextChat: '文本对话',
-  Vision: '视觉',
-  FunctionCalling: '函数调用',
-  Reasoning: '推理',
-  RealtimeVoice: '实时语音',
+  TextChat: 'settings.capability.TextChat',
+  Vision: 'settings.capability.Vision',
+  FunctionCalling: 'settings.capability.FunctionCalling',
+  Reasoning: 'settings.capability.Reasoning',
+  RealtimeVoice: 'settings.capability.RealtimeVoice',
 };
 
 const CAPABILITY_COLORS: Record<ModelCapability, string> = {
@@ -62,10 +62,16 @@ const CAPABILITY_ICONS: Record<ModelCapability, React.ReactNode> = {
   RealtimeVoice: <Mic size={14} />,
 };
 
-const MODEL_TYPE_CONFIG: Record<ModelType, { label: string; color: string; icon: React.ReactNode }> = {
-  Chat: { label: '对话', color: 'blue', icon: <MessageSquare size={12} /> },
-  Voice: { label: '语音', color: 'red', icon: <Mic size={12} /> },
-  Embedding: { label: '向量', color: 'cyan', icon: <Database size={12} /> },
+const MODEL_TYPE_LABEL_KEYS: Record<ModelType, string> = {
+  Chat: 'settings.modelType.Chat',
+  Voice: 'settings.modelType.Voice',
+  Embedding: 'settings.modelType.Embedding',
+};
+
+const MODEL_TYPE_CONFIG: Record<ModelType, { color: string; icon: React.ReactNode }> = {
+  Chat: { color: 'blue', icon: <MessageSquare size={12} /> },
+  Voice: { color: 'red', icon: <Mic size={12} /> },
+  Embedding: { color: 'cyan', icon: <Database size={12} /> },
 };
 
 const DEFAULT_PATHS: Record<ProviderType, string> = {
@@ -1034,7 +1040,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                           style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
                         >
                           {MODEL_TYPE_CONFIG[model.model_type || 'Chat'].icon}
-                          <span style={{ marginLeft: 2 }}>{t(`settings.modelType.${model.model_type || 'Chat'}`, MODEL_TYPE_CONFIG[model.model_type || 'Chat'].label)}</span>
+                          <span style={{ marginLeft: 2 }}>{t(`settings.modelType.${model.model_type || 'Chat'}`, MODEL_TYPE_LABEL_KEYS[model.model_type || 'Chat'])}</span>
                         </Tag>
                         {getVisibleModelCapabilities(model).map((cap) => (
                           <Tooltip key={cap} title={t(`settings.capability.${cap}`, CAPABILITY_LABEL_KEYS[cap])}>
@@ -1264,7 +1270,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
               onChange={(value) => setAddModelType(value as ModelType)}
               options={(Object.keys(MODEL_TYPE_CONFIG) as ModelType[]).map((type_) => ({
                 value: type_,
-                label: t(`settings.modelType.${type_}`, MODEL_TYPE_CONFIG[type_].label),
+                label: t(`settings.modelType.${type_}`, MODEL_TYPE_LABEL_KEYS[type_]),
               }))}
             />
           </Form.Item>
@@ -1349,7 +1355,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     }}
                   >
                     {MODEL_TYPE_CONFIG[type_].icon}
-                    <span style={{ marginLeft: 4 }}>{t(`settings.modelType.${type_}`, MODEL_TYPE_CONFIG[type_].label)}</span>
+                    <span style={{ marginLeft: 4 }}>{t(`settings.modelType.${type_}`, MODEL_TYPE_LABEL_KEYS[type_])}</span>
                   </Tag>
                 ))}
               </div>
