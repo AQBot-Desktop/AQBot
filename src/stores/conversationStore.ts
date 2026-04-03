@@ -428,22 +428,28 @@ function flushPendingStreamChunk(
     }
 
     // 2. ID mismatch but placeholder exists — replace placeholder ID with real one
+    // In multi-model mode, only resolve temp-* placeholders (first model's initial
+    // chunk resolving the placeholder to its real DB ID). Once resolved,
+    // streamingMessageId is a real ID and companion chunks must NOT hijack it —
+    // they fall through to case 3 and create their own message entries.
     if (s.streamingMessageId && s.streamingMessageId !== messageId) {
-      const placeholder = s.messages.find((m) => m.id === s.streamingMessageId);
-      if (placeholder) {
-        return {
-          messages: s.messages.map((m) =>
-            m.id === s.streamingMessageId
-              ? {
-                  ...m,
-                  id: messageId,
-                  content: m.content + (content ?? ''),
-                  thinking: (m.thinking ?? '') + (thinking ?? '') || null,
-                }
-              : m,
-          ),
-          streamingMessageId: messageId,
-        };
+      if (!_isMultiModelActive || s.streamingMessageId.startsWith('temp-')) {
+        const placeholder = s.messages.find((m) => m.id === s.streamingMessageId);
+        if (placeholder) {
+          return {
+            messages: s.messages.map((m) =>
+              m.id === s.streamingMessageId
+                ? {
+                    ...m,
+                    id: messageId,
+                    content: m.content + (content ?? ''),
+                    thinking: (m.thinking ?? '') + (thinking ?? '') || null,
+                  }
+                : m,
+            ),
+            streamingMessageId: messageId,
+          };
+        }
       }
     }
 
@@ -1508,6 +1514,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           thinkingBudget,
           enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
+          isCompanion: true,
         }).catch((e) => {
           console.error(`[sendMultiModelMessage] companion ${model.modelId} invoke failed:`, e);
           // Invoke failed — no stream will start, so decrement counter here

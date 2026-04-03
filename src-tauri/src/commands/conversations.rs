@@ -1020,6 +1020,7 @@ fn spawn_stream_task(
     cancel_flag: Arc<AtomicBool>,
     cancel_flags: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
     content_prefix: String,
+    create_inactive: bool,
 ) {
     let model_id = conversation.model_id.clone();
 
@@ -1070,7 +1071,7 @@ fn spawn_stream_task(
             branch_id: Set(None),
             parent_message_id: Set(Some(parent_message_id.clone())),
             version_index: Set(version_index),
-            is_active: Set(1),
+            is_active: Set(if create_inactive { 0 } else { 1 }),
             tool_calls_json: Set(None),
             tool_call_id: Set(None),
             status: Set("partial".to_string()),
@@ -1605,6 +1606,11 @@ pub async fn send_message(
 
     // Prepend system prompt if present
     if let Some(ref sys) = effective_system_prompt {
+        tracing::info!(
+            "[send_message] model={} effective_system_prompt='{}'",
+            &conversation.model_id,
+            &sys[..sys.len().min(80)]
+        );
         chat_messages.push(ChatMessage {
             role: if no_system_role {
                 "user".to_string()
@@ -1615,6 +1621,11 @@ pub async fn send_message(
             tool_calls: None,
             tool_call_id: None,
         });
+    } else {
+        tracing::info!(
+            "[send_message] model={} NO system prompt",
+            &conversation.model_id
+        );
     }
 
     // RAG retrieval: search enabled knowledge bases and memory namespaces
@@ -1866,6 +1877,7 @@ pub async fn send_message(
         cancel_flag,
         state.stream_cancel_flags.clone(),
         memory_tag,
+        false,
     );
 
     // Return the user message immediately
@@ -2177,6 +2189,7 @@ pub async fn regenerate_message(
         cancel_flag,
         state.stream_cancel_flags.clone(),
         memory_tag,
+        false,
     );
 
     Ok(())
@@ -2194,6 +2207,7 @@ pub async fn regenerate_with_model(
     thinking_budget: Option<u32>,
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
+    is_companion: Option<bool>,
 ) -> Result<(), String> {
     let messages = aqbot_core::repo::message::list_messages(&state.sea_db, &conversation_id)
         .await
@@ -2216,23 +2230,28 @@ pub async fn regenerate_with_model(
     let new_version_index = existing_versions.len() as i32;
     let original_created_at = existing_versions.first().map(|v| v.created_at);
 
-    // Deactivate all existing versions
+    let companion = is_companion.unwrap_or(false);
+
+    // Deactivate all existing versions (skip for companion models in multi-model mode)
     use aqbot_core::entity::messages as msg_entity;
     use sea_orm::sea_query::Expr;
-    msg_entity::Entity::update_many()
-        .filter(msg_entity::Column::ConversationId.eq(&conversation_id))
-        .filter(msg_entity::Column::ParentMessageId.eq(&user_msg.id))
-        .col_expr(msg_entity::Column::IsActive, Expr::value(0))
-        .exec(&state.sea_db)
-        .await
-        .map_err(|e| e.to_string())?;
+    if !companion {
+        msg_entity::Entity::update_many()
+            .filter(msg_entity::Column::ConversationId.eq(&conversation_id))
+            .filter(msg_entity::Column::ParentMessageId.eq(&user_msg.id))
+            .col_expr(msg_entity::Column::IsActive, Expr::value(0))
+            .exec(&state.sea_db)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
-    // Get conversation, but override model_id
+    // Get conversation, but override model_id and provider_id to target values
     let mut conversation =
         aqbot_core::repo::conversation::get_conversation(&state.sea_db, &conversation_id)
             .await
             .map_err(|e| e.to_string())?;
     conversation.model_id = target_model_id;
+    conversation.provider_id = target_provider_id.clone();
 
     // Use target provider instead of conversation's default
     let provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &target_provider_id)
@@ -2264,12 +2283,24 @@ pub async fn regenerate_with_model(
     };
 
     if let Some(ref sys) = effective_system_prompt {
+        tracing::info!(
+            "[regenerate_with_model] model={} provider={} effective_system_prompt='{}'",
+            &conversation.model_id,
+            &conversation.provider_id,
+            &sys[..sys.len().min(80)]
+        );
         chat_messages.push(ChatMessage {
             role: "system".to_string(),
             content: ChatContent::Text(sys.clone()),
             tool_calls: None,
             tool_call_id: None,
         });
+    } else {
+        tracing::info!(
+            "[regenerate_with_model] model={} provider={} NO system prompt",
+            &conversation.model_id,
+            &conversation.provider_id
+        );
     }
 
     // RAG retrieval
@@ -2426,6 +2457,12 @@ pub async fn regenerate_with_model(
         .lock()
         .await
         .insert(conversation_id.clone(), cancel_flag.clone());
+    tracing::info!(
+        "[regenerate_with_model] spawning stream: model={} total_messages={} has_system_prompt={}",
+        &conversation.model_id,
+        chat_messages.len(),
+        chat_messages.first().map(|m| m.role == "system").unwrap_or(false)
+    );
     spawn_stream_task(
         app,
         state.sea_db.clone(),
@@ -2450,9 +2487,8 @@ pub async fn regenerate_with_model(
         cancel_flag,
         state.stream_cancel_flags.clone(),
         memory_tag,
-    );
-
-    Ok(())
+        companion,
+    );    Ok(())
 }
 
 #[tauri::command]

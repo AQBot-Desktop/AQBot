@@ -1967,7 +1967,11 @@ export function ChatView() {
     const isStreaming = streaming && msg?.id === streamingMessageId;
     const assistantCopyText = stripAqbotTags(msg?.content ?? (typeof bubbleData.content === 'string' ? bubbleData.content : ''));
     const parsedNodes = aiContentNodesById.get(String(bubbleData.key));
-    const { bubbleLoading, footerLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
+    const { bubbleLoading: rawBubbleLoading, footerLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
+    // In multi-model mode, never hide the footer (which contains ModelTags) via
+    // the Ant Design Bubble loading state — Bubble hides footer when loading=true.
+    const isMultiModelMsg = !!multiModelParentId && msg?.parent_message_id === multiModelParentId;
+    const bubbleLoading = isMultiModelMsg ? false : rawBubbleLoading;
     return {
       placement: 'start' as const,
       ...getBubbleVariant(false),
@@ -1976,6 +1980,15 @@ export function ChatView() {
       contentRender: (content: string) => {
         if (msg?.status === 'error') {
           return <Alert type="error" message={content} showIcon />;
+        }
+        // In multi-model mode we disabled Bubble's built-in loading to keep
+        // footer visible, so show inline loading dots when content is empty.
+        if (isMultiModelMsg && rawBubbleLoading) {
+          return (
+            <span className="aqbot-streaming-dots" aria-hidden="true">
+              <span /><span /><span />
+            </span>
+          );
         }
         return (
           <AssistantMarkdown
