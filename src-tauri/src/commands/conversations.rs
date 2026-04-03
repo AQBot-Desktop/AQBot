@@ -250,6 +250,25 @@ pub async fn delete_conversation(state: State<'_, AppState>, id: String) -> Resu
     delete_conversation_with_attachments(&state.sea_db, &id).await
 }
 
+#[tauri::command]
+pub async fn branch_conversation(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    until_message_id: String,
+    as_child: bool,
+    title: Option<String>,
+) -> Result<Conversation, String> {
+    aqbot_core::repo::conversation::branch_conversation(
+        &state.sea_db,
+        &conversation_id,
+        &until_message_id,
+        as_child,
+        title.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 async fn delete_conversation_with_attachments(
     db: &sea_orm::DatabaseConnection,
     conversation_id: &str,

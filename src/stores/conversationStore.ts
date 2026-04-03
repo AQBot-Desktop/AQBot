@@ -299,6 +299,7 @@ interface ConversationState {
   updateConversation: (id: string, input: UpdateConversationInput) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  branchConversation: (conversationId: string, untilMessageId: string, asChild: boolean, title?: string) => Promise<Conversation>;
   togglePin: (id: string) => Promise<void>;
   toggleArchive: (id: string) => Promise<void>;
   archivedConversations: Conversation[];
@@ -941,6 +942,30 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         messages: state.activeConversationId === id ? [] : state.messages,
         error: null,
       });
+    } catch (e) {
+      set({ error: String(e) });
+      throw e;
+    }
+  },
+
+  branchConversation: async (conversationId, untilMessageId, asChild, title) => {
+    try {
+      const newConv = await invoke<Conversation>('branch_conversation', {
+        conversationId,
+        untilMessageId,
+        asChild,
+        title: title || null,
+      });
+      set((s) => ({
+        conversations: [newConv, ...s.conversations],
+        activeConversationId: newConv.id,
+        messages: [],
+        error: null,
+      }));
+      // Load the branched messages
+      const msgs = await invoke<Message[]>('list_messages', { conversationId: newConv.id });
+      set({ messages: msgs });
+      return newConv;
     } catch (e) {
       set({ error: String(e) });
       throw e;

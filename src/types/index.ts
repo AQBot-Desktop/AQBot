@@ -116,6 +116,7 @@ export interface Conversation {
   is_archived: boolean;
   context_compression: boolean;
   category_id: string | null;
+  parent_conversation_id: string | null;
   message_count: number;
   created_at: number;
   updated_at: number;

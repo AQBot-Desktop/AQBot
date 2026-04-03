@@ -19,6 +19,7 @@ mod m20250117_000001_add_knowledge_base_chunking_config;
 mod m20250118_000001_add_knowledge_document_type;
 mod m20250119_000001_add_knowledge_document_index_error;
 mod m20250120_000001_add_message_timing;
+mod m20250121_000001_add_conversation_parent_id;
 
 pub struct Migrator;
 
@@ -45,6 +46,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250118_000001_add_knowledge_document_type::Migration),
             Box::new(m20250119_000001_add_knowledge_document_index_error::Migration),
             Box::new(m20250120_000001_add_message_timing::Migration),
+            Box::new(m20250121_000001_add_conversation_parent_id::Migration),
         ]
     }
 }

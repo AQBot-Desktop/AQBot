@@ -1,7 +1,7 @@
 use sea_orm::*;
 use serde_json;
 
-use crate::entity::{conversation_summaries, conversations};
+use crate::entity::{conversation_summaries, conversations, messages};
 use crate::error::{AQBotError, Result};
 use crate::types::{
     Conversation, ConversationSearchResult, ConversationSummary, UpdateConversationInput,
@@ -30,6 +30,7 @@ fn conversation_from_entity(m: conversations::Model) -> Conversation {
         is_archived: m.is_archived != 0,
         context_compression: m.context_compression != 0,
         category_id: m.category_id,
+        parent_conversation_id: m.parent_conversation_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
@@ -170,6 +171,9 @@ pub async fn update_conversation(
     if let Some(category_id) = input.category_id {
         am.category_id = Set(category_id);
     }
+    if let Some(parent_conversation_id) = input.parent_conversation_id {
+        am.parent_conversation_id = Set(parent_conversation_id);
+    }
     am.updated_at = Set(now);
     am.update(db).await?;
 
@@ -231,6 +235,146 @@ pub async fn delete_conversation(db: &DatabaseConnection, id: &str) -> Result<()
         return Err(AQBotError::NotFound(format!("Conversation {}", id)));
     }
     Ok(())
+}
+
+/// Branch a conversation: copy settings + messages up to `until_message_id`.
+/// If `as_child` is true, the new conversation is nested under the source (or its parent).
+pub async fn branch_conversation(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    until_message_id: &str,
+    as_child: bool,
+    custom_title: Option<&str>,
+) -> Result<Conversation> {
+    // 1. Load source conversation
+    let source = conversations::Entity::find_by_id(conversation_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Conversation {}", conversation_id)))?;
+
+    // 2. Load all active messages ordered by created_at
+    let all_msgs = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .order_by_asc(messages::Column::CreatedAt)
+        .all(db)
+        .await?;
+
+    // 3. Find the target message index
+    let target_idx = all_msgs
+        .iter()
+        .position(|m| m.id == until_message_id)
+        .ok_or_else(|| {
+            AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
+        })?;
+
+    // 4. Slice messages up to (and including) the target
+    let candidate_msgs = &all_msgs[..=target_idx];
+
+    // 5. Find last context-clear marker to determine effective start
+    let start_idx = candidate_msgs
+        .iter()
+        .rposition(|m| {
+            m.role == "system"
+                && (m.content == "<!-- context-clear -->"
+                    || m.content == "<!-- context-compressed -->")
+        })
+        .map(|idx| idx + 1) // skip the marker itself
+        .unwrap_or(0);
+
+    let effective_msgs = &candidate_msgs[start_idx..];
+
+    // 6. Create new conversation with copied settings
+    let new_id = gen_id();
+    let now = now_ts();
+    let branch_title = custom_title
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| source.title.clone());
+
+    // Determine parent_conversation_id
+    let parent_id = if as_child {
+        // If source already has a parent, new branch is a sibling (same parent)
+        // Otherwise, source becomes the parent
+        Some(
+            source
+                .parent_conversation_id
+                .clone()
+                .unwrap_or_else(|| source.id.clone()),
+        )
+    } else {
+        None
+    };
+
+    conversations::ActiveModel {
+        id: Set(new_id.clone()),
+        title: Set(branch_title),
+        model_id: Set(source.model_id.clone()),
+        provider_id: Set(source.provider_id.clone()),
+        system_prompt: Set(source.system_prompt.clone()),
+        temperature: Set(source.temperature),
+        max_tokens: Set(source.max_tokens),
+        top_p: Set(source.top_p),
+        frequency_penalty: Set(source.frequency_penalty),
+        search_enabled: Set(source.search_enabled),
+        search_provider_id: Set(source.search_provider_id.clone()),
+        thinking_budget: Set(source.thinking_budget),
+        enabled_mcp_server_ids: Set(source.enabled_mcp_server_ids.clone()),
+        enabled_knowledge_base_ids: Set(source.enabled_knowledge_base_ids.clone()),
+        enabled_memory_namespace_ids: Set(source.enabled_memory_namespace_ids.clone()),
+        message_count: Set(effective_msgs.len() as i32),
+        is_pinned: Set(0),
+        is_archived: Set(0),
+        context_compression: Set(source.context_compression),
+        category_id: Set(source.category_id.clone()),
+        parent_conversation_id: Set(parent_id),
+        research_mode: Set(source.research_mode),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(db)
+    .await?;
+
+    // 7. Copy messages — assign new IDs and remap parent_message_id references
+    let mut id_map = std::collections::HashMap::new();
+    for msg in effective_msgs {
+        let new_msg_id = gen_id();
+        id_map.insert(msg.id.clone(), new_msg_id.clone());
+
+        let new_parent = msg
+            .parent_message_id
+            .as_ref()
+            .and_then(|pid| id_map.get(pid))
+            .cloned();
+
+        messages::ActiveModel {
+            id: Set(new_msg_id),
+            conversation_id: Set(new_id.clone()),
+            role: Set(msg.role.clone()),
+            content: Set(msg.content.clone()),
+            provider_id: Set(msg.provider_id.clone()),
+            model_id: Set(msg.model_id.clone()),
+            token_count: Set(msg.token_count),
+            prompt_tokens: Set(msg.prompt_tokens),
+            completion_tokens: Set(msg.completion_tokens),
+            attachments: Set(msg.attachments.clone()),
+            thinking: Set(msg.thinking.clone()),
+            created_at: Set(msg.created_at),
+            parent_message_id: Set(new_parent),
+            version_index: Set(msg.version_index),
+            is_active: Set(1),
+            tool_calls_json: Set(msg.tool_calls_json.clone()),
+            tool_call_id: Set(msg.tool_call_id.clone()),
+            status: Set(msg.status.clone()),
+            tokens_per_second: Set(msg.tokens_per_second),
+            first_token_latency_ms: Set(msg.first_token_latency_ms),
+            ..Default::default()
+        }
+        .insert(db)
+        .await?;
+    }
+
+    get_conversation(db, &new_id).await
 }
 
 pub async fn search_conversations(

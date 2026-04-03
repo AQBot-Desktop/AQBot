@@ -227,6 +227,7 @@ pub struct Conversation {
     pub is_archived: bool,
     pub context_compression: bool,
     pub category_id: Option<String>,
+    pub parent_conversation_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -333,6 +334,8 @@ pub struct UpdateConversationInput {
     pub context_compression: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub category_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub parent_conversation_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

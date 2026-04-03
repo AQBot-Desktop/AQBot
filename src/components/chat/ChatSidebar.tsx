@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { Button, Input, App, theme, Tooltip, Avatar, Checkbox, Dropdown, Empty } from 'antd'
-import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical } from 'lucide-react'
+import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical, ChevronRight } from 'lucide-react'
 import { ModelIcon } from '@lobehub/icons'
 import { getConvIcon } from '@/lib/convIcon'
 import { exportAsMarkdown, exportAsText, exportAsPNG, exportAsJSON } from '@/lib/exportChat'
@@ -217,6 +217,16 @@ export function ChatSidebar() {
   const [rightClickedConvId, setRightClickedConvId] = useState<string | null>(null)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<ConversationCategory | null>(null)
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
+
+  // Auto-expand parent when active conversation is a child
+  useEffect(() => {
+    if (!activeConversationId) return
+    const active = conversations.find((c) => c.id === activeConversationId)
+    if (active?.parent_conversation_id && !expandedParentIds.has(active.parent_conversation_id)) {
+      setExpandedParentIds((prev) => new Set(prev).add(active.parent_conversation_id!))
+    }
+  }, [activeConversationId, conversations])
 
   // Auto-select conversation: restore last selected, or fall back to first
   useEffect(() => {
@@ -471,10 +481,23 @@ export function ChatSidebar() {
     () => {
       const items: ConversationItemType[] = []
 
-      // Group conversations by category_id for ordered insertion
-      const convsByCatId = new Map<string, typeof filteredConversations>()
-      const uncategorizedConvs: typeof filteredConversations = []
+      // Build parent→children map (max 1 level nesting)
+      const childrenMap = new Map<string, Conversation[]>()
+      const topLevel: Conversation[] = []
       filteredConversations.forEach((conv) => {
+        if (conv.parent_conversation_id) {
+          const arr = childrenMap.get(conv.parent_conversation_id) ?? []
+          arr.push(conv)
+          childrenMap.set(conv.parent_conversation_id, arr)
+        } else {
+          topLevel.push(conv)
+        }
+      })
+
+      // Group conversations by category_id for ordered insertion
+      const convsByCatId = new Map<string, Conversation[]>()
+      const uncategorizedConvs: Conversation[] = []
+      topLevel.forEach((conv) => {
         if (conv.category_id) {
           const arr = convsByCatId.get(conv.category_id) ?? []
           arr.push(conv)
@@ -484,14 +507,56 @@ export function ChatSidebar() {
         }
       })
 
-      const buildConvItem = (conv: Conversation, group: string) => {
+      const hasChildren = (convId: string) => (childrenMap.get(convId)?.length ?? 0) > 0
+      const isExpanded = (convId: string) => expandedParentIds.has(convId)
+
+      const buildConvItem = (conv: Conversation, group: string, isChild = false): ConversationItemType => {
         const icon = buildIcon(conv)
-        const label = conv.is_pinned ? (
-          <span className="flex items-center gap-1">
-            <span className="truncate">{conv.title}</span>
-            <Pin size={12} style={{ color: token.colorTextQuaternary, flexShrink: 0 }} />
-          </span>
-        ) : conv.title
+        const childCount = childrenMap.get(conv.id)?.length ?? 0
+        const expanded = isExpanded(conv.id)
+
+        let label: React.ReactNode
+        if (conv.is_pinned && !isChild) {
+          label = (
+            <span className="flex items-center gap-1">
+              <span className="truncate">{conv.title}</span>
+              <Pin size={12} style={{ color: token.colorTextQuaternary, flexShrink: 0 }} />
+            </span>
+          )
+        } else {
+          label = conv.title
+        }
+
+        // Wrap label with expand/collapse toggle for parents with children
+        if (childCount > 0) {
+          label = (
+            <span className="flex items-center gap-1" style={{ overflow: 'hidden' }}>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpandedParentIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(conv.id)) next.delete(conv.id)
+                    else next.add(conv.id)
+                    return next
+                  })
+                }}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+              >
+                <ChevronRight
+                  size={12}
+                  style={{
+                    color: token.colorTextQuaternary,
+                    transition: 'transform 0.2s',
+                    transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  }}
+                />
+              </span>
+              <span className="truncate">{typeof label === 'string' ? label : label}</span>
+            </span>
+          )
+        }
+
         if (multiSelectMode) {
           return {
             key: conv.id,
@@ -508,16 +573,33 @@ export function ChatSidebar() {
             ),
             group,
             'data-conv-id': conv.id,
+            ...(isChild ? { style: { paddingLeft: 20 } } : {}),
           }
         }
-        return { key: conv.id, label, icon, group, 'data-conv-id': conv.id }
+        return {
+          key: conv.id,
+          label,
+          icon,
+          group,
+          'data-conv-id': conv.id,
+          ...(isChild ? { style: { paddingLeft: 20 } } : {}),
+        }
+      }
+
+      // Helper: push a conversation and its children (if expanded)
+      const pushConvWithChildren = (conv: Conversation, group: string) => {
+        items.push(buildConvItem(conv, group))
+        if (hasChildren(conv.id) && isExpanded(conv.id)) {
+          const children = childrenMap.get(conv.id)!
+          children.forEach((child) => items.push(buildConvItem(child, group, true)))
+        }
       }
 
       // Add category items in sort_order — ensures group rendering order matches drag order
       categories.forEach((cat) => {
         const catConvs = convsByCatId.get(cat.id)
         if (catConvs && catConvs.length > 0) {
-          catConvs.forEach((conv) => items.push(buildConvItem(conv, `cat:${cat.id}`)))
+          catConvs.forEach((conv) => pushConvWithChildren(conv, `cat:${cat.id}`))
         } else {
           items.push({
             key: `__empty_cat_${cat.id}`,
@@ -537,12 +619,12 @@ export function ChatSidebar() {
       // Add uncategorized conversations (pinned + time groups)
       uncategorizedConvs.forEach((conv) => {
         const group = conv.is_pinned ? 'pinned' : getDateGroup(conv.updated_at)
-        items.push(buildConvItem(conv, group))
+        pushConvWithChildren(conv, group)
       })
 
       return items
     },
-    [filteredConversations, multiSelectMode, selectedIds, buildIcon, toggleSelect, token.colorTextQuaternary, categories, t],
+    [filteredConversations, multiSelectMode, selectedIds, buildIcon, toggleSelect, token.colorTextQuaternary, categories, t, expandedParentIds],
   )
 
   const groupLabels: Record<string, string> = useMemo(

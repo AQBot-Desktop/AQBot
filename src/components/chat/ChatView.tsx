@@ -2,7 +2,7 @@ import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react'
 import { CloseCircleFilled, SyncOutlined } from '@ant-design/icons';
 import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, Popover, theme, Tag, Image, Tooltip, Modal, Spin } from 'antd';
 import type { InputRef } from 'antd';
-import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight, Zap, Sparkles, TextCursorInput } from 'lucide-react';
+import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight, Zap, Sparkles, TextCursorInput, GitBranch } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { getConvIcon } from '@/lib/convIcon';
 import Bubble from '@ant-design/x/es/bubble';
@@ -1175,6 +1175,13 @@ function AssistantFooter({
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
+  const branchConversation = useConversationStore((s) => s.branchConversation);
+  // Branch modal state
+  const [branchModalOpen, setBranchModalOpen] = useState(false);
+  const [branchAsChild, setBranchAsChild] = useState(false);
+  const [branchTitle, setBranchTitle] = useState('');
+  const conversations = useConversationStore((s) => s.conversations);
+  const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
   // Track message count to re-fetch versions when companion messages appear
   const messagesLength = useConversationStore((s) => s.messages.length);
 
@@ -1281,6 +1288,43 @@ function AssistantFooter({
               ),
             },
             {
+              key: 'branch',
+              actionRender: () => (
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'independent',
+                        label: t('chat.branchIndependent', '分支到独立对话'),
+                        onClick: () => {
+                          setBranchAsChild(false);
+                          setBranchTitle(currentConvTitle);
+                          setBranchModalOpen(true);
+                        },
+                      },
+                      {
+                        key: 'child',
+                        label: t('chat.branchChild', '分支到子级'),
+                        onClick: () => {
+                          setBranchAsChild(true);
+                          setBranchTitle(currentConvTitle);
+                          setBranchModalOpen(true);
+                        },
+                      },
+                    ],
+                  }}
+                  trigger={['click']}
+                  placement="bottom"
+                >
+                  <Tooltip title={t('chat.branchConversation', '分支对话')}>
+                    <span className="aqbot-action-item" style={{ color: token.colorTextSecondary }}>
+                      <GitBranch size={14} />
+                    </span>
+                  </Tooltip>
+                </Dropdown>
+              ),
+            },
+            {
               key: 'delete',
               actionRender: () => {
                 const isLastVersion = allVersions.filter((v) => v.id !== msg.id).length === 0;
@@ -1334,6 +1378,42 @@ function AssistantFooter({
       </div>
       )}
       <ModelTags msg={msg} conversationId={conversationId} allVersions={allVersions} getModelDisplayInfo={getModelDisplayInfo} />
+      <Modal
+        open={branchModalOpen}
+        title={t('chat.branchConversation', '分支对话')}
+        onCancel={() => setBranchModalOpen(false)}
+        onOk={async () => {
+          try {
+            const title = branchTitle.trim() || currentConvTitle;
+            await branchConversation(conversationId, msg.id, branchAsChild, title);
+            messageApi.success(t('chat.branchCreated', '分支对话已创建'));
+            setBranchModalOpen(false);
+          } catch (e) {
+            messageApi.error(String(e));
+          }
+        }}
+        okText={t('common.confirm', '确定')}
+        cancelText={t('common.cancel', '取消')}
+        width={400}
+        destroyOnClose
+      >
+        <Input
+          value={branchTitle}
+          onChange={(e) => setBranchTitle(e.target.value)}
+          placeholder={t('chat.branchTitlePlaceholder', '请输入对话名称')}
+          autoFocus
+          onPressEnter={async () => {
+            try {
+              const title = branchTitle.trim() || currentConvTitle;
+              await branchConversation(conversationId, msg.id, branchAsChild, title);
+              messageApi.success(t('chat.branchCreated', '分支对话已创建'));
+              setBranchModalOpen(false);
+            } catch (e) {
+              messageApi.error(String(e));
+            }
+          }}
+        />
+      </Modal>
     </div>
   );
 }
