@@ -90,8 +90,8 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@19.2.4)
       markstream-react:
-        specifier: ^0.0.32
-        version: 0.0.32(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.13.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.14(shiki@3.23.0))(stream-monaco@0.0.20(monaco-editor@0.52.2))
+        specifier: ^0.0.37
+        version: 0.0.37(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.21(monaco-editor@0.52.2))
       overlayscrollbars:
         specifier: ^2.14.0
         version: 2.14.0
@@ -108,14 +108,14 @@ importers:
         specifier: ^16.5.8
         version: 16.5.8(i18next@25.9.0(typescript@5.8.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.8.3)
       stream-markdown:
-        specifier: ^0.0.14
-        version: 0.0.14(shiki@3.23.0)
+        specifier: ^0.0.15
+        version: 0.0.15(react@19.2.4)(shiki@3.23.0)
       stream-markdown-parser:
-        specifier: 0.0.75
-        version: 0.0.75
+        specifier: ^0.0.81
+        version: 0.0.81
       stream-monaco:
-        specifier: ^0.0.20
-        version: 0.0.20(monaco-editor@0.52.2)
+        specifier: ^0.0.21
+        version: 0.0.21(monaco-editor@0.52.2)
       zustand:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(immer@11.1.4)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
@@ -766,8 +766,11 @@ packages:
   '@mermaid-js/parser@1.0.1':
     resolution: {integrity: sha512-opmV19kN1JsK0T6HhhokHpcVkqKpF+x2pPDKKM2ThHtZAB5F4PROopk0amuVYK5qMrIA4erzpNm8gmPNJgMDxQ==}
 
-  '@pierre/diffs@1.1.3':
-    resolution: {integrity: sha512-sV6G1FL0L4UtequXi+50Uge4QVsouo5vgJx7pCawQ4+ctFglh03zIsB81W8PNheh3coIlVzLzFgB9kI7X4eyjw==}
+  '@mermaid-js/parser@1.1.0':
+    resolution: {integrity: sha512-gxK9ZX2+Fex5zu8LhRQoMeMPEHbc73UKZ0FQ54YrQtUxE1VVhMwzeNtKRPAu5aXks4FasbMe4xB4bWrmq6Jlxw==}
+
+  '@pierre/diffs@1.1.10':
+    resolution: {integrity: sha512-C7L4SMblyZa7cdDOLGN8q0Tfm2rDbYnBcTUz6zqGq45pHO4xP2Oq7d+euQwsRfB8AC5yRXkSei4rKZQenSVkqw==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -1966,8 +1969,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  ahooks@3.9.6:
-    resolution: {integrity: sha512-Mr7f05swd5SmKlR9SZo5U6M0LsL4ErweLzpdgXjA1JPmnZ78Vr6wzx0jUtvoxrcqGKYnX0Yjc02iEASVxHFPjQ==}
+  ahooks@3.9.7:
+    resolution: {integrity: sha512-S0lvzhbdlhK36RFBkGv+RbOM/dbbweym+BIHM/bwwuWVSVN5TuVErHPMWo4w0t1NDYg5KPp2iEf7Y7E5LASYiw==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -2798,6 +2801,10 @@ packages:
     resolution: {integrity: sha512-1DJcK/L05k1Y9Gf7wMcyuqFOL6BiY3vY0CFcAM/LPRN04NALxcl6u7lOWNsp3f/bCHWxigzQl6FbR95XJ4R84Q==}
     hasBin: true
 
+  katex@0.16.44:
+    resolution: {integrity: sha512-EkxoDTk8ufHqHlf9QxGwcxeLkWRR3iOuYfRpfORgYfqc8s13bgb+YtRY59NK5ZpRaCwq1kqA6a5lpX8C/eLphQ==}
+    hasBin: true
+
   khroma@2.1.0:
     resolution: {integrity: sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==}
 
@@ -2918,11 +2925,14 @@ packages:
   lodash-es@4.17.23:
     resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
 
+  lodash-es@4.18.1:
+    resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
+
   lodash.throttle@4.1.1:
     resolution: {integrity: sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==}
 
-  lodash@4.17.23:
-    resolution: {integrity: sha512-LgVTMpQtIopCi79SJeDiP0TfWi5CNEc/L/aRdTh3yIvmZXTnheWpKjSZhnvMl8iXbC1tFg9gdHHDMLoV7CnG+w==}
+  lodash@4.18.1:
+    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
@@ -3013,8 +3023,8 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  markstream-react@0.0.32:
-    resolution: {integrity: sha512-ltcrs9uF53qlyKLl1YVU/F8wYF/FeZRDet/d4jwCq7B7v6RF8gEMMjhWeR+ZrWSS9xOwQ2W/t56dWKsL5a+0Lg==}
+  markstream-react@0.0.37:
+    resolution: {integrity: sha512-9LwFCalmQD+P8bsrjIcd6wxuU1iHxdJtqxcUfAxSO2ZItOJBVllolZfZObheidBGXcGmu0b4z6tomu5pRu5/ng==}
     peerDependencies:
       '@antv/infographic': ^0.2.3
       '@terrastruct/d2': '>=0.1.33'
@@ -3022,8 +3032,8 @@ packages:
       mermaid: '>=11'
       react: '>=18'
       react-dom: '>=18'
-      stream-markdown: '>=0.0.14'
-      stream-monaco: '>=0.0.20'
+      stream-markdown: '>=0.0.15'
+      stream-monaco: '>=0.0.21'
     peerDependenciesMeta:
       '@antv/infographic':
         optional: true
@@ -3107,6 +3117,9 @@ packages:
 
   mermaid@11.13.0:
     resolution: {integrity: sha512-fEnci+Immw6lKMFI8sqzjlATTyjLkRa6axrEgLV2yHTfv8r+h1wjFbV6xeRtd4rUV1cS4EpR9rwp3Rci7TRWDw==}
+
+  mermaid@11.14.0:
+    resolution: {integrity: sha512-GSGloRsBs+JINmmhl0JDwjpuezCsHB4WGI4NASHxL3fHo3o/BRXTxhDLKnln8/Q0lRFRyDdEjmk1/d5Sn1Xz8g==}
 
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
@@ -3783,16 +3796,16 @@ packages:
   std-env@4.0.0:
     resolution: {integrity: sha512-zUMPtQ/HBY3/50VbpkupYHbRroTRZJPRLvreamgErJVys0ceuzMkD44J/QjqhHjOzK42GQ3QZIeFG1OYfOtKqQ==}
 
-  stream-markdown-parser@0.0.75:
-    resolution: {integrity: sha512-8jY2AlLYcu+qhLO/rYjB/xxN0MNb+gHAL1lglrqIDapv/PeFiSBPxyDHPXdYxq9ZedSSF6hMGFEgdhLql9Ha+g==}
+  stream-markdown-parser@0.0.81:
+    resolution: {integrity: sha512-fktDhGLmTVVAuuMMi2Ishx1TKYDPtLqHay5NOkiVHx85JpRxm6z/YuLRxTTmpMzWAZgBk+oOfAhk7FDCQX2DxA==}
 
-  stream-markdown@0.0.14:
-    resolution: {integrity: sha512-W9P+TU1/zvQFtogwVjI+hju5LwUdbMwjtKM/SxxRbUoMh7yHKO2JwCaZf9yslrP5IKKR1psxJW+N5O4XB3YOEw==}
+  stream-markdown@0.0.15:
+    resolution: {integrity: sha512-1WlzjZUb9W5BWZYMKCr2/exPVh5P7HIhHzkcYZczkXm0upiuN4zEddwjdckL+WSQWGGlv9bboXCqcTYCEgqexw==}
     peerDependencies:
       shiki: '>=3.13.0'
 
-  stream-monaco@0.0.20:
-    resolution: {integrity: sha512-ESBz0eW+ItcodfoEmC9XmL9sBU3kJUXZvYr7ccQyc0RBzUPK1fozT9ufqpmdDC9FXNc6+8UdAzGqLTR2kLpLfg==}
+  stream-monaco@0.0.21:
+    resolution: {integrity: sha512-+Qi70RLTkr0goQA7vyqAsaoE0oSRejx2uwol0OypBakFUayBBLxQ0/PG68CR5znXZByQT3A+nSKN0FsHmoF0xQ==}
     hasBin: true
     peerDependencies:
       monaco-editor: ^0.52.2
@@ -4284,7 +4297,7 @@ snapshots:
       eventemitter3: 5.0.4
       flru: 1.0.2
       linkedom: 0.18.12
-      lodash-es: 4.17.23
+      lodash-es: 4.18.1
       measury: 0.1.5
       postcss: 8.5.8
       roughjs: 4.6.6
@@ -4833,12 +4846,12 @@ snapshots:
       '@lobehub/icons': 5.0.1(@lobehub/ui@5.5.2)(@types/react@19.2.14)(antd@6.3.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@mdx-js/mdx': 3.1.1
       '@mdx-js/react': 3.1.1(@types/react@19.2.14)(react@19.2.4)
-      '@pierre/diffs': 1.1.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@pierre/diffs': 1.1.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@radix-ui/react-slot': 1.2.4(@types/react@19.2.14)(react@19.2.4)
       '@shikijs/core': 3.23.0
       '@shikijs/transformers': 3.23.0
       '@splinetool/runtime': 0.9.526
-      ahooks: 3.9.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      ahooks: 3.9.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       antd: 6.3.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       antd-style: 4.1.0(@types/react@19.2.14)(antd@6.3.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       chroma-js: 3.2.0
@@ -4849,11 +4862,11 @@ snapshots:
       es-toolkit: 1.45.1
       fast-deep-equal: 3.1.3
       immer: 11.1.4
-      katex: 0.16.40
+      katex: 0.16.44
       leva: 0.10.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lucide-react: 0.563.0(react@19.2.4)
       marked: 17.0.5
-      mermaid: 11.13.0
+      mermaid: 11.14.0
       motion: 12.38.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       numeral: 2.0.6
       polished: 4.3.1
@@ -4942,7 +4955,11 @@ snapshots:
     dependencies:
       langium: 4.2.1
 
-  '@pierre/diffs@1.1.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@mermaid-js/parser@1.1.0':
+    dependencies:
+      langium: 4.2.1
+
+  '@pierre/diffs@1.1.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@pierre/theme': 0.0.22
       '@shikijs/transformers': 3.23.0
@@ -6121,14 +6138,14 @@ snapshots:
 
   acorn@8.16.0: {}
 
-  ahooks@3.9.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  ahooks@3.9.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
       '@babel/runtime': 7.29.2
       '@types/js-cookie': 3.0.6
       dayjs: 1.11.20
       intersection-observer: 0.12.2
       js-cookie: 3.0.5
-      lodash: 4.17.23
+      lodash: 4.18.1
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
       react-fast-compare: 3.2.2
@@ -6576,7 +6593,7 @@ snapshots:
   dagre@0.8.5:
     dependencies:
       graphlib: 2.1.8
-      lodash: 4.17.23
+      lodash: 4.18.1
     optional: true
 
   data-urls@7.0.0:
@@ -6829,7 +6846,7 @@ snapshots:
 
   graphlib@2.1.8:
     dependencies:
-      lodash: 4.17.23
+      lodash: 4.18.1
     optional: true
 
   hachure-fill@0.5.2: {}
@@ -7132,6 +7149,10 @@ snapshots:
     dependencies:
       commander: 8.3.0
 
+  katex@0.16.44:
+    dependencies:
+      commander: 8.3.0
+
   khroma@2.1.0: {}
 
   langium@4.2.1:
@@ -7247,9 +7268,11 @@ snapshots:
 
   lodash-es@4.17.23: {}
 
+  lodash-es@4.18.1: {}
+
   lodash.throttle@4.1.1: {}
 
-  lodash@4.17.23: {}
+  lodash@4.18.1: {}
 
   longest-streak@3.1.0: {}
 
@@ -7322,20 +7345,20 @@ snapshots:
 
   marked@17.0.5: {}
 
-  markstream-react@0.0.32(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.13.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.14(shiki@3.23.0))(stream-monaco@0.0.20(monaco-editor@0.52.2)):
+  markstream-react@0.0.37(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.21(monaco-editor@0.52.2)):
     dependencies:
       '@floating-ui/dom': 1.7.6
       clsx: 2.1.1
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
-      stream-markdown-parser: 0.0.75
+      stream-markdown-parser: 0.0.81
     optionalDependencies:
       '@antv/infographic': 0.2.16
       '@terrastruct/d2': 0.1.33
       katex: 0.16.40
-      mermaid: 11.13.0
-      stream-markdown: 0.0.14(shiki@3.23.0)
-      stream-monaco: 0.0.20(monaco-editor@0.52.2)
+      mermaid: 11.14.0
+      stream-markdown: 0.0.15(react@19.2.4)(shiki@3.23.0)
+      stream-monaco: 0.0.21(monaco-editor@0.52.2)
 
   mdast-util-find-and-replace@3.0.2:
     dependencies:
@@ -7555,6 +7578,30 @@ snapshots:
       ts-dedent: 2.2.0
       uuid: 11.1.0
 
+  mermaid@11.14.0:
+    dependencies:
+      '@braintree/sanitize-url': 7.1.2
+      '@iconify/utils': 3.1.0
+      '@mermaid-js/parser': 1.1.0
+      '@types/d3': 7.4.3
+      '@upsetjs/venn.js': 2.0.0
+      cytoscape: 3.33.1
+      cytoscape-cose-bilkent: 4.1.0(cytoscape@3.33.1)
+      cytoscape-fcose: 2.2.0(cytoscape@3.33.1)
+      d3: 7.9.0
+      d3-sankey: 0.12.3
+      dagre-d3-es: 7.0.14
+      dayjs: 1.11.20
+      dompurify: 3.3.3
+      katex: 0.16.44
+      khroma: 2.1.0
+      lodash-es: 4.18.1
+      marked: 16.4.2
+      roughjs: 4.6.6
+      stylis: 4.3.6
+      ts-dedent: 2.2.0
+      uuid: 11.1.0
+
   micromark-core-commonmark@2.0.3:
     dependencies:
       decode-named-character-reference: 1.3.0
@@ -7655,7 +7702,7 @@ snapshots:
     dependencies:
       '@types/katex': 0.16.8
       devlop: 1.1.0
-      katex: 0.16.40
+      katex: 0.16.44
       micromark-factory-space: 2.0.1
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
@@ -8304,7 +8351,7 @@ snapshots:
       '@types/katex': 0.16.8
       hast-util-from-html-isomorphic: 2.0.0
       hast-util-to-text: 4.0.2
-      katex: 0.16.40
+      katex: 0.16.44
       unist-util-visit-parents: 6.0.2
       vfile: 6.0.3
 
@@ -8520,7 +8567,7 @@ snapshots:
 
   std-env@4.0.0: {}
 
-  stream-markdown-parser@0.0.75:
+  stream-markdown-parser@0.0.81:
     dependencies:
       markdown-it-container: 4.0.0
       markdown-it-footnote: 4.0.0
@@ -8531,11 +8578,16 @@ snapshots:
       markdown-it-task-checkbox: 1.0.6
       markdown-it-ts: 0.0.9
 
-  stream-markdown@0.0.14(shiki@3.23.0):
+  stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0):
     dependencies:
       shiki: 3.23.0
+      shiki-stream: 0.1.4(react@19.2.4)
+    transitivePeerDependencies:
+      - react
+      - solid-js
+      - vue
 
-  stream-monaco@0.0.20(monaco-editor@0.52.2):
+  stream-monaco@0.0.21(monaco-editor@0.52.2):
     dependencies:
       '@shikijs/monaco': 3.23.0
       alien-signals: 2.0.8

@@ -46,3 +46,5 @@ website/node_modules/
 website/docs/.vitepress/cache/
 website/docs/.vitepress/dist/
 fix/
+autoresearch-*.json
+research-*.tsv
