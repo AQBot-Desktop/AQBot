@@ -786,6 +786,10 @@ pub struct ChatStreamChunk {
 pub struct ChatStreamEvent {
     pub conversation_id: String,
     pub message_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub chunk: ChatStreamChunk,
 }
 

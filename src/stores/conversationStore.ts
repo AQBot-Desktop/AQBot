@@ -48,6 +48,8 @@ interface PendingUiChunk {
   messageId: string;
   conversationId: string;
   content: string;
+  modelId?: string;
+  providerId?: string;
 }
 let _pendingUiChunk: PendingUiChunk | null = null;
 let _streamUiFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -352,6 +354,8 @@ function appendStreamChunk(
   messageId: string,
   content: string | null,
   conversationId: string,
+  modelId?: string,
+  providerId?: string,
 ) {
   // Accumulate into stream buffer only in single-stream mode
   // (parallel multi-model streams would corrupt the shared buffer)
@@ -382,6 +386,8 @@ function appendStreamChunk(
       messageId,
       conversationId,
       content: '',
+      modelId,
+      providerId,
     };
   }
 
@@ -407,7 +413,7 @@ function flushPendingStreamChunk(
   _pendingUiChunk = null;
   if (!pending) return;
 
-  const { messageId, content, conversationId } = pending;
+  const { messageId, content, conversationId, modelId: chunkModelId, providerId: chunkProviderId } = pending;
   if (get().activeConversationId !== conversationId) return;
 
   set((s) => {
@@ -420,6 +426,9 @@ function flushPendingStreamChunk(
             ? {
                 ...m,
                 content: m.content + (content ?? ''),
+                // Enrich model info from chunk if missing
+                model_id: m.model_id ?? chunkModelId ?? null,
+                provider_id: m.provider_id ?? chunkProviderId ?? null,
               }
             : m,
         ),
@@ -458,8 +467,8 @@ function flushPendingStreamChunk(
       conversation_id: conversationId,
       role: 'assistant',
       content: _streamBuffer?.content ?? (content ?? ''),
-      provider_id: null,
-      model_id: null,
+      provider_id: chunkProviderId ?? null,
+      model_id: chunkModelId ?? null,
       token_count: null,
       attachments: [],
       thinking: null,
@@ -1539,6 +1548,60 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
           isCompanion: true,
+        }).then(async () => {
+          // Each invoke returns after message creation — immediately enrich the store
+          // so ModelTags can render this companion as clickable right away.
+          if (!_isMultiModelActive) return;
+          try {
+            const versions = await get().listMessageVersions(conversationId, lastUserMsg.id);
+            if (versions.length > 0 && _isMultiModelActive) {
+              set((s) => {
+                const existingIds = new Set(s.messages.map((m) => m.id));
+                const dbVersionMap = new Map(versions.map((v) => [v.id, v]));
+                const updates: Partial<ConversationState> = {};
+
+                let resolvedFirstModelId: string | null = null;
+                if (s.streamingMessageId?.startsWith('temp-') && _multiModelFirstModelId) {
+                  const firstDbVersion = versions.find(
+                    (v) => v.model_id === _multiModelFirstModelId && !existingIds.has(v.id),
+                  );
+                  if (firstDbVersion) {
+                    resolvedFirstModelId = firstDbVersion.id;
+                    existingIds.delete(s.streamingMessageId);
+                    existingIds.add(firstDbVersion.id);
+                    updates.streamingMessageId = firstDbVersion.id;
+                  }
+                }
+
+                const newVersions = versions
+                  .filter((v) => !existingIds.has(v.id))
+                  .map((v) => ({ ...v, is_active: false as const }));
+                let enriched = false;
+                const updatedMessages = s.messages.map((m) => {
+                  if (resolvedFirstModelId && m.id === s.streamingMessageId) {
+                    const dbVersion = dbVersionMap.get(resolvedFirstModelId);
+                    enriched = true;
+                    return {
+                      ...m,
+                      id: resolvedFirstModelId,
+                      model_id: dbVersion?.model_id ?? m.model_id,
+                      provider_id: dbVersion?.provider_id ?? m.provider_id,
+                    };
+                  }
+                  const dbVersion = dbVersionMap.get(m.id);
+                  if (dbVersion && (!m.model_id || !m.provider_id)) {
+                    enriched = true;
+                    return { ...m, model_id: dbVersion.model_id, provider_id: dbVersion.provider_id };
+                  }
+                  return m;
+                });
+                if (newVersions.length === 0 && !enriched && Object.keys(updates).length === 0) return {};
+                return { ...updates, messages: [...updatedMessages, ...newVersions] };
+              });
+            }
+          } catch (e) {
+            console.warn('[sendMultiModelMessage] failed to enrich companion:', e);
+          }
         }).catch((e) => {
           console.error(`[sendMultiModelMessage] companion ${model.modelId} invoke failed:`, e);
           // Invoke failed — no stream will start, so decrement counter here
@@ -1553,69 +1616,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       );
 
       // Don't await invocations — they return after message creation, streams run in background
-      // But once they settle, pre-populate companion messages in s.messages so version
-      // switching works immediately (messages have proper model_id/provider_id from DB).
-      void Promise.allSettled(invocations).then(async () => {
-        if (!_isMultiModelActive) return; // already cleaned up
-        try {
-          const versions = await get().listMessageVersions(conversationId, lastUserMsg.id);
-          if (versions.length > 0 && _isMultiModelActive) {
-            set((s) => {
-              const existingIds = new Set(s.messages.map((m) => m.id));
-              const dbVersionMap = new Map(versions.map((v) => [v.id, v]));
-              const updates: Partial<ConversationState> = {};
-
-              // Race-condition fix: if the streaming placeholder still has a temp ID,
-              // the first model's DB version won't match any existing ID and would be
-              // added as a duplicate with is_active:false — causing all streaming chunks
-              // to go to the invisible duplicate while the placeholder shows empty content.
-              // Resolve the placeholder to the real DB ID here to prevent the duplicate.
-              let resolvedFirstModelId: string | null = null;
-              if (s.streamingMessageId?.startsWith('temp-') && _multiModelFirstModelId) {
-                const firstDbVersion = versions.find(
-                  (v) => v.model_id === _multiModelFirstModelId && !existingIds.has(v.id),
-                );
-                if (firstDbVersion) {
-                  resolvedFirstModelId = firstDbVersion.id;
-                  existingIds.delete(s.streamingMessageId);
-                  existingIds.add(firstDbVersion.id);
-                  updates.streamingMessageId = firstDbVersion.id;
-                }
-              }
-
-              // Add missing companion messages from DB
-              const newVersions = versions
-                .filter((v) => !existingIds.has(v.id))
-                .map((v) => ({ ...v, is_active: false as const }));
-              // Enrich existing in-memory messages with DB metadata (model_id, provider_id)
-              let enriched = false;
-              const updatedMessages = s.messages.map((m) => {
-                // Resolve temp placeholder → real DB ID for the first model
-                if (resolvedFirstModelId && m.id === s.streamingMessageId) {
-                  const dbVersion = dbVersionMap.get(resolvedFirstModelId);
-                  enriched = true;
-                  return {
-                    ...m,
-                    id: resolvedFirstModelId,
-                    model_id: dbVersion?.model_id ?? m.model_id,
-                    provider_id: dbVersion?.provider_id ?? m.provider_id,
-                  };
-                }
-                const dbVersion = dbVersionMap.get(m.id);
-                if (dbVersion && (!m.model_id || !m.provider_id)) {
-                  enriched = true;
-                  return { ...m, model_id: dbVersion.model_id, provider_id: dbVersion.provider_id };
-                }
-                return m;
-              });
-              if (newVersions.length === 0 && !enriched && Object.keys(updates).length === 0) return {};
-              return { ...updates, messages: [...updatedMessages, ...newVersions] };
-            });
-          }
-        } catch (e) {
-          console.warn('[sendMultiModelMessage] failed to pre-populate versions:', e);
-        }
-      });
+      // Enrichment now happens per-invocation (see .then() above).
+      void Promise.allSettled(invocations);
     }
 
     // Wait for ALL streams to complete (first + companions)
@@ -1829,13 +1831,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const chunkUnsub = await listen<ChatStreamEvent>('chat-stream-chunk', (event) => {
       if (_listenerGen !== gen) return; // stale listener
       if (!get().streaming) return; // cancelled
-      const { conversation_id, message_id, chunk } = event.payload;
+      const { conversation_id, message_id, chunk, model_id: evt_model_id, provider_id: evt_provider_id } = event.payload;
 
       if (chunk.done) {
         if (chunk.is_final === false) {
           // Append any remaining content in the done chunk (e.g. closing </think> tag)
           if (chunk.content) {
-            appendStreamChunk(set, get, message_id, chunk.content, conversation_id);
+            appendStreamChunk(set, get, message_id, chunk.content, conversation_id, evt_model_id, evt_provider_id);
           }
           flushPendingStreamChunk(set, get);
           // Clear thinking state — this iteration is done
@@ -1956,7 +1958,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         });
       }
 
-      appendStreamChunk(set, get, message_id, chunk.content, conversation_id);
+      appendStreamChunk(set, get, message_id, chunk.content, conversation_id, evt_model_id, evt_provider_id);
     });
 
     const errorUnsub = await listen<ChatStreamErrorEvent>('chat-stream-error', (event) => {

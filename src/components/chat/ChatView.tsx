@@ -1193,6 +1193,7 @@ function AssistantFooter({
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
   // Track message count to re-fetch versions when companion messages appear
   const messagesLength = useConversationStore((s) => s.messages.length);
+  const storeMessages = useConversationStore((s) => s.messages);
 
   useEffect(() => {
     if (msg.parent_message_id && conversationId) {
@@ -1201,6 +1202,16 @@ function AssistantFooter({
       });
     }
   }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, messagesLength]);
+
+  // Merge DB-fetched versions with in-store companion messages for real-time visibility
+  const mergedVersions = useMemo(() => {
+    if (!msg.parent_message_id) return allVersions;
+    const dbIds = new Set(allVersions.map((v) => v.id));
+    const extra = storeMessages.filter(
+      (m) => m.parent_message_id === msg.parent_message_id && m.role === 'assistant' && !dbIds.has(m.id) && m.model_id,
+    );
+    return extra.length > 0 ? [...allVersions, ...extra] : allVersions;
+  }, [allVersions, storeMessages, msg.parent_message_id]);
 
   // Current message's model for ModelSelector highlight
   const currentModelOverride = useMemo(() => {
@@ -1256,7 +1267,7 @@ function AssistantFooter({
       )}
       {!isStreaming && (
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <VersionPagination msg={msg} conversationId={conversationId} allVersions={allVersions} />
+          <VersionPagination msg={msg} conversationId={conversationId} allVersions={mergedVersions} />
           <Actions
           items={[
             {
@@ -1336,7 +1347,7 @@ function AssistantFooter({
             {
               key: 'delete',
               actionRender: () => {
-                const isLastVersion = allVersions.filter((v) => v.id !== msg.id).length === 0;
+                const isLastVersion = mergedVersions.filter((v) => v.id !== msg.id).length === 0;
 
                 if (isLastVersion) {
                   // Last version — Popover with 3 buttons
@@ -1357,7 +1368,7 @@ function AssistantFooter({
                     title={t('chat.confirmDeleteVersion')}
                     onConfirm={async () => {
                       try {
-                        const remaining = allVersions.filter((v) => v.id !== msg.id);
+                        const remaining = mergedVersions.filter((v) => v.id !== msg.id);
                         const sameModel = remaining.filter((v) => v.model_id === msg.model_id);
                         const nextActive = sameModel.length > 0
                           ? sameModel.sort((a, b) => b.version_index - a.version_index)[0]
@@ -1386,7 +1397,7 @@ function AssistantFooter({
         />
       </div>
       )}
-      <ModelTags msg={msg} conversationId={conversationId} allVersions={allVersions} getModelDisplayInfo={getModelDisplayInfo} />
+      <ModelTags msg={msg} conversationId={conversationId} allVersions={mergedVersions} getModelDisplayInfo={getModelDisplayInfo} />
       <Modal
         open={branchModalOpen}
         title={t('chat.branchConversation')}

@@ -407,6 +407,8 @@ export interface ChatStreamChunk {
 export interface ChatStreamEvent {
   conversation_id: string;
   message_id: string;
+  model_id?: string;
+  provider_id?: string;
   chunk: ChatStreamChunk;
 }
 

@@ -367,6 +367,8 @@ async fn consume_stream(
     >,
     conversation_id: &str,
     message_id: &str,
+    model_id: &str,
+    provider_id: &str,
     cancel_flag: &AtomicBool,
 ) -> (
     String,              // full_content (includes <think> blocks)
@@ -506,6 +508,8 @@ async fn consume_stream(
                     ChatStreamEvent {
                         conversation_id: conversation_id.to_string(),
                         message_id: message_id.to_string(),
+                        model_id: Some(model_id.to_string()),
+                        provider_id: Some(provider_id.to_string()),
                         chunk: emitted_chunk,
                     },
                 );
@@ -1152,6 +1156,7 @@ fn spawn_stream_task(
     cancel_flags: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
     content_prefix: String,
     create_inactive: bool,
+    skip_placeholder_create: bool,
 ) {
     let model_id = conversation.model_id.clone();
 
@@ -1185,6 +1190,8 @@ fn spawn_stream_task(
         let mut final_first_token_latency_ms: Option<i64> = None;
 
         // Early create: persist a placeholder message so it survives crash/refresh
+        // Skip if the caller already created the placeholder before spawning.
+        if !skip_placeholder_create {
         if let Err(e) = (aqbot_core::entity::messages::ActiveModel {
             id: Set(assistant_message_id.clone()),
             conversation_id: Set(conversation_id.clone()),
@@ -1212,6 +1219,7 @@ fn spawn_stream_task(
         .await
         {
             tracing::error!("Failed to create placeholder assistant message: {}", e);
+        }
         }
 
         loop {
@@ -1255,6 +1263,8 @@ fn spawn_stream_task(
                 &mut stream,
                 &conversation_id,
                 &assistant_message_id,
+                &model_id,
+                &provider.id,
                 &cancel_flag,
             )
             .await;
@@ -1349,6 +1359,8 @@ fn spawn_stream_task(
                     ChatStreamEvent {
                         conversation_id: conversation_id.clone(),
                         message_id: assistant_message_id.clone(),
+                        model_id: Some(model_id.clone()),
+                        provider_id: Some(provider.id.clone()),
                         chunk: ChatStreamChunk {
                             content: Some(mcp_opener.clone()),
                             thinking: None,
@@ -1410,6 +1422,8 @@ fn spawn_stream_task(
                     ChatStreamEvent {
                         conversation_id: conversation_id.clone(),
                         message_id: assistant_message_id.clone(),
+                        model_id: Some(model_id.clone()),
+                        provider_id: Some(provider.id.clone()),
                         chunk: ChatStreamChunk {
                             content: Some(mcp_closer.clone()),
                             thinking: None,
@@ -1976,6 +1990,7 @@ pub async fn send_message(
         state.stream_cancel_flags.clone(),
         memory_tag,
         false,
+        false,
     );
 
     // Return the user message immediately
@@ -2288,6 +2303,7 @@ pub async fn regenerate_message(
         state.stream_cancel_flags.clone(),
         memory_tag,
         false,
+        false,
     );
 
     Ok(())
@@ -2555,6 +2571,42 @@ pub async fn regenerate_with_model(
         .lock()
         .await
         .insert(conversation_id.clone(), cancel_flag.clone());
+
+    // Pre-create the placeholder message BEFORE spawning the stream task so that
+    // the frontend can immediately discover it via listMessageVersions and enable
+    // model switching in ModelTags without waiting for the first stream chunk.
+    {
+        use sea_orm::ActiveValue::Set;
+        if let Err(e) = (aqbot_core::entity::messages::ActiveModel {
+            id: Set(assistant_message_id.clone()),
+            conversation_id: Set(conversation_id.clone()),
+            role: Set("assistant".to_string()),
+            content: Set(String::new()),
+            provider_id: Set(Some(provider.id.clone())),
+            model_id: Set(Some(conversation.model_id.clone())),
+            token_count: Set(None),
+            prompt_tokens: Set(None),
+            completion_tokens: Set(None),
+            attachments: Set("[]".to_string()),
+            thinking: Set(None),
+            created_at: Set(original_created_at.unwrap_or_else(aqbot_core::utils::now_ts)),
+            branch_id: Set(None),
+            parent_message_id: Set(Some(user_msg.id.clone())),
+            version_index: Set(new_version_index),
+            is_active: Set(if companion { 0 } else { 1 }),
+            tool_calls_json: Set(None),
+            tool_call_id: Set(None),
+            status: Set("partial".to_string()),
+            tokens_per_second: Set(None),
+            first_token_latency_ms: Set(None),
+        })
+        .insert(&state.sea_db)
+        .await
+        {
+            tracing::error!("Failed to pre-create placeholder message: {}", e);
+        }
+    }
+
     tracing::info!(
         "[regenerate_with_model] spawning stream: model={} total_messages={} has_system_prompt={}",
         &conversation.model_id,
@@ -2586,6 +2638,7 @@ pub async fn regenerate_with_model(
         state.stream_cancel_flags.clone(),
         memory_tag,
         companion,
+        true,
     );    Ok(())
 }
 
