@@ -38,7 +38,7 @@ features:
     details: 로컬 OpenAI 호환 API 서버. Claude Code, Codex, Gemini CLI 등의 백엔드로 사용 가능. 키 관리, 속도 제한, SSL/TLS.
   - icon: 📚
     title: 지식 베이스 & RAG
-    details: LanceDB를 이용한 로컬 벡터 임베딩. 프라이빗 문서 기반 AI 답변, 데이터는 로컬에서 벗어나지 않습니다.
+    details: sqlite-vec를 이용한 로컬 벡터 임베딩. 프라이빗 문서 기반 AI 답변, 데이터는 로컬에서 벗어나지 않습니다.
   - icon: 🔍
     title: 웹 검색
     details: Tavily, Zhipu WebSearch, Bocha 통합. 인용 출처가 포함된 검색 결과가 대화 컨텍스트에 자동 주입됩니다.

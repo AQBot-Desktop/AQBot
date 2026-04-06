@@ -31,7 +31,7 @@ AQBot geht weit über einfachen Textchat hinaus mit einer reichhaltigen, interak
 Bereichern Sie Ihre Gespräche mit Live-Webdaten, lokalen Dokumenten und dauerhaftem Gedächtnis.
 
 - **Websuche** — Integration mit Tavily, Zhipu WebSearch, Bocha und mehr.
-- **Lokale Wissensbasis (RAG)** — Unterstützt mehrere Wissensbasen. Laden Sie Dokumente für automatisches Parsing, Chunking und Vektorindizierung (LanceDB) hoch.
+- **Lokale Wissensbasis (RAG)** — Unterstützt mehrere Wissensbasen. Laden Sie Dokumente für automatisches Parsing, Chunking und Vektorindizierung (sqlite-vec) hoch.
 - **Gedächtnissystem** — Unterstützt Multi-Namespace-Gesprächsgedächtnis. Einträge können manuell hinzugefügt oder automatisch von der KI extrahiert werden (demnächst).
 - **Kontestverwaltung** — Fügen Sie Dateianhänge, Suchergebnisse, Wissensdatenbankpassagen und Tool-Ausgaben an jede Nachricht an.
 

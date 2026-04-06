@@ -31,7 +31,7 @@ AQBot goes far beyond plain-text chat with a rich, interactive rendering pipelin
 Augment your conversations with live web data, local documents, and persistent memory.
 
 - **Web Search** — Integrated with Tavily, Zhipu WebSearch, Bocha, and more. Search results include citation source annotations so you can verify claims at a glance.
-- **Local Knowledge Base (RAG)** — Supports multiple knowledge bases. Upload documents for automatic parsing, chunking, and vector indexing (LanceDB). During conversations, relevant passages are retrieved semantically and injected into context automatically.
+- **Local Knowledge Base (RAG)** — Supports multiple knowledge bases. Upload documents for automatic parsing, chunking, and vector indexing (sqlite-vec). During conversations, relevant passages are retrieved semantically and injected into context automatically.
 - **Memory System** — Supports multi-namespace conversational memory. Entries can be added manually or extracted automatically by the AI (auto-extraction coming soon). Memories persist across conversations to give the model long-term awareness.
 - **Context Management** — Flexibly attach file attachments, search results, knowledge-base passages, memory entries, and tool outputs to any message for precise context control.
 

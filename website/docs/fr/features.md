@@ -31,7 +31,7 @@ AQBot va bien au-delà du chat en texte brut avec un pipeline de rendu riche et 
 Enrichissez vos conversations avec des données web en direct, des documents locaux et une mémoire persistante.
 
 - **Recherche web** — Intégration avec Tavily, Zhipu WebSearch, Bocha et plus. Les résultats incluent des annotations de sources de citation.
-- **Base de connaissances locale (RAG)** — Supporte plusieurs bases de connaissances. Téléchargez des documents pour l'analyse automatique, le chunking et l'indexation vectorielle (LanceDB).
+- **Base de connaissances locale (RAG)** — Supporte plusieurs bases de connaissances. Téléchargez des documents pour l'analyse automatique, le chunking et l'indexation vectorielle (sqlite-vec).
 - **Système de mémoire** — Supporte la mémoire conversationnelle multi-espace de noms. Les entrées peuvent être ajoutées manuellement ou extraites automatiquement par l'IA (prochainement).
 - **Gestion du contexte** — Attachez des pièces jointes, résultats de recherche, passages de la base de connaissances et sorties d'outils à n'importe quel message.
 

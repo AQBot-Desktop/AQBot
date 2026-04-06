@@ -41,7 +41,7 @@ features:
     details: 本地 OpenAI 兼容 API 服务器，可作为 Claude Code、Codex、Gemini CLI 等工具的后端。密钥管理、速率限制、SSL/TLS。
   - icon: 📚
     title: 知识库 & RAG
-    details: 本地向量嵌入（LanceDB），AI 基于你的私有文档回答，数据不出本地。
+    details: 本地向量嵌入（sqlite-vec），AI 基于你的私有文档回答，数据不出本地。
   - icon: 🔍
     title: 联网搜索
     details: 集成 Tavily、智谱 WebSearch、Bocha，搜索结果附带引用来源，自动注入对话上下文。

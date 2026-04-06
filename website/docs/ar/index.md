@@ -38,7 +38,7 @@ features:
     details: خادم API محلي متوافق مع OpenAI. استخدم AQBot كخلفية لـ Claude Code وCodex وGemini CLI وغيرها. إدارة المفاتيح وتحديد المعدل وSSL/TLS.
   - icon: 📚
     title: قاعدة المعرفة والRAG
-    details: تضمين متجه محلي مع LanceDB. إجابات AI بناءً على مستنداتك الخاصة — البيانات لا تغادر جهازك أبداً.
+    details: تضمين متجه محلي مع sqlite-vec. إجابات AI بناءً على مستنداتك الخاصة — البيانات لا تغادر جهازك أبداً.
   - icon: 🔍
     title: بحث الويب
     details: تكامل مع Tavily وZhipu WebSearch وBocha. نتائج البحث مع مصادر الاستشهاد يتم حقنها في سياق المحادثة.

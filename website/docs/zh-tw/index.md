@@ -38,7 +38,7 @@ features:
     details: 本機 OpenAI 相容 API 伺服器，可作為 Claude Code、Codex、Gemini CLI 等工具的後端。金鑰管理、速率限制、SSL/TLS。
   - icon: 📚
     title: 知識庫 & RAG
-    details: 本機向量嵌入（LanceDB），AI 基於您的私有文件回答，資料不出本機。
+    details: 本機向量嵌入（sqlite-vec），AI 基於您的私有文件回答，資料不出本機。
   - icon: 🔍
     title: 聯網搜尋
     details: 整合 Tavily、智譜 WebSearch、Bocha，搜尋結果附帶引用來源，自動注入對話上下文。

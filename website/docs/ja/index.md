@@ -38,7 +38,7 @@ features:
     details: ローカル OpenAI 互換 API サーバー。Claude Code、Codex、Gemini CLI などのバックエンドとして使用可能。キー管理、レート制限、SSL/TLS 対応。
   - icon: 📚
     title: ナレッジベース & RAG
-    details: LanceDB によるローカルベクトル埋め込み。プライベートドキュメントに基づく AI 回答、データはローカルから外に出ません。
+    details: sqlite-vec によるローカルベクトル埋め込み。プライベートドキュメントに基づく AI 回答、データはローカルから外に出ません。
   - icon: 🔍
     title: ウェブ検索
     details: Tavily、Zhipu WebSearch、Bocha と統合。引用ソース付きの検索結果が会話コンテキストに自動注入されます。

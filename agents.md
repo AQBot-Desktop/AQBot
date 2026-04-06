@@ -19,7 +19,7 @@ Both directories are created automatically on first launch.
 ~/.aqbot/
 ├── aqbot.db          # SQLite database (all app state, settings, keys, …)
 ├── master.key        # 32-byte AES-256 master encryption key (mode 0600 on Unix)
-├── vector_db/        # LanceDB vector store for knowledge-base embeddings
+├── vector_db/        # sqlite-vec vector store for knowledge-base embeddings
 └── ssl/              # Self-signed TLS certificate and private key for the gateway
     ├── cert.pem
     └── key.pem       # mode 0600 on Unix

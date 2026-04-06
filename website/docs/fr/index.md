@@ -38,7 +38,7 @@ features:
     details: Serveur API local compatible OpenAI. Utilisez AQBot comme backend pour Claude Code, Codex, Gemini CLI et plus. Gestion des clés, limitation de débit, SSL/TLS.
   - icon: 📚
     title: Base de connaissances & RAG
-    details: Embeddings vectoriels locaux avec LanceDB. Réponses IA basées sur vos documents privés — les données ne quittent jamais votre machine.
+    details: Embeddings vectoriels locaux avec sqlite-vec. Réponses IA basées sur vos documents privés — les données ne quittent jamais votre machine.
   - icon: 🔍
     title: Recherche web
     details: Intégration Tavily, Zhipu WebSearch, Bocha. Résultats de recherche avec sources de citation injectés dans le contexte de conversation.
