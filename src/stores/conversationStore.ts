@@ -327,6 +327,7 @@ interface ConversationState {
   cancelCurrentStream: () => void;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
+  updateMessageContent: (messageId: string, content: string) => Promise<void>;
   deleteMessageGroup: (conversationId: string, userMessageId: string) => Promise<void>;
   workspaceSnapshot: ConversationWorkspaceSnapshot | null;
   loadWorkspaceSnapshot: (conversationId: string) => Promise<ConversationWorkspaceSnapshot | null>;
@@ -2453,6 +2454,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
       return [];
+    }
+  },
+
+  updateMessageContent: async (messageId, content) => {
+    try {
+      const updated = await invoke<Message>('update_message_content', { id: messageId, content });
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === messageId ? { ...m, content: updated.content } : m)),
+      }));
+    } catch (e) {
+      set({ error: String(e) });
+      throw e;
     }
   },
 

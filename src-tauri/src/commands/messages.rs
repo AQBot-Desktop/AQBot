@@ -37,6 +37,17 @@ pub async fn delete_message(state: State<'_, AppState>, id: String) -> Result<()
 }
 
 #[tauri::command]
+pub async fn update_message_content(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<Message, String> {
+    aqbot_core::repo::message::update_message_content(&state.sea_db, &id, &content)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn clear_conversation_messages(
     state: State<'_, AppState>,
     conversation_id: String,

@@ -145,6 +145,7 @@ pub fn run() {
             commands::messages::list_messages,
             commands::messages::list_messages_page,
             commands::messages::delete_message,
+            commands::messages::update_message_content,
             commands::messages::clear_conversation_messages,
             commands::messages::export_conversation,
             // artifacts

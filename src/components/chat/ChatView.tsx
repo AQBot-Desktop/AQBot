@@ -1472,6 +1472,7 @@ export function ChatView() {
   const loadOlderMessages = useConversationStore((s) => s.loadOlderMessages);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
+  const updateMessageContent = useConversationStore((s) => s.updateMessageContent);
   const removeContextClear = useConversationStore((s) => s.removeContextClear);
   const getCompressionSummary = useConversationStore((s) => s.getCompressionSummary);
   const deleteCompression = useConversationStore((s) => s.deleteCompression);
@@ -1558,6 +1559,9 @@ export function ChatView() {
   // ── Title editing state ────────────────────────────────────────────
   const [editingTitle, setEditingTitle] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<InputRef>(null);
   const skipTitleSaveRef = useRef(false);
@@ -1994,6 +1998,43 @@ export function ChatView() {
     return { modelName: model?.name ?? mid, providerName: provider?.name ?? '' };
   }, [activeConversation, providers]);
 
+  const handleEditMessage = useCallback((messageId: string, content: string) => {
+    setEditingMessageId(messageId);
+    setEditingContent(content);
+  }, []);
+
+  const handleEditSaveOnly = useCallback(async () => {
+    if (!editingMessageId) return;
+    setEditSaving(true);
+    try {
+      await updateMessageContent(editingMessageId, editingContent);
+      setEditingMessageId(null);
+      setEditingContent('');
+    } catch (e) {
+      messageApi.error(String(e));
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editingMessageId, editingContent, updateMessageContent, messageApi]);
+
+  const handleEditSaveAndResend = useCallback(async () => {
+    if (!editingMessageId) return;
+    setEditSaving(true);
+    try {
+      await updateMessageContent(editingMessageId, editingContent);
+      // regenerateMessage expects an AI message ID to find the parent user message
+      const msgs = useConversationStore.getState().messages;
+      const aiMsg = msgs.find(m => m.parent_message_id === editingMessageId && m.is_active);
+      setEditingMessageId(null);
+      setEditingContent('');
+      await regenerateMessage(aiMsg?.id);
+    } catch (e) {
+      messageApi.error(String(e));
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editingMessageId, editingContent, updateMessageContent, regenerateMessage, messageApi]);
+
   // ── Roles ──────────────────────────────────────────────────────────
   const userRole = useCallback((bubbleData: BubbleItemType) => {
     const msg = messageById.get(String(bubbleData.key));
@@ -2044,6 +2085,16 @@ export function ChatView() {
               },
             },
             {
+              key: 'edit',
+              icon: <Pencil size={14} />,
+              label: t('chat.editMessage'),
+              onItemClick: () => {
+                if (msg) {
+                  handleEditMessage(msg.id, msg.content);
+                }
+              },
+            },
+            {
               key: 'regenerate',
               icon: <RotateCcw size={14} />,
               label: t('chat.regenerate'),
@@ -2084,7 +2135,7 @@ export function ChatView() {
         />
       ),
     };
-  }, [activeConversationId, deleteMessageGroup, formatTime, getBubbleVariant, messageApi, messageById, profile.name, regenerateMessage, t, token.colorError, token.colorPrimary, userAvatar]);
+  }, [activeConversationId, deleteMessageGroup, formatTime, getBubbleVariant, handleEditMessage, messageApi, messageById, profile.name, regenerateMessage, t, token.colorError, token.colorPrimary, userAvatar]);
 
   const aiRole = useCallback((bubbleData: BubbleItemType) => {
     // bubbleData.key is parent_message_id for stable rendering
@@ -2649,6 +2700,33 @@ export function ChatView() {
             codeBlockDarkTheme={codeBlockDarkTheme}
           />
         </div>
+      </Modal>
+      <Modal
+        title={t('chat.editMessage')}
+        open={!!editingMessageId}
+        onCancel={() => {
+          setEditingMessageId(null);
+          setEditingContent('');
+        }}
+        footer={[
+          <Button key="cancel" onClick={() => { setEditingMessageId(null); setEditingContent(''); }}>
+            {t('common.cancel')}
+          </Button>,
+          <Button key="save" onClick={handleEditSaveOnly} loading={editSaving}>
+            {t('chat.saveOnly')}
+          </Button>,
+          <Button key="saveResend" type="primary" onClick={handleEditSaveAndResend} loading={editSaving}>
+            {t('chat.saveAndResend')}
+          </Button>,
+        ]}
+        width={640}
+      >
+        <Input.TextArea
+          value={editingContent}
+          onChange={(e) => setEditingContent(e.target.value)}
+          autoSize={{ minRows: 3, maxRows: 12 }}
+          style={{ marginTop: 8 }}
+        />
       </Modal>
     </div>
   );
