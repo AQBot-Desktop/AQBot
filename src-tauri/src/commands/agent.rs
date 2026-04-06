@@ -821,6 +821,17 @@ pub async fn agent_query(
             output_tokens: u.output_tokens,
         });
 
+        // Persist token usage on the assistant message so the standard footer renders it
+        if let (Some(ref mid), Some(ref usage)) = (&current_assistant_msg_id, &final_usage) {
+            let _ = message::update_message_usage(
+                &db,
+                mid,
+                Some(usage.input_tokens as i64),
+                Some(usage.output_tokens as i64),
+            )
+            .await;
+        }
+
         let _ = app.emit(
             "agent-done",
             AgentDonePayload {

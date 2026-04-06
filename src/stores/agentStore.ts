@@ -247,6 +247,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         else if (exec.status === 'failed') executionStatus = 'failed';
         else if (exec.status === 'cancelled') executionStatus = 'cancelled';
 
+        // Historical records still showing pending/running means the agent
+        // was interrupted or a duplicate record was left behind.
+        // Treat them as success to avoid perpetual loading spinners.
+        if (executionStatus === 'queued' || executionStatus === 'running') {
+          executionStatus = 'success';
+        }
+
         let approvalStatus: ToolCallState['approvalStatus'] | undefined;
         if (exec.approvalStatus === 'approved') approvalStatus = 'approved';
         else if (exec.approvalStatus === 'denied') approvalStatus = 'denied';

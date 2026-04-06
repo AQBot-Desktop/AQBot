@@ -1603,7 +1603,6 @@ export function ChatView() {
 
   const agentToolCalls = useAgentStore((s) => s.toolCalls);
   const agentPendingPermissions = useAgentStore((s) => s.pendingPermissions);
-  const agentQueryStats = useAgentStore((s) => s.queryStats);
 
   const handleTitleClick = useCallback(() => {
     if (!activeConversation) return;
@@ -2145,16 +2144,18 @@ export function ChatView() {
 
         return (
           <>
-            {msgToolCalls.map((tc) => (
+            {msgToolCalls.length > 0 && (
               <ToolCallCard
-                key={tc.toolUseId}
-                toolName={tc.toolName}
-                status={tc.executionStatus === 'failed' ? 'error' : tc.executionStatus}
-                input={JSON.stringify(tc.input, null, 2)}
-                output={tc.output}
-                isError={tc.isError}
+                toolCalls={msgToolCalls.map((tc) => ({
+                  toolUseId: tc.toolUseId,
+                  toolName: tc.toolName,
+                  status: tc.executionStatus === 'failed' ? 'error' as const : tc.executionStatus,
+                  input: JSON.stringify(tc.input, null, 2),
+                  output: tc.output,
+                  isError: tc.isError,
+                }))}
               />
-            ))}
+            )}
             {msgPermissions.map((pr) => {
               const resolvedTc = agentToolCalls[pr.toolUseId];
               const permStatus = resolvedTc?.approvalStatus === 'approved'
@@ -2182,6 +2183,12 @@ export function ChatView() {
               codeBlockThemes={codeBlockThemes}
               codeFontFamily={settings.code_font_family || undefined}
             />
+            {/* Show loading dots when agent is streaming but footer dots are NOT showing (no text content yet) */}
+            {isAgentMsg && isStreaming && !footerLoading && (
+              <div className="aqbot-streaming-dots" aria-hidden="true" style={{ marginTop: 8 }}>
+                <span /><span /><span />
+              </div>
+            )}
           </>
         );
       },
@@ -2235,32 +2242,6 @@ export function ChatView() {
             getModelDisplayInfo={getModelDisplayInfo}
             isStreaming={isStreaming}
           />
-          {activeConversation?.mode === 'agent' && agentQueryStats[msg.id] && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              color: token.colorTextDescription,
-              lineHeight: '16px',
-              marginTop: -6,
-              marginBottom: 4,
-              flexWrap: 'wrap',
-            }}>
-              {agentQueryStats[msg.id].inputTokens != null && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <ArrowUp size={10} />
-                  {formatTokenCount(agentQueryStats[msg.id].inputTokens!)} tokens
-                </span>
-              )}
-              {agentQueryStats[msg.id].outputTokens != null && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <ArrowDown size={10} />
-                  {formatTokenCount(agentQueryStats[msg.id].outputTokens!)} tokens
-                </span>
-              )}
-            </div>
-          )}
         </div>
       ) : footerLoading ? (
         <div
@@ -2279,7 +2260,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, agentPendingPermissions, agentQueryStats, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockThemes, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageById, multiModelParentId, renderConvIconForChat, streaming, streamingMessageId, t, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversation, activeConversationId, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockThemes, formatTime, getBubbleVariant, getModelDisplayInfo, isDarkMode, messageById, multiModelParentId, renderConvIconForChat, streaming, streamingMessageId, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

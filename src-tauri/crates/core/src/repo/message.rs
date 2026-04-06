@@ -182,6 +182,29 @@ pub async fn update_message_content(
     message_from_entity(row)
 }
 
+/// Update token usage stats on an existing message.
+pub async fn update_message_usage(
+    db: &DatabaseConnection,
+    id: &str,
+    prompt_tokens: Option<i64>,
+    completion_tokens: Option<i64>,
+) -> Result<()> {
+    let row = messages::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", id)))?;
+
+    let mut am: messages::ActiveModel = row.into();
+    if let Some(pt) = prompt_tokens {
+        am.prompt_tokens = Set(Some(pt));
+    }
+    if let Some(ct) = completion_tokens {
+        am.completion_tokens = Set(Some(ct));
+    }
+    am.update(db).await?;
+    Ok(())
+}
+
 pub async fn delete_message(db: &DatabaseConnection, id: &str) -> Result<()> {
     let result = messages::Entity::delete_by_id(id).exec(db).await?;
 
