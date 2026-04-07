@@ -396,6 +396,9 @@ export interface AppSettings {
   update_check_interval?: number;
   /** Global system prompt fallback — used when a conversation has no custom system prompt */
   default_system_prompt?: string | null;
+  /** Chat minimap / navigation overlay */
+  chat_minimap_enabled?: boolean;
+  chat_minimap_style?: 'faq' | 'sticky';
 }
 
 // === Streaming ===

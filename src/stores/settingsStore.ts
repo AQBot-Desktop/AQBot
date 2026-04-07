@@ -77,6 +77,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   last_selected_conversation_id: null,
   update_check_interval: 60,
   default_system_prompt: null,
+  chat_minimap_enabled: false,
+  chat_minimap_style: 'faq',
 };
 
 export interface GlobalShortcutDiagnostic {

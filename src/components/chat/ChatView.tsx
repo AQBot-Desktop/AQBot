@@ -30,6 +30,7 @@ import { formatTokenCount, formatSpeed, formatDuration } from '../gateway/tokenF
 import { getStreamingLoadingState } from './chatStreaming';
 import { buildAssistantDisplayContent, shouldHideAssistantBubble } from './toolCallDisplay';
 import { ChatScrollIndicator } from './ChatScrollIndicator';
+import { ChatMinimap, MinimapScrollProvider } from './ChatMinimap';
 import PermissionCard from './PermissionCard';
 
 import { invoke } from '@/lib/invoke';
@@ -1737,7 +1738,30 @@ export function ChatView() {
   const skipTitleSaveRef = useRef(false);
   const messageAreaRef = useRef<HTMLDivElement>(null);
   const bubbleListRef = useRef<BubbleListRef | null>(null);
+  const scrollBoxRef = useRef<HTMLElement | null>(null);
   const pendingScrollConversationIdRef = useRef<string | null>(activeConversationId ?? null);
+
+  // Keep scrollBoxRef in sync with bubbleListRef
+  useEffect(() => {
+    scrollBoxRef.current = (bubbleListRef.current?.scrollBoxNativeElement as HTMLElement) ?? null;
+  });
+
+  // Scroll callback for ChatMinimap — finds bubble DOM element by message ID
+  const minimapScrollTo = useCallback((messageId: string) => {
+    const scrollBox = scrollBoxRef.current;
+    if (!scrollBox) return;
+    const marker = scrollBox.querySelector(`[data-aqbot-msg="${messageId}"]`);
+    if (!marker) return;
+    // Walk up from marker to find the bubble wrapper (near-child of scrollBox)
+    let el: Element = marker;
+    for (;;) {
+      const parent = el.parentElement;
+      if (!parent || parent === scrollBox) break;
+      if (parent.parentElement === scrollBox) break;
+      el = parent;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
@@ -2216,6 +2240,7 @@ export function ChatView() {
       contentRender: attachments.length > 0
         ? (content: string) => (
             <div style={{ textAlign: 'right' }}>
+              <span data-aqbot-msg={msg?.id} style={{ height: 0, overflow: 'hidden', lineHeight: 0 }} />
               {content && <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: content ? 8 : 0, justifyContent: 'flex-end' }}>
                 {attachments.map((att, i) => (
@@ -2228,7 +2253,12 @@ export function ChatView() {
               </div>
             </div>
           )
-        : undefined,
+        : (content: string) => (
+            <>
+              <span data-aqbot-msg={msg?.id} style={{ height: 0, overflow: 'hidden', lineHeight: 0 }} />
+              {content}
+            </>
+          ),
       header: (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2326,16 +2356,17 @@ export function ChatView() {
       avatar: renderConvIconForChat(32, msg?.model_id),
       loading: bubbleLoading,
       contentRender: (content: string) => {
+        const msgMarker = <span data-aqbot-msg={msg?.id} style={{ height: 0, overflow: 'hidden', lineHeight: 0 }} />;
         if (msg?.status === 'error') {
-          return <Alert type="error" message={content} showIcon />;
+          return <>{msgMarker}<Alert type="error" message={content} showIcon /></>;
         }
         // In multi-model mode we disabled Bubble's built-in loading to keep
         // footer visible, so show inline loading dots when content is empty.
         if (isMultiModelMsg && rawBubbleLoading) {
           return (
-            <span className="aqbot-streaming-dots" aria-hidden="true">
+            <>{msgMarker}<span className="aqbot-streaming-dots" aria-hidden="true">
               <span /><span /><span />
-            </span>
+            </span></>
           );
         }
 
@@ -2353,14 +2384,15 @@ export function ChatView() {
         // In agent mode: show inline loading dots only when no content AND no permissions yet
         if (isAgentMsg && rawBubbleLoading && msgPermissions.length === 0) {
           return (
-            <span className="aqbot-streaming-dots" aria-hidden="true">
+            <>{msgMarker}<span className="aqbot-streaming-dots" aria-hidden="true">
               <span /><span /><span />
-            </span>
+            </span></>
           );
         }
 
         return (
           <>
+            {msgMarker}
             <AssistantMarkdown
               content={content}
               nodes={parsedNodes}
@@ -2794,6 +2826,9 @@ export function ChatView() {
               style={{ height: '100%', padding: '16px 24px', overflowX: 'hidden' }}
             />
             <ChatScrollIndicator />
+            <MinimapScrollProvider scrollTo={minimapScrollTo} scrollBoxRef={scrollBoxRef}>
+              <ChatMinimap />
+            </MinimapScrollProvider>
           </>
         )}
       </div>

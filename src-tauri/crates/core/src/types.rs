@@ -579,6 +579,9 @@ pub struct AppSettings {
     pub update_check_interval: u32,
     /// Global system prompt fallback — used when a conversation has no custom system prompt.
     pub default_system_prompt: Option<String>,
+    /// Chat minimap / navigation overlay.
+    pub chat_minimap_enabled: bool,
+    pub chat_minimap_style: String,
 }
 
 impl Default for AppSettings {
@@ -669,6 +672,8 @@ impl Default for AppSettings {
             last_selected_conversation_id: None,
             update_check_interval: 60,
             default_system_prompt: None,
+            chat_minimap_enabled: false,
+            chat_minimap_style: "faq".to_string(),
         }
     }
 }
