@@ -170,6 +170,7 @@ pub(crate) fn parse_base64_data_url(url: &str) -> Option<(String, String)> {
 }
 
 /// Build an HTTP client with optional proxy configuration.
+/// When no proxy is configured, system proxy auto-detection is explicitly disabled.
 pub fn build_http_client(proxy_config: Option<&ProviderProxyConfig>) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder();
 
@@ -189,8 +190,14 @@ pub fn build_http_client(proxy_config: Option<&ProviderProxyConfig>) -> Result<r
                 let proxy = reqwest::Proxy::all(&proxy_url)
                     .map_err(|e| AQBotError::Provider(format!("Invalid proxy URL: {}", e)))?;
                 builder = builder.proxy(proxy);
+            } else {
+                builder = builder.no_proxy();
             }
+        } else {
+            builder = builder.no_proxy();
         }
+    } else {
+        builder = builder.no_proxy();
     }
 
     builder

@@ -17,7 +17,7 @@ pub struct OpenAIResponsesAdapter {
 impl OpenAIResponsesAdapter {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder().no_proxy().build().expect("Failed to build default HTTP client"),
         }
     }
 
