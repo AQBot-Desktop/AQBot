@@ -74,6 +74,8 @@ struct ResponsesTool {
 #[derive(Serialize)]
 struct ResponsesReasoning {
     effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
 }
 
 // --- Responses API response types ---
@@ -398,6 +400,7 @@ fn build_request(request: &ChatRequest, stream: bool) -> ResponsesRequest {
         };
         ResponsesReasoning {
             effort: effort.to_string(),
+            summary: if effort == "none" { None } else { Some("auto".to_string()) },
         }
     });
 
