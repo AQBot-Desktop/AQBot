@@ -8,7 +8,8 @@
     "memory": "स्मृति",
     "gateway": "गेटवे",
     "files": "फ़ाइलें",
-    "settings": "सेटिंग्स"
+    "settings": "सेटिंग्स",
+    "skills": "कौशल"
   },
   "chat": {
     "newConversation": "नई बातचीत",
@@ -1045,7 +1046,8 @@
     "newConversation": "नई बातचीत",
     "toggleSidebar": "साइडबार टॉगल करें",
     "toggleInspector": "निरीक्षक टॉगल करें",
-    "searchConversations": "बातचीत खोजें"
+    "searchConversations": "बातचीत खोजें",
+    "goToSkills": "कौशल पर जाएं"
   },
   "appLaunch": {
     "title": "लॉन्च कॉन्फ़िगरेशन",
@@ -1115,5 +1117,46 @@
     "submitBug": "बग रिपोर्ट करें",
     "submitFeature": "सुझाव भेजें",
     "webdavBackup": "WebDAV बैकअप"
+  },
+  "skills": {
+    "title": "कौशल प्रबंधन",
+    "mySkills": "मेरे कौशल",
+    "marketplace": "मार्केटप्लेस",
+    "search": "कौशल खोजें...",
+    "searchMarketplace": "मार्केटप्लेस खोजें...",
+    "openDir": "निर्देशिका खोलें",
+    "refresh": "रिफ्रेश",
+    "install": "इंस्टॉल",
+    "installFromUrl": "URL से इंस्टॉल",
+    "installUrlPlaceholder": "owner/repo या GitHub URL दर्ज करें",
+    "installing": "इंस्टॉल हो रहा है...",
+    "installed": "इंस्टॉल किया गया",
+    "uninstall": "अनइंस्टॉल",
+    "uninstallConfirm": "क्या आप वाकई कौशल \"{{name}}\" को अनइंस्टॉल करना चाहते हैं?",
+    "detail": "कौशल विवरण",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "बिल्ट-इन",
+      "project": "प्रोजेक्ट"
+    },
+    "enabled": "सक्षम",
+    "disabled": "अक्षम",
+    "empty": "कोई कौशल नहीं",
+    "emptyDesc": "कौशल मैन्युअल रूप से जोड़ने के लिए \"निर्देशिका खोलें\" पर क्लिक करें, या मार्केटप्लेस से इंस्टॉल करें",
+    "stars": "स्टार",
+    "noResults": "कोई कौशल नहीं मिला",
+    "installSuccess": "कौशल \"{{name}}\" सफलतापूर्वक इंस्टॉल किया गया",
+    "uninstallSuccess": "कौशल \"{{name}}\" अनइंस्टॉल किया गया",
+    "checkUpdates": "अपडेट जांचें",
+    "group": "कौशल समूह",
+    "groupSkillCount": "{{count}} कौशल",
+    "uninstallGroupConfirm": "क्या आप वाकई कौशल समूह \"{{name}}\" और इसके सभी उप-कौशल को अनइंस्टॉल करना चाहते हैं?",
+    "sourceAll": "सभी"
+  },
+  "agent": {
+    "askUserPlaceholder": "अपना उत्तर टाइप करें...",
+    "askUserSubmit": "जमा करें"
   }
 }

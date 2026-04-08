@@ -8,7 +8,8 @@
     "memory": "记忆",
     "gateway": "网关",
     "files": "文件",
-    "settings": "设置"
+    "settings": "设置",
+    "skills": "技能"
   },
   "chat": {
     "newConversation": "新建对话",
@@ -1045,7 +1046,8 @@
     "newConversation": "新建对话",
     "toggleSidebar": "切换侧边栏",
     "toggleInspector": "切换检查器",
-    "searchConversations": "搜索对话"
+    "searchConversations": "搜索对话",
+    "goToSkills": "前往技能"
   },
   "appLaunch": {
     "title": "启动配置",
@@ -1115,5 +1117,46 @@
     "submitBug": "提交 BUG",
     "submitFeature": "提交建议",
     "webdavBackup": "WebDAV 备份"
+  },
+  "skills": {
+    "title": "技能管理",
+    "mySkills": "我的技能",
+    "marketplace": "在线市场",
+    "search": "搜索技能...",
+    "searchMarketplace": "搜索市场...",
+    "openDir": "打开目录",
+    "refresh": "刷新",
+    "install": "安装",
+    "installFromUrl": "从 URL 安装",
+    "installUrlPlaceholder": "输入 owner/repo 或 GitHub URL",
+    "installing": "安装中...",
+    "installed": "已安装",
+    "uninstall": "卸载",
+    "uninstallConfirm": "确定要卸载技能「{{name}}」吗？",
+    "detail": "技能详情",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "内置",
+      "project": "项目"
+    },
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "empty": "暂无技能",
+    "emptyDesc": "点击「打开目录」手动添加技能，或从在线市场安装",
+    "stars": "星标",
+    "noResults": "未找到相关技能",
+    "installSuccess": "技能「{{name}}」安装成功",
+    "uninstallSuccess": "技能「{{name}}」已卸载",
+    "checkUpdates": "检查更新",
+    "group": "技能组",
+    "groupSkillCount": "{{count}} 个技能",
+    "uninstallGroupConfirm": "确定要卸载技能组「{{name}}」及其所有子技能吗？",
+    "sourceAll": "全部"
+  },
+  "agent": {
+    "askUserPlaceholder": "输入您的回答...",
+    "askUserSubmit": "提交"
   }
 }

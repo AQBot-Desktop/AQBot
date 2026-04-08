@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { Modal, Input, List, Tag, Typography, theme } from 'antd';
-import { Search, MessageSquare, Settings, Network, Plus, PanelLeftClose } from 'lucide-react';
+import { Search, MessageSquare, Settings, Network, Plus, PanelLeftClose, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/stores';
 
@@ -55,6 +55,13 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         icon: <Network size={16} />,
         category: nav,
         action: () => { setActivePage('gateway'); onClose(); },
+      },
+      {
+        id: 'go-skills',
+        label: t('commandPalette.goToSkills'),
+        icon: <Sparkles size={16} />,
+        category: nav,
+        action: () => { setActivePage('skills'); onClose(); },
       },
       {
         id: 'new-conversation',

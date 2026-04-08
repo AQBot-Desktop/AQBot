@@ -8,7 +8,8 @@
     "memory": "Память",
     "gateway": "Шлюз",
     "files": "Файлы",
-    "settings": "Настройки"
+    "settings": "Настройки",
+    "skills": "Навыки"
   },
   "chat": {
     "newConversation": "Новый чат",
@@ -1045,7 +1046,8 @@
     "newConversation": "Новый чат",
     "toggleSidebar": "Переключить боковую панель",
     "toggleInspector": "Переключить инспектор",
-    "searchConversations": "Поиск чатов"
+    "searchConversations": "Поиск чатов",
+    "goToSkills": "Перейти к навыкам"
   },
   "appLaunch": {
     "title": "Конфигурация запуска",
@@ -1115,5 +1117,46 @@
     "submitBug": "Сообщить об ошибке",
     "submitFeature": "Отправить предложение",
     "webdavBackup": "Резервное копирование WebDAV"
+  },
+  "skills": {
+    "title": "Управление навыками",
+    "mySkills": "Мои навыки",
+    "marketplace": "Маркетплейс",
+    "search": "Поиск навыков...",
+    "searchMarketplace": "Поиск на маркетплейсе...",
+    "openDir": "Открыть каталог",
+    "refresh": "Обновить",
+    "install": "Установить",
+    "installFromUrl": "Установить из URL",
+    "installUrlPlaceholder": "Введите owner/repo или URL GitHub",
+    "installing": "Установка...",
+    "installed": "Установлено",
+    "uninstall": "Удалить",
+    "uninstallConfirm": "Вы уверены, что хотите удалить навык \"{{name}}\"?",
+    "detail": "Детали навыка",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "Встроенный",
+      "project": "Проект"
+    },
+    "enabled": "Включено",
+    "disabled": "Отключено",
+    "empty": "Нет навыков",
+    "emptyDesc": "Нажмите \"Открыть каталог\" для добавления навыков вручную или установите из маркетплейса",
+    "stars": "Звёзды",
+    "noResults": "Навыки не найдены",
+    "installSuccess": "Навык \"{{name}}\" успешно установлен",
+    "uninstallSuccess": "Навык \"{{name}}\" удалён",
+    "checkUpdates": "Проверить обновления",
+    "group": "Группа навыков",
+    "groupSkillCount": "{{count}} навыков",
+    "uninstallGroupConfirm": "Вы уверены, что хотите удалить группу навыков «{{name}}» и все её под-навыки?",
+    "sourceAll": "Все"
+  },
+  "agent": {
+    "askUserPlaceholder": "Введите ваш ответ...",
+    "askUserSubmit": "Отправить"
   }
 }

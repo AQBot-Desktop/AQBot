@@ -7,6 +7,7 @@ import type {
   ToolStartEvent,
   ToolResultEvent,
   PermissionRequestEvent,
+  AskUserEvent,
   AgentStatusEvent,
   AgentDoneEvent,
 } from '@/types/agent';
@@ -26,6 +27,7 @@ interface AgentStore {
   // Runtime state
   agentStatus: Record<string, string>; // conversationId → status message
   pendingPermissions: Record<string, PermissionRequestEvent>; // toolUseId → request
+  pendingAskUser: Record<string, AskUserEvent>; // askId → request
   toolCalls: Record<string, ToolCallState>; // toolUseId or execId → state
   sdkIdToExecId: Record<string, string>; // SDK toolUseId → DB execution ID mapping
   queryStats: Record<string, QueryStats>; // assistantMessageId → cost stats
@@ -42,6 +44,9 @@ interface AgentStore {
   handleToolResult: (event: ToolResultEvent) => void;
   handlePermissionRequest: (event: PermissionRequestEvent) => void;
   handlePermissionResolved: (toolUseId: string, decision: string) => void;
+  handleAskUser: (event: AskUserEvent) => void;
+  handleAskUserResolved: (askId: string) => void;
+  respondAskUser: (askId: string, answer: string) => Promise<void>;
   handleStatus: (conversationId: string, message: string) => void;
   clearStatus: (conversationId: string) => void;
   handleDone: (event: AgentDoneEvent) => void;
@@ -57,6 +62,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   sessions: {},
   agentStatus: {},
   pendingPermissions: {},
+  pendingAskUser: {},
   toolCalls: {},
   sdkIdToExecId: {},
   queryStats: {},
@@ -217,6 +223,28 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
+  handleAskUser: (event) => {
+    set((s) => ({
+      pendingAskUser: { ...s.pendingAskUser, [event.askId]: event },
+    }));
+  },
+
+  handleAskUserResolved: (askId) => {
+    set((s) => {
+      const { [askId]: _removed, ...rest } = s.pendingAskUser;
+      return { pendingAskUser: rest };
+    });
+  },
+
+  respondAskUser: async (askId, answer) => {
+    try {
+      await invoke('agent_respond_ask', { askId, answer });
+      get().handleAskUserResolved(askId);
+    } catch (e) {
+      console.error('[agentStore] respondAskUser failed:', e);
+    }
+  },
+
   handleStatus: (conversationId, message) => {
     set((s) => ({
       agentStatus: { ...s.agentStatus, [conversationId]: message },
@@ -309,10 +337,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
       }
 
+      const pendingAskUser: Record<string, AskUserEvent> = {};
+      for (const [id, ask] of Object.entries(s.pendingAskUser)) {
+        if (ask.conversationId !== conversationId) {
+          pendingAskUser[id] = ask;
+        }
+      }
+
       // ToolCallState doesn't carry conversationId; filter via pendingPermissions
       // that were already associated with this conversation. A more thorough
       // cleanup happens naturally as the conversation is no longer active.
-      return { sessions, agentStatus, pendingPermissions };
+      return { sessions, agentStatus, pendingPermissions, pendingAskUser };
     });
   },
 }));
@@ -344,6 +379,12 @@ export function setupAgentEventListeners(): () => void {
   unlisteners.push(
     listen<PermissionRequestEvent>('agent-permission-request', (event) => {
       store.handlePermissionRequest(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<AskUserEvent>('agent-ask-user', (event) => {
+      store.handleAskUser(event.payload);
     }),
   );
 

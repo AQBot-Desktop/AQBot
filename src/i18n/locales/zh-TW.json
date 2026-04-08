@@ -8,7 +8,8 @@
     "memory": "記憶",
     "gateway": "閘道",
     "files": "檔案",
-    "settings": "設定"
+    "settings": "設定",
+    "skills": "技能"
   },
   "chat": {
     "newConversation": "新建對話",
@@ -1045,7 +1046,8 @@
     "newConversation": "新建對話",
     "toggleSidebar": "切換側邊欄",
     "toggleInspector": "切換檢查器",
-    "searchConversations": "搜尋對話"
+    "searchConversations": "搜尋對話",
+    "goToSkills": "前往技能"
   },
   "appLaunch": {
     "title": "啟動設定",
@@ -1115,5 +1117,46 @@
     "submitBug": "提交 BUG",
     "submitFeature": "提交建議",
     "webdavBackup": "WebDAV 備份"
+  },
+  "skills": {
+    "title": "技能管理",
+    "mySkills": "我的技能",
+    "marketplace": "線上市場",
+    "search": "搜尋技能...",
+    "searchMarketplace": "搜尋市場...",
+    "openDir": "開啟目錄",
+    "refresh": "重新整理",
+    "install": "安裝",
+    "installFromUrl": "從 URL 安裝",
+    "installUrlPlaceholder": "輸入 owner/repo 或 GitHub URL",
+    "installing": "安裝中...",
+    "installed": "已安裝",
+    "uninstall": "解除安裝",
+    "uninstallConfirm": "確定要解除安裝技能「{{name}}」嗎？",
+    "detail": "技能詳情",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "內建",
+      "project": "專案"
+    },
+    "enabled": "已啟用",
+    "disabled": "已停用",
+    "empty": "暫無技能",
+    "emptyDesc": "點擊「開啟目錄」手動新增技能，或從線上市場安裝",
+    "stars": "星標",
+    "noResults": "未找到相關技能",
+    "installSuccess": "技能「{{name}}」安裝成功",
+    "uninstallSuccess": "技能「{{name}}」已解除安裝",
+    "checkUpdates": "檢查更新",
+    "group": "技能組",
+    "groupSkillCount": "{{count}} 個技能",
+    "uninstallGroupConfirm": "確定要卸載技能組「{{name}}」及其所有子技能嗎？",
+    "sourceAll": "全部"
+  },
+  "agent": {
+    "askUserPlaceholder": "輸入您的回答...",
+    "askUserSubmit": "提交"
   }
 }

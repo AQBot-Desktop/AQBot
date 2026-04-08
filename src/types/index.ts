@@ -463,7 +463,7 @@ export interface RealtimeConfig {
 }
 
 // === UI State ===
-export type PageKey = 'chat' | 'knowledge' | 'memory' | 'gateway' | 'files' | 'settings';
+export type PageKey = 'chat' | 'knowledge' | 'memory' | 'gateway' | 'files' | 'settings' | 'skills';
 export type SettingsSection = 'providers' | 'defaultModel' | 'conversationSettings' | 'general' | 'display' | 'proxy' | 'shortcuts' | 'data' | 'storage' | 'about' | 'searchProviders' | 'mcpServers' | 'backup';
 
 // === Files Module ===
@@ -495,6 +495,53 @@ export interface FilesPageEntry {
   createdAt: string;
   missing: boolean;
   previewUrl?: string | null;
+}
+
+// ── Skills ─────────────────────────────────────────────────────────────
+export interface Skill {
+  name: string;
+  description: string;
+  author?: string;
+  version?: string;
+  source: 'builtin' | 'aqbot' | 'claude' | 'agents' | 'project';
+  sourcePath: string;
+  enabled: boolean;
+  hasUpdate: boolean;
+  userInvocable: boolean;
+  argumentHint?: string;
+  group?: string;
+}
+
+export interface SkillDetail {
+  info: Skill;
+  content: string;
+  files: string[];
+  manifest?: SkillManifest;
+}
+
+export interface SkillManifest {
+  sourceKind: string;
+  sourceRef?: string;
+  branch?: string;
+  commit?: string;
+  installedAt: string;
+  installedVia?: string;
+}
+
+export interface MarketplaceSkill {
+  name: string;
+  description: string;
+  repo: string;
+  stars: number;
+  installs: number;
+  installed: boolean;
+}
+
+export interface SkillUpdateInfo {
+  name: string;
+  currentCommit: string;
+  latestCommit: string;
+  sourceRef: string;
 }
 
 // Phase-2 type modules

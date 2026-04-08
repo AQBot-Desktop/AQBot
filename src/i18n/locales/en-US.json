@@ -8,7 +8,8 @@
     "memory": "Memory",
     "gateway": "Gateway",
     "files": "Files",
-    "settings": "Settings"
+    "settings": "Settings",
+    "skills": "Skills"
   },
   "chat": {
     "newConversation": "New Conversation",
@@ -1045,7 +1046,8 @@
     "newConversation": "New Conversation",
     "toggleSidebar": "Toggle Sidebar",
     "toggleInspector": "Toggle Inspector",
-    "searchConversations": "Search Conversations"
+    "searchConversations": "Search Conversations",
+    "goToSkills": "Go to Skills"
   },
   "appLaunch": {
     "title": "Launch Configuration",
@@ -1115,5 +1117,46 @@
     "submitBug": "Submit a bug report",
     "submitFeature": "Submit a feature request",
     "webdavBackup": "WebDAV backup"
+  },
+  "skills": {
+    "title": "Skills Management",
+    "mySkills": "My Skills",
+    "marketplace": "Marketplace",
+    "search": "Search skills...",
+    "searchMarketplace": "Search marketplace...",
+    "openDir": "Open Directory",
+    "refresh": "Refresh",
+    "install": "Install",
+    "installFromUrl": "Install from URL",
+    "installUrlPlaceholder": "Enter owner/repo or GitHub URL",
+    "installing": "Installing...",
+    "installed": "Installed",
+    "uninstall": "Uninstall",
+    "uninstallConfirm": "Are you sure you want to uninstall skill \"{{name}}\"?",
+    "detail": "Skill Details",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "Built-in",
+      "project": "Project"
+    },
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "empty": "No Skills",
+    "emptyDesc": "Click \"Open Directory\" to add skills manually, or install from the marketplace",
+    "stars": "Stars",
+    "noResults": "No skills found",
+    "installSuccess": "Skill \"{{name}}\" installed successfully",
+    "uninstallSuccess": "Skill \"{{name}}\" uninstalled",
+    "checkUpdates": "Check Updates",
+    "group": "Skill Group",
+    "groupSkillCount": "{{count}} skills",
+    "uninstallGroupConfirm": "Are you sure you want to uninstall skill group \"{{name}}\" and all its sub-skills?",
+    "sourceAll": "All"
+  },
+  "agent": {
+    "askUserPlaceholder": "Type your answer...",
+    "askUserSubmit": "Submit"
   }
 }

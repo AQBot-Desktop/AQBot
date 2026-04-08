@@ -5,6 +5,7 @@ import { MemoryPage } from '@/pages/MemoryPage';
 import { GatewayPage } from '@/pages/GatewayPage';
 import { FilesPage } from '@/pages/FilesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SkillsPage } from '@/pages/SkillsPage';
 
 interface ContentAreaProps {
   activePage: PageKey;
@@ -24,6 +25,8 @@ export function ContentArea({ activePage }: ContentAreaProps) {
       return <FilesPage />;
     case 'settings':
       return <SettingsPage />;
+    case 'skills':
+      return <SkillsPage />;
     default: {
       const _exhaustive: never = activePage;
       throw new Error(`Unhandled page key: ${_exhaustive}`);

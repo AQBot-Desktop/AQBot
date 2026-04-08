@@ -8,7 +8,8 @@
     "memory": "Memoria",
     "gateway": "Pasarela",
     "files": "Archivos",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "skills": "Habilidades"
   },
   "chat": {
     "newConversation": "Nueva conversación",
@@ -1045,7 +1046,8 @@
     "newConversation": "Nueva conversación",
     "toggleSidebar": "Alternar barra lateral",
     "toggleInspector": "Alternar inspector",
-    "searchConversations": "Buscar conversaciones"
+    "searchConversations": "Buscar conversaciones",
+    "goToSkills": "Ir a Habilidades"
   },
   "appLaunch": {
     "title": "Configuración de lanzamiento",
@@ -1115,5 +1117,46 @@
     "submitBug": "Reportar un error",
     "submitFeature": "Enviar sugerencia",
     "webdavBackup": "Copia de seguridad WebDAV"
+  },
+  "skills": {
+    "title": "Gestión de habilidades",
+    "mySkills": "Mis habilidades",
+    "marketplace": "Marketplace",
+    "search": "Buscar habilidades...",
+    "searchMarketplace": "Buscar en el marketplace...",
+    "openDir": "Abrir directorio",
+    "refresh": "Actualizar",
+    "install": "Instalar",
+    "installFromUrl": "Instalar desde URL",
+    "installUrlPlaceholder": "Ingrese owner/repo o URL de GitHub",
+    "installing": "Instalando...",
+    "installed": "Instalado",
+    "uninstall": "Desinstalar",
+    "uninstallConfirm": "¿Estás seguro de que quieres desinstalar la habilidad \"{{name}}\"?",
+    "detail": "Detalles de la habilidad",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "Integrado",
+      "project": "Proyecto"
+    },
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado",
+    "empty": "Sin habilidades",
+    "emptyDesc": "Haz clic en \"Abrir directorio\" para agregar habilidades manualmente, o instala desde el marketplace",
+    "stars": "Estrellas",
+    "noResults": "No se encontraron habilidades",
+    "installSuccess": "Habilidad \"{{name}}\" instalada exitosamente",
+    "uninstallSuccess": "Habilidad \"{{name}}\" desinstalada",
+    "checkUpdates": "Buscar actualizaciones",
+    "group": "Grupo de habilidades",
+    "groupSkillCount": "{{count}} habilidades",
+    "uninstallGroupConfirm": "¿Está seguro de que desea desinstalar el grupo de habilidades \"{{name}}\" y todas sus sub-habilidades?",
+    "sourceAll": "Todos"
+  },
+  "agent": {
+    "askUserPlaceholder": "Escriba su respuesta...",
+    "askUserSubmit": "Enviar"
   }
 }

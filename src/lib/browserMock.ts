@@ -1189,6 +1189,50 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       return { ok: true, latency_ms: 120 + Math.floor(Math.random() * 200) } as T;
     }
 
+    // ── Skills ────────────────────────────────────────────────────────
+    case 'list_skills':
+      return [] as T;
+
+    case 'get_skill':
+      return {
+        info: {
+          name: (args as any)?.name || 'example',
+          description: 'Example skill',
+          source: 'aqbot',
+          sourcePath: '/mock/path',
+          enabled: true,
+          hasUpdate: false,
+          userInvocable: true,
+        },
+        content: '# Example Skill\n\nThis is a mock skill for browser preview.',
+        files: ['SKILL.md'],
+        manifest: null,
+      } as T;
+
+    case 'toggle_skill':
+      return undefined as T;
+
+    case 'install_skill':
+      return ((args as any)?.source || 'installed-skill') as T;
+
+    case 'uninstall_skill':
+      return undefined as T;
+
+    case 'uninstall_skill_group':
+      return undefined as T;
+
+    case 'open_skills_dir':
+      return undefined as T;
+
+    case 'open_skill_dir':
+      return undefined as T;
+
+    case 'search_marketplace':
+      return [] as T;
+
+    case 'check_skill_updates':
+      return [] as T;
+
     default:
       console.warn(`[BrowserMock] Unhandled command: ${cmd}`, args);
       return undefined as T;

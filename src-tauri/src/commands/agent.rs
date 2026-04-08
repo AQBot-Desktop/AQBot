@@ -122,6 +122,15 @@ pub struct AgentPermissionRequestPayload {
     pub risk_level: String,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentAskUserPayload {
+    conversation_id: String,
+    assistant_message_id: String,
+    ask_id: String,
+    question: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStatusPayload {
     #[serde(rename = "conversationId")]
@@ -497,11 +506,65 @@ pub async fn agent_query(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Load enabled skills and build context summary
+    let skills_summary = {
+        let home = dirs::home_dir().unwrap_or_default();
+        let all_skills = open_agent_sdk::skills::load_all_global(&home);
+        let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
+            .await
+            .unwrap_or_default();
+        let mut registry = open_agent_sdk::skills::SkillRegistry::new();
+        for skill in all_skills {
+            registry.register(skill);
+        }
+        registry.set_disabled(disabled);
+        let summary = registry.generate_context_summary();
+        if summary.is_empty() { None } else { Some(summary) }
+    };
+
+    // Build ask_fn for AskUserQuestion tool
+    let ask_senders = state.agent_ask_senders.clone();
+    let app_for_ask = app.clone();
+    let conv_id_for_ask = conversation_id.clone();
+    let assistant_id_for_ask = assistant_id_for_task.clone();
+
+    let ask_fn: open_agent_sdk::tools::askuser::AskUserFn = Arc::new(move |question: &str| {
+        let question = question.to_string();
+        let ask_senders = ask_senders.clone();
+        let app = app_for_ask.clone();
+        let conv_id = conv_id_for_ask.clone();
+        let assistant_id = assistant_id_for_ask.clone();
+        Box::pin(async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let ask_id = format!("ask_{}", aqbot_core::utils::gen_id());
+
+            ask_senders.lock().await.insert(ask_id.clone(), tx);
+
+            let _ = app.emit(
+                "agent-ask-user",
+                AgentAskUserPayload {
+                    conversation_id: conv_id,
+                    assistant_message_id: assistant_id
+                        .read()
+                        .await
+                        .clone()
+                        .unwrap_or_default(),
+                    ask_id: ask_id.clone(),
+                    question,
+                },
+            );
+
+            rx.await.map_err(|_| "Ask user channel closed".to_string())
+        })
+    });
+
     let agent_options = AgentOptions {
         model: Some(model_id.clone()),
         provider: Some(Arc::new(bridge)),
         cwd: session.cwd.clone(),
         system_prompt: conv.system_prompt.clone(),
+        skills_summary,
+        ask_fn: Some(ask_fn),
         can_use_tool: Some(can_use_tool),
         ..Default::default()
     };
@@ -1183,6 +1246,31 @@ pub async fn agent_approve(
         None => Err(format!(
             "No pending permission request for tool_use_id: {}",
             tool_use_id
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn agent_respond_ask(
+    state: State<'_, AppState>,
+    ask_id: String,
+    answer: String,
+) -> Result<(), String> {
+    let sender = state
+        .agent_ask_senders
+        .lock()
+        .await
+        .remove(&ask_id);
+
+    match sender {
+        Some(tx) => {
+            tx.send(answer)
+                .map_err(|_| "Ask user channel closed".to_string())?;
+            Ok(())
+        }
+        None => Err(format!(
+            "No pending ask request for ask_id: {}",
+            ask_id
         )),
     }
 }

@@ -49,6 +49,13 @@ export interface PermissionRequestEvent {
   riskLevel: 'read_only' | 'write' | 'execute';
 }
 
+export interface AskUserEvent {
+  conversationId: string;
+  assistantMessageId: string;
+  askId: string;
+  question: string;
+}
+
 export interface AgentDoneEvent {
   conversationId: string;
   assistantMessageId: string;

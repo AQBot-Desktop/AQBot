@@ -8,7 +8,8 @@
     "memory": "Gedächtnis",
     "gateway": "Gateway",
     "files": "Dateien",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "skills": "Fähigkeiten"
   },
   "chat": {
     "newConversation": "Neues Gespräch",
@@ -1045,7 +1046,8 @@
     "newConversation": "Neues Gespräch",
     "toggleSidebar": "Seitenleiste umschalten",
     "toggleInspector": "Inspektor umschalten",
-    "searchConversations": "Gespräche suchen"
+    "searchConversations": "Gespräche suchen",
+    "goToSkills": "Zu Fähigkeiten"
   },
   "appLaunch": {
     "title": "Startkonfiguration",
@@ -1115,5 +1117,46 @@
     "submitBug": "Fehler melden",
     "submitFeature": "Funktionsanfrage senden",
     "webdavBackup": "WebDAV-Sicherung"
+  },
+  "skills": {
+    "title": "Fähigkeitenverwaltung",
+    "mySkills": "Meine Fähigkeiten",
+    "marketplace": "Marktplatz",
+    "search": "Fähigkeiten suchen...",
+    "searchMarketplace": "Marktplatz durchsuchen...",
+    "openDir": "Verzeichnis öffnen",
+    "refresh": "Aktualisieren",
+    "install": "Installieren",
+    "installFromUrl": "Von URL installieren",
+    "installUrlPlaceholder": "owner/repo oder GitHub-URL eingeben",
+    "installing": "Wird installiert...",
+    "installed": "Installiert",
+    "uninstall": "Deinstallieren",
+    "uninstallConfirm": "Möchten Sie die Fähigkeit \"{{name}}\" wirklich deinstallieren?",
+    "detail": "Fähigkeiten-Details",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "Eingebaut",
+      "project": "Projekt"
+    },
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert",
+    "empty": "Keine Fähigkeiten",
+    "emptyDesc": "Klicken Sie auf \"Verzeichnis öffnen\", um Fähigkeiten manuell hinzuzufügen, oder installieren Sie vom Marktplatz",
+    "stars": "Sterne",
+    "noResults": "Keine Fähigkeiten gefunden",
+    "installSuccess": "Fähigkeit \"{{name}}\" erfolgreich installiert",
+    "uninstallSuccess": "Fähigkeit \"{{name}}\" deinstalliert",
+    "checkUpdates": "Updates prüfen",
+    "group": "Skill-Gruppe",
+    "groupSkillCount": "{{count}} Skills",
+    "uninstallGroupConfirm": "Möchten Sie die Skill-Gruppe \"{{name}}\" und alle zugehörigen Sub-Skills wirklich deinstallieren?",
+    "sourceAll": "Alle"
+  },
+  "agent": {
+    "askUserPlaceholder": "Geben Sie Ihre Antwort ein...",
+    "askUserSubmit": "Absenden"
   }
 }

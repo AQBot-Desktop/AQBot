@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Tooltip, Avatar, theme } from 'antd';
-import { MessageSquare, BookOpen, Brain, Router, FolderOpen, User } from 'lucide-react';
+import { MessageSquare, BookOpen, Brain, Router, FolderOpen, User, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, useSettingsStore } from '@/stores';
 import { useUserProfileStore } from '@/stores/userProfileStore';
@@ -12,6 +12,7 @@ import type { PageKey } from '@/types';
 
 const mainNavItems: { key: PageKey; icon: React.ReactNode; labelKey: string }[] = [
   { key: 'chat', icon: <MessageSquare size={18} />, labelKey: 'nav.chat' },
+  { key: 'skills', icon: <Sparkles size={18} />, labelKey: 'nav.skills' },
   { key: 'knowledge', icon: <BookOpen size={18} />, labelKey: 'nav.knowledge' },
   { key: 'memory', icon: <Brain size={18} />, labelKey: 'nav.memory' },
   { key: 'gateway', icon: <Router size={18} />, labelKey: 'nav.gateway' },

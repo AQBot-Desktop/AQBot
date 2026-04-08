@@ -17,6 +17,7 @@ pub mod providers;
 pub mod search_citations;
 pub mod search_providers;
 pub mod settings;
+pub mod skill_states;
 pub mod tool_descriptors;
 pub mod tool_executions;
 

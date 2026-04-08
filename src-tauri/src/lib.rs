@@ -24,6 +24,7 @@ pub struct AppState {
     pub vector_store: Arc<aqbot_core::vector_store::VectorStore>,
     pub stream_cancel_flags: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
     pub agent_permission_senders: Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    pub agent_ask_senders: Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pub agent_always_allowed: Arc<Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>>,
 }
 
@@ -270,8 +271,20 @@ pub fn run() {
             commands::agent::agent_get_session,
             commands::agent::agent_ensure_workspace,
             commands::agent::agent_approve,
+            commands::agent::agent_respond_ask,
             commands::agent::agent_backup_and_clear_sdk_context,
             commands::agent::agent_restore_sdk_context_from_backup,
+            // skills
+            commands::skills::list_skills,
+            commands::skills::get_skill,
+            commands::skills::toggle_skill,
+            commands::skills::install_skill,
+            commands::skills::uninstall_skill,
+            commands::skills::uninstall_skill_group,
+            commands::skills::open_skills_dir,
+            commands::skills::open_skill_dir,
+            commands::skills::search_marketplace,
+            commands::skills::check_skill_updates,
         ])
         .setup(|app| {
             // Force overlay (auto-hide) scrollbar style on macOS.
@@ -412,6 +425,7 @@ pub fn run() {
                 vector_store: Arc::new(vector_store),
                 stream_cancel_flags: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 agent_permission_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+                agent_ask_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
             });
 

@@ -17,5 +17,6 @@ pub mod messages;
 pub mod providers;
 pub mod search;
 pub mod settings;
+pub mod skills;
 pub mod storage;
 pub mod webdav;

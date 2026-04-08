@@ -8,7 +8,8 @@
     "memory": "Mémoire",
     "gateway": "Passerelle",
     "files": "Fichiers",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "skills": "Compétences"
   },
   "chat": {
     "newConversation": "Nouvelle conversation",
@@ -1045,7 +1046,8 @@
     "newConversation": "Nouvelle conversation",
     "toggleSidebar": "Basculer la barre latérale",
     "toggleInspector": "Basculer l'inspecteur",
-    "searchConversations": "Rechercher des conversations"
+    "searchConversations": "Rechercher des conversations",
+    "goToSkills": "Aller aux compétences"
   },
   "appLaunch": {
     "title": "Configuration de lancement",
@@ -1115,5 +1117,46 @@
     "submitBug": "Signaler un bug",
     "submitFeature": "Soumettre une suggestion",
     "webdavBackup": "Sauvegarde WebDAV"
+  },
+  "skills": {
+    "title": "Gestion des compétences",
+    "mySkills": "Mes compétences",
+    "marketplace": "Marketplace",
+    "search": "Rechercher des compétences...",
+    "searchMarketplace": "Rechercher sur le marketplace...",
+    "openDir": "Ouvrir le répertoire",
+    "refresh": "Actualiser",
+    "install": "Installer",
+    "installFromUrl": "Installer depuis une URL",
+    "installUrlPlaceholder": "Entrez owner/repo ou une URL GitHub",
+    "installing": "Installation...",
+    "installed": "Installé",
+    "uninstall": "Désinstaller",
+    "uninstallConfirm": "Voulez-vous vraiment désinstaller la compétence \"{{name}}\" ?",
+    "detail": "Détails de la compétence",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "Intégré",
+      "project": "Projet"
+    },
+    "enabled": "Activé",
+    "disabled": "Désactivé",
+    "empty": "Aucune compétence",
+    "emptyDesc": "Cliquez sur \"Ouvrir le répertoire\" pour ajouter des compétences manuellement, ou installez depuis le marketplace",
+    "stars": "Étoiles",
+    "noResults": "Aucune compétence trouvée",
+    "installSuccess": "Compétence \"{{name}}\" installée avec succès",
+    "uninstallSuccess": "Compétence \"{{name}}\" désinstallée",
+    "checkUpdates": "Vérifier les mises à jour",
+    "group": "Groupe de compétences",
+    "groupSkillCount": "{{count}} compétences",
+    "uninstallGroupConfirm": "Voulez-vous vraiment désinstaller le groupe de compétences « {{name}} » et toutes ses sous-compétences ?",
+    "sourceAll": "Tous"
+  },
+  "agent": {
+    "askUserPlaceholder": "Saisissez votre réponse...",
+    "askUserSubmit": "Envoyer"
   }
 }

@@ -8,7 +8,8 @@
     "memory": "الذاكرة",
     "gateway": "البوابة",
     "files": "الملفات",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "skills": "المهارات"
   },
   "chat": {
     "newConversation": "محادثة جديدة",
@@ -1045,7 +1046,8 @@
     "newConversation": "محادثة جديدة",
     "toggleSidebar": "تبديل الشريط الجانبي",
     "toggleInspector": "تبديل المفتش",
-    "searchConversations": "البحث في المحادثات"
+    "searchConversations": "البحث في المحادثات",
+    "goToSkills": "الانتقال إلى المهارات"
   },
   "appLaunch": {
     "title": "إعداد التشغيل",
@@ -1115,5 +1117,46 @@
     "submitBug": "الإبلاغ عن خطأ",
     "submitFeature": "اقتراح ميزة",
     "webdavBackup": "نسخ احتياطي WebDAV"
+  },
+  "skills": {
+    "title": "إدارة المهارات",
+    "mySkills": "مهاراتي",
+    "marketplace": "السوق",
+    "search": "البحث عن مهارات...",
+    "searchMarketplace": "البحث في السوق...",
+    "openDir": "فتح المجلد",
+    "refresh": "تحديث",
+    "install": "تثبيت",
+    "installFromUrl": "تثبيت من URL",
+    "installUrlPlaceholder": "أدخل owner/repo أو رابط GitHub",
+    "installing": "جارٍ التثبيت...",
+    "installed": "مثبت",
+    "uninstall": "إلغاء التثبيت",
+    "uninstallConfirm": "هل أنت متأكد من إلغاء تثبيت المهارة \"{{name}}\"؟",
+    "detail": "تفاصيل المهارة",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "مدمج",
+      "project": "مشروع"
+    },
+    "enabled": "مفعل",
+    "disabled": "معطل",
+    "empty": "لا توجد مهارات",
+    "emptyDesc": "انقر على \"فتح المجلد\" لإضافة مهارات يدوياً، أو قم بالتثبيت من السوق",
+    "stars": "نجوم",
+    "noResults": "لم يتم العثور على مهارات",
+    "installSuccess": "تم تثبيت المهارة \"{{name}}\" بنجاح",
+    "uninstallSuccess": "تم إلغاء تثبيت المهارة \"{{name}}\"",
+    "checkUpdates": "التحقق من التحديثات",
+    "group": "مجموعة المهارات",
+    "groupSkillCount": "{{count}} مهارات",
+    "uninstallGroupConfirm": "هل أنت متأكد أنك تريد إزالة مجموعة المهارات \"{{name}}\" وجميع المهارات الفرعية؟",
+    "sourceAll": "الكل"
+  },
+  "agent": {
+    "askUserPlaceholder": "اكتب إجابتك...",
+    "askUserSubmit": "إرسال"
   }
 }

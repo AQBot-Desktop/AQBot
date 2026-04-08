@@ -8,7 +8,8 @@
     "memory": "메모리",
     "gateway": "게이트웨이",
     "files": "파일",
-    "settings": "설정"
+    "settings": "설정",
+    "skills": "스킬"
   },
   "chat": {
     "newConversation": "새 대화",
@@ -1045,7 +1046,8 @@
     "newConversation": "새 대화",
     "toggleSidebar": "사이드바 전환",
     "toggleInspector": "인스펙터 전환",
-    "searchConversations": "대화 검색"
+    "searchConversations": "대화 검색",
+    "goToSkills": "스킬로 이동"
   },
   "appLaunch": {
     "title": "실행 설정",
@@ -1115,5 +1117,46 @@
     "submitBug": "버그 신고",
     "submitFeature": "기능 요청 제출",
     "webdavBackup": "WebDAV 백업"
+  },
+  "skills": {
+    "title": "스킬 관리",
+    "mySkills": "내 스킬",
+    "marketplace": "마켓플레이스",
+    "search": "스킬 검색...",
+    "searchMarketplace": "마켓플레이스 검색...",
+    "openDir": "디렉토리 열기",
+    "refresh": "새로고침",
+    "install": "설치",
+    "installFromUrl": "URL에서 설치",
+    "installUrlPlaceholder": "owner/repo 또는 GitHub URL 입력",
+    "installing": "설치 중...",
+    "installed": "설치됨",
+    "uninstall": "제거",
+    "uninstallConfirm": "스킬 \"{{name}}\"을(를) 제거하시겠습니까?",
+    "detail": "스킬 상세",
+    "source": {
+      "aqbot": "AQBot",
+      "claude": "Claude",
+      "agents": "Agents",
+      "builtin": "기본 제공",
+      "project": "프로젝트"
+    },
+    "enabled": "활성화됨",
+    "disabled": "비활성화됨",
+    "empty": "스킬 없음",
+    "emptyDesc": "\"디렉토리 열기\"를 클릭하여 수동으로 스킬을 추가하거나 마켓플레이스에서 설치하세요",
+    "stars": "스타",
+    "noResults": "관련 스킬을 찾을 수 없습니다",
+    "installSuccess": "스킬 \"{{name}}\" 설치 완료",
+    "uninstallSuccess": "스킬 \"{{name}}\" 제거 완료",
+    "checkUpdates": "업데이트 확인",
+    "group": "스킬 그룹",
+    "groupSkillCount": "{{count}}개 스킬",
+    "uninstallGroupConfirm": "스킬 그룹 \"{{name}}\"과(와) 모든 하위 스킬을 제거하시겠습니까?",
+    "sourceAll": "전체"
+  },
+  "agent": {
+    "askUserPlaceholder": "답변을 입력하세요...",
+    "askUserSubmit": "제출"
   }
 }

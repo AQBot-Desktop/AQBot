@@ -17,6 +17,7 @@ pub mod program_policy;
 pub mod provider;
 pub mod search_provider;
 pub mod settings;
+pub mod skill;
 pub mod stored_file;
 pub mod tool_execution;
 pub mod agent_session;

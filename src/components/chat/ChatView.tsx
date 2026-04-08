@@ -34,6 +34,7 @@ import { ChatScrollIndicator } from './ChatScrollIndicator';
 import { ChatMinimap, MinimapScrollProvider } from './ChatMinimap';
 import { MultiModelDisplay, LayoutSwitcher, type MultiModelDisplayMode } from './MultiModelDisplay';
 import PermissionCard from './PermissionCard';
+import AskUserCard from './AskUserCard';
 
 import { invoke } from '@/lib/invoke';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
@@ -1950,6 +1951,7 @@ export function ChatView() {
 
   const agentToolCalls = useAgentStore((s) => s.toolCalls);
   const agentPendingPermissions = useAgentStore((s) => s.pendingPermissions);
+  const agentPendingAskUser = useAgentStore((s) => s.pendingAskUser);
 
   const handleTitleClick = useCallback(() => {
     if (!activeConversation) return;
@@ -2626,9 +2628,17 @@ export function ChatView() {
               )
             )
           : [];
+        const msgAskUsers = isAgentMode && msg && activeConversationId
+          ? Object.values(agentPendingAskUser).filter((ask) =>
+              ask.conversationId === activeConversationId && (
+                ask.assistantMessageId === msg.id ||
+                (ask.assistantMessageId === '' && msg.id === streamingMessageId)
+              )
+            )
+          : [];
 
-        // In agent mode: show inline loading dots only when no content AND no permissions yet
-        if (isAgentMsg && rawBubbleLoading && msgPermissions.length === 0) {
+        // In agent mode: show inline loading dots only when no content AND no permissions/asks yet
+        if (isAgentMsg && rawBubbleLoading && msgPermissions.length === 0 && msgAskUsers.length === 0) {
           return (
             <>{msgMarker}<span className="aqbot-streaming-dots" aria-hidden="true">
               <span /><span /><span />
@@ -2666,6 +2676,14 @@ export function ChatView() {
                 />
               );
             })}
+            {msgAskUsers.map((ask) => (
+              <AskUserCard
+                key={ask.askId}
+                askId={ask.askId}
+                conversationId={ask.conversationId}
+                question={ask.question}
+              />
+            ))}
             {/* Show loading dots when agent is streaming but footer dots are NOT showing (no text content yet) */}
             {isAgentMsg && isStreaming && !footerLoading && (
               <div className="aqbot-streaming-dots" aria-hidden="true" style={{ marginTop: 8 }}>
