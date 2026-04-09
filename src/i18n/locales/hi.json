@@ -446,7 +446,8 @@
       "fillLastMessage": "पिछला संदेश भरें",
       "clearContext": "संदर्भ साफ करें",
       "clearConversationMessages": "वर्तमान बातचीत के संदेश साफ करें",
-      "toggleGateway": "गेटवे टॉगल करें"
+      "toggleGateway": "गेटवे टॉगल करें",
+      "toggleMode": "चैट/एजेंट मोड टॉगल करें"
     },
     "exportData": "डेटा निर्यात करें",
     "importData": "डेटा आयात करें",

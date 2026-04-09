@@ -446,7 +446,8 @@
       "fillLastMessage": "Fill Previous Message",
       "clearContext": "Clear Context",
       "clearConversationMessages": "Clear Current Conversation Messages",
-      "toggleGateway": "Toggle Gateway"
+      "toggleGateway": "Toggle Gateway",
+      "toggleMode": "Toggle Chat/Agent Mode"
     },
     "exportData": "Export Data",
     "importData": "Import Data",

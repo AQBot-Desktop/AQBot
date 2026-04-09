@@ -115,5 +115,9 @@ export async function executeShortcutAction(action: ShortcutAction): Promise<voi
       notifyShortcutTriggered(action);
       await toggleGatewayPage();
       return;
+    case 'toggleMode':
+      notifyShortcutTriggered(action);
+      dispatchChatScopedEvent('aqbot:toggle-mode');
+      return;
   }
 }

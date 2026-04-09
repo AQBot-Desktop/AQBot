@@ -446,7 +446,8 @@
       "fillLastMessage": "이전 메시지 채우기",
       "clearContext": "컨텍스트 지우기",
       "clearConversationMessages": "현재 대화 메시지 지우기",
-      "toggleGateway": "게이트웨이 전환"
+      "toggleGateway": "게이트웨이 전환",
+      "toggleMode": "채팅/에이전트 모드 전환"
     },
     "exportData": "데이터 내보내기",
     "importData": "데이터 가져오기",

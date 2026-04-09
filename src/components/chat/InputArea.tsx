@@ -1038,6 +1038,16 @@ export function InputArea() {
     return () => window.removeEventListener('aqbot:fill-input', onFillInput);
   }, []);
 
+  // Listen for mode toggle shortcut
+  React.useEffect(() => {
+    const onToggleMode = () => {
+      const nextMode = currentMode === 'chat' ? 'agent' : 'chat';
+      handleModeSwitch(nextMode);
+    };
+    window.addEventListener('aqbot:toggle-mode', onToggleMode);
+    return () => window.removeEventListener('aqbot:toggle-mode', onToggleMode);
+  }, [currentMode, handleModeSwitch]);
+
   return (
     <div className="px-4 pb-3 pt-1">
       <input

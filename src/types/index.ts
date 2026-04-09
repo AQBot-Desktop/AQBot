@@ -372,6 +372,7 @@ export interface AppSettings {
   shortcut_clear_context: string;
   shortcut_clear_conversation_messages: string;
   shortcut_toggle_gateway: string;
+  shortcut_toggle_mode: string;
   gateway_auto_start: boolean;
   gateway_listen_address: string;
   gateway_port: number;

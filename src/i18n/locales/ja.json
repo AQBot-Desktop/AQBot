@@ -446,7 +446,8 @@
       "fillLastMessage": "前のメッセージを入力",
       "clearContext": "コンテキストをクリア",
       "clearConversationMessages": "現在の会話のメッセージをクリア",
-      "toggleGateway": "ゲートウェイを切り替え"
+      "toggleGateway": "ゲートウェイを切り替え",
+      "toggleMode": "チャット/エージェントモード切替"
     },
     "exportData": "データをエクスポート",
     "importData": "データをインポート",

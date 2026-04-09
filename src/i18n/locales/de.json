@@ -446,7 +446,8 @@
       "fillLastMessage": "Vorherige Nachricht einfügen",
       "clearContext": "Kontext leeren",
       "clearConversationMessages": "Nachrichten des aktuellen Gesprächs leeren",
-      "toggleGateway": "Gateway umschalten"
+      "toggleGateway": "Gateway umschalten",
+      "toggleMode": "Chat-/Agent-Modus umschalten"
     },
     "exportData": "Daten exportieren",
     "importData": "Daten importieren",

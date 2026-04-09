@@ -446,7 +446,8 @@
       "fillLastMessage": "Вставить предыдущее сообщение",
       "clearContext": "Очистить контекст",
       "clearConversationMessages": "Очистить сообщения текущего чата",
-      "toggleGateway": "Переключить шлюз"
+      "toggleGateway": "Переключить шлюз",
+      "toggleMode": "Переключить режим Чат/Агент"
     },
     "exportData": "Экспорт данных",
     "importData": "Импорт данных",

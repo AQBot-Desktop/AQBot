@@ -446,7 +446,8 @@
       "fillLastMessage": "تعبئة الرسالة السابقة",
       "clearContext": "مسح السياق",
       "clearConversationMessages": "مسح رسائل المحادثة الحالية",
-      "toggleGateway": "تبديل البوابة"
+      "toggleGateway": "تبديل البوابة",
+      "toggleMode": "تبديل وضع الدردشة/الوكيل"
     },
     "exportData": "تصدير البيانات",
     "importData": "استيراد البيانات",

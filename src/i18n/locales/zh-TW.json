@@ -446,7 +446,8 @@
       "fillLastMessage": "填入上一則訊息",
       "clearContext": "清空上下文",
       "clearConversationMessages": "清空目前對話所有訊息",
-      "toggleGateway": "開啟/關閉閘道"
+      "toggleGateway": "開啟/關閉閘道",
+      "toggleMode": "切換對話模式"
     },
     "exportData": "匯出資料",
     "importData": "匯入資料",

@@ -10,7 +10,8 @@ export type ShortcutAction =
   | 'fillLastMessage'
   | 'clearContext'
   | 'clearConversationMessages'
-  | 'toggleGateway';
+  | 'toggleGateway'
+  | 'toggleMode';
 
 export interface ShortcutDescriptor {
   action: ShortcutAction;
@@ -29,6 +30,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   'clearContext',
   'clearConversationMessages',
   'toggleGateway',
+  'toggleMode',
 ];
 
 export const SHORTCUT_DESCRIPTORS: ShortcutDescriptor[] = [
@@ -42,6 +44,7 @@ export const SHORTCUT_DESCRIPTORS: ShortcutDescriptor[] = [
   { action: 'clearContext', labelKey: 'settings.shortcutAction.clearContext', supportsGlobal: false },
   { action: 'clearConversationMessages', labelKey: 'settings.shortcutAction.clearConversationMessages', supportsGlobal: false },
   { action: 'toggleGateway', labelKey: 'settings.shortcutAction.toggleGateway', supportsGlobal: false },
+  { action: 'toggleMode', labelKey: 'settings.shortcutAction.toggleMode', supportsGlobal: false },
 ];
 
 export const SHORTCUT_ACTION_LABEL_KEYS: Record<ShortcutAction, string> = {
@@ -55,6 +58,7 @@ export const SHORTCUT_ACTION_LABEL_KEYS: Record<ShortcutAction, string> = {
   clearContext: 'settings.shortcutAction.clearContext',
   clearConversationMessages: 'settings.shortcutAction.clearConversationMessages',
   toggleGateway: 'settings.shortcutAction.toggleGateway',
+  toggleMode: 'settings.shortcutAction.toggleMode',
 };
 
 export const GLOBAL_SHORTCUT_ACTIONS: ShortcutAction[] = [
@@ -80,6 +84,7 @@ export const SHORTCUT_SETTING_KEYS = {
   clearContext: 'shortcut_clear_context',
   clearConversationMessages: 'shortcut_clear_conversation_messages',
   toggleGateway: 'shortcut_toggle_gateway',
+  toggleMode: 'shortcut_toggle_mode',
 } as const satisfies Record<ShortcutAction, keyof AppSettings>;
 
 export type ShortcutSettingKey = (typeof SHORTCUT_SETTING_KEYS)[ShortcutAction];
@@ -95,6 +100,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: Record<ShortcutAction, string> = {
   clearContext: 'CmdOrCtrl+Shift+K',
   clearConversationMessages: 'CmdOrCtrl+Shift+Backspace',
   toggleGateway: 'CmdOrCtrl+Shift+G',
+  toggleMode: 'Shift+Tab',
 };
 
 const DISPLAY_MAP: Record<string, string> = {

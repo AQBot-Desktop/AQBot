@@ -446,7 +446,8 @@
       "fillLastMessage": "Remplir le message précédent",
       "clearContext": "Effacer le contexte",
       "clearConversationMessages": "Effacer les messages de la conversation actuelle",
-      "toggleGateway": "Basculer la passerelle"
+      "toggleGateway": "Basculer la passerelle",
+      "toggleMode": "Basculer mode Chat/Agent"
     },
     "exportData": "Exporter les données",
     "importData": "Importer les données",

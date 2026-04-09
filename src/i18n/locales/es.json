@@ -446,7 +446,8 @@
       "fillLastMessage": "Rellenar mensaje anterior",
       "clearContext": "Limpiar contexto",
       "clearConversationMessages": "Limpiar mensajes de la conversación actual",
-      "toggleGateway": "Alternar pasarela"
+      "toggleGateway": "Alternar pasarela",
+      "toggleMode": "Cambiar modo Chat/Agente"
     },
     "exportData": "Exportar datos",
     "importData": "Importar datos",
