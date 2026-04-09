@@ -1469,6 +1469,7 @@ pub struct SkillInfo {
     pub has_update: bool,
     pub user_invocable: bool,
     pub argument_hint: Option<String>,
+    pub when_to_use: Option<String>,
     pub group: Option<String>,
 }
 

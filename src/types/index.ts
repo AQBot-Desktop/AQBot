@@ -509,6 +509,7 @@ export interface Skill {
   hasUpdate: boolean;
   userInvocable: boolean;
   argumentHint?: string;
+  whenToUse?: string;
   group?: string;
 }
 

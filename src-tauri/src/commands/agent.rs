@@ -506,21 +506,24 @@ pub async fn agent_query(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Load enabled skills and build context summary
+    // Load enabled skills, build context summary, and create SkillTool
+    let home = dirs::home_dir().unwrap_or_default();
+    let all_skills = open_agent_sdk::skills::load_all_global(&home);
+    let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
+        .await
+        .unwrap_or_default();
+    let mut registry = open_agent_sdk::skills::SkillRegistry::new();
+    for skill in all_skills {
+        registry.register(skill);
+    }
+    registry.set_disabled(disabled);
     let skills_summary = {
-        let home = dirs::home_dir().unwrap_or_default();
-        let all_skills = open_agent_sdk::skills::load_all_global(&home);
-        let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
-            .await
-            .unwrap_or_default();
-        let mut registry = open_agent_sdk::skills::SkillRegistry::new();
-        for skill in all_skills {
-            registry.register(skill);
-        }
-        registry.set_disabled(disabled);
         let summary = registry.generate_context_summary();
         if summary.is_empty() { None } else { Some(summary) }
     };
+    let skill_registry = Arc::new(tokio::sync::RwLock::new(registry));
+    let skill_tool: Arc<dyn open_agent_sdk::types::Tool> =
+        Arc::new(open_agent_sdk::tools::skill_tool::SkillTool::new(skill_registry));
 
     // Build ask_fn for AskUserQuestion tool
     let ask_senders = state.agent_ask_senders.clone();
@@ -566,6 +569,7 @@ pub async fn agent_query(
         skills_summary,
         ask_fn: Some(ask_fn),
         can_use_tool: Some(can_use_tool),
+        custom_tools: vec![skill_tool],
         ..Default::default()
     };
 

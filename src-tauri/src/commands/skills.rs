@@ -47,6 +47,7 @@ pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<SkillInfo>, S
                 has_update: false,
                 user_invocable: s.metadata.user_invocable,
                 argument_hint: s.metadata.argument_hint.clone(),
+                when_to_use: s.metadata.when_to_use.clone(),
                 group: s.group.clone(),
             }
         })
@@ -109,6 +110,7 @@ pub async fn get_skill(state: State<'_, AppState>, name: String) -> Result<Skill
         has_update: false,
         user_invocable: skill.metadata.user_invocable,
         argument_hint: skill.metadata.argument_hint.clone(),
+        when_to_use: skill.metadata.when_to_use.clone(),
         group: skill.group.clone(),
     };
 
