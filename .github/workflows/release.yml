@@ -139,6 +139,41 @@ jobs:
         with:
           run_install: false
 
+      - name: Get linked dependency versions
+        id: dep-versions
+        shell: bash
+        run: |
+          SM_SHA=$(git ls-remote https://github.com/AQBot-Desktop/stream-monaco.git refs/heads/main | cut -f1)
+          MS_SHA=$(git ls-remote https://github.com/AQBot-Desktop/markstream-vue.git refs/heads/aqbot-custom | cut -f1)
+          echo "cache-key=linked-deps-${SM_SHA:0:12}-${MS_SHA:0:12}" >> $GITHUB_OUTPUT
+
+      - name: Cache linked dependencies
+        id: cache-linked-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ../stream-monaco
+            ../markstream-vue
+          key: ${{ steps.dep-versions.outputs.cache-key }}
+
+      - name: Build linked dependencies
+        if: steps.cache-linked-deps.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cd ..
+
+          git clone --depth 1 https://github.com/AQBot-Desktop/stream-monaco.git stream-monaco
+          cd stream-monaco && pnpm install --frozen-lockfile && pnpm build
+          rm -rf node_modules .git
+          cd ..
+
+          git clone --depth 1 -b aqbot-custom https://github.com/AQBot-Desktop/markstream-vue.git markstream-vue
+          cd markstream-vue && pnpm install --frozen-lockfile
+          pnpm run build:parser
+          cd packages/markstream-react && pnpm build && cd ../..
+          rm -rf node_modules packages/*/node_modules playground*/node_modules .git
+          cd ..
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -238,6 +273,39 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
+
+      - name: Get linked dependency versions
+        id: dep-versions
+        run: |
+          SM_SHA=$(git ls-remote https://github.com/AQBot-Desktop/stream-monaco.git refs/heads/main | cut -f1)
+          MS_SHA=$(git ls-remote https://github.com/AQBot-Desktop/markstream-vue.git refs/heads/aqbot-custom | cut -f1)
+          echo "cache-key=linked-deps-${SM_SHA:0:12}-${MS_SHA:0:12}" >> $GITHUB_OUTPUT
+
+      - name: Cache linked dependencies
+        id: cache-linked-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ../stream-monaco
+            ../markstream-vue
+          key: ${{ steps.dep-versions.outputs.cache-key }}
+
+      - name: Build linked dependencies
+        if: steps.cache-linked-deps.outputs.cache-hit != 'true'
+        run: |
+          cd ..
+
+          git clone --depth 1 https://github.com/AQBot-Desktop/stream-monaco.git stream-monaco
+          cd stream-monaco && pnpm install --frozen-lockfile && pnpm build
+          rm -rf node_modules .git
+          cd ..
+
+          git clone --depth 1 -b aqbot-custom https://github.com/AQBot-Desktop/markstream-vue.git markstream-vue
+          cd markstream-vue && pnpm install --frozen-lockfile
+          pnpm run build:parser
+          cd packages/markstream-react && pnpm build && cd ../..
+          rm -rf node_modules packages/*/node_modules playground*/node_modules .git
+          cd ..
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
