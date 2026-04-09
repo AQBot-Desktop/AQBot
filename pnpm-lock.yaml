@@ -93,8 +93,8 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@19.2.4)
       markstream-react:
-        specifier: ^0.0.37
-        version: 0.0.37(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.21(monaco-editor@0.52.2))
+        specifier: ^0.0.38
+        version: 0.0.38(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.22(monaco-editor@0.52.2))
       overlayscrollbars:
         specifier: ^2.14.0
         version: 2.14.0
@@ -114,11 +114,11 @@ importers:
         specifier: ^0.0.15
         version: 0.0.15(react@19.2.4)(shiki@3.23.0)
       stream-markdown-parser:
-        specifier: ^0.0.81
-        version: 0.0.81
+        specifier: ^0.0.82
+        version: 0.0.82
       stream-monaco:
-        specifier: ^0.0.21
-        version: 0.0.21(monaco-editor@0.52.2)
+        specifier: ^0.0.22
+        version: 0.0.22(monaco-editor@0.52.2)
       zustand:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(immer@11.1.4)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
@@ -3029,8 +3029,8 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  markstream-react@0.0.37:
-    resolution: {integrity: sha512-9LwFCalmQD+P8bsrjIcd6wxuU1iHxdJtqxcUfAxSO2ZItOJBVllolZfZObheidBGXcGmu0b4z6tomu5pRu5/ng==}
+  markstream-react@0.0.38:
+    resolution: {integrity: sha512-NV8VJ/5bmewxIK3cTkbxzhR2krfTFdve3mYt1+gvPgMzj+HvoJSEwjkgIBWyv11jkY7LhuSHxMLMvllTFU04KA==}
     peerDependencies:
       '@antv/infographic': ^0.2.3
       '@terrastruct/d2': '>=0.1.33'
@@ -3039,7 +3039,7 @@ packages:
       react: '>=18'
       react-dom: '>=18'
       stream-markdown: '>=0.0.15'
-      stream-monaco: '>=0.0.21'
+      stream-monaco: '>=0.0.22'
     peerDependenciesMeta:
       '@antv/infographic':
         optional: true
@@ -3802,16 +3802,16 @@ packages:
   std-env@4.0.0:
     resolution: {integrity: sha512-zUMPtQ/HBY3/50VbpkupYHbRroTRZJPRLvreamgErJVys0ceuzMkD44J/QjqhHjOzK42GQ3QZIeFG1OYfOtKqQ==}
 
-  stream-markdown-parser@0.0.81:
-    resolution: {integrity: sha512-fktDhGLmTVVAuuMMi2Ishx1TKYDPtLqHay5NOkiVHx85JpRxm6z/YuLRxTTmpMzWAZgBk+oOfAhk7FDCQX2DxA==}
+  stream-markdown-parser@0.0.82:
+    resolution: {integrity: sha512-rYUTbWAtVqKi8jkr/m/7ZnnKCsXN+/ONm8FldhgVnbaF7IxYZljtreeItYvZLlbNk6pIrbrFrqwWMHvtNcTUfw==}
 
   stream-markdown@0.0.15:
     resolution: {integrity: sha512-1WlzjZUb9W5BWZYMKCr2/exPVh5P7HIhHzkcYZczkXm0upiuN4zEddwjdckL+WSQWGGlv9bboXCqcTYCEgqexw==}
     peerDependencies:
       shiki: '>=3.13.0'
 
-  stream-monaco@0.0.21:
-    resolution: {integrity: sha512-+Qi70RLTkr0goQA7vyqAsaoE0oSRejx2uwol0OypBakFUayBBLxQ0/PG68CR5znXZByQT3A+nSKN0FsHmoF0xQ==}
+  stream-monaco@0.0.22:
+    resolution: {integrity: sha512-uYPdwnxnNhZ6OstQcaOavTnLjn5N+ADw+/XLc1AdHzoHS/oqZOpbInH3u2Np9YMfECIvDQMW1anO04V9AVwDgA==}
     hasBin: true
     peerDependencies:
       monaco-editor: ^0.52.2
@@ -7355,20 +7355,20 @@ snapshots:
 
   marked@17.0.5: {}
 
-  markstream-react@0.0.37(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.21(monaco-editor@0.52.2)):
+  markstream-react@0.0.38(@antv/infographic@0.2.16)(@terrastruct/d2@0.1.33)(katex@0.16.40)(mermaid@11.14.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(stream-markdown@0.0.15(react@19.2.4)(shiki@3.23.0))(stream-monaco@0.0.22(monaco-editor@0.52.2)):
     dependencies:
       '@floating-ui/dom': 1.7.6
       clsx: 2.1.1
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
-      stream-markdown-parser: 0.0.81
+      stream-markdown-parser: 0.0.82
     optionalDependencies:
       '@antv/infographic': 0.2.16
       '@terrastruct/d2': 0.1.33
       katex: 0.16.40
       mermaid: 11.14.0
       stream-markdown: 0.0.15(react@19.2.4)(shiki@3.23.0)
-      stream-monaco: 0.0.21(monaco-editor@0.52.2)
+      stream-monaco: 0.0.22(monaco-editor@0.52.2)
 
   mdast-util-find-and-replace@3.0.2:
     dependencies:
@@ -8577,7 +8577,7 @@ snapshots:
 
   std-env@4.0.0: {}
 
-  stream-markdown-parser@0.0.81:
+  stream-markdown-parser@0.0.82:
     dependencies:
       markdown-it-container: 4.0.0
       markdown-it-footnote: 4.0.0
@@ -8597,7 +8597,7 @@ snapshots:
       - solid-js
       - vue
 
-  stream-monaco@0.0.21(monaco-editor@0.52.2):
+  stream-monaco@0.0.22(monaco-editor@0.52.2):
     dependencies:
       '@shikijs/monaco': 3.23.0
       alien-signals: 2.0.8
