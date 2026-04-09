@@ -7,7 +7,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}
-- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim }}{% if commit.remote.pr_number %} (#{{ commit.remote.pr_number }}){% endif %} ([#{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ env.GITHUB_REPO }}/commit/{{ commit.id }}))
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim }}{% if commit.remote.pr_number %} (#{{ commit.remote.pr_number }}){% endif %} ([#{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ env.REPO }}/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
 """
