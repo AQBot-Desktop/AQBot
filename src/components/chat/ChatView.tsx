@@ -2,7 +2,7 @@ import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react'
 import { CloseCircleFilled, SyncOutlined } from '@ant-design/icons';
 import { Typography, Button, Dropdown, Input, App, Avatar, Alert, Popconfirm, Popover, theme, Tag, Image, Tooltip, Modal, Spin } from 'antd';
 import type { InputRef } from 'antd';
-import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, Check, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight, Zap, Sparkles, TextCursorInput, GitBranch, ChartNoAxesColumn, MessageSquare, ArrowUpRight, ArrowDownRight, Coins, Clock, Timer } from 'lucide-react';
+import { Pencil, Share2, FileImage, FileCode, FileText, FileType, Bot, Brain, Lightbulb, Code, Languages, Copy, Check, RotateCcw, User, Trash2, ChevronLeft, ChevronRight, ChevronDown, Scissors, Paperclip, AlertCircle, X, ArrowDown, ArrowUp, ArrowLeftRight, Zap, Sparkles, TextCursorInput, GitBranch, ChartNoAxesColumn, MessageSquare, ArrowUpRight, ArrowDownRight, Coins, Clock, Timer, Download } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { getConvIcon } from '@/lib/convIcon';
 import Bubble from '@ant-design/x/es/bubble';
@@ -11,8 +11,14 @@ import Actions from '@ant-design/x/es/actions';
 import Think from '@ant-design/x/es/think';
 import type { BubbleItemType, BubbleListRef, RoleType } from '@ant-design/x/es/bubble/interface';
 import type { PromptsItemType } from '@ant-design/x/es/prompts';
-import NodeRenderer, { setCustomComponents, type NodeComponentProps } from 'markstream-react';
+import NodeRenderer, { setCustomComponents, type NodeComponentProps, type CodeBlockActionContext, type CodeBlockPreviewPayload, type MermaidBlockActionContext, type InfographicBlockActionContext } from 'markstream-react';
 import { useTranslation } from 'react-i18next';
+import { CodeBlockHeaderActions } from './CodeBlockHeaderActions';
+import { CodeBlockPreviewModal } from './CodeBlockPreviewModal';
+import { MermaidBlockHeaderActions } from './MermaidBlockHeaderActions';
+import { InfographicBlockHeaderActions } from './InfographicBlockHeaderActions';
+import { DiagramModeToggle } from './DiagramModeToggle';
+import { MermaidZoomControls } from './MermaidZoomControls';
 import { useConversationStore, useProviderStore, useSettingsStore, useAgentStore } from '@/stores';
 import { setupAgentEventListeners } from '@/stores/agentStore';
 import { useUserProfileStore } from '@/stores/userProfileStore';
@@ -226,12 +232,44 @@ function getChatCodeThemes(selectedDarkTheme?: string) {
   };
 }
 
+let _codeBlockPreviewHandler: ((payload: CodeBlockPreviewPayload) => void) | null = null;
+
 function getChatCodeBlockProps(darkTheme: string) {
   return {
     darkTheme,
     lightTheme: LIGHT_CODE_BLOCK_THEME,
+    renderHeaderActions: (ctx: CodeBlockActionContext) => (
+      <CodeBlockHeaderActions ctx={ctx} />
+    ),
+    onPreviewCode: (payload: CodeBlockPreviewPayload) => {
+      _codeBlockPreviewHandler?.(payload);
+    },
   };
 }
+
+const CHAT_MERMAID_PROPS = {
+  renderHeaderActions: (ctx: MermaidBlockActionContext) => (
+    <MermaidBlockHeaderActions ctx={ctx} />
+  ),
+  renderModeToggle: (ctx: MermaidBlockActionContext) => (
+    <DiagramModeToggle showSource={ctx.showSource} onSwitchMode={ctx.switchMode} />
+  ),
+  renderZoomControls: (ctx: MermaidBlockActionContext) => (
+    <MermaidZoomControls ctx={ctx} />
+  ),
+};
+
+const CHAT_INFOGRAPHIC_PROPS = {
+  renderHeaderActions: (ctx: InfographicBlockActionContext) => (
+    <InfographicBlockHeaderActions ctx={ctx} />
+  ),
+  renderModeToggle: (ctx: InfographicBlockActionContext) => (
+    <DiagramModeToggle showSource={ctx.showSource} onSwitchMode={ctx.switchMode} />
+  ),
+  renderZoomControls: (ctx: InfographicBlockActionContext) => (
+    <MermaidZoomControls ctx={ctx as any} />
+  ),
+};
 
 function getCustomAttr(attrs: CustomNodeAttrs, name: string): string | undefined {
   if (!attrs) return undefined;
@@ -481,6 +519,8 @@ function ThinkNode(props: NodeComponentProps<{
         codeBlockProps={codeBlockProps}
         codeBlockMonacoOptions={codeBlockMonacoOptions}
         customHtmlTags={CHAT_CUSTOM_HTML_TAGS.filter((t) => t !== 'think')}
+        mermaidProps={CHAT_MERMAID_PROPS}
+        infographicProps={CHAT_INFOGRAPHIC_PROPS}
         {...CHAT_RENDER_BATCH_PROPS}
       />
     </Think>
@@ -506,6 +546,7 @@ function ChatD2BlockNode({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showSource, setShowSource] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const { copy: copyD2, isCopied: d2Copied } = useCopyToClipboard({ timeout: 1000 });
   const [svgMarkup, setSvgMarkup] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -681,9 +722,20 @@ function ChatD2BlockNode({
     borderBottomColor: token.colorBorderSecondary,
   }), [isDark, token.colorBgContainer, token.colorBorderSecondary, token.colorFillAlter, token.colorText]);
 
-  const toggleStyle = useMemo(() => ({
-    background: isDark ? token.colorFillSecondary : token.colorFillTertiary,
-  }), [isDark, token.colorFillSecondary, token.colorFillTertiary]);
+  const d2BtnStyle: React.CSSProperties = useMemo(() => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: token.borderRadiusSM,
+    border: 'none',
+    background: 'transparent',
+    color: token.colorTextSecondary,
+    cursor: 'pointer',
+    padding: 0,
+    transition: 'color 0.2s, background 0.2s',
+  }), [token.borderRadiusSM, token.colorTextSecondary]);
 
   const previewStyle = useMemo(() => ({
     background: isDark ? token.colorBgContainer : token.colorBgElevated,
@@ -692,52 +744,68 @@ function ChatD2BlockNode({
   return (
     <div ref={containerRef} className="d2-block my-4 rounded-lg border overflow-hidden shadow-sm" style={shellStyle}>
       <div
-        className="d2-block-header flex justify-between items-center px-4 py-2.5 border-b border-gray-400/5"
+        className="d2-block-header flex justify-between items-center px-4 py-1.5 border-b border-gray-400/5"
         style={headerStyle}
       >
         <div className="flex items-center gap-x-2">
           <span className="text-sm font-medium font-mono">D2</span>
         </div>
         <div className="flex items-center gap-x-2">
-          <div className="flex items-center gap-x-1 rounded-md p-0.5" style={toggleStyle}>
-            <button type="button" className={`mode-btn px-2 py-1 text-xs rounded ${!showSource ? 'is-active' : ''}`} onClick={() => setShowSource(false)}>
-              {t('common.preview')}
+          <DiagramModeToggle
+            showSource={showSource}
+            onSwitchMode={(mode) => setShowSource(mode === 'source')}
+          />
+          {/* Collapse */}
+          <Tooltip title={isCollapsed ? t('common.expand') : t('common.collapse')} mouseEnterDelay={0.4}>
+            <button type="button" style={d2BtnStyle} onClick={() => setIsCollapsed(v => !v)}>
+              <ChevronRight
+                size={14}
+                style={{
+                  transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)',
+                  transition: 'transform 0.2s',
+                }}
+              />
             </button>
-            <button type="button" className={`mode-btn px-2 py-1 text-xs rounded ${showSource ? 'is-active' : ''}`} onClick={() => setShowSource(true)}>
-              {t('common.source')}
+          </Tooltip>
+          {/* Copy */}
+          <Tooltip title={d2Copied ? t('common.copied') : t('common.copy')} mouseEnterDelay={0.4}>
+            <button type="button" style={d2BtnStyle} onClick={() => void copyD2(node.code)}>
+              {d2Copied ? <Check size={14} style={{ color: token.colorSuccess }} /> : <Copy size={14} />}
             </button>
-          </div>
-          <button type="button" className="d2-action-btn p-2 text-xs rounded-md transition-colors hover:bg-[var(--vscode-editor-selectionBackground)]" aria-label={d2Copied ? 'Copied' : 'Copy'} onClick={() => void copyD2(node.code)}>
-            {d2Copied ? <Check size={14} /> : <Copy size={14} />}
-          </button>
+          </Tooltip>
+          {/* Export */}
           {svgMarkup ? (
-            <button type="button" className="d2-action-btn p-2 text-xs rounded-md transition-colors hover:bg-[var(--vscode-editor-selectionBackground)]" aria-label="Export" onClick={handleExport}>
-              <Share2 size={14} />
-            </button>
+            <Tooltip title={t('common.export')} mouseEnterDelay={0.4}>
+              <button type="button" style={d2BtnStyle} onClick={handleExport}>
+                <Download size={14} />
+              </button>
+            </Tooltip>
           ) : null}
         </div>
       </div>
 
-      <div className="d2-block-body">
-        {showSource || (!svgMarkup && !!error) ? (
-          <div className="d2-source px-4 py-4">
-            <pre className="d2-code"><code>{node.code}</code></pre>
-            {error ? <p className="d2-error mt-2 text-xs">{error}</p> : null}
-          </div>
-        ) : (
-          <div className="d2-render" style={previewStyle}>
-            {svgMarkup ? (
-              <div className="d2-svg" dangerouslySetInnerHTML={{ __html: svgMarkup }} />
-            ) : (
-              <div className="flex items-center justify-center px-4 py-10" style={{ color: token.colorTextSecondary, gap: 8 }}>
-                <SyncOutlined spin />
-                <span className="text-sm">{canRenderPreview ? t('chat.renderingChart') : t('chat.chartAboutToRender')}</span>
-              </div>
-            )}
-            {error ? <p className="d2-error px-4 pb-3 text-xs">{error}</p> : null}
-          </div>
-        )}
-      </div>
+      {!isCollapsed && (
+        <div className="d2-block-body">
+          {showSource || (!svgMarkup && !!error) ? (
+            <div className="d2-source px-4 py-4">
+              <pre className="d2-code"><code>{node.code}</code></pre>
+              {error ? <p className="d2-error mt-2 text-xs">{error}</p> : null}
+            </div>
+          ) : (
+            <div className="d2-render" style={previewStyle}>
+              {svgMarkup ? (
+                <div className="d2-svg" dangerouslySetInnerHTML={{ __html: svgMarkup }} />
+              ) : (
+                <div className="flex items-center justify-center px-4 py-10" style={{ color: token.colorTextSecondary, gap: 8 }}>
+                  <SyncOutlined spin />
+                  <span className="text-sm">{canRenderPreview ? t('chat.renderingChart') : t('chat.chartAboutToRender')}</span>
+                </div>
+              )}
+              {error ? <p className="d2-error px-4 pb-3 text-xs">{error}</p> : null}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1047,6 +1115,8 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
         codeBlockDarkTheme={codeBlockDarkTheme}
         codeBlockProps={codeBlockProps}
         codeBlockMonacoOptions={codeBlockMonacoOptions}
+        mermaidProps={CHAT_MERMAID_PROPS}
+        infographicProps={CHAT_INFOGRAPHIC_PROPS}
         {...CHAT_RENDER_BATCH_PROPS}
       />
     ) : (
@@ -1063,6 +1133,8 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
         codeBlockDarkTheme={codeBlockDarkTheme}
         codeBlockProps={codeBlockProps}
         codeBlockMonacoOptions={codeBlockMonacoOptions}
+        mermaidProps={CHAT_MERMAID_PROPS}
+        infographicProps={CHAT_INFOGRAPHIC_PROPS}
         {...CHAT_RENDER_BATCH_PROPS}
       />
     )
@@ -1776,6 +1848,8 @@ export function ChatView() {
   const deleteCompression = useConversationStore((s) => s.deleteCompression);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [summaryModalText, setSummaryModalText] = useState('');
+  const [previewPayload, setPreviewPayload] = useState<CodeBlockPreviewPayload | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const createConversation = useConversationStore((s) => s.createConversation);
   const providers = useProviderStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
@@ -1788,6 +1862,15 @@ export function ChatView() {
     () => getChatCodeThemes(settings.code_theme),
     [settings.code_theme],
   );
+
+  // Register module-level preview handler for code blocks
+  useEffect(() => {
+    _codeBlockPreviewHandler = (payload: CodeBlockPreviewPayload) => {
+      setPreviewPayload(payload);
+      setPreviewModalOpen(true);
+    };
+    return () => { _codeBlockPreviewHandler = null; };
+  }, []);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   const isTitleGenerating = activeConversationId != null && titleGeneratingConversationId === activeConversationId;
@@ -3202,6 +3285,11 @@ export function ChatView() {
           style={{ marginTop: 8 }}
         />
       </Modal>
+      <CodeBlockPreviewModal
+        payload={previewPayload}
+        open={previewModalOpen}
+        onClose={() => setPreviewModalOpen(false)}
+      />
     </div>
   );
 }

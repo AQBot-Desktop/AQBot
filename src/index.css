@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import './styles/vendor/markstream-react.css';
+@import 'markstream-react/index.css';
 @import 'overlayscrollbars/overlayscrollbars.css';
 
 /* Global theme tokens — synced with Ant Design ConfigProvider via JS */
@@ -10,6 +10,7 @@
   --color-text: rgba(0, 0, 0, 0.88);
   --color-text-secondary: rgba(0, 0, 0, 0.45);
   --color-primary: #1677ff;
+  --color-fill-alter: rgba(0, 0, 0, 0.02);
   --font-size-base: 14px;
 }
 
@@ -52,6 +53,100 @@ code,
   padding: 6px 10px !important;
 }
 
+.mermaid-block-header {
+  padding: 6px 10px !important;
+  background-color: var(--mermaid-header-bg, var(--color-fill-alter)) !important;
+  border-bottom-color: var(--mermaid-border, var(--border-color)) !important;
+}
+
+.d2-block-header {
+  padding: 6px 10px !important;
+}
+
+.mermaid-block,
+.d2-block {
+  border-radius: 8px !important;
+}
+
+/* Mermaid block — use antd theme tokens instead of Tailwind defaults */
+.mermaid-block,
+.mermaid-block.is-dark {
+  --mermaid-header-bg: var(--color-fill-alter);
+  --mermaid-body-bg: var(--color-bg-container);
+  --mermaid-text: var(--color-text);
+  --mermaid-text-secondary: var(--color-text-secondary);
+  --mermaid-border: var(--border-color);
+  background: var(--color-bg-container) !important;
+  color: var(--color-text) !important;
+  border-color: var(--border-color) !important;
+}
+
+.mermaid-block-body {
+  background-color: var(--color-bg-container) !important;
+}
+
+.mermaid-block-source {
+  background-color: var(--color-bg-container) !important;
+  color: var(--color-text) !important;
+}
+
+.mermaid-block-title {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Mermaid fullscreen modal — use antd theme tokens */
+.mermaid-modal-panel,
+.mermaid-modal-panel.is-dark {
+  --mermaid-modal-bg: var(--color-bg-elevated);
+  --mermaid-modal-text: var(--color-text);
+  --mermaid-modal-border: var(--border-color);
+}
+
+/* Infographic block — use antd theme tokens instead of Tailwind defaults */
+.infographic-block,
+.infographic-block.is-dark {
+  --infographic-header-bg: var(--color-fill-alter);
+  --infographic-body-bg: var(--color-bg-container);
+  --infographic-text: var(--color-text);
+  --infographic-text-secondary: var(--color-text-secondary);
+  --infographic-border: var(--border-color);
+  background: var(--color-bg-container) !important;
+  color: var(--color-text) !important;
+  border-color: var(--border-color) !important;
+  border-radius: 8px !important;
+}
+
+.infographic-block-header {
+  padding: 6px 10px !important;
+  background-color: var(--infographic-header-bg, var(--color-fill-alter)) !important;
+  border-bottom-color: var(--infographic-border, var(--border-color)) !important;
+}
+
+.infographic-block-body {
+  background-color: var(--color-bg-container) !important;
+}
+
+.infographic-block-source {
+  background-color: var(--color-bg-container) !important;
+  color: var(--color-text) !important;
+}
+
+.infographic-block-title {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Infographic fullscreen modal — use antd theme tokens */
+.infographic-modal-panel,
+.infographic-modal-panel.is-dark {
+  --infographic-modal-bg: var(--color-bg-elevated);
+  --infographic-modal-text: var(--color-text);
+  --infographic-modal-border: var(--border-color);
+}
+
+.code-block-container {
+  border-radius: 8px !important;
+}
+
 .code-editor-container {
   min-height: 21px !important;
 }
@@ -61,6 +156,11 @@ code,
 .code-height-placeholder,
 .code-loading-placeholder {
   min-height: 21px !important;
+}
+
+.code-block-body--collapsed {
+  min-height: 0 !important;
+  height: 0 !important;
 }
 
 /* Override antd CSS-in-JS font-weight for all components */

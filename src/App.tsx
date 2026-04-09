@@ -68,6 +68,7 @@ function AppInner() {
     root.style.setProperty('--color-text', token.colorText);
     root.style.setProperty('--color-text-secondary', token.colorTextSecondary);
     root.style.setProperty('--color-primary', token.colorPrimary);
+    root.style.setProperty('--color-fill-alter', token.colorFillAlter);
     // Markdown renderer (markstream-react) CSS variables
     root.style.setProperty('--table-border', token.colorBorderSecondary);
     root.style.setProperty('--hr-border-color', token.colorBorderSecondary);
