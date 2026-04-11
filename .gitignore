@@ -14,6 +14,7 @@ dist-ssr
 .superpowers
 .vscode
 .agents
+.mcp.json
 
 # Editor directories and files
 .vscode/*
