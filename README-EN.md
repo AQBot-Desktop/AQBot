@@ -8,7 +8,7 @@
 
 ## Screenshots
 
-| Multi-Model Comparison | Providers & Models |
+| Chat Chart Rendering | Providers & Models |
 |:---:|:---:|
 | ![](.github/images/s1.png) | ![](.github/images/s2.png) |
 

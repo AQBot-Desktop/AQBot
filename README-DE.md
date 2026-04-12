@@ -8,7 +8,7 @@
 
 ## Screenshots
 
-| Multi-Modell-Antworten | Anbieter und Modelle |
+| Chat-Diagramm-Rendering | Anbieter und Modelle |
 |:---:|:---:|
 | ![](.github/images/s1.png) | ![](.github/images/s2.png) |
 

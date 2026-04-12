@@ -8,7 +8,7 @@
 
 ## Capturas de pantalla
 
-| Respuesta multi-modelo | Proveedores y modelos |
+| Renderizado de gráficos de chat | Proveedores y modelos |
 |:---:|:---:|
 | ![](.github/images/s1.png) | ![](.github/images/s2.png) |
 
