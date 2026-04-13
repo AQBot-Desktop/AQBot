@@ -1869,19 +1869,19 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 }}
                 onChange={(v) => {
                   if ('temperature' in v) {
-                    if (v.temperature === null) setBatchTemperatureEnabled(false);
+                    if (v.temperature == null) setBatchTemperatureEnabled(false);
                     else { setBatchTemperatureEnabled(true); setBatchTemperature(v.temperature); }
                   }
                   if ('topP' in v) {
-                    if (v.topP === null) setBatchTopPEnabled(false);
+                    if (v.topP == null) setBatchTopPEnabled(false);
                     else { setBatchTopPEnabled(true); setBatchTopP(v.topP); }
                   }
                   if ('maxTokens' in v) {
-                    if (v.maxTokens === null) setBatchMaxTokensParamEnabled(false);
+                    if (v.maxTokens == null) setBatchMaxTokensParamEnabled(false);
                     else { setBatchMaxTokensParamEnabled(true); setBatchMaxTokensParam(v.maxTokens); }
                   }
                   if ('frequencyPenalty' in v) {
-                    if (v.frequencyPenalty === null) setBatchFreqPenaltyEnabled(false);
+                    if (v.frequencyPenalty == null) setBatchFreqPenaltyEnabled(false);
                     else { setBatchFreqPenaltyEnabled(true); setBatchFreqPenalty(v.frequencyPenalty); }
                   }
                 }}
