@@ -1153,7 +1153,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       tool_calls_json: null,
       tool_call_id: null,
       created_at: Date.now(),
-      parent_message_id: null,
+      parent_message_id: optimisticUserMsg.id,
       version_index: 0,
       is_active: true,
       status: 'partial',
@@ -1319,7 +1319,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       tool_calls_json: null,
       tool_call_id: null,
       created_at: Date.now(),
-      parent_message_id: null,
+      parent_message_id: optimisticUserMsg.id,
       version_index: 0,
       is_active: true,
       status: 'partial',
@@ -2573,6 +2573,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   deleteMessageGroup: async (conversationId, userMessageId) => {
+    // Client-only messages (temp IDs) — just remove locally
+    if (userMessageId.startsWith('temp-')) {
+      set((s) => ({
+        messages: s.messages.filter(m =>
+          m.id !== userMessageId && m.parent_message_id !== userMessageId
+        ),
+      }));
+      return;
+    }
     try {
       await invoke('delete_message_group', { conversationId, userMessageId });
       set((s) => ({

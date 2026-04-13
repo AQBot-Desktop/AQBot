@@ -1372,6 +1372,12 @@ function DeleteLastVersionPopover({
   const handleDeleteThisOnly = async () => {
     setOpen(false);
     try {
+      if (msg.id.startsWith('temp-')) {
+        useConversationStore.setState((s) => ({
+          messages: s.messages.filter((m) => m.id !== msg.id),
+        }));
+        return;
+      }
       await invoke('delete_message', { id: msg.id });
       useConversationStore.getState().fetchMessages(conversationId);
     } catch (e) {
@@ -1384,6 +1390,11 @@ function DeleteLastVersionPopover({
     try {
       if (msg.parent_message_id) {
         await deleteMessageGroup(conversationId, msg.parent_message_id);
+      } else if (msg.id.startsWith('temp-')) {
+        // No parent link (e.g. error before backend persisted) — remove locally
+        useConversationStore.setState((s) => ({
+          messages: s.messages.filter((m) => m.id !== msg.id),
+        }));
       }
     } catch (e) {
       messageApi.error(String(e));
@@ -1659,8 +1670,14 @@ function AssistantFooter({
                         const nextActive = sameModel.length > 0
                           ? sameModel.sort((a, b) => b.version_index - a.version_index)[0]
                           : remaining.sort((a, b) => b.version_index - a.version_index)[0];
-                        await invoke('delete_message', { id: msg.id });
-                        if (msg.parent_message_id) {
+                        if (msg.id.startsWith('temp-')) {
+                          useConversationStore.setState((s) => ({
+                            messages: s.messages.filter((m) => m.id !== msg.id),
+                          }));
+                        } else {
+                          await invoke('delete_message', { id: msg.id });
+                        }
+                        if (msg.parent_message_id && nextActive) {
                           await switchMessageVersion(conversationId, msg.parent_message_id, nextActive.id);
                         }
                       } catch (e) {
