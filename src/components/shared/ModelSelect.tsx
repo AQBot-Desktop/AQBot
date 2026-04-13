@@ -85,7 +85,7 @@ export function ModelSelect({
       if (!parsed) return <span>{props.label}</span>;
       const providerName = providerNameMap.get(parsed.providerId) ?? '';
       return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <ModelIcon model={parsed.modelId} size={18} type="avatar" />
           {props.label}
           <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
