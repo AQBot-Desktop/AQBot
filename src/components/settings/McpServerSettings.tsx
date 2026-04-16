@@ -383,7 +383,7 @@ function McpServerDetail({
                   const idx = line.indexOf('=');
                   if (idx > 0) obj[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
                 }
-                handleFieldChange('envJson', Object.keys(obj).length > 0 ? JSON.stringify(obj) : null);
+                handleFieldChange('env', Object.keys(obj).length > 0 ? obj : null);
               }}
               placeholder={t('settings.mcpServers.envVarsPlaceholder')}
               autoSize={{ minRows: 2, maxRows: 6 }}

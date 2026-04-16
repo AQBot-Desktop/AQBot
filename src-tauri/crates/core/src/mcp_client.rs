@@ -548,6 +548,36 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[test]
+    fn configure_stdio_env_applies_custom_variables() {
+        let mut env = HashMap::new();
+        env.insert("TAVILY_API_KEY".to_string(), "secret-key".to_string());
+        env.insert("PATH".to_string(), "/custom/bin".to_string());
+
+        let mut cmd = tokio::process::Command::new("python3");
+        configure_stdio_env(&mut cmd, &env);
+
+        let env_map: HashMap<String, Option<String>> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|v| v.to_string_lossy().to_string()),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            env_map.get("TAVILY_API_KEY"),
+            Some(&Some("secret-key".to_string()))
+        );
+        assert_eq!(
+            env_map.get("PATH"),
+            Some(&Some("/custom/bin".to_string()))
+        );
+    }
+
     #[tokio::test]
     async fn call_tool_stdio_does_not_hang_when_initialize_stdout_is_non_json_then_eof() {
         let args = vec!["-c".to_string(), "print('npm notice')".to_string()];
