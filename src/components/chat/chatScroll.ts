@@ -1,3 +1,5 @@
+export const CHAT_SCROLL_IS_REVERSED = true;
+
 export function getDistanceToHistoryTop(
   scrollHeight: number,
   scrollTop: number,
@@ -5,6 +7,18 @@ export function getDistanceToHistoryTop(
   isReversed: boolean,
 ) {
   return isReversed ? scrollHeight + scrollTop - clientHeight : scrollTop;
+}
+
+export function getScrollTopAfterPrepend(
+  previousScrollTop: number,
+  previousScrollHeight: number,
+  nextScrollHeight: number,
+  isReversed: boolean,
+) {
+  const heightDelta = Math.max(0, nextScrollHeight - previousScrollHeight);
+  return isReversed
+    ? previousScrollTop - heightDelta
+    : previousScrollTop + heightDelta;
 }
 
 export type ScrollLayoutMetrics = {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHAT_SCROLL_IS_REVERSED,
   getDistanceToHistoryTop,
+  getScrollTopAfterPrepend,
   hasScrollLayoutMetricsChanged,
   shouldIgnoreScrollDepartureFromBottom,
   shouldKeepAutoScroll,
@@ -9,6 +11,10 @@ import {
 } from '../chatScroll';
 
 describe('chat scroll helpers', () => {
+  it('exposes the chat bubble list as a reversed scroll container', () => {
+    expect(CHAT_SCROLL_IS_REVERSED).toBe(true);
+  });
+
   it('treats reversed bubble scroll near zero as the latest-message position', () => {
     expect(shouldShowScrollToBottom(2000, 0, 800, true)).toBe(false);
     expect(shouldShowScrollToBottom(2000, -80, 800, true)).toBe(false);
@@ -64,5 +70,15 @@ describe('chat scroll helpers', () => {
     expect(shouldIgnoreScrollDepartureFromBottom(false, true, true)).toBe(false);
     expect(shouldIgnoreScrollDepartureFromBottom(true, true, false)).toBe(false);
     expect(shouldIgnoreScrollDepartureFromBottom(false, false, false)).toBe(false);
+  });
+
+  it('preserves the viewport anchor when older messages are prepended in reversed chat mode', () => {
+    expect(getScrollTopAfterPrepend(0, 1200, 1600, true)).toBe(-400);
+    expect(getScrollTopAfterPrepend(-240, 1200, 1600, true)).toBe(-640);
+  });
+
+  it('preserves the viewport anchor when older messages are prepended in regular scroll mode', () => {
+    expect(getScrollTopAfterPrepend(0, 1200, 1600, false)).toBe(400);
+    expect(getScrollTopAfterPrepend(240, 1200, 1600, false)).toBe(640);
   });
 });

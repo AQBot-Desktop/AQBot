@@ -32,7 +32,9 @@ import { MemoryRetrievalNode } from './MemoryRetrievalNode';
 import { KnowledgeRetrievalNode } from './KnowledgeRetrievalNode';
 import { McpContainerNode } from './McpContainerNode';
 import {
+  CHAT_SCROLL_IS_REVERSED,
   getDistanceToHistoryTop,
+  getScrollTopAfterPrepend,
   hasScrollLayoutMetricsChanged,
   shouldIgnoreScrollDepartureFromBottom,
   shouldKeepAutoScroll,
@@ -2058,7 +2060,6 @@ export function ChatView() {
   const bubbleListRef = useRef<BubbleListRef | null>(null);
   const scrollBoxRef = useRef<HTMLElement | null>(null);
   const scrollContentRef = useRef<HTMLElement | null>(null);
-  const isReversedScroll = true;
   const pendingScrollConversationIdRef = useRef<string | null>(activeConversationId ?? null);
   const stickToBottomRef = useRef(stickToBottom);
   const scrollLayoutMetricsRef = useRef({ scrollHeight: 0, clientHeight: 0 });
@@ -2151,10 +2152,10 @@ export function ChatView() {
       target.scrollHeight,
       target.scrollTop,
       target.clientHeight,
-      isReversedScroll,
+      CHAT_SCROLL_IS_REVERSED,
     );
     setShowScrollToBottom((prev) => (prev === nextShowScrollToBottom ? prev : nextShowScrollToBottom));
-  }, [isReversedScroll]);
+  }, []);
 
   // Load agent tool history from DB on conversation switch
   useEffect(() => {
@@ -2217,13 +2218,15 @@ export function ChatView() {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (!scrollContainer) return;
-        const heightDelta = scrollContainer.scrollHeight - previousScrollHeight;
-        scrollContainer.scrollTop = isReversedScroll
-          ? previousScrollTop - Math.max(0, heightDelta)
-          : previousScrollTop + Math.max(0, heightDelta);
+        scrollContainer.scrollTop = getScrollTopAfterPrepend(
+          previousScrollTop,
+          previousScrollHeight,
+          scrollContainer.scrollHeight,
+          CHAT_SCROLL_IS_REVERSED,
+        );
       });
     });
-  }, [isReversedScroll, loadOlderMessages]);
+  }, [loadOlderMessages]);
 
   const handleBubbleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -2232,14 +2235,14 @@ export function ChatView() {
         target.scrollHeight,
         target.scrollTop,
         target.clientHeight,
-        isReversedScroll,
+        CHAT_SCROLL_IS_REVERSED,
       ),
     );
     const keepAutoScroll = shouldKeepAutoScroll(
       target.scrollHeight,
       target.scrollTop,
       target.clientHeight,
-      isReversedScroll,
+      CHAT_SCROLL_IS_REVERSED,
       1,
     );
     const hadRecentUserScrollIntent = Date.now() - lastUserScrollIntentAtRef.current < 250;
@@ -2260,11 +2263,11 @@ export function ChatView() {
       target.scrollHeight,
       target.scrollTop,
       target.clientHeight,
-      isReversedScroll,
+      CHAT_SCROLL_IS_REVERSED,
     );
     if (distanceToHistoryTop > 24) return;
     void handleLoadOlderMessages();
-  }, [handleLoadOlderMessages, hasOlderMessages, isReversedScroll, loading, loadingOlder]);
+  }, [handleLoadOlderMessages, hasOlderMessages, loading, loadingOlder]);
 
   const handleScrollToBottom = useCallback(() => {
     bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' });

@@ -13,7 +13,7 @@ describe('Phase A feedback regressions', () => {
 
   it('keeps chat scroll handling aligned with Bubble.List reversed layout instead of hard-coding false', () => {
     const source = readSource('src/components/chat/ChatView.tsx');
-    expect(source).toContain('isReversedScroll');
+    expect(source).toContain('CHAT_SCROLL_IS_REVERSED');
     expect(source).not.toContain('shouldShowScrollToBottom(\n      target.scrollHeight,\n      target.scrollTop,\n      target.clientHeight,\n      false,');
     expect(source).not.toContain('shouldKeepAutoScroll(\n      target.scrollHeight,\n      target.scrollTop,\n      target.clientHeight,\n      false,');
     expect(source).not.toContain('getDistanceToHistoryTop(\n      target.scrollHeight,\n      target.scrollTop,\n      target.clientHeight,\n      false,');
