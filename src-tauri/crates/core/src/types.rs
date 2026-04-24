@@ -878,6 +878,10 @@ pub struct ChatStreamEvent {
 pub struct ChatStreamErrorEvent {
     pub conversation_id: String,
     pub message_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub error: String,
 }
 

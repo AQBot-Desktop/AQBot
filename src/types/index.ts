@@ -450,6 +450,8 @@ export interface ChatStreamEvent {
 export interface ChatStreamErrorEvent {
   conversation_id: string;
   message_id: string;
+  model_id?: string;
+  provider_id?: string;
   error: string;
 }
 

@@ -2,7 +2,10 @@ import { create } from 'zustand';
 import { invoke, listen, type UnlistenFn, isTauri } from '@/lib/invoke';
 import { supportsReasoning, findModelByIds } from '@/lib/modelCapabilities';
 import {
+  applyMultiModelStreamError,
+  hasMultipleModelVersions,
   insertModelVersionPlaceholder,
+  mergeAssistantVersionGroup,
   mergeAssistantVersionsAfterSwitch,
   selectNextAssistantVersion,
 } from '@/lib/chatMultiModel';
@@ -377,6 +380,7 @@ interface ConversationState {
   cancelCurrentStream: () => void;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
+  hydrateMessageVersions: (parentMessageId: string, versions: Message[], activeMessageId?: string | null) => void;
   updateMessageContent: (messageId: string, content: string) => Promise<void>;
   deleteMessageGroup: (conversationId: string, userMessageId: string) => Promise<void>;
   workspaceSnapshot: ConversationWorkspaceSnapshot | null;
@@ -1749,6 +1753,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     const parentId = userMsg.id;
     const originalAiMsg = msgs.find(m => m.parent_message_id === parentId && m.is_active);
+    const parentVersions = msgs.filter((m) => m.parent_message_id === parentId && m.role === 'assistant');
+    const appendAsCompanion = hasMultipleModelVersions(parentVersions);
 
     // Create placeholder with the target model info
     const tempAssistantId = `temp-assistant-${Date.now()}`;
@@ -1767,7 +1773,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       created_at: originalAiMsg?.created_at ?? Date.now(),
       parent_message_id: userMsg.id,
       version_index: 0,
-      is_active: true,
+      is_active: !appendAsCompanion,
       status: 'partial',
     };
 
@@ -1801,6 +1807,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         thinkingBudget: rThinkingBudget,
         enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
         enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
+        isCompanion: appendAsCompanion ? true : undefined,
       });
 
       if (!isTauri()) {
@@ -2049,44 +2056,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       await get().fetchMessages(conversationId);
 
-      // Ensure only one version is shown locally
       if (parentId) {
-        const refreshedMsgs = get().messages;
-
-        // Determine which version to display
-        let displayVersion: Message | null = null;
-        if (_userManuallySelectedVersion && userSelectedMessageId) {
-          displayVersion = refreshedMsgs.find((m) => m.id === userSelectedMessageId) ?? null;
-        }
-        if (!displayVersion) {
+        const versions = await get().listMessageVersions(conversationId, parentId);
+        if (versions.length > 0) {
           const firstModelId = companionModels[0].modelId;
-          displayVersion = _multiModelFirstMessageId
-            ? refreshedMsgs.find((m) => m.id === _multiModelFirstMessageId) ?? null
-            : null;
-          if (!displayVersion) {
-            displayVersion = refreshedMsgs.find(
-              (m) => m.parent_message_id === parentId && m.role === 'assistant' && m.model_id === firstModelId,
-            ) ?? null;
-          }
-        }
+          const activeVersionId = (
+            (_userManuallySelectedVersion && userSelectedMessageId
+              ? versions.find((version) => version.id === userSelectedMessageId)
+              : null)
+            ?? (_multiModelFirstMessageId
+              ? versions.find((version) => version.id === _multiModelFirstMessageId)
+              : null)
+            ?? versions.find((version) => version.model_id === firstModelId)
+            ?? versions.find((version) => version.is_active)
+            ?? versions[0]
+          )?.id ?? null;
 
-        if (displayVersion) {
-          set((s) => {
-            let kept = false;
-            return {
-              messages: s.messages.reduce<Message[]>((acc, m) => {
-                if (m.parent_message_id === parentId && m.role === 'assistant') {
-                  if (!kept) {
-                    acc.push({ ...displayVersion, is_active: true });
-                    kept = true;
-                  }
-                } else {
-                  acc.push(m);
-                }
-                return acc;
-              }, []),
-            };
-          });
+          get().hydrateMessageVersions(parentId, versions, activeVersionId);
         }
       }
     }
@@ -2150,6 +2136,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       if (targetMessage?.role === 'assistant') {
         await get().fetchMessages(conversationId);
+        if (targetMessage.parent_message_id) {
+          const versions = await get().listMessageVersions(conversationId, targetMessage.parent_message_id);
+          if (versions.length > 0) {
+            get().hydrateMessageVersions(targetMessage.parent_message_id, versions);
+          }
+        }
         return;
       }
       applyLocalDelete();
@@ -2378,7 +2370,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const errorUnsub = await listen<ChatStreamErrorEvent>('chat-stream-error', (event) => {
       if (_listenerGen !== gen) return; // stale listener
       if (!get().streaming) return; // cancelled
-      const { conversation_id, message_id, error: errMsg } = event.payload;
+      const {
+        conversation_id,
+        message_id,
+        error: errMsg,
+        model_id: evt_model_id,
+        provider_id: evt_provider_id,
+      } = event.payload;
 
       flushPendingStreamChunk(set, get);
       _streamBuffer = null; // Clear buffer on error
@@ -2388,12 +2386,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         _multiModelTotalRemaining--;
         console.error(`[multi-model] stream error:`, errMsg);
         // Mark this model as done so ModelTags stops showing loading indicator
-        set((s) => ({
-          multiModelDoneMessageIds: [...s.multiModelDoneMessageIds, message_id],
-          messages: s.messages.map((m) =>
-            m.id === message_id ? { ...m, status: 'error' as const } : m,
-          ),
-        }));
+        set((s) => {
+          const result = applyMultiModelStreamError(s.messages, {
+            conversationId: conversation_id,
+            parentMessageId: s.multiModelParentId,
+            streamingMessageId: s.streamingMessageId,
+            messageId: message_id,
+            error: errMsg,
+            modelId: evt_model_id,
+            providerId: evt_provider_id,
+          });
+          return {
+            multiModelDoneMessageIds: [...s.multiModelDoneMessageIds, message_id],
+            streamingMessageId: result.streamingMessageId,
+            messages: result.messages,
+          };
+        });
         if (_multiModelTotalRemaining <= 0) {
           set({ streaming: false, streamingMessageId: null, streamingConversationId: null, thinkingActiveMessageIds: new Set<string>() });
           if (_multiModelDoneResolve) { const r = _multiModelDoneResolve; _multiModelDoneResolve = null; r(); }
@@ -2557,6 +2565,34 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messages: streamMsgId
         ? s.messages.map(m => m.id === streamMsgId ? { ...m, status: 'partial' as const } : m)
         : s.messages,
+    }));
+  },
+
+  hydrateMessageVersions: (parentMessageId, versions, activeMessageId) => {
+    const resolvedActiveMessageId = activeMessageId
+      ?? versions.find((version) => version.is_active)?.id
+      ?? null;
+    set((s) => ({
+      messages: mergeAssistantVersionGroup(
+        s.messages,
+        parentMessageId,
+        versions,
+        resolvedActiveMessageId,
+      ),
+      streamingMessageId: (() => {
+        if (!s.streamingMessageId?.startsWith('temp-')) {
+          return s.streamingMessageId;
+        }
+        const placeholder = s.messages.find((message) => message.id === s.streamingMessageId);
+        if (!placeholder || placeholder.parent_message_id !== parentMessageId) {
+          return s.streamingMessageId;
+        }
+        const resolved = versions.find((version) =>
+          version.model_id === placeholder.model_id
+          && version.provider_id === placeholder.provider_id
+        );
+        return resolved?.id ?? s.streamingMessageId;
+      })(),
     }));
   },
 

@@ -621,6 +621,8 @@ async fn consume_stream(
                         ChatStreamErrorEvent {
                             conversation_id: conversation_id.to_string(),
                             message_id: message_id.to_string(),
+                            model_id: Some(model_id.to_string()),
+                            provider_id: Some(provider_id.to_string()),
                             error: err_msg.clone(),
                         },
                     );
@@ -668,6 +670,8 @@ async fn consume_stream(
                     ChatStreamErrorEvent {
                         conversation_id: conversation_id.to_string(),
                         message_id: message_id.to_string(),
+                        model_id: Some(model_id.to_string()),
+                        provider_id: Some(provider_id.to_string()),
                         error: err_msg.clone(),
                     },
                 );
@@ -1327,6 +1331,8 @@ fn spawn_stream_task(
                     ChatStreamErrorEvent {
                         conversation_id: conversation_id.clone(),
                         message_id: assistant_message_id.clone(),
+                        model_id: Some(model_id.clone()),
+                        provider_id: Some(provider.id.clone()),
                         error: format!("Unsupported provider type: {}", registry_key),
                     },
                 );

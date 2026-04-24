@@ -4,8 +4,11 @@ import type { Message } from '@/types';
 import {
   getLatestVersionsByModel,
   hasMultipleModelVersions,
+  applyMultiModelStreamError,
   insertModelVersionPlaceholder,
+  mergeAssistantVersionGroup,
   mergeAssistantVersionsAfterSwitch,
+  selectRenderableVersionSet,
   selectNextAssistantVersion,
   shouldRenderStandaloneAssistantError,
 } from '../chatMultiModel';
@@ -97,5 +100,109 @@ describe('chatMultiModel helpers', () => {
     const deleted = makeMessage({ id: 'deleted', model_id: 'model-a', version_index: 1, created_at: 2, status: 'error' });
 
     expect(selectNextAssistantVersion([fallback, deleted], deleted.id)?.id).toBe('fallback');
+  });
+
+  it('merges a complete version group back after an active-only message refresh', () => {
+    const user = makeMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'question',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    });
+    const activeError = makeMessage({
+      id: 'active-error',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      status: 'error',
+      content: 'boom',
+      is_active: true,
+      version_index: 0,
+    });
+    const inactiveSuccess = makeMessage({
+      id: 'inactive-success',
+      model_id: 'model-b',
+      provider_id: 'provider-b',
+      content: 'ok',
+      is_active: false,
+      version_index: 1,
+    });
+
+    const merged = mergeAssistantVersionGroup(
+      [user, activeError],
+      user.id,
+      [activeError, inactiveSuccess],
+      activeError.id,
+    );
+
+    expect(merged.map((message) => message.id)).toEqual(['user-1', 'active-error', 'inactive-success']);
+    expect(merged.find((message) => message.id === 'active-error')?.is_active).toBe(true);
+    expect(merged.find((message) => message.id === 'inactive-success')?.is_active).toBe(false);
+  });
+
+  it('resolves a temp first-model placeholder when the stream errors before any chunk arrives', () => {
+    const user = makeMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'question',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    });
+    const placeholder = makeMessage({
+      id: 'temp-assistant-1',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      content: '',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'partial',
+    });
+
+    const result = applyMultiModelStreamError([user, placeholder], {
+      conversationId: 'conv-1',
+      parentMessageId: user.id,
+      streamingMessageId: placeholder.id,
+      messageId: 'db-assistant-1',
+      error: 'provider failed',
+      modelId: 'model-a',
+      providerId: 'provider-a',
+    });
+
+    expect(result.streamingMessageId).toBe('db-assistant-1');
+    expect(result.messages.map((message) => message.id)).toEqual(['user-1', 'db-assistant-1']);
+    expect(result.messages[1]).toMatchObject({
+      content: 'provider failed',
+      status: 'error',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      parent_message_id: 'user-1',
+      is_active: true,
+    });
+  });
+
+  it('prefers hydrated store versions over a larger stale cached version list', () => {
+    const active = makeMessage({
+      id: 'active',
+      model_id: 'model-a',
+      is_active: true,
+      version_index: 0,
+    });
+    const remaining = makeMessage({
+      id: 'remaining',
+      model_id: 'model-b',
+      is_active: false,
+      version_index: 1,
+    });
+    const deleted = makeMessage({
+      id: 'deleted',
+      model_id: 'model-c',
+      is_active: false,
+      version_index: 2,
+    });
+
+    expect(selectRenderableVersionSet([active, remaining], [active, remaining, deleted]).map((message) => message.id))
+      .toEqual(['active', 'remaining']);
   });
 });

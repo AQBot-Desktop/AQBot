@@ -27,7 +27,7 @@ import { InputArea } from './InputArea';
 import { ModelSelector } from './ModelSelector';
 import { parseSearchContent } from '@/lib/searchUtils';
 import { CHAT_CUSTOM_HTML_TAGS, parseChatMarkdown, stripAqbotTags, type ChatMarkdownNode } from '@/lib/chatMarkdown';
-import { hasMultipleModelVersions, shouldRenderStandaloneAssistantError } from '@/lib/chatMultiModel';
+import { hasMultipleModelVersions, selectRenderableVersionSet, shouldRenderStandaloneAssistantError } from '@/lib/chatMultiModel';
 import { WebSearchNode } from './WebSearchNode';
 import { MemoryRetrievalNode } from './MemoryRetrievalNode';
 import { KnowledgeRetrievalNode } from './KnowledgeRetrievalNode';
@@ -1470,6 +1470,7 @@ function AssistantFooter({
   const { message: messageApi } = App.useApp();
   const [allVersions, setAllVersions] = useState<Message[]>([]);
   const listMessageVersions = useConversationStore((s) => s.listMessageVersions);
+  const hydrateMessageVersions = useConversationStore((s) => s.hydrateMessageVersions);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
@@ -1489,10 +1490,15 @@ function AssistantFooter({
   useEffect(() => {
     if (msg.parent_message_id && conversationId) {
       listMessageVersions(conversationId, msg.parent_message_id).then((v) => {
-        if (v) setAllVersions(v);
+        if (v) {
+          setAllVersions(v);
+          if (v.length > 0) {
+            hydrateMessageVersions(msg.parent_message_id!, v);
+          }
+        }
       });
     }
-  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, messagesLength]);
+  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, hydrateMessageVersions, messagesLength]);
 
   // Merge DB-fetched versions with in-store companion messages for real-time visibility
   const mergedVersions = useMemo(() => {
@@ -3005,9 +3011,7 @@ export function ChatView() {
           const storeVersions = messages.filter(
             (m) => m.parent_message_id === parentId && m.role === 'assistant',
           );
-          const allVersions = refVersions && refVersions.length > storeVersions.length
-            ? refVersions
-            : storeVersions;
+          const allVersions = selectRenderableVersionSet(storeVersions, refVersions);
           return (
             <>
               {msgMarker}

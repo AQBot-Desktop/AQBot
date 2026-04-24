@@ -360,6 +360,160 @@ describe('conversationStore pagination', () => {
     vi.useRealTimers();
   });
 
+  it('hydrates inactive assistant versions into the store for multi-model rendering', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      content: 'question',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const activeError = {
+      ...makeMessage(2),
+      id: 'active-error',
+      content: 'boom',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'error' as const,
+      version_index: 0,
+    };
+    const inactiveSuccess = {
+      ...makeMessage(4),
+      id: 'inactive-success',
+      content: 'ok',
+      provider_id: 'provider-b',
+      model_id: 'model-b',
+      parent_message_id: user.id,
+      is_active: false,
+      status: 'complete' as const,
+      version_index: 1,
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, activeError],
+    });
+
+    useConversationStore.getState().hydrateMessageVersions(
+      user.id,
+      [activeError, inactiveSuccess],
+      activeError.id,
+    );
+
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([
+      'user-1',
+      'active-error',
+      'inactive-success',
+    ]);
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'active-error')?.is_active).toBe(true);
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'inactive-success')?.is_active).toBe(false);
+  });
+
+  it('resolves a temp streaming id when hydrating the matching database version', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const tempAssistant = {
+      ...makeMessage(2),
+      id: 'temp-assistant-1',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'partial' as const,
+    };
+    const dbAssistant = {
+      ...tempAssistant,
+      id: 'db-assistant-1',
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      streaming: true,
+      streamingMessageId: tempAssistant.id,
+      messages: [user, tempAssistant],
+    });
+
+    useConversationStore.getState().hydrateMessageVersions(user.id, [dbAssistant], dbAssistant.id);
+
+    expect(useConversationStore.getState().streamingMessageId).toBe('db-assistant-1');
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([
+      'user-1',
+      'db-assistant-1',
+    ]);
+  });
+
+  it('adds a new model response as an inactive card when the parent already has multi-model versions', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const active = {
+      ...makeMessage(2),
+      id: 'assistant-a',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'complete' as const,
+    };
+    const inactive = {
+      ...makeMessage(4),
+      id: 'assistant-b',
+      provider_id: 'provider-b',
+      model_id: 'model-b',
+      parent_message_id: user.id,
+      is_active: false,
+      status: 'complete' as const,
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, active, inactive],
+      enabledMcpServerIds: [],
+      enabledKnowledgeBaseIds: [],
+      enabledMemoryNamespaceIds: [],
+      thinkingBudget: null,
+    });
+
+    await useConversationStore.getState().regenerateWithModel(active.id, 'provider-c', 'model-c');
+
+    expect(invokeMock).toHaveBeenCalledWith('regenerate_with_model', expect.objectContaining({
+      conversationId: 'conv-1',
+      userMessageId: user.id,
+      targetProviderId: 'provider-c',
+      targetModelId: 'model-c',
+      isCompanion: true,
+    }));
+
+    const messages = useConversationStore.getState().messages;
+    expect(messages.find((message) => message.id === active.id)?.is_active).toBe(true);
+    const placeholder = messages.find((message) => message.model_id === 'model-c');
+    expect(placeholder).toMatchObject({
+      provider_id: 'provider-c',
+      is_active: false,
+      status: 'partial',
+      parent_message_id: user.id,
+    });
+  });
+
   it('creates a new conversation from a category template when a category id is supplied', async () => {
     invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === 'create_conversation') {

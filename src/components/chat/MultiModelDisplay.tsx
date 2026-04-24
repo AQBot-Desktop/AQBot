@@ -107,13 +107,6 @@ function MultiModelDisplayInner({
   const latestByModel = useMemo(() => getLatestVersionsByModel(versions), [versions]);
 
   const parentMessageId = versions[0]?.parent_message_id;
-
-  if (latestByModel.length <= 1) {
-    const msg = latestByModel[0];
-    if (!msg) return null;
-    return <>{renderContent(msg, msg.id === streamingMessageId)}</>;
-  }
-
   // For side-by-side mode, force the .ant-bubble ancestor to take full width
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -167,6 +160,12 @@ function MultiModelDisplayInner({
 
     return () => inst.destroy();
   }, [mode]);
+
+  if (latestByModel.length <= 1) {
+    const msg = latestByModel[0];
+    if (!msg) return null;
+    return <>{renderContent(msg, msg.id === streamingMessageId)}</>;
+  }
 
   const containerStyle: React.CSSProperties =
     mode === 'side-by-side'

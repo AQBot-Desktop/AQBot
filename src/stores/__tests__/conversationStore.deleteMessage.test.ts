@@ -145,4 +145,77 @@ describe('conversationStore.deleteMessage', () => {
     expect(messages.find((message) => message.id === activeErrorVersion.id)).toBeUndefined();
     expect(messages.find((message) => message.id === remainingVersion.id)?.is_active).toBe(true);
   });
+
+  it('keeps remaining multi-model versions hydrated after deleting an inactive version', async () => {
+    const userMessage = createMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'hello',
+      provider_id: null,
+      model_id: null,
+      created_at: 1,
+    });
+    const activeVersion = createMessage({
+      id: 'assistant-active',
+      role: 'assistant',
+      content: 'active',
+      model_id: 'model-a',
+      parent_message_id: userMessage.id,
+      version_index: 0,
+      is_active: true,
+      created_at: 2,
+    });
+    const inactiveDeleted = createMessage({
+      id: 'assistant-inactive',
+      role: 'assistant',
+      content: 'inactive',
+      model_id: 'model-b',
+      parent_message_id: userMessage.id,
+      version_index: 1,
+      is_active: false,
+      created_at: 3,
+    });
+    const inactiveRemaining = createMessage({
+      id: 'assistant-other',
+      role: 'assistant',
+      content: 'other',
+      model_id: 'model-c',
+      parent_message_id: userMessage.id,
+      version_index: 2,
+      is_active: false,
+      created_at: 4,
+    });
+
+    useConversationStore.setState({
+      messages: [userMessage, activeVersion, inactiveDeleted, inactiveRemaining],
+    });
+
+    invokeMock.mockImplementation(async (command: string) => {
+      switch (command) {
+        case 'delete_message':
+          return undefined;
+        case 'list_messages_page':
+          return {
+            messages: [userMessage, activeVersion],
+            has_older: false,
+            oldest_message_id: userMessage.id,
+            total_active_count: 2,
+          };
+        case 'list_message_versions':
+          return [activeVersion, inactiveRemaining];
+        default:
+          throw new Error(`Unexpected invoke: ${command}`);
+      }
+    });
+
+    await useConversationStore.getState().deleteMessage(inactiveDeleted.id);
+
+    expect(invokeMock).toHaveBeenCalledWith('delete_message', { id: inactiveDeleted.id });
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([
+      'user-1',
+      'assistant-active',
+      'assistant-other',
+    ]);
+    expect(useConversationStore.getState().messages.find((message) => message.id === activeVersion.id)?.is_active).toBe(true);
+  });
 });

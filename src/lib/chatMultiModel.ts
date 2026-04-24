@@ -26,6 +26,16 @@ export function hasMultipleModelVersions(versions: Message[]): boolean {
   return getLatestVersionsByModel(versions).length > 1;
 }
 
+export function selectRenderableVersionSet(
+  storeVersions: Message[],
+  cachedVersions: Message[] | null | undefined,
+): Message[] {
+  if (storeVersions.length > 0) {
+    return storeVersions;
+  }
+  return cachedVersions ?? storeVersions;
+}
+
 function compareVersionDesc(left: Message, right: Message): number {
   return right.version_index - left.version_index
     || right.created_at - left.created_at
@@ -84,41 +94,153 @@ export function insertModelVersionPlaceholder(
   return updated;
 }
 
+function compareMessageAsc(left: Message, right: Message): number {
+  return left.created_at - right.created_at
+    || left.version_index - right.version_index
+    || left.id.localeCompare(right.id);
+}
+
+export function mergeAssistantVersionGroup(
+  messages: Message[],
+  parentMessageId: string,
+  versions: Message[],
+  activeMessageId?: string | null,
+): Message[] {
+  if (versions.length === 0) {
+    return messages;
+  }
+
+  const versionGroup = [...versions]
+    .sort(compareMessageAsc)
+    .map((version) => activeMessageId
+      ? { ...version, is_active: version.id === activeMessageId }
+      : version);
+  const result: Message[] = [];
+  let inserted = false;
+
+  for (const message of messages) {
+    const isTargetAssistant = message.parent_message_id === parentMessageId && message.role === 'assistant';
+    if (isTargetAssistant) {
+      if (!inserted) {
+        result.push(...versionGroup);
+        inserted = true;
+      }
+      continue;
+    }
+    result.push(message);
+  }
+
+  if (!inserted) {
+    const parentIndex = result.findIndex((message) => message.id === parentMessageId);
+    if (parentIndex >= 0) {
+      result.splice(parentIndex + 1, 0, ...versionGroup);
+    } else {
+      result.push(...versionGroup);
+    }
+  }
+
+  return result;
+}
+
+export interface MultiModelStreamErrorInput {
+  conversationId: string;
+  parentMessageId: string | null;
+  streamingMessageId: string | null;
+  messageId: string;
+  error: string;
+  modelId?: string | null;
+  providerId?: string | null;
+}
+
+export function applyMultiModelStreamError(
+  messages: Message[],
+  input: MultiModelStreamErrorInput,
+): { messages: Message[]; streamingMessageId: string | null } {
+  const directMatch = messages.some((message) => message.id === input.messageId);
+  if (directMatch) {
+    const matchedMessage = messages.find((message) => message.id === input.messageId);
+    const shouldResolveStreamingId = Boolean(
+      input.streamingMessageId?.startsWith('temp-')
+      && matchedMessage
+      && (!input.parentMessageId || matchedMessage.parent_message_id === input.parentMessageId)
+      && (!input.modelId || matchedMessage.model_id === input.modelId)
+      && (!input.providerId || matchedMessage.provider_id === input.providerId)
+    );
+    return {
+      streamingMessageId: input.streamingMessageId === input.messageId || shouldResolveStreamingId
+        ? input.messageId
+        : input.streamingMessageId,
+      messages: messages.map((message) => message.id === input.messageId
+        ? {
+            ...message,
+            content: input.error,
+            status: 'error' as const,
+            model_id: message.model_id ?? input.modelId ?? null,
+            provider_id: message.provider_id ?? input.providerId ?? null,
+            parent_message_id: message.parent_message_id ?? input.parentMessageId,
+          }
+        : message),
+    };
+  }
+
+  if (input.streamingMessageId?.startsWith('temp-')) {
+    const placeholder = messages.find((message) => message.id === input.streamingMessageId);
+    if (placeholder && (!input.parentMessageId || placeholder.parent_message_id === input.parentMessageId)) {
+      return {
+        streamingMessageId: input.messageId,
+        messages: messages.map((message) => message.id === input.streamingMessageId
+          ? {
+              ...message,
+              id: input.messageId,
+              content: input.error,
+              status: 'error' as const,
+              model_id: input.modelId ?? message.model_id ?? null,
+              provider_id: input.providerId ?? message.provider_id ?? null,
+              parent_message_id: input.parentMessageId ?? message.parent_message_id,
+            }
+          : message),
+      };
+    }
+  }
+
+  if (!input.parentMessageId) {
+    return { messages, streamingMessageId: input.streamingMessageId };
+  }
+
+  const newMessage: Message = {
+    id: input.messageId,
+    conversation_id: input.conversationId,
+    role: 'assistant',
+    content: input.error,
+    provider_id: input.providerId ?? null,
+    model_id: input.modelId ?? null,
+    token_count: null,
+    prompt_tokens: null,
+    completion_tokens: null,
+    attachments: [],
+    thinking: null,
+    tool_calls_json: null,
+    tool_call_id: null,
+    created_at: Date.now(),
+    parent_message_id: input.parentMessageId,
+    version_index: 0,
+    is_active: false,
+    status: 'error',
+    tokens_per_second: null,
+    first_token_latency_ms: null,
+  };
+
+  return {
+    messages: insertModelVersionPlaceholder(messages, input.parentMessageId, newMessage),
+    streamingMessageId: input.streamingMessageId,
+  };
+}
+
 export function mergeAssistantVersionsAfterSwitch(
   messages: Message[],
   parentMessageId: string,
   versions: Message[],
   activeMessageId: string,
 ): Message[] {
-  const versionMap = new Map(versions.map((version) => [version.id, version]));
-  const existingVersionIds = new Set(
-    messages
-      .filter((message) => message.parent_message_id === parentMessageId && message.role === 'assistant')
-      .map((message) => message.id),
-  );
-
-  const updatedMessages = messages
-    .filter((message) => {
-      if (message.parent_message_id !== parentMessageId || message.role !== 'assistant') {
-        return true;
-      }
-      return message.id.startsWith('temp-') || versionMap.has(message.id);
-    })
-    .map((message) => {
-      if (message.parent_message_id !== parentMessageId || message.role !== 'assistant') {
-        return message;
-      }
-      const dbVersion = versionMap.get(message.id);
-      return dbVersion
-        ? { ...dbVersion, is_active: dbVersion.id === activeMessageId }
-        : { ...message, is_active: message.id === activeMessageId };
-    });
-
-  for (const version of versions) {
-    if (!existingVersionIds.has(version.id)) {
-      updatedMessages.push({ ...version, is_active: version.id === activeMessageId });
-    }
-  }
-
-  return updatedMessages;
+  return mergeAssistantVersionGroup(messages, parentMessageId, versions, activeMessageId);
 }
