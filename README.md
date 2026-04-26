@@ -148,3 +148,21 @@ sudo xattr -dr com.apple.quarantine /Applications/AQBot.app
 ## 许可证
 
 本项目采用 [AGPL-3.0](LICENSE) 许可证。
+
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+```python
+# Example usage
+```
+
+
+## Contributing
+
+Contributions are welcome! Please open an issue first.
