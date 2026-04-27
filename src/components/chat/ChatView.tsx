@@ -1572,7 +1572,7 @@ function AssistantFooter({
           {totalTokens > 0 && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
               <Coins size={10} />
-              {t('chat.totalTokens', '总 tokens')}: {formatTokenCount(totalTokens)}
+              {formatTokenCount(totalTokens)} tokens
             </span>
           )}
           {msg.tokens_per_second != null && (

@@ -20,7 +20,8 @@ describe('Phase C output control regressions', () => {
     const source = readSource('src/components/chat/ChatView.tsx');
 
     expect(source).toContain('const totalTokens = (msg.prompt_tokens ?? 0) + (msg.completion_tokens ?? 0);');
-    expect(source).toContain("t('chat.totalTokens'");
+    expect(source).toContain('{formatTokenCount(totalTokens)} tokens');
+    expect(source).not.toContain("t('chat.totalTokens'");
   });
 
   it('adds transcript copy and no-thinking export variants at chat level', () => {
