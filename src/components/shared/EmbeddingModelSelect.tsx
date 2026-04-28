@@ -1,18 +1,30 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { Select, theme } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
 import { useProviderStore } from '@/stores';
 import { parseModelValue, useProviderNameMap } from './ModelSelect';
 
+function isEmbeddingModel(model: { model_id: string; model_type?: string }) {
+  return model.model_type === 'Embedding' || /embed/i.test(model.model_id);
+}
+
 /** Hook: returns grouped Select options filtered to embedding-capable models */
 function useEmbeddingModelOptions() {
   const providers = useProviderStore((s) => s.providers);
+  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      void fetchProviders();
+    }
+  }, [fetchProviders, providers.length]);
+
   return useMemo(() => {
     return providers
       .filter((p) => p.enabled)
       .map((p) => {
         const embeddingModels = p.models.filter(
-          (m) => m.enabled && /embed/i.test(m.model_id),
+          (m) => m.enabled && isEmbeddingModel(m),
         );
         if (embeddingModels.length === 0) return null;
         return {
@@ -36,8 +48,7 @@ function useEmbeddingModelOptions() {
 }
 
 /**
- * Model selector filtered to embedding-capable models (model_id contains "embed").
- * Falls back to showing all models if no embedding models are found.
+ * Model selector filtered to embedding-capable models.
  */
 export function EmbeddingModelSelect({
   value,
