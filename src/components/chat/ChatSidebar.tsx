@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { Button, Input, App, theme, Tooltip, Avatar, Checkbox, Dropdown, Empty } from 'antd'
-import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical, ChevronRight, MessageSquareText, Bot } from 'lucide-react'
+import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical, ChevronRight, MessageSquareText } from 'lucide-react'
 import { ModelIcon } from '@lobehub/icons'
 import { getConvIcon } from '@/lib/convIcon'
 import { exportAsMarkdown, exportAsText, exportAsPNG, exportAsJSON } from '@/lib/exportChat'
@@ -464,12 +464,43 @@ export function ChatSidebar() {
       } else {
         icon = <Avatar size={20} src={customIcon.value} />
       }
-    } else if (conv.mode === 'agent') {
-      icon = <Avatar size={20} icon={<Bot size={12} />} style={{ backgroundColor: token.colorPrimaryBg, color: token.colorPrimary }} />
     } else if (conv.model_id) {
       icon = <ModelIcon model={conv.model_id} size={20} type="avatar" />
     } else {
       icon = <Avatar size={20} style={{ fontSize: 12, backgroundColor: token.colorPrimaryBg, color: token.colorPrimary }}>{(conv.title || '对')[0]}</Avatar>
+    }
+    if (conv.mode === 'agent') {
+      icon = (
+        <span style={{ position: 'relative', display: 'inline-flex', width: 20, height: 20 }}>
+          {icon}
+          <span
+            style={{
+              position: 'absolute',
+              top: -5,
+              right: -11,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+              padding: '0 3px',
+              height: 10,
+              lineHeight: 1,
+              borderRadius: 5,
+              fontSize: 7,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              color: token.colorPrimary,
+              background: token.colorPrimaryBg,
+              border: `1px solid ${token.colorBgContainer}`,
+              pointerEvents: 'none',
+              transform: 'scale(0.9)',
+              transformOrigin: 'right top',
+            }}
+          >
+            Agent
+          </span>
+        </span>
+      )
     }
     if (isStreaming) {
       icon = (

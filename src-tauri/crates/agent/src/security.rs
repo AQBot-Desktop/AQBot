@@ -135,6 +135,12 @@ fn check_single_path(input: &Value, cwd: &str) -> Option<PermissionDecision> {
 }
 
 fn check_glob_path(input: &Value, cwd: &str) -> Option<PermissionDecision> {
+    if let Some(path) = input.get("path").and_then(|v| v.as_str()) {
+        if let Err(reason) = validate_path_within_cwd(path, cwd) {
+            return Some(PermissionDecision::Deny(reason));
+        }
+    }
+
     let pattern = input
         .get("pattern")
         .or_else(|| input.get("glob"))

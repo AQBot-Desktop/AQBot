@@ -3411,6 +3411,10 @@ mod tests {
             webdav_sync_handle: Arc::new(Mutex::new(None)),
             vector_store,
             stream_cancel_flags: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            agent_cancel_tokens: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            agent_permission_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            agent_ask_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
 
         let attachments = vec![AttachmentInput {

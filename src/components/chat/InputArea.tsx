@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox, Badge } from 'antd';
+import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox, Badge, Popconfirm } from 'antd';
 import type { MenuProps } from 'antd';
 import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, Atom, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, ZapOff, Shrink, Upload, GitCompareArrows, X, BookOpen, GripHorizontal, CircleOff, SignalLow, SignalMedium, SignalHigh, Signal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -1396,27 +1396,24 @@ export function InputArea() {
                 disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
               />
             </Tooltip>
-            <Tooltip title={shortcutHint(t('chat.clearConversation'), 'clearConversationMessages')}>
-              <Button
-                type="text"
-                size="small"
-                icon={<Eraser size={14} />}
-                onClick={() => {
-                  if (!activeConversationId) return;
-                  modal.confirm({
-                    title: t('chat.clearConversationConfirmTitle'),
-                    content: t('chat.clearConversationConfirmContent'),
-                    okButtonProps: { danger: true },
-                    okText: t('common.confirm'),
-                    cancelText: t('common.cancel'),
-                    onOk: async () => {
-                      await clearAllMessages();
-                    },
-                  });
-                }}
-                disabled={!activeConversationId || streaming || messages.length === 0}
-              />
-            </Tooltip>
+            <Popconfirm
+              title={t('chat.clearConversationConfirmTitle')}
+              description={t('chat.clearConversationConfirmContent')}
+              okButtonProps={{ danger: true }}
+              okText={t('common.confirm')}
+              cancelText={t('common.cancel')}
+              onConfirm={() => { void clearAllMessages(); }}
+              disabled={!activeConversationId || streaming || messages.length === 0}
+            >
+              <Tooltip title={shortcutHint(t('chat.clearConversation'), 'clearConversationMessages')}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Eraser size={14} />}
+                  disabled={!activeConversationId || streaming || messages.length === 0}
+                />
+              </Tooltip>
+            </Popconfirm>
             <Tooltip title={t('chat.conversationSettings')}>
               <Button type="text" size="small" icon={<SlidersHorizontal size={14} />} onClick={() => setSettingsOpen(true)} />
             </Tooltip>

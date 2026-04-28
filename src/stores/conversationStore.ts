@@ -70,6 +70,8 @@ let _streamUiFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _activeMessageLoadSeq = 0;
 const _conversationPreferenceSaveSeq = new Map<string, number>();
 const MESSAGE_PAGE_SIZE = 10;
+let _agentStreamSeq = 0;
+let _activeAgentCancel: (() => void) | null = null;
 
 // Multi-model parallel tracking
 let _multiModelTotalRemaining = 0; // counts ALL models (including first)
@@ -1322,6 +1324,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const conversationId = get().activeConversationId;
     if (!conversationId) throw new Error('No active conversation');
 
+    _activeAgentCancel?.();
+    _activeAgentCancel = null;
+    const agentRunSeq = ++_agentStreamSeq;
+    const isCurrentAgentRun = () => agentRunSeq === _agentStreamSeq;
+
     const conversation = get().conversations.find((c) => c.id === conversationId);
     if (!conversation) throw new Error('Conversation not found');
 
@@ -1389,6 +1396,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     let unlistenStreamText: UnlistenFn | null = null;
     let unlistenStreamThinking: UnlistenFn | null = null;
     let unlistenMessageId: UnlistenFn | null = null;
+    let cancelActiveRun: (() => void) | null = null;
+    let cleanedUp = false;
 
     // ── Agent stream buffering (same pattern as Q&A _pendingUiChunk) ──
     let _agentPendingText = '';
@@ -1464,6 +1473,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     };
 
     const cleanup = () => {
+      cleanedUp = true;
       clearAgentStreamBuffer();
       unlistenStreamText?.();
       unlistenStreamThinking?.();
@@ -1475,14 +1485,34 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       unlistenDone = null;
       unlistenError = null;
       unlistenMessageId = null;
+      if (_activeAgentCancel === cancelActiveRun) {
+        _activeAgentCancel = null;
+      }
+    };
+
+    const keepAgentUnlisten = (assign: (fn: UnlistenFn) => void) => (fn: UnlistenFn) => {
+      if (cleanedUp || !isCurrentAgentRun()) {
+        fn();
+        return;
+      }
+      assign(fn);
     };
 
     try {
       const eventPromise = new Promise<void>((resolve, reject) => {
+        cancelActiveRun = () => {
+          if (isCurrentAgentRun()) {
+            _agentStreamSeq++;
+          }
+          cleanup();
+          resolve();
+        };
+        _activeAgentCancel = cancelActiveRun;
+
         // Listen for the real assistant message ID from the backend
         // This replaces the temp ID so tool call events can be matched
         listen<{ conversationId: string; assistantMessageId: string }>('agent-message-id', (event) => {
-          if (event.payload.conversationId !== conversationId) return;
+          if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
           // Flush pending buffer before switching IDs
           flushAgentStreamChunks();
           const realId = event.payload.assistantMessageId;
@@ -1494,30 +1524,34 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
               m.id === oldId ? { ...m, id: realId } : m
             ),
           }));
-        }).then((fn) => { unlistenMessageId = fn; });
+        }).then(keepAgentUnlisten((fn) => { unlistenMessageId = fn; }));
 
         // Listen for incremental text chunks — buffer and flush periodically
         listen<AgentStreamTextEvent>('agent-stream-text', (event) => {
-          if (event.payload.conversationId !== conversationId) return;
+          if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
           _agentPendingText += event.payload.text;
           scheduleAgentFlush();
-        }).then((fn) => { unlistenStreamText = fn; });
+        }).then(keepAgentUnlisten((fn) => { unlistenStreamText = fn; }));
 
         // Listen for incremental thinking chunks — buffer and flush periodically
         listen<AgentStreamThinkingEvent>('agent-stream-thinking', (event) => {
-          if (event.payload.conversationId !== conversationId) return;
+          if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
           _agentPendingThinking += event.payload.thinking;
           scheduleAgentFlush();
-        }).then((fn) => { unlistenStreamThinking = fn; });
+        }).then(keepAgentUnlisten((fn) => { unlistenStreamThinking = fn; }));
 
         // Listen for agent-done — correction overwrite with final content
         listen<AgentDoneEvent>('agent-done', (event) => {
-          if (event.payload.conversationId !== conversationId) return;
+          if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
           // Clear pending buffer (done event overwrites with final content)
           clearAgentStreamBuffer();
+          const isActiveConversation = get().activeConversationId === conversationId;
           // Skip if streaming was already cancelled (avoid stale fetchMessages re-render)
           const isStillStreaming = get().streaming && get().streamingMessageId === currentMsgId;
           if (!isStillStreaming) {
+            if (!isActiveConversation) {
+              _pendingConversationRefresh.add(conversationId);
+            }
             cleanup();
             resolve();
             return;
@@ -1548,14 +1582,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           }));
 
           cleanup();
-          // Fetch messages to fully sync with backend (real user message ID, etc.)
-          get().fetchMessages(conversationId);
+          if (isActiveConversation) {
+            // Fetch messages to fully sync with backend (real user message ID, etc.)
+            get().fetchMessages(conversationId);
+          } else {
+            _pendingConversationRefresh.add(conversationId);
+          }
           resolve();
-        }).then((fn) => { unlistenDone = fn; });
+        }).then(keepAgentUnlisten((fn) => { unlistenDone = fn; }));
 
         // Listen for agent-error
         listen<AgentErrorEvent>('agent-error', (event) => {
-          if (event.payload.conversationId !== conversationId) return;
+          if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
           // Clear pending buffer (error event overwrites content)
           clearAgentStreamBuffer();
           // Skip if streaming was already cancelled
@@ -1589,7 +1627,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
           cleanup();
           reject(new Error(event.payload.message));
-        }).then((fn) => { unlistenError = fn; });
+        }).then(keepAgentUnlisten((fn) => { unlistenError = fn; }));
       });
 
       // Invoke the backend command (this creates the real user message in DB)
@@ -2523,6 +2561,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   cancelCurrentStream: () => {
+    if (_activeAgentCancel) {
+      _activeAgentCancel();
+    } else {
+      _agentStreamSeq++;
+    }
     flushPendingStreamChunk(set, get);
     _pendingUiChunk = null;
     _streamBuffer = null;
