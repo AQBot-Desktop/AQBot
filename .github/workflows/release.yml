@@ -143,36 +143,34 @@ jobs:
         id: dep-versions
         shell: bash
         run: |
-          SM_SHA=$(git ls-remote https://github.com/AQBot-Desktop/stream-monaco.git refs/heads/main | cut -f1)
-          MS_SHA=$(git ls-remote https://github.com/AQBot-Desktop/markstream-vue.git refs/heads/aqbot-custom | cut -f1)
-          echo "cache-key=linked-deps-${SM_SHA:0:12}-${MS_SHA:0:12}" >> $GITHUB_OUTPUT
+          SM_SHA=$(git -C libs/stream-monaco rev-parse HEAD)
+          MS_SHA=$(git -C libs/markstream-vue rev-parse HEAD)
+          echo "cache-key=${{ runner.os }}-${{ matrix.target }}-linked-deps-${SM_SHA:0:12}-${MS_SHA:0:12}" >> $GITHUB_OUTPUT
 
       - name: Cache linked dependencies
         id: cache-linked-deps
         uses: actions/cache@v4
         with:
           path: |
-            ../stream-monaco
-            ../markstream-vue
+            libs/stream-monaco/node_modules
+            libs/stream-monaco/dist
+            libs/markstream-vue/node_modules
+            libs/markstream-vue/packages/markdown-parser/node_modules
+            libs/markstream-vue/packages/markdown-parser/dist
+            libs/markstream-vue/packages/markstream-react/node_modules
+            libs/markstream-vue/packages/markstream-react/dist
           key: ${{ steps.dep-versions.outputs.cache-key }}
 
       - name: Build linked dependencies
         if: steps.cache-linked-deps.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          cd ..
+          pnpm --dir libs/stream-monaco install --frozen-lockfile
+          pnpm --dir libs/stream-monaco build
 
-          git clone --depth 1 https://github.com/AQBot-Desktop/stream-monaco.git stream-monaco
-          cd stream-monaco && pnpm install --frozen-lockfile && pnpm build
-          rm -rf .git
-          cd ..
-
-          git clone --depth 1 -b aqbot-custom https://github.com/AQBot-Desktop/markstream-vue.git markstream-vue
-          cd markstream-vue && pnpm install --frozen-lockfile
-          pnpm run build:parser
-          cd packages/markstream-react && pnpm build && cd ../..
-          rm -rf .git playground*/node_modules
-          cd ..
+          pnpm --dir libs/markstream-vue install --frozen-lockfile
+          pnpm --dir libs/markstream-vue run build:parser
+          pnpm --dir libs/markstream-vue/packages/markstream-react build
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -370,4 +368,3 @@ jobs:
               workflow_id: 'deploy-website.yml',
               ref: 'main',
             });
-
