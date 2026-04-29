@@ -319,13 +319,29 @@ html[data-theme="dark"] .drawing-image-strip::-webkit-scrollbar-thumb:hover {
 }
 
 .drawing-image-action-button.ant-btn-variant-filled {
-  background: var(--ant-color-fill-secondary);
+  color: rgba(15, 23, 42, 0.78);
+  background: rgba(255, 255, 255, 0.68);
+  border-color: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(12px) saturate(1.35);
+  backdrop-filter: blur(12px) saturate(1.35);
 }
 
 .drawing-image-action-button.ant-btn-variant-filled:hover {
-  background: var(--ant-color-fill) !important;
-  border-color: var(--ant-color-primary-border) !important;
-  color: var(--ant-color-primary) !important;
+  color: rgba(15, 23, 42, 0.92) !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  border-color: rgba(255, 255, 255, 0.96) !important;
+}
+
+html[data-theme="dark"] .drawing-image-action-button.ant-btn-variant-filled {
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(15, 23, 42, 0.52);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .drawing-image-action-button.ant-btn-variant-filled:hover {
+  color: rgba(255, 255, 255, 0.98) !important;
+  background: rgba(30, 41, 59, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.26) !important;
 }
 
 .drawing-prompt-line {

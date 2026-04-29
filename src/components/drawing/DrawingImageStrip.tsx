@@ -151,7 +151,6 @@ function DrawingPreviewImage({
                 style={{
                   width: 28,
                   height: 28,
-                  color: token.colorText,
                   boxShadow: token.boxShadowSecondary,
                 }}
                 onClick={(event) => {
@@ -174,7 +173,6 @@ function DrawingPreviewImage({
                 style={{
                   width: 28,
                   height: 28,
-                  color: token.colorText,
                   boxShadow: token.boxShadowSecondary,
                 }}
                 onClick={(event) => {
@@ -197,7 +195,6 @@ function DrawingPreviewImage({
                 style={{
                   width: 28,
                   height: 28,
-                  color: token.colorText,
                   boxShadow: token.boxShadowSecondary,
                 }}
                 onClick={(event) => {
