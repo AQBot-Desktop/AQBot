@@ -92,6 +92,10 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     vec![TextChat, Vision, FunctionCalling],
                     Some(1047576),
                 ),
+                ("gpt-image-2", "gpt-image-2", vec![], None),
+                ("gpt-image-1.5", "gpt-image-1.5", vec![], None),
+                ("gpt-image-1", "gpt-image-1", vec![], None),
+                ("gpt-image-1-mini", "gpt-image-1-mini", vec![], None),
             ],
         },
         BuiltinProvider {

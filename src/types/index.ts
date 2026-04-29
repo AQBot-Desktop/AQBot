@@ -59,7 +59,7 @@ export interface UpdateProviderInput {
 
 // === Model System ===
 export type ModelCapability = 'TextChat' | 'Vision' | 'FunctionCalling' | 'Reasoning' | 'RealtimeVoice';
-export type ModelType = 'Chat' | 'Voice' | 'Embedding';
+export type ModelType = 'Chat' | 'Voice' | 'Embedding' | 'Image';
 
 export interface Model {
   provider_id: string;
@@ -480,7 +480,78 @@ export interface RealtimeConfig {
 }
 
 // === UI State ===
-export type PageKey = 'chat' | 'knowledge' | 'memory' | 'gateway' | 'files' | 'settings' | 'skills';
+export type PageKey = 'chat' | 'drawing' | 'knowledge' | 'memory' | 'gateway' | 'files' | 'settings' | 'skills';
+
+// === Drawing ===
+export type DrawingModelId = 'gpt-image-2' | 'gpt-image-1.5' | 'gpt-image-1' | 'gpt-image-1-mini';
+export type DrawingAction = 'generate' | 'reference_generate' | 'edit' | 'mask_edit';
+export type DrawingStatus = 'running' | 'succeeded' | 'failed';
+export type DrawingQuality = 'low' | 'medium' | 'high' | 'auto';
+export type DrawingOutputFormat = 'png' | 'jpeg' | 'webp';
+export type DrawingBackground = 'auto' | 'opaque' | 'transparent';
+
+export interface DrawingStoredFile {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_path: string;
+}
+
+export interface DrawingImage {
+  id: string;
+  generation_id: string;
+  stored_file_id: string;
+  storage_path: string;
+  mime_type: string;
+  width: number | null;
+  height: number | null;
+  revised_prompt: string | null;
+  created_at: number;
+}
+
+export interface DrawingGeneration {
+  id: string;
+  parent_generation_id: string | null;
+  provider_id: string;
+  key_id: string;
+  model_id: DrawingModelId | string;
+  api_kind: 'image_api';
+  action: DrawingAction;
+  prompt: string;
+  parameters_json: string;
+  reference_file_ids_json: string;
+  source_image_ids_json: string;
+  mask_file_id: string | null;
+  status: DrawingStatus;
+  error_message: string | null;
+  response_id: string | null;
+  usage_json: string | null;
+  created_at: number;
+  completed_at: number | null;
+  images: DrawingImage[];
+}
+
+export interface DrawingGenerateInput {
+  provider_id: string;
+  model_id: DrawingModelId;
+  prompt: string;
+  size: string;
+  quality: DrawingQuality;
+  output_format: DrawingOutputFormat;
+  background: DrawingBackground;
+  output_compression?: number;
+  n: number;
+  reference_file_ids: string[];
+}
+
+export interface DrawingEditInput extends DrawingGenerateInput {
+  source_image_id: string;
+}
+
+export interface DrawingMaskEditInput extends DrawingEditInput {
+  mask_file_id: string;
+}
 export type SettingsSection = 'providers' | 'defaultModel' | 'conversationSettings' | 'general' | 'display' | 'proxy' | 'shortcuts' | 'data' | 'storage' | 'about' | 'searchProviders' | 'mcpServers' | 'backup';
 
 // === Files Module ===

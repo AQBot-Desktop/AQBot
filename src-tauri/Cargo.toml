@@ -71,6 +71,7 @@ tempfile = "3"
 open = "5"
 urlencoding = "2"
 dirs = "5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", features = ["relax-sign-encoding"] }

@@ -9,7 +9,8 @@
     "gateway": "게이트웨이",
     "files": "파일",
     "settings": "설정",
-    "skills": "스킬"
+    "skills": "스킬",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "새 대화",
@@ -548,7 +549,8 @@
       "title": "모델 유형",
       "Chat": "채팅",
       "Voice": "음성",
-      "Embedding": "임베딩"
+      "Embedding": "임베딩",
+      "Image": "이미지"
     },
     "chooseIcon": "아이콘 선택",
     "searchIcon": "아이콘 검색...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "사이드바 전환",
     "toggleInspector": "인스펙터 전환",
     "searchConversations": "대화 검색",
-    "goToSkills": "스킬로 이동"
+    "goToSkills": "스킬로 이동",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "실행 설정",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "답변을 입력하세요...",
     "askUserSubmit": "제출"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

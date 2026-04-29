@@ -4,6 +4,8 @@ pub mod conversation_categories;
 pub mod conversation_summaries;
 pub mod conversations;
 pub mod desktop_state;
+pub mod drawing_generations;
+pub mod drawing_images;
 pub mod gateway_diagnostics;
 pub mod gateway_keys;
 pub mod gateway_request_logs;

@@ -9,7 +9,8 @@
     "gateway": "ゲートウェイ",
     "files": "ファイル",
     "settings": "設定",
-    "skills": "スキル"
+    "skills": "スキル",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "新しい会話",
@@ -548,7 +549,8 @@
       "title": "モデルタイプ",
       "Chat": "チャット",
       "Voice": "音声",
-      "Embedding": "埋め込み"
+      "Embedding": "埋め込み",
+      "Image": "画像"
     },
     "chooseIcon": "アイコンを選択",
     "searchIcon": "アイコンを検索...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "サイドバーを切り替え",
     "toggleInspector": "インスペクターを切り替え",
     "searchConversations": "会話を検索",
-    "goToSkills": "スキルへ移動"
+    "goToSkills": "スキルへ移動",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "起動設定",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "回答を入力...",
     "askUserSubmit": "送信"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

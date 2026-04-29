@@ -9,7 +9,8 @@
     "gateway": "Шлюз",
     "files": "Файлы",
     "settings": "Настройки",
-    "skills": "Навыки"
+    "skills": "Навыки",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "Новый чат",
@@ -548,7 +549,8 @@
       "title": "Тип модели",
       "Chat": "Чат",
       "Voice": "Голос",
-      "Embedding": "Эмбеддинг"
+      "Embedding": "Эмбеддинг",
+      "Image": "Изображение"
     },
     "chooseIcon": "Выбрать иконку",
     "searchIcon": "Поиск иконок...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "Переключить боковую панель",
     "toggleInspector": "Переключить инспектор",
     "searchConversations": "Поиск чатов",
-    "goToSkills": "Перейти к навыкам"
+    "goToSkills": "Перейти к навыкам",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "Конфигурация запуска",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "Введите ваш ответ...",
     "askUserSubmit": "Отправить"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

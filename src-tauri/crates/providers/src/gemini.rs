@@ -697,6 +697,7 @@ impl ProviderAdapter for GeminiAdapter {
                 let mut caps = match model_type {
                     ModelType::Chat => vec![ModelCapability::TextChat],
                     ModelType::Embedding => vec![],
+                    ModelType::Image => vec![],
                     ModelType::Voice => vec![ModelCapability::RealtimeVoice],
                 };
                 if model_id.contains("pro") || model_id.contains("flash") {

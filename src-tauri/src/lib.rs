@@ -88,6 +88,13 @@ pub fn run() {
             commands::providers::fetch_remote_models,
             commands::providers::test_model,
             commands::providers::reorder_providers,
+            // drawing
+            commands::drawing::list_drawing_generations,
+            commands::drawing::upload_drawing_reference,
+            commands::drawing::generate_drawing_images,
+            commands::drawing::edit_drawing_image,
+            commands::drawing::edit_drawing_image_with_mask,
+            commands::drawing::delete_drawing_generation,
             // conversations
             commands::conversations::list_conversations,
             commands::conversations::create_conversation,

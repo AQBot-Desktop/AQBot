@@ -9,7 +9,8 @@
     "gateway": "Pasarela",
     "files": "Archivos",
     "settings": "Configuración",
-    "skills": "Habilidades"
+    "skills": "Habilidades",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "Nueva conversación",
@@ -548,7 +549,8 @@
       "title": "Tipo de modelo",
       "Chat": "Chat",
       "Voice": "Voz",
-      "Embedding": "Incrustación"
+      "Embedding": "Incrustación",
+      "Image": "Imagen"
     },
     "chooseIcon": "Elegir icono",
     "searchIcon": "Buscar iconos...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "Alternar barra lateral",
     "toggleInspector": "Alternar inspector",
     "searchConversations": "Buscar conversaciones",
-    "goToSkills": "Ir a Habilidades"
+    "goToSkills": "Ir a Habilidades",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "Configuración de lanzamiento",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "Escriba su respuesta...",
     "askUserSubmit": "Enviar"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

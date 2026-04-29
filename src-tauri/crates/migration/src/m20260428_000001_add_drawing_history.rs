@@ -1,0 +1,217 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(DrawingGenerations::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(DrawingGenerations::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ParentGenerationId)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ProviderId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::KeyId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ModelId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ApiKind)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::Action)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DrawingGenerations::Prompt).text().not_null())
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ParametersJson)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ReferenceFileIdsJson)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::SourceImageIdsJson)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::MaskFileId)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::Status)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ErrorMessage)
+                            .text()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::ResponseId)
+                            .string()
+                            .null(),
+                    )
+                    .col(ColumnDef::new(DrawingGenerations::UsageJson).text().null())
+                    .col(
+                        ColumnDef::new(DrawingGenerations::CreatedAt)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingGenerations::CompletedAt)
+                            .big_integer()
+                            .null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(DrawingImages::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(DrawingImages::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingImages::GenerationId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingImages::StoredFileId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DrawingImages::StoragePath)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DrawingImages::MimeType).string().not_null())
+                    .col(ColumnDef::new(DrawingImages::Width).integer().null())
+                    .col(ColumnDef::new(DrawingImages::Height).integer().null())
+                    .col(ColumnDef::new(DrawingImages::RevisedPrompt).text().null())
+                    .col(
+                        ColumnDef::new(DrawingImages::CreatedAt)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(DrawingImages::Table, DrawingImages::GenerationId)
+                            .to(DrawingGenerations::Table, DrawingGenerations::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_drawing_generations_created_at")
+                    .table(DrawingGenerations::Table)
+                    .col(DrawingGenerations::CreatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_drawing_images_generation")
+                    .table(DrawingImages::Table)
+                    .col(DrawingImages::GenerationId)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(DrawingImages::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(DrawingGenerations::Table).to_owned())
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum DrawingGenerations {
+    Table,
+    Id,
+    ParentGenerationId,
+    ProviderId,
+    KeyId,
+    ModelId,
+    ApiKind,
+    Action,
+    Prompt,
+    ParametersJson,
+    ReferenceFileIdsJson,
+    SourceImageIdsJson,
+    MaskFileId,
+    Status,
+    ErrorMessage,
+    ResponseId,
+    UsageJson,
+    CreatedAt,
+    CompletedAt,
+}
+
+#[derive(DeriveIden)]
+enum DrawingImages {
+    Table,
+    Id,
+    GenerationId,
+    StoredFileId,
+    StoragePath,
+    MimeType,
+    Width,
+    Height,
+    RevisedPrompt,
+    CreatedAt,
+}

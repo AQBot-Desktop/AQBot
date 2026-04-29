@@ -48,6 +48,10 @@ const BUILT_IN_PROVIDERS = [
       { provider_id: 'builtin-openai', model_id: 'gpt-4o-mini', name: 'gpt-4o-mini', capabilities: ['TextGeneration', 'Vision', 'FunctionCalling'], max_tokens: 128000, enabled: true, param_overrides: null },
       { provider_id: 'builtin-openai', model_id: 'o3-mini', name: 'o3-mini', capabilities: ['TextGeneration', 'Reasoning'], max_tokens: 200000, enabled: false, param_overrides: null },
       { provider_id: 'builtin-openai', model_id: 'gpt-4.1', name: 'gpt-4.1', capabilities: ['TextGeneration', 'Vision', 'FunctionCalling'], max_tokens: 1047576, enabled: false, param_overrides: null },
+      { provider_id: 'builtin-openai', model_id: 'gpt-image-2', name: 'gpt-image-2', group_name: 'gpt-image', model_type: 'Image', capabilities: [], max_tokens: null, enabled: true, param_overrides: null },
+      { provider_id: 'builtin-openai', model_id: 'gpt-image-1.5', name: 'gpt-image-1.5', group_name: 'gpt-image', model_type: 'Image', capabilities: [], max_tokens: null, enabled: true, param_overrides: null },
+      { provider_id: 'builtin-openai', model_id: 'gpt-image-1', name: 'gpt-image-1', group_name: 'gpt-image', model_type: 'Image', capabilities: [], max_tokens: null, enabled: true, param_overrides: null },
+      { provider_id: 'builtin-openai', model_id: 'gpt-image-1-mini', name: 'gpt-image-1-mini', group_name: 'gpt-image', model_type: 'Image', capabilities: [], max_tokens: null, enabled: true, param_overrides: null },
     ],
     keys: [],
     proxy_config: null,
@@ -192,6 +196,13 @@ function initProviders(): any[] {
     if (stored && (!stored.models || stored.models.length === 0)) {
       stored.models = [...builtin.models];
       dirty = true;
+    } else if (stored) {
+      const storedModelIds = new Set((stored.models || []).map((model: any) => model.model_id));
+      const missingModels = builtin.models.filter((model: any) => !storedModelIds.has(model.model_id));
+      if (missingModels.length > 0) {
+        stored.models = [...(stored.models || []), ...missingModels];
+        dirty = true;
+      }
     }
   }
   if (dirty) setStore('providers', existing);
@@ -230,6 +241,14 @@ const DEFAULT_SETTINGS = {
   content_safety_enabled: true,
   last_selected_conversation_id: null,
 };
+
+function svgDataUrl(label: string, color = '#f97316'): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="576" viewBox="0 0 1024 576"><rect width="1024" height="576" fill="${color}"/><circle cx="768" cy="160" r="96" fill="#111827" opacity=".18"/><rect x="96" y="120" width="520" height="320" rx="36" fill="#fff" opacity=".78"/><text x="128" y="300" font-family="Arial" font-size="42" fill="#111827">${label}</text></svg>`;
+  const encoded = typeof btoa === 'function'
+    ? btoa(unescape(encodeURIComponent(svg)))
+    : Buffer.from(svg).toString('base64');
+  return `data:image/svg+xml;base64,${encoded}`;
+}
 
 // ── Command Handler ─────────────────────────────────────────────────────
 
@@ -1058,6 +1077,76 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'update_backup_settings':
       return undefined as T;
 
+    // ── Drawing ───────────────────────────────────────────────────────
+    case 'list_drawing_generations':
+      return getStore('drawing_generations', []) as T;
+    case 'upload_drawing_reference': {
+      const input = (args as any)?.input;
+      const file = {
+        id: genId(),
+        original_name: input.file_name,
+        mime_type: input.mime_type,
+        size_bytes: Math.round((input.data || '').length * 0.75),
+        storage_path: `images/mock_${Date.now()}_${input.file_name}`,
+        data: input.data,
+      };
+      const files = getStore<any[]>('drawing_files', []);
+      files.push(file);
+      setStore('drawing_files', files);
+      return file as T;
+    }
+    case 'generate_drawing_images':
+    case 'edit_drawing_image':
+    case 'edit_drawing_image_with_mask': {
+      const input = (args as any)?.input || {};
+      const generations = getStore<any[]>('drawing_generations', []);
+      const generationId = genId();
+      const count = Math.max(1, Math.min(Number(input.n || 1), 10));
+      const action = cmd === 'generate_drawing_images'
+        ? ((input.reference_file_ids || []).length > 0 ? 'reference_generate' : 'generate')
+        : (cmd === 'edit_drawing_image_with_mask' ? 'mask_edit' : 'edit');
+      const images = Array.from({ length: count }).map((_, index) => ({
+        id: genId(),
+        generation_id: generationId,
+        stored_file_id: genId(),
+        storage_path: `images/mock_drawing_${generationId}_${index + 1}.svg`,
+        mime_type: 'image/svg+xml',
+        width: 1024,
+        height: 576,
+        revised_prompt: null,
+        created_at: nowTs() + index,
+      }));
+      const generation = {
+        id: generationId,
+        parent_generation_id: null,
+        provider_id: input.provider_id,
+        key_id: 'mock-key',
+        model_id: input.model_id,
+        api_kind: 'image_api',
+        action,
+        prompt: input.prompt,
+        parameters_json: JSON.stringify(input),
+        reference_file_ids_json: JSON.stringify(input.reference_file_ids || []),
+        source_image_ids_json: JSON.stringify(input.source_image_id ? [input.source_image_id] : []),
+        mask_file_id: input.mask_file_id || null,
+        status: 'succeeded',
+        error_message: null,
+        response_id: null,
+        usage_json: null,
+        created_at: nowTs(),
+        completed_at: nowTs(),
+        images,
+      };
+      setStore('drawing_generations', [generation, ...generations]);
+      return generation as T;
+    }
+    case 'delete_drawing_generation': {
+      const id = (args as any)?.id;
+      const generations = getStore<any[]>('drawing_generations', []);
+      setStore('drawing_generations', generations.filter((item: any) => item.id !== id));
+      return undefined as T;
+    }
+
     // ── Files Page ─────────────────────────────────────────────────────
     case 'list_files_page_entries': {
       const category = (args as any)?.category;
@@ -1078,6 +1167,19 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     }
     case 'open_files_page_entry':
     case 'reveal_files_page_entry':
+      return undefined as T;
+    case 'read_attachment_preview': {
+      const filePath = (args as any)?.filePath || '';
+      const file = getStore<any[]>('drawing_files', []).find((item: any) => item.storage_path === filePath);
+      if (file?.data) return `data:${file.mime_type};base64,${file.data}` as T;
+      return svgDataUrl(filePath.split('/').pop() || 'AQBot') as T;
+    }
+    case 'check_attachment_exists':
+      return true as T;
+    case 'resolve_attachment_path':
+      return ((args as any)?.filePath || '') as T;
+    case 'reveal_attachment_file':
+    case 'open_attachment_file':
       return undefined as T;
     case 'cleanup_missing_files_page_entry': {
       const entryId = (args as any)?.entryId as string | undefined;

@@ -1,5 +1,6 @@
 import type { PageKey } from '@/types';
 import { ChatPage } from '@/pages/ChatPage';
+import { DrawingPage } from '@/pages/DrawingPage';
 import { KnowledgePage } from '@/pages/KnowledgePage';
 import { MemoryPage } from '@/pages/MemoryPage';
 import { GatewayPage } from '@/pages/GatewayPage';
@@ -15,6 +16,8 @@ export function ContentArea({ activePage }: ContentAreaProps) {
   switch (activePage) {
     case 'chat':
       return <ChatPage />;
+    case 'drawing':
+      return <DrawingPage />;
     case 'knowledge':
       return <KnowledgePage />;
     case 'memory':

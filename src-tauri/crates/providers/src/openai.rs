@@ -946,6 +946,7 @@ impl ProviderAdapter for OpenAIAdapter {
                     let mut caps = match model_type {
                         ModelType::Chat => vec![ModelCapability::TextChat],
                         ModelType::Embedding => vec![],
+                        ModelType::Image => vec![],
                         ModelType::Voice => vec![ModelCapability::RealtimeVoice],
                     };
                     let id_lower = m.id.to_lowercase();

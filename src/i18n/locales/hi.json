@@ -9,7 +9,8 @@
     "gateway": "गेटवे",
     "files": "फ़ाइलें",
     "settings": "सेटिंग्स",
-    "skills": "कौशल"
+    "skills": "कौशल",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "नई बातचीत",
@@ -548,7 +549,8 @@
       "title": "मॉडल प्रकार",
       "Chat": "चैट",
       "Voice": "वॉयस",
-      "Embedding": "एम्बेडिंग"
+      "Embedding": "एम्बेडिंग",
+      "Image": "चित्र"
     },
     "chooseIcon": "आइकन चुनें",
     "searchIcon": "आइकन खोजें...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "साइडबार टॉगल करें",
     "toggleInspector": "निरीक्षक टॉगल करें",
     "searchConversations": "बातचीत खोजें",
-    "goToSkills": "कौशल पर जाएं"
+    "goToSkills": "कौशल पर जाएं",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "लॉन्च कॉन्फ़िगरेशन",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "अपना उत्तर टाइप करें...",
     "askUserSubmit": "जमा करें"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

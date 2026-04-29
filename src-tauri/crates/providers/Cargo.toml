@@ -8,8 +8,9 @@ aqbot-core = { path = "../core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-reqwest = { version = "0.12", features = ["json", "stream", "socks", "rustls-tls"] }
+reqwest = { version = "0.12", features = ["json", "stream", "socks", "rustls-tls", "multipart"] }
 futures = "0.3"
 async-trait = "0.1"
 tracing = { workspace = true }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+base64 = "0.22"

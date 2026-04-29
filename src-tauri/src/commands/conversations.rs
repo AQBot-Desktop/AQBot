@@ -3222,6 +3222,8 @@ mod tests {
                 token_count: None,
                 prompt_tokens: None,
                 completion_tokens: None,
+                tokens_per_second: None,
+                first_token_latency_ms: None,
                 attachments: vec![Attachment {
                     id: "att-1".into(),
                     file_type: "image/png".into(),
@@ -3276,6 +3278,8 @@ mod tests {
                 token_count: None,
                 prompt_tokens: None,
                 completion_tokens: None,
+                tokens_per_second: None,
+                first_token_latency_ms: None,
                 attachments: vec![Attachment {
                     id: String::new(),
                     file_type: "image/png".into(),

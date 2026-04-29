@@ -9,7 +9,8 @@
     "gateway": "البوابة",
     "files": "الملفات",
     "settings": "الإعدادات",
-    "skills": "المهارات"
+    "skills": "المهارات",
+    "drawing": "Drawing"
   },
   "chat": {
     "newConversation": "محادثة جديدة",
@@ -548,7 +549,8 @@
       "title": "نوع النموذج",
       "Chat": "محادثة",
       "Voice": "صوت",
-      "Embedding": "تضمين"
+      "Embedding": "تضمين",
+      "Image": "صورة"
     },
     "chooseIcon": "اختيار أيقونة",
     "searchIcon": "البحث عن أيقونات...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "تبديل الشريط الجانبي",
     "toggleInspector": "تبديل المفتش",
     "searchConversations": "البحث في المحادثات",
-    "goToSkills": "الانتقال إلى المهارات"
+    "goToSkills": "الانتقال إلى المهارات",
+    "goToDrawing": "Go to Drawing"
   },
   "appLaunch": {
     "title": "إعداد التشغيل",
@@ -1211,5 +1214,56 @@
   "agent": {
     "askUserPlaceholder": "اكتب إجابتك...",
     "askUserSubmit": "إرسال"
+  },
+  "drawing": {
+    "title": "Drawing",
+    "settings": "Drawing Settings",
+    "provider": "Provider",
+    "selectProvider": "Select provider",
+    "model": "Model",
+    "size": "Size",
+    "quality": "Quality",
+    "outputFormat": "Output Format",
+    "background": "Background",
+    "batchCount": "Batch Count",
+    "compression": "Compression",
+    "references": "Reference Images",
+    "referenceUpload": "Upload references",
+    "history": "History",
+    "empty": "No drawing history",
+    "promptPlaceholder": "Describe the image you want to create",
+    "promptRequired": "Enter a prompt",
+    "addReference": "Reference",
+    "editMode": "Edit mode",
+    "reEdit": "Edit again",
+    "regenerate": "Generate again",
+    "download": "Download",
+    "edit": "Edit again",
+    "maskEdit": "Area edit",
+    "submitMaskEdit": "Submit area edit",
+    "eraser": "Eraser",
+    "undo": "Undo",
+    "reset": "Reset",
+    "brushSize": "Brush size",
+    "generating": "Generating",
+    "failed": "Failed",
+    "deleteRecord": "Delete record",
+    "option": {
+      "auto": "Auto",
+      "quality": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "Opaque",
+        "transparent": "Transparent"
+      }
+    }
   }
 }

@@ -27,6 +27,7 @@ mod m20250718_000001_add_sdk_context_backup;
 mod m20250719_000001_add_skill_states;
 mod m20250720_000001_add_provider_builtin_id;
 mod m20260417_000001_add_category_default_templates;
+mod m20260428_000001_add_drawing_history;
 
 pub struct Migrator;
 
@@ -61,6 +62,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250719_000001_add_skill_states::Migration),
             Box::new(m20250720_000001_add_provider_builtin_id::Migration),
             Box::new(m20260417_000001_add_category_default_templates::Migration),
+            Box::new(m20260428_000001_add_drawing_history::Migration),
         ]
     }
 }
@@ -101,6 +103,26 @@ mod tests {
                     .await
                     .expect("check migrated column"),
                 "missing column {column}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_drawing_history_tables_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let manager = SchemaManager::new(&db);
+        for table in ["drawing_generations", "drawing_images"] {
+            assert!(
+                manager
+                    .has_table(table)
+                    .await
+                    .expect("check drawing table"),
+                "missing table {table}"
             );
         }
     }

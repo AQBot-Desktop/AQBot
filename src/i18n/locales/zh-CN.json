@@ -9,7 +9,8 @@
     "gateway": "网关",
     "files": "文件",
     "settings": "设置",
-    "skills": "技能"
+    "skills": "技能",
+    "drawing": "绘画"
   },
   "chat": {
     "newConversation": "新建对话",
@@ -548,7 +549,8 @@
       "title": "模型类型",
       "Chat": "对话",
       "Voice": "语音",
-      "Embedding": "向量"
+      "Embedding": "向量",
+      "Image": "绘图"
     },
     "chooseIcon": "选择图标",
     "searchIcon": "搜索图标...",
@@ -1100,7 +1102,8 @@
     "toggleSidebar": "切换侧边栏",
     "toggleInspector": "切换检查器",
     "searchConversations": "搜索对话",
-    "goToSkills": "前往技能"
+    "goToSkills": "前往技能",
+    "goToDrawing": "前往绘画"
   },
   "appLaunch": {
     "title": "启动配置",
@@ -1213,5 +1216,56 @@
     "askUserSupplementPlaceholder": "补充说明（可选）...",
     "askUserSubmit": "提交",
     "askUserSubmitted": "已提交"
+  },
+  "drawing": {
+    "title": "绘画",
+    "settings": "绘画设置",
+    "provider": "服务商",
+    "selectProvider": "选择服务商",
+    "model": "模型",
+    "size": "尺寸",
+    "quality": "质量",
+    "outputFormat": "输出格式",
+    "background": "背景",
+    "batchCount": "批量张数",
+    "compression": "压缩",
+    "references": "参考图",
+    "referenceUpload": "上传参考图",
+    "history": "历史记录",
+    "empty": "暂无绘画记录",
+    "promptPlaceholder": "输入你想生成的画面",
+    "promptRequired": "请输入提示词",
+    "addReference": "参考图",
+    "editMode": "编辑模式",
+    "reEdit": "重新编辑",
+    "regenerate": "再次生成",
+    "download": "下载",
+    "edit": "重新编辑",
+    "maskEdit": "区域编辑",
+    "submitMaskEdit": "提交区域编辑",
+    "eraser": "橡皮",
+    "undo": "撤销",
+    "reset": "重置",
+    "brushSize": "画笔大小",
+    "generating": "生成中",
+    "failed": "失败",
+    "deleteRecord": "删除记录",
+    "option": {
+      "auto": "自动",
+      "quality": {
+        "low": "低",
+        "medium": "中",
+        "high": "高"
+      },
+      "outputFormat": {
+        "png": "PNG",
+        "jpeg": "JPEG",
+        "webp": "WEBP"
+      },
+      "background": {
+        "opaque": "不透明",
+        "transparent": "透明"
+      }
+    }
   }
 }

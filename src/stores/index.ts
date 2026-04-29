@@ -13,3 +13,4 @@ export { useMemoryStore } from './memoryStore';
 export { useBackupStore } from './backupStore';
 export { useAgentStore } from './agentStore';
 export { useSkillStore } from './skillStore';
+export { useDrawingStore } from './drawingStore';

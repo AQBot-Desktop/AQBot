@@ -23,7 +23,7 @@ import {
   App,
   theme,
 } from 'antd';
-import { Maximize2, Mic, Lightbulb, Database, Trash2, Eye, EyeOff, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp, ChevronRight, ChevronDown, Expand, Shrink, SquarePen, ListChecks, X, Power, PowerOff, Pencil } from 'lucide-react';
+import { Maximize2, Mic, Lightbulb, Database, Trash2, Eye, EyeOff, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp, ChevronRight, ChevronDown, Expand, Shrink, SquarePen, ListChecks, X, Power, PowerOff, Pencil, ImagePlus } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -68,12 +68,14 @@ const MODEL_TYPE_LABEL_KEYS: Record<ModelType, string> = {
   Chat: 'settings.modelType.Chat',
   Voice: 'settings.modelType.Voice',
   Embedding: 'settings.modelType.Embedding',
+  Image: 'settings.modelType.Image',
 };
 
 const MODEL_TYPE_CONFIG: Record<ModelType, { color: string; icon: React.ReactNode }> = {
   Chat: { color: 'blue', icon: <MessageSquare size={12} /> },
   Voice: { color: 'red', icon: <Mic size={12} /> },
   Embedding: { color: 'cyan', icon: <Database size={12} /> },
+  Image: { color: 'green', icon: <ImagePlus size={12} /> },
 };
 
 const MODEL_SYNC_STATUS_CONFIG: Record<ModelSyncStatus, { color: string; labelKey: string }> = {
@@ -141,6 +143,7 @@ function getDefaultCapabilitiesForType(modelType: ModelType): ModelCapability[] 
     case 'Voice':
       return ['RealtimeVoice'];
     case 'Embedding':
+    case 'Image':
       return [];
     case 'Chat':
     default:

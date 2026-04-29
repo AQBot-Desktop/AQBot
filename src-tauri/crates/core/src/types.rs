@@ -136,6 +136,7 @@ pub enum ModelType {
     Chat,
     Voice,
     Embedding,
+    Image,
 }
 
 impl Default for ModelType {
@@ -150,6 +151,8 @@ impl ModelType {
         let id = model_id.to_lowercase();
         if id.contains("embed") {
             ModelType::Embedding
+        } else if id.contains("gpt-image") || id.contains("dall-e") || id.contains("image") {
+            ModelType::Image
         } else if id.contains("realtime")
             || id.contains("tts")
             || id.contains("whisper")
@@ -168,6 +171,7 @@ impl std::fmt::Display for ModelType {
             ModelType::Chat => write!(f, "chat"),
             ModelType::Voice => write!(f, "voice"),
             ModelType::Embedding => write!(f, "embedding"),
+            ModelType::Image => write!(f, "image"),
         }
     }
 }
@@ -179,6 +183,7 @@ impl std::str::FromStr for ModelType {
             "chat" => Ok(ModelType::Chat),
             "voice" => Ok(ModelType::Voice),
             "embedding" => Ok(ModelType::Embedding),
+            "image" => Ok(ModelType::Image),
             _ => Ok(ModelType::Chat),
         }
     }
