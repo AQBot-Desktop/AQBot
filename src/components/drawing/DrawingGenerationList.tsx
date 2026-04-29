@@ -7,9 +7,10 @@ import { DrawingGenerationItem } from './DrawingGenerationItem';
 interface Props {
   onEdit: (image: DrawingImage) => void;
   onMaskEdit: (image: DrawingImage) => void;
+  onUsePrompt: (prompt: string) => void;
 }
 
-export function DrawingGenerationList({ onEdit, onMaskEdit }: Props) {
+export function DrawingGenerationList({ onEdit, onMaskEdit, onUsePrompt }: Props) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const generations = useDrawingStore((s) => s.generations);
@@ -46,7 +47,8 @@ export function DrawingGenerationList({ onEdit, onMaskEdit }: Props) {
           onEdit={onEdit}
           onMaskEdit={onMaskEdit}
           onRetry={(item) => retryGeneration(item).catch(() => {})}
-          onDelete={(id) => deleteGeneration(id).catch(() => {})}
+          onDelete={(id, deleteResources) => deleteGeneration(id, deleteResources).catch(() => {})}
+          onUsePrompt={onUsePrompt}
         />
       ))}
     </div>

@@ -1,5 +1,5 @@
-import { Alert, App, theme, Typography } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { Alert, App, theme } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDrawingStore, useProviderStore } from '@/stores';
 import type { DrawingImage } from '@/types';
@@ -12,21 +12,25 @@ import { getDrawingModelOptions, getDrawingProvidersForModel } from '@/lib/drawi
 export function DrawingPage() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const providers = useProviderStore((s) => s.providers);
   const fetchProviders = useProviderStore((s) => s.fetchProviders);
   const loadHistory = useDrawingStore((s) => s.loadHistory);
   const error = useDrawingStore((s) => s.error);
+  const generations = useDrawingStore((s) => s.generations);
   const selectImageForEdit = useDrawingStore((s) => s.selectImageForEdit);
+  const historyScrollRef = useRef<HTMLDivElement>(null);
   const [prompt, setPrompt] = useState('');
   const [maskImage, setMaskImage] = useState<DrawingImage | null>(null);
+  const [composerHeight, setComposerHeight] = useState(176);
+  const latestGenerationId = generations[generations.length - 1]?.id;
 
   const drawingModelOptions = useMemo(() => getDrawingModelOptions(), []);
 
   const [settings, setSettings] = useState<DrawingSettings>({
     providerId: '',
     modelId: 'gpt-image-2',
-    size: '1024x1024',
+    size: 'auto',
     quality: 'auto',
     outputFormat: 'png',
     background: 'auto',
@@ -41,6 +45,17 @@ export function DrawingPage() {
   useEffect(() => {
     loadHistory().catch((e) => message.error(String(e)));
   }, [loadHistory, message]);
+
+  useEffect(() => {
+    if (!latestGenerationId) return undefined;
+    const frameId = requestAnimationFrame(() => {
+      const scroller = historyScrollRef.current;
+      if (!scroller) return;
+      scroller.scrollTop = scroller.scrollHeight;
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [latestGenerationId]);
 
   useEffect(() => {
     setSettings((current) => {
@@ -66,47 +81,58 @@ export function DrawingPage() {
 
   const handleMaskEdit = (image: DrawingImage) => {
     setMaskImage(image);
-    selectImageForEdit(image);
   };
+
+  const handleUsePrompt = useCallback((nextPrompt: string) => {
+    if (!prompt.trim() || prompt === nextPrompt) {
+      setPrompt(nextPrompt);
+      return;
+    }
+
+    modal.confirm({
+      title: t('drawing.replacePromptTitle', '替换当前提示词？'),
+      content: t('drawing.replacePromptContent', '输入框已有内容，是否使用这条历史提示词替换当前内容？'),
+      okText: t('common.confirm', '确认'),
+      cancelText: t('common.cancel', '取消'),
+      onOk: () => setPrompt(nextPrompt),
+    });
+  }, [modal, prompt, t]);
 
   return (
     <div className="flex h-full" style={{ background: token.colorBgLayout }}>
       <DrawingSettingsPanel settings={settings} providers={providers} onChange={setSettings} />
-      <main className="relative min-w-0 flex-1 overflow-hidden">
+      <main className="relative min-w-0 flex-1 overflow-hidden" style={{ background: token.colorBgContainer }}>
         <div
-          className="flex items-center justify-between"
-          style={{
-            height: 56,
-            padding: '0 24px',
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            background: token.colorBgContainer,
-          }}
+          ref={historyScrollRef}
+          className="h-full overflow-y-auto"
+          data-testid="drawing-history-scroll"
+          style={{ paddingBottom: composerHeight + 16 }}
         >
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {t('drawing.title', '绘画')}
-          </Typography.Title>
-          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-            {t('drawing.history', '历史记录')}
-          </Typography.Text>
-        </div>
-        {error && (
-          <div style={{ padding: '12px 24px 0' }}>
-            <Alert type="error" showIcon message={error} />
-          </div>
-        )}
-        <div className="h-[calc(100%-56px)] overflow-y-auto pb-44">
+          {error && (
+            <div style={{ padding: '12px 24px 0' }}>
+              <Alert type="error" showIcon message={error} />
+            </div>
+          )}
           <DrawingGenerationList
             onEdit={(image) => selectImageForEdit(image)}
             onMaskEdit={handleMaskEdit}
+            onUsePrompt={handleUsePrompt}
           />
         </div>
-        <DrawingComposer settings={settings} prompt={prompt} onPromptChange={setPrompt} />
+        <DrawingComposer
+          settings={settings}
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          onHeightChange={setComposerHeight}
+        />
       </main>
       <DrawingMaskEditor
         open={!!maskImage}
         image={maskImage}
-        prompt={prompt}
-        settings={settings}
+        onApply={(image, maskFile, previewUrl) => {
+          selectImageForEdit(image, maskFile, previewUrl);
+          setMaskImage(null);
+        }}
         onClose={() => setMaskImage(null)}
       />
     </div>

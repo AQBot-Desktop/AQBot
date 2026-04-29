@@ -3,6 +3,7 @@ use aqbot_core::file_store::FileStore;
 use aqbot_core::repo::drawing::{
     DrawingGeneration, DrawingImage, NewDrawingGeneration, NewDrawingImage,
 };
+use aqbot_core::repo::stored_file::StoredFile;
 use aqbot_core::types::{ProviderConfig, ProviderProxyConfig, ProviderType};
 use aqbot_providers::openai_images::{
     ImageEditRequest, ImageGenerateRequest, ImageUpload, OpenAIImagesClient,
@@ -87,6 +88,16 @@ pub struct DrawingStoredFile {
     pub storage_path: String,
 }
 
+fn drawing_stored_file_from_repo(file: StoredFile) -> DrawingStoredFile {
+    DrawingStoredFile {
+        id: file.id,
+        original_name: file.original_name,
+        mime_type: file.mime_type,
+        size_bytes: file.size_bytes,
+        storage_path: file.storage_path,
+    }
+}
+
 #[tauri::command]
 pub async fn list_drawing_generations(
     state: State<'_, AppState>,
@@ -111,31 +122,7 @@ pub async fn upload_drawing_reference(
 
     aqbot_core::storage_paths::ensure_documents_dirs()
         .map_err(|e| format!("Failed to ensure documents dirs: {}", e))?;
-    let file_store = FileStore::new();
-    let saved = file_store
-        .save_file(&bytes, &input.file_name, &input.mime_type)
-        .map_err(|e| e.to_string())?;
-    let id = aqbot_core::utils::gen_id();
-    let stored = aqbot_core::repo::stored_file::create_stored_file(
-        &state.sea_db,
-        &id,
-        &saved.hash,
-        &input.file_name,
-        &input.mime_type,
-        saved.size_bytes,
-        &saved.storage_path,
-        None,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(DrawingStoredFile {
-        id: stored.id,
-        original_name: stored.original_name,
-        mime_type: stored.mime_type,
-        size_bytes: stored.size_bytes,
-        storage_path: stored.storage_path,
-    })
+    save_drawing_reference_file(&state, &bytes, &input.file_name, &input.mime_type).await
 }
 
 #[tauri::command]
@@ -341,7 +328,23 @@ pub async fn edit_drawing_image_with_mask(
 pub async fn delete_drawing_generation(
     state: State<'_, AppState>,
     id: String,
+    delete_resources: Option<bool>,
 ) -> Result<(), String> {
+    if delete_resources.unwrap_or(false) {
+        let generation = aqbot_core::repo::drawing::get_generation(&state.sea_db, &id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let file_store = FileStore::new();
+        for image in generation.images {
+            super::file_cleanup::delete_attachment_reference(
+                &state.sea_db,
+                &file_store,
+                &image.stored_file_id,
+            )
+            .await?;
+        }
+    }
+
     aqbot_core::repo::drawing::delete_generation(&state.sea_db, &id)
         .await
         .map_err(|e| e.to_string())
@@ -496,6 +499,70 @@ async fn persist_api_result(
             Err(sanitized)
         }
     }
+}
+
+async fn save_drawing_reference_file(
+    state: &AppState,
+    bytes: &[u8],
+    file_name: &str,
+    mime_type: &str,
+) -> Result<DrawingStoredFile, String> {
+    let file_store = FileStore::new();
+    let saved = file_store
+        .save_file(bytes, file_name, mime_type)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(existing) = aqbot_core::repo::stored_file::find_by_hash(&state.sea_db, &saved.hash)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        if existing.storage_path != saved.storage_path {
+            let references = aqbot_core::repo::stored_file::count_stored_files_with_storage_path(
+                &state.sea_db,
+                &saved.storage_path,
+            )
+            .await
+            .unwrap_or(0);
+            if references == 0 {
+                let _ = file_store.delete_file(&saved.storage_path);
+            }
+        }
+
+        if existing.conversation_id.is_none() {
+            return Ok(drawing_stored_file_from_repo(existing));
+        }
+
+        let id = aqbot_core::utils::gen_id();
+        let stored = aqbot_core::repo::stored_file::create_stored_file(
+            &state.sea_db,
+            &id,
+            &saved.hash,
+            file_name,
+            mime_type,
+            saved.size_bytes,
+            &existing.storage_path,
+            None,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        return Ok(drawing_stored_file_from_repo(stored));
+    }
+
+    let id = aqbot_core::utils::gen_id();
+    let stored = aqbot_core::repo::stored_file::create_stored_file(
+        &state.sea_db,
+        &id,
+        &saved.hash,
+        file_name,
+        mime_type,
+        saved.size_bytes,
+        &saved.storage_path,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(drawing_stored_file_from_repo(stored))
 }
 
 async fn load_reference_uploads(

@@ -1082,15 +1082,17 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       return getStore('drawing_generations', []) as T;
     case 'upload_drawing_reference': {
       const input = (args as any)?.input;
+      const files = getStore<any[]>('drawing_files', []);
+      const existing = files.find((item: any) => item.data === input.data && item.mime_type === input.mime_type);
+      if (existing) return existing as T;
       const file = {
         id: genId(),
         original_name: input.file_name,
         mime_type: input.mime_type,
         size_bytes: Math.round((input.data || '').length * 0.75),
-        storage_path: `images/mock_${Date.now()}_${input.file_name}`,
+        storage_path: `images/ref_${Date.now()}_${input.file_name}`,
         data: input.data,
       };
-      const files = getStore<any[]>('drawing_files', []);
       files.push(file);
       setStore('drawing_files', files);
       return file as T;
@@ -1100,6 +1102,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'edit_drawing_image_with_mask': {
       const input = (args as any)?.input || {};
       const generations = getStore<any[]>('drawing_generations', []);
+      const files = getStore<any[]>('drawing_files', []);
       const generationId = genId();
       const count = Math.max(1, Math.min(Number(input.n || 1), 10));
       const action = cmd === 'generate_drawing_images'
@@ -1136,14 +1139,33 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         created_at: nowTs(),
         completed_at: nowTs(),
         images,
+        reference_files: (input.reference_file_ids || [])
+          .map((id: string) => files.find((file: any) => file.id === id))
+          .filter(Boolean),
+        source_images: input.source_image_id
+          ? generations.flatMap((item: any) => item.images || []).filter((image: any) => image.id === input.source_image_id)
+          : [],
+        mask_file: input.mask_file_id
+          ? files.find((file: any) => file.id === input.mask_file_id) || null
+          : null,
       };
       setStore('drawing_generations', [generation, ...generations]);
       return generation as T;
     }
     case 'delete_drawing_generation': {
       const id = (args as any)?.id;
+      const deleteResources = Boolean((args as any)?.deleteResources ?? (args as any)?.delete_resources);
       const generations = getStore<any[]>('drawing_generations', []);
+      const generation = generations.find((item: any) => item.id === id);
       setStore('drawing_generations', generations.filter((item: any) => item.id !== id));
+      if (deleteResources && generation?.images?.length) {
+        const generatedFileIds = new Set(generation.images.map((image: any) => image.stored_file_id));
+        const generatedPaths = new Set(generation.images.map((image: any) => image.storage_path));
+        const files = getStore<any[]>('drawing_files', []);
+        setStore('drawing_files', files.filter((file: any) =>
+          !generatedFileIds.has(file.id) && !generatedPaths.has(file.storage_path),
+        ));
+      }
       return undefined as T;
     }
 

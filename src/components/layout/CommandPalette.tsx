@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { Modal, Input, List, Tag, Typography, theme } from 'antd';
-import { Search, MessageSquare, Settings, Network, Plus, PanelLeftClose, Sparkles, Palette } from 'lucide-react';
+import { Search, MessageSquare, Settings, Network, Plus, PanelLeftClose, Sparkles, ImagePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/stores';
 import { formatShortcutForDisplay } from '@/lib/shortcuts';
@@ -56,7 +56,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       {
         id: 'go-drawing',
         label: t('commandPalette.goToDrawing'),
-        icon: <Palette size={16} />,
+        icon: <ImagePlus size={16} />,
         category: nav,
         action: () => { setActivePage('drawing'); onClose(); },
       },

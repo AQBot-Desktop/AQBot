@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entity::{drawing_generations, drawing_images};
 use crate::error::{AQBotError, Result};
+use crate::repo::stored_file::StoredFile;
 use crate::utils::{gen_id, now_ts};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +40,11 @@ pub struct DrawingGeneration {
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub images: Vec<DrawingImage>,
+    #[serde(default)]
+    pub reference_files: Vec<StoredFile>,
+    #[serde(default)]
+    pub source_images: Vec<DrawingImage>,
+    pub mask_file: Option<StoredFile>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +89,9 @@ fn image_from_entity(model: drawing_images::Model) -> DrawingImage {
 fn generation_from_entity(
     model: drawing_generations::Model,
     images: Vec<DrawingImage>,
+    reference_files: Vec<StoredFile>,
+    source_images: Vec<DrawingImage>,
+    mask_file: Option<StoredFile>,
 ) -> DrawingGeneration {
     DrawingGeneration {
         id: model.id,
@@ -104,7 +113,70 @@ fn generation_from_entity(
         created_at: model.created_at,
         completed_at: model.completed_at,
         images,
+        reference_files,
+        source_images,
+        mask_file,
     }
+}
+
+fn parse_id_list(raw: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(raw).unwrap_or_default()
+}
+
+async fn list_reference_files(
+    db: &DatabaseConnection,
+    ids_json: &str,
+) -> Result<Vec<StoredFile>> {
+    let mut files = Vec::new();
+    for id in parse_id_list(ids_json) {
+        if let Ok(file) = crate::repo::stored_file::get_stored_file(db, &id).await {
+            files.push(file);
+        }
+    }
+    Ok(files)
+}
+
+async fn list_source_images(
+    db: &DatabaseConnection,
+    ids_json: &str,
+) -> Result<Vec<DrawingImage>> {
+    let mut images = Vec::new();
+    for id in parse_id_list(ids_json) {
+        if let Ok(image) = get_image(db, &id).await {
+            images.push(image);
+        }
+    }
+    Ok(images)
+}
+
+async fn get_mask_file(
+    db: &DatabaseConnection,
+    mask_file_id: Option<&str>,
+) -> Result<Option<StoredFile>> {
+    let Some(mask_file_id) = mask_file_id else {
+        return Ok(None);
+    };
+    Ok(crate::repo::stored_file::get_stored_file(db, mask_file_id)
+        .await
+        .ok())
+}
+
+async fn hydrate_generation(
+    db: &DatabaseConnection,
+    row: drawing_generations::Model,
+) -> Result<DrawingGeneration> {
+    let id = row.id.clone();
+    let images = list_images_for_generation(db, &id).await?;
+    let reference_files = list_reference_files(db, &row.reference_file_ids_json).await?;
+    let source_images = list_source_images(db, &row.source_image_ids_json).await?;
+    let mask_file = get_mask_file(db, row.mask_file_id.as_deref()).await?;
+    Ok(generation_from_entity(
+        row,
+        images,
+        reference_files,
+        source_images,
+        mask_file,
+    ))
 }
 
 pub async fn create_generation(
@@ -211,8 +283,7 @@ pub async fn get_generation(db: &DatabaseConnection, id: &str) -> Result<Drawing
         .one(db)
         .await?
         .ok_or_else(|| AQBotError::NotFound(format!("DrawingGeneration {}", id)))?;
-    let images = list_images_for_generation(db, id).await?;
-    Ok(generation_from_entity(row, images))
+    hydrate_generation(db, row).await
 }
 
 pub async fn list_images_for_generation(
@@ -241,9 +312,7 @@ pub async fn list_generations(
     let rows = query.all(db).await?;
     let mut result = Vec::with_capacity(rows.len());
     for row in rows {
-        let id = row.id.clone();
-        let images = list_images_for_generation(db, &id).await?;
-        result.push(generation_from_entity(row, images));
+        result.push(hydrate_generation(db, row).await?);
     }
     Ok(result)
 }
@@ -260,4 +329,115 @@ pub async fn delete_generation(db: &DatabaseConnection, id: &str) -> Result<()> 
         return Err(AQBotError::NotFound(format!("DrawingGeneration {}", id)));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::create_test_pool;
+    use crate::repo::stored_file;
+
+    #[tokio::test]
+    async fn hydrates_reference_source_and_mask_files() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+
+        let source_file = stored_file::create_stored_file(
+            db,
+            &gen_id(),
+            "source-hash",
+            "source.png",
+            "image/png",
+            1024,
+            "images/source.png",
+            None,
+        )
+        .await
+        .unwrap();
+        let ref_file = stored_file::create_stored_file(
+            db,
+            &gen_id(),
+            "ref-hash",
+            "ref.png",
+            "image/png",
+            2048,
+            "images/ref.png",
+            None,
+        )
+        .await
+        .unwrap();
+        let mask_file = stored_file::create_stored_file(
+            db,
+            &gen_id(),
+            "mask-hash",
+            "mask.png",
+            "image/png",
+            512,
+            "images/mask.png",
+            None,
+        )
+        .await
+        .unwrap();
+
+        let source_generation = create_generation(
+            db,
+            NewDrawingGeneration {
+                parent_generation_id: None,
+                provider_id: "provider-1".into(),
+                key_id: "key-1".into(),
+                model_id: "gpt-image-2".into(),
+                action: "generate".into(),
+                prompt: "source".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: "[]".into(),
+                source_image_ids_json: "[]".into(),
+                mask_file_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let source_image = add_image(
+            db,
+            NewDrawingImage {
+                generation_id: source_generation.id.clone(),
+                stored_file_id: source_file.id.clone(),
+                storage_path: source_file.storage_path.clone(),
+                mime_type: source_file.mime_type.clone(),
+                width: Some(1024),
+                height: Some(1024),
+                revised_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let edit_generation = create_generation(
+            db,
+            NewDrawingGeneration {
+                parent_generation_id: Some(source_generation.id),
+                provider_id: "provider-1".into(),
+                key_id: "key-1".into(),
+                model_id: "gpt-image-2".into(),
+                action: "mask_edit".into(),
+                prompt: "edit".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: serde_json::to_string(&vec![ref_file.id.clone()]).unwrap(),
+                source_image_ids_json: serde_json::to_string(&vec![source_image.id.clone()])
+                    .unwrap(),
+                mask_file_id: Some(mask_file.id.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let fetched = get_generation(db, &edit_generation.id).await.unwrap();
+        assert_eq!(fetched.reference_files.len(), 1);
+        assert_eq!(fetched.reference_files[0].id, ref_file.id);
+        assert_eq!(fetched.source_images.len(), 1);
+        assert_eq!(fetched.source_images[0].id, source_image.id);
+        assert_eq!(
+            fetched.mask_file.as_ref().map(|file| file.id.as_str()),
+            Some(mask_file.id.as_str())
+        );
+    }
 }

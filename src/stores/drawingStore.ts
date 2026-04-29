@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
 import type {
+  DrawingAction,
   DrawingEditInput,
   DrawingGenerateInput,
   DrawingGeneration,
@@ -16,14 +17,17 @@ interface DrawingState {
   submitting: boolean;
   error: string | null;
   editSourceImage: DrawingImage | null;
+  editMaskFileId: string | null;
+  editMaskFile: DrawingStoredFile | null;
+  editPreviewUrl: string | null;
   loadHistory: (cursor?: string) => Promise<void>;
   uploadReferenceImage: (file: File) => Promise<DrawingStoredFile>;
   generateImages: (input: DrawingGenerateInput) => Promise<DrawingGeneration>;
   editImage: (input: DrawingEditInput) => Promise<DrawingGeneration>;
   editImageWithMask: (input: DrawingMaskEditInput) => Promise<DrawingGeneration>;
   retryGeneration: (generation: DrawingGeneration) => Promise<DrawingGeneration>;
-  deleteGeneration: (id: string) => Promise<void>;
-  selectImageForEdit: (image: DrawingImage | null) => void;
+  deleteGeneration: (id: string, deleteResources?: boolean) => Promise<void>;
+  selectImageForEdit: (image: DrawingImage | null, maskFile?: DrawingStoredFile | null, previewUrl?: string | null) => void;
   removeReference: (id: string) => void;
   clearReferences: () => void;
   clearError: () => void;
@@ -41,13 +45,84 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function prependOrReplace(
+function sortGenerations(generations: DrawingGeneration[]): DrawingGeneration[] {
+  return [...generations].sort((a, b) => a.created_at - b.created_at);
+}
+
+function appendOrReplace(
   generations: DrawingGeneration[],
   next: DrawingGeneration,
 ): DrawingGeneration[] {
   const existing = generations.findIndex((item) => item.id === next.id);
-  if (existing === -1) return [next, ...generations];
-  return generations.map((item) => (item.id === next.id ? next : item));
+  if (existing === -1) return sortGenerations([...generations, next]);
+  return sortGenerations(generations.map((item) => (item.id === next.id ? next : item)));
+}
+
+function replaceOptimisticGeneration(
+  generations: DrawingGeneration[],
+  optimisticId: string,
+  next: DrawingGeneration,
+): DrawingGeneration[] {
+  if (!generations.some((item) => item.id === optimisticId)) {
+    return appendOrReplace(generations, next);
+  }
+  return sortGenerations(generations.map((item) => (item.id === optimisticId ? next : item)));
+}
+
+function markOptimisticGenerationFailed(
+  generations: DrawingGeneration[],
+  optimisticId: string,
+  error: string,
+): DrawingGeneration[] {
+  return generations.map((item) => (
+    item.id === optimisticId
+      ? {
+          ...item,
+          status: 'failed',
+          error_message: error,
+          completed_at: Date.now(),
+        }
+      : item
+  ));
+}
+
+function createOptimisticGeneration(
+  input: DrawingGenerateInput | DrawingEditInput | DrawingMaskEditInput,
+  action: DrawingAction,
+  context: {
+    referenceFiles?: DrawingStoredFile[];
+    sourceImages?: DrawingImage[];
+    maskFile?: DrawingStoredFile | null;
+  } = {},
+): DrawingGeneration {
+  const now = Date.now();
+  const sourceIds = 'source_image_id' in input ? [input.source_image_id] : [];
+  const maskFileId = 'mask_file_id' in input ? input.mask_file_id : null;
+
+  return {
+    id: `optimistic-${now}-${Math.random().toString(36).slice(2)}`,
+    parent_generation_id: null,
+    provider_id: input.provider_id,
+    key_id: '',
+    model_id: input.model_id,
+    api_kind: 'image_api',
+    action,
+    prompt: input.prompt.trim(),
+    parameters_json: JSON.stringify(input),
+    reference_file_ids_json: JSON.stringify(input.reference_file_ids),
+    source_image_ids_json: JSON.stringify(sourceIds),
+    mask_file_id: maskFileId,
+    status: 'running',
+    error_message: null,
+    response_id: null,
+    usage_json: null,
+    created_at: now,
+    completed_at: null,
+    images: [],
+    reference_files: context.referenceFiles ?? [],
+    source_images: context.sourceImages ?? [],
+    mask_file: context.maskFile ?? null,
+  };
 }
 
 export const useDrawingStore = create<DrawingState>((set, get) => ({
@@ -57,6 +132,9 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   submitting: false,
   error: null,
   editSourceImage: null,
+  editMaskFileId: null,
+  editMaskFile: null,
+  editPreviewUrl: null,
 
   loadHistory: async (cursor) => {
     set({ loading: true });
@@ -65,7 +143,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
         limit: 30,
         cursor,
       });
-      set({ generations, loading: false, error: null });
+      set({ generations: sortGenerations(generations), loading: false, error: null });
     } catch (e) {
       set({ loading: false, error: String(e) });
       throw e;
@@ -90,57 +168,109 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
         mime_type: file.type || 'image/png',
       },
     });
-    set((s) => ({ references: [...s.references, stored], error: null }));
+    set((s) => ({
+      references: s.references.some((item) => item.id === stored.id)
+        ? s.references
+        : [...s.references, stored],
+      error: null,
+    }));
     return stored;
   },
 
   generateImages: async (input) => {
-    set({ submitting: true, error: null });
+    const referenceFiles = get().references.filter((item) => input.reference_file_ids.includes(item.id));
+    const optimistic = createOptimisticGeneration(
+      input,
+      input.reference_file_ids.length > 0 ? 'reference_generate' : 'generate',
+      { referenceFiles },
+    );
+    set((s) => ({
+      generations: appendOrReplace(s.generations, optimistic),
+      submitting: true,
+      error: null,
+    }));
     try {
       const generation = await invoke<DrawingGeneration>('generate_drawing_images', { input });
       set((s) => ({
-        generations: prependOrReplace(s.generations, generation),
+        generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
         submitting: false,
         editSourceImage: null,
+        editMaskFileId: null,
+        editMaskFile: null,
+        editPreviewUrl: null,
       }));
       return generation;
     } catch (e) {
-      set({ submitting: false, error: String(e) });
-      await get().loadHistory().catch(() => {});
+      set((s) => ({
+        generations: markOptimisticGenerationFailed(s.generations, optimistic.id, String(e)),
+        submitting: false,
+        error: null,
+      }));
       throw e;
     }
   },
 
   editImage: async (input) => {
-    set({ submitting: true, error: null });
+    const state = get();
+    const optimistic = createOptimisticGeneration(input, 'edit', {
+      referenceFiles: state.references.filter((item) => input.reference_file_ids.includes(item.id)),
+      sourceImages: state.editSourceImage ? [state.editSourceImage] : [],
+    });
+    set((s) => ({
+      generations: appendOrReplace(s.generations, optimistic),
+      submitting: true,
+      error: null,
+    }));
     try {
       const generation = await invoke<DrawingGeneration>('edit_drawing_image', { input });
       set((s) => ({
-        generations: prependOrReplace(s.generations, generation),
+        generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
         submitting: false,
         editSourceImage: null,
+        editMaskFileId: null,
+        editMaskFile: null,
+        editPreviewUrl: null,
       }));
       return generation;
     } catch (e) {
-      set({ submitting: false, error: String(e) });
-      await get().loadHistory().catch(() => {});
+      set((s) => ({
+        generations: markOptimisticGenerationFailed(s.generations, optimistic.id, String(e)),
+        submitting: false,
+        error: null,
+      }));
       throw e;
     }
   },
 
   editImageWithMask: async (input) => {
-    set({ submitting: true, error: null });
+    const state = get();
+    const optimistic = createOptimisticGeneration(input, 'mask_edit', {
+      referenceFiles: state.references.filter((item) => input.reference_file_ids.includes(item.id)),
+      sourceImages: state.editSourceImage ? [state.editSourceImage] : [],
+      maskFile: state.editMaskFile,
+    });
+    set((s) => ({
+      generations: appendOrReplace(s.generations, optimistic),
+      submitting: true,
+      error: null,
+    }));
     try {
       const generation = await invoke<DrawingGeneration>('edit_drawing_image_with_mask', { input });
       set((s) => ({
-        generations: prependOrReplace(s.generations, generation),
+        generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
         submitting: false,
         editSourceImage: null,
+        editMaskFileId: null,
+        editMaskFile: null,
+        editPreviewUrl: null,
       }));
       return generation;
     } catch (e) {
-      set({ submitting: false, error: String(e) });
-      await get().loadHistory().catch(() => {});
+      set((s) => ({
+        generations: markOptimisticGenerationFailed(s.generations, optimistic.id, String(e)),
+        submitting: false,
+        error: null,
+      }));
       throw e;
     }
   },
@@ -156,12 +286,21 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
     return get().generateImages(params);
   },
 
-  deleteGeneration: async (id) => {
-    await invoke('delete_drawing_generation', { id });
+  deleteGeneration: async (id, deleteResources = false) => {
+    if (id.startsWith('optimistic-')) {
+      set((s) => ({ generations: s.generations.filter((item) => item.id !== id) }));
+      return;
+    }
+    await invoke('delete_drawing_generation', { id, deleteResources });
     set((s) => ({ generations: s.generations.filter((item) => item.id !== id) }));
   },
 
-  selectImageForEdit: (image) => set({ editSourceImage: image }),
+  selectImageForEdit: (image, maskFile = null, previewUrl = null) => set({
+    editSourceImage: image,
+    editMaskFileId: image ? maskFile?.id ?? null : null,
+    editMaskFile: image ? maskFile : null,
+    editPreviewUrl: image ? previewUrl : null,
+  }),
   removeReference: (id) => set((s) => ({ references: s.references.filter((item) => item.id !== id) })),
   clearReferences: () => set({ references: [] }),
   clearError: () => set({ error: null }),

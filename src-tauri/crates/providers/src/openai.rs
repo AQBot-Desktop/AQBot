@@ -17,7 +17,8 @@ pub struct OpenAIAdapter {
 impl OpenAIAdapter {
     pub fn new() -> Self {
         Self {
-            client: crate::build_default_http_client().expect("Failed to build default HTTP client"),
+            client: crate::build_default_http_client()
+                .expect("Failed to build default HTTP client"),
         }
     }
 
@@ -156,7 +157,9 @@ fn extract_thinking(
         .and_then(|d| d.text.clone())
 }
 
-fn deserialize_optional_text<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+fn deserialize_optional_text<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -187,7 +190,15 @@ fn extract_text_from_json(value: &serde_json::Value) -> Option<String> {
                 }
             }
             serde_json::Value::Object(map) => {
-                for key in ["text", "content", "delta", "parts", "part", "value", "output_text"] {
+                for key in [
+                    "text",
+                    "content",
+                    "delta",
+                    "parts",
+                    "part",
+                    "value",
+                    "output_text",
+                ] {
                     if let Some(child) = map.get(key) {
                         let before = out.len();
                         collect_text(child, out);
@@ -384,8 +395,8 @@ fn convert_messages(messages: &[ChatMessage]) -> Vec<OpenAIMessage> {
                 },
                 "assistant" if msg.tool_calls.is_some() => {
                     let content_text = extract_text_content(&msg.content);
-                    let content = if content_text.is_empty() { 
-                        None 
+                    let content = if content_text.is_empty() {
+                        None
                     } else {
                         Some(match &msg.content {
                             ChatContent::Text(text) => serde_json::Value::String(text.clone()),
@@ -465,7 +476,10 @@ fn convert_messages(messages: &[ChatMessage]) -> Vec<OpenAIMessage> {
 }
 
 fn build_request(request: &ChatRequest, messages: &[ChatMessage], stream: bool) -> OpenAIRequest {
-    let thinking_style = request.thinking_param_style.as_deref().unwrap_or("reasoning_effort");
+    let thinking_style = request
+        .thinking_param_style
+        .as_deref()
+        .unwrap_or("reasoning_effort");
 
     // "none" style: never send any thinking-related params
     // "enable_thinking" style (SiliconFlow): enable_thinking + thinking_budget fields
@@ -512,7 +526,11 @@ fn build_request(request: &ChatRequest, messages: &[ChatMessage], stream: bool) 
     OpenAIRequest {
         model: request.model.clone(),
         messages: convert_messages(messages),
-        temperature: if has_thinking { None } else { request.temperature },
+        temperature: if has_thinking {
+            None
+        } else {
+            request.temperature
+        },
         top_p: if has_thinking { None } else { request.top_p },
         max_tokens,
         max_completion_tokens,
@@ -554,17 +572,19 @@ mod tests {
                     }),
                 },
             ]),
+            tool_calls: None,
+            tool_call_id: None,
         }]);
 
         assert_eq!(
             messages[0].content,
-            json!([
+            Some(json!([
                 { "type": "text", "text": "Describe this image" },
                 {
                     "type": "image_url",
                     "image_url": { "url": "data:image/png;base64,YWJj" }
                 }
-            ])
+            ]))
         );
     }
 }
@@ -650,7 +670,11 @@ impl ProviderAdapter for OpenAIAdapter {
             id: oai.id.unwrap_or_default(),
             model: oai.model.unwrap_or_else(|| request.model.clone()),
             content: extract_primary_content(&msg.content, &msg.extra).unwrap_or_default(),
-            thinking: extract_thinking(&msg.reasoning_content, &msg.reasoning, &msg.reasoning_details),
+            thinking: extract_thinking(
+                &msg.reasoning_content,
+                &msg.reasoning,
+                &msg.reasoning_details,
+            ),
             usage,
             tool_calls,
         })
@@ -786,10 +810,9 @@ impl ProviderAdapter for OpenAIAdapter {
                         .as_ref()
                         .and_then(|delta| extract_primary_content(&delta.content, &delta.extra))
                         .or_else(|| {
-                            choice
-                                .message
-                                .as_ref()
-                                .and_then(|message| extract_primary_content(&message.content, &message.extra))
+                            choice.message.as_ref().and_then(|message| {
+                                extract_primary_content(&message.content, &message.extra)
+                            })
                         });
                     let thinking = choice
                         .delta
@@ -995,7 +1018,11 @@ impl ProviderAdapter for OpenAIAdapter {
 
         Err(AQBotError::Provider(format!(
             "Unsupported models response format (body: {})",
-            if body.len() > 200 { &body[..200] } else { &body }
+            if body.len() > 200 {
+                &body[..200]
+            } else {
+                &body
+            }
         )))
     }
 

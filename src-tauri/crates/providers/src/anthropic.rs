@@ -21,7 +21,8 @@ pub struct AnthropicAdapter {
 impl AnthropicAdapter {
     pub fn new() -> Self {
         Self {
-            client: crate::build_default_http_client().expect("Failed to build default HTTP client"),
+            client: crate::build_default_http_client()
+                .expect("Failed to build default HTTP client"),
         }
     }
 
@@ -267,6 +268,8 @@ mod tests {
                     }),
                 },
             ]),
+            tool_calls: None,
+            tool_call_id: None,
         }]);
 
         assert_eq!(

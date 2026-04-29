@@ -3,8 +3,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    apply_request_headers, build_default_http_client, build_http_client, resolve_chat_url,
-    ProviderRequestContext,
+    apply_request_headers, build_default_http_client, build_http_client, ProviderRequestContext,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -88,20 +87,16 @@ impl OpenAIImagesClient {
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
     }
 
+    fn image_url(ctx: &ProviderRequestContext, suffix: &str) -> String {
+        format!("{}{}", Self::base_url(ctx).trim_end_matches('/'), suffix)
+    }
+
     fn generate_url(ctx: &ProviderRequestContext) -> String {
-        resolve_chat_url(
-            &Self::base_url(ctx),
-            ctx.api_path.as_deref(),
-            "/images/generations",
-        )
+        Self::image_url(ctx, "/images/generations")
     }
 
     fn edit_url(ctx: &ProviderRequestContext) -> String {
-        resolve_chat_url(
-            &Self::base_url(ctx),
-            ctx.api_path.as_deref(),
-            "/images/edits",
-        )
+        Self::image_url(ctx, "/images/edits")
     }
 
     fn get_client(&self, ctx: &ProviderRequestContext) -> Result<reqwest::Client> {
@@ -208,4 +203,35 @@ async fn parse_response(response: reqwest::Response) -> Result<ImageApiOutput> {
         usage_json: body.usage.map(|u| u.to_string()),
         images,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn context_with_chat_path() -> ProviderRequestContext {
+        ProviderRequestContext {
+            api_key: "sk-test".to_string(),
+            key_id: "key".to_string(),
+            provider_id: "provider".to_string(),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            api_path: Some("/v1/chat/completions".to_string()),
+            proxy_config: None,
+            custom_headers: None,
+        }
+    }
+
+    #[test]
+    fn image_urls_ignore_chat_api_path() {
+        let ctx = context_with_chat_path();
+
+        assert_eq!(
+            OpenAIImagesClient::generate_url(&ctx),
+            "https://api.openai.com/v1/images/generations"
+        );
+        assert_eq!(
+            OpenAIImagesClient::edit_url(&ctx),
+            "https://api.openai.com/v1/images/edits"
+        );
+    }
 }

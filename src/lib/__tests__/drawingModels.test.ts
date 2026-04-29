@@ -7,6 +7,7 @@ import {
   getDrawingProvidersForModel,
   getDrawingQualityOptions,
   getDrawingSizeOptions,
+  isDrawingOutputCompressionSupported,
 } from '../drawingModels';
 
 function providerFixture(overrides: Partial<ProviderConfig>): ProviderConfig {
@@ -120,5 +121,23 @@ describe('drawing model/provider filtering', () => {
     expect(getDrawingQualityOptions(t).map((item) => item.label)).toEqual(['自动', '低', '中', '高']);
     expect(getDrawingOutputFormatOptions(t).map((item) => item.label)).toEqual(['PNG', 'JPEG', 'WEBP']);
     expect(getDrawingBackgroundOptions(t).map((item) => item.label)).toEqual(['自动', '不透明', '透明']);
+  });
+
+  it('hides unsupported gpt-image-2 parameters instead of disabling them', () => {
+    const labels: Record<string, string> = {
+      'drawing.option.auto': '自动',
+      'drawing.option.background.opaque': '不透明',
+      'drawing.option.background.transparent': '透明',
+    };
+    const t = (key: string, fallback: string) => labels[key] ?? fallback;
+
+    expect(getDrawingBackgroundOptions(t, 'gpt-image-2').map((item) => item.value)).toEqual([
+      'auto',
+      'opaque',
+    ]);
+    expect(getDrawingBackgroundOptions(t, 'gpt-image-1').map((item) => item.value)).toContain('transparent');
+    expect(isDrawingOutputCompressionSupported('gpt-image-2', 'jpeg')).toBe(false);
+    expect(isDrawingOutputCompressionSupported('gpt-image-1', 'jpeg')).toBe(true);
+    expect(isDrawingOutputCompressionSupported('gpt-image-1', 'png')).toBe(false);
   });
 });

@@ -8,6 +8,8 @@ import {
   getDrawingProvidersForModel,
   getDrawingQualityOptions,
   getDrawingSizeOptions,
+  isDrawingOutputCompressionSupported,
+  isDrawingTransparentBackgroundSupported,
 } from '@/lib/drawingModels';
 import { SmartProviderIcon } from '@/lib/providerIcons';
 import { DrawingReferenceUploader } from './DrawingReferenceUploader';
@@ -44,13 +46,20 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
     ),
     value: provider.id,
   }));
-  const transparentDisabled = settings.modelId === 'gpt-image-2';
-  const compressionEnabled = settings.outputFormat === 'jpeg' || settings.outputFormat === 'webp';
-  const backgroundOptions = getDrawingBackgroundOptions(translateOption).map((option) => (
-    option.value === 'transparent' ? { ...option, disabled: transparentDisabled } : option
-  ));
+  const compressionVisible = isDrawingOutputCompressionSupported(settings.modelId, settings.outputFormat);
+  const backgroundOptions = getDrawingBackgroundOptions(translateOption, settings.modelId);
 
-  const patch = (next: Partial<DrawingSettings>) => onChange({ ...settings, ...next });
+  const normalizeSettings = (next: DrawingSettings): DrawingSettings => ({
+    ...next,
+    background: isDrawingTransparentBackgroundSupported(next.modelId) || next.background !== 'transparent'
+      ? next.background
+      : 'auto',
+    outputCompression: isDrawingOutputCompressionSupported(next.modelId, next.outputFormat)
+      ? next.outputCompression
+      : undefined,
+  });
+
+  const patch = (next: Partial<DrawingSettings>) => onChange(normalizeSettings({ ...settings, ...next }));
 
   return (
     <aside
@@ -76,9 +85,6 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
               patch({
                 modelId,
                 providerId,
-                background: modelId === 'gpt-image-2' && settings.background === 'transparent'
-                  ? 'auto'
-                  : settings.background,
               });
             }}
           />
@@ -129,23 +135,24 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
             onChange={(n) => patch({ n: n || 1 })}
           />
         </Form.Item>
-        <Form.Item label={t('drawing.compression', '压缩')}>
-          <div className="flex items-center gap-3">
-            <Switch
-              checked={compressionEnabled && settings.outputCompression !== undefined}
-              disabled={!compressionEnabled}
-              onChange={(checked) => patch({ outputCompression: checked ? 90 : undefined })}
-            />
-            <Slider
-              min={0}
-              max={100}
-              disabled={!compressionEnabled || settings.outputCompression === undefined}
-              value={settings.outputCompression ?? 90}
-              onChange={(outputCompression) => patch({ outputCompression })}
-              style={{ flex: 1 }}
-            />
-          </div>
-        </Form.Item>
+        {compressionVisible && (
+          <Form.Item label={t('drawing.compression', '压缩')}>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={settings.outputCompression !== undefined}
+                onChange={(checked) => patch({ outputCompression: checked ? 90 : undefined })}
+              />
+              <Slider
+                min={0}
+                max={100}
+                disabled={settings.outputCompression === undefined}
+                value={settings.outputCompression ?? 90}
+                onChange={(outputCompression) => patch({ outputCompression })}
+                style={{ flex: 1 }}
+              />
+            </div>
+          </Form.Item>
+        )}
       </Form>
       <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
         {t('drawing.references', '参考图')}

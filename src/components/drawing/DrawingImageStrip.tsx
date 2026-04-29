@@ -1,117 +1,171 @@
-import { Button, Image, Spin, Tooltip, theme } from 'antd';
-import { Download, Focus, Pencil } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Image, Spin, theme } from 'antd';
+import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/invoke';
 import type { DrawingImage } from '@/types';
-import { saveChatImage } from '@/lib/chatImageActions';
 
 interface Props {
   images: DrawingImage[];
   loading?: boolean;
-  onEdit: (image: DrawingImage) => void;
-  onMaskEdit: (image: DrawingImage) => void;
+  placeholderCount?: number;
 }
 
-function DrawingPreviewImage({
-  image,
-  onEdit,
-  onMaskEdit,
-}: {
-  image: DrawingImage;
-  onEdit: (image: DrawingImage) => void;
-  onMaskEdit: (image: DrawingImage) => void;
-}) {
-  const { t } = useTranslation();
-  const { token } = theme.useToken();
+const IMAGE_MAX_WIDTH = 250;
+const IMAGE_MAX_HEIGHT = 198;
+const IMAGE_CORNER_RADIUS = 6;
+
+const placeholderTileStyle: CSSProperties = {
+  flex: `0 0 ${IMAGE_MAX_WIDTH}px`,
+  width: IMAGE_MAX_WIDTH,
+  height: IMAGE_MAX_HEIGHT,
+  borderRadius: IMAGE_CORNER_RADIUS,
+};
+
+function getImageTileStyle(image: DrawingImage): CSSProperties {
+  const width = image.width && image.width > 0 ? image.width : 1;
+  const height = image.height && image.height > 0 ? image.height : 1;
+  const ratio = width / height;
+  const maxRatio = IMAGE_MAX_WIDTH / IMAGE_MAX_HEIGHT;
+  const tileWidth = ratio >= maxRatio
+    ? IMAGE_MAX_WIDTH
+    : Math.max(1, Math.round(IMAGE_MAX_HEIGHT * ratio));
+  const tileHeight = ratio >= maxRatio
+    ? Math.max(1, Math.round(IMAGE_MAX_WIDTH / ratio))
+    : IMAGE_MAX_HEIGHT;
+
+  return {
+    flex: `0 0 ${tileWidth}px`,
+    width: tileWidth,
+    height: tileHeight,
+    borderRadius: IMAGE_CORNER_RADIUS,
+    background: 'transparent',
+  };
+}
+
+function DrawingPreviewImage({ image }: { image: DrawingImage }) {
+  const tileStyle = useMemo(() => getImageTileStyle(image), [image.height, image.width]);
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
+    const node = tileRef.current;
+    if (!node) return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setShouldLoad(true);
+      observer.disconnect();
+    }, { rootMargin: '160px 0px' });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!shouldLoad) return undefined;
     let cancelled = false;
     invoke<string>('read_attachment_preview', { filePath: image.storage_path })
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [image.storage_path]);
-
-  const actions = (
-    <div
-      className="absolute inset-0 opacity-0 transition-opacity hover:opacity-100"
-      style={{ background: 'rgba(17,24,39,0.2)' }}
-    >
-      <div className="absolute right-2 top-2 flex gap-1">
-        <Tooltip title={t('drawing.download', '下载')}>
-          <Button
-            size="small"
-            shape="circle"
-            icon={<Download size={14} />}
-            onClick={() => src && saveChatImage(src, image.storage_path.split('/').pop() || 'drawing.png').catch(() => {})}
-          />
-        </Tooltip>
-        <Tooltip title={t('drawing.edit', '重新编辑')}>
-          <Button size="small" shape="circle" icon={<Pencil size={14} />} onClick={() => onEdit(image)} />
-        </Tooltip>
-        <Tooltip title={t('drawing.maskEdit', '区域编辑')}>
-          <Button size="small" shape="circle" icon={<Focus size={14} />} onClick={() => onMaskEdit(image)} />
-        </Tooltip>
-      </div>
-    </div>
-  );
+  }, [image.storage_path, shouldLoad]);
 
   return (
     <div
-      className="relative overflow-hidden"
-      style={{
-        minWidth: 220,
-        flex: '1 1 0',
-        aspectRatio: '16 / 9',
-        background: token.colorFillAlter,
-      }}
+      ref={tileRef}
+      className="drawing-preview-tile relative overflow-hidden"
+      style={tileStyle}
     >
       {src ? (
         <Image
           src={src}
           width="100%"
           height="100%"
-          style={{ objectFit: 'cover' }}
+          loading="lazy"
+          styles={{
+            root: {
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              overflow: 'hidden',
+              borderRadius: IMAGE_CORNER_RADIUS,
+            },
+            image: {
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              objectFit: 'contain',
+              borderRadius: IMAGE_CORNER_RADIUS,
+            },
+          }}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'contain',
+            borderRadius: IMAGE_CORNER_RADIUS,
+          }}
           preview={{ mask: { blur: true }, scaleStep: 0.5 }}
         />
-      ) : (
+      ) : shouldLoad ? (
         <div className="flex h-full items-center justify-center">
           <Spin size="small" />
         </div>
+      ) : (
+        <div className="h-full w-full" />
       )}
-      {actions}
     </div>
   );
 }
 
-export function DrawingImageStrip({ images, loading, onEdit, onMaskEdit }: Props) {
+function DrawingImagePlaceholder() {
   const { token } = theme.useToken();
-  const placeholders = useMemo(() => Array.from({ length: Math.max(images.length, 1) }), [images.length]);
+
+  return (
+    <div
+      className="drawing-image-placeholder relative overflow-hidden"
+      style={{
+        ...placeholderTileStyle,
+        background: token.colorFillAlter,
+      }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          animation: 'aqbot-drawing-shimmer 1.35s linear infinite',
+          background: `linear-gradient(110deg, ${token.colorFillAlter} 8%, ${token.colorFillSecondary} 18%, ${token.colorFillAlter} 33%)`,
+          backgroundSize: '220% 100%',
+        }}
+      />
+    </div>
+  );
+}
+
+export function DrawingImageStrip({ images, loading, placeholderCount = 1 }: Props) {
+  const placeholders = useMemo(
+    () => Array.from({ length: Math.max(placeholderCount, images.length, 1) }),
+    [images.length, placeholderCount],
+  );
   if (loading && images.length === 0) {
     return (
-      <div className="flex gap-px overflow-hidden rounded-md">
+      <div className="drawing-image-strip flex w-full overflow-x-auto overflow-y-hidden rounded-md" style={{ gap: 7 }}>
         {placeholders.map((_, index) => (
-          <div
-            key={index}
-            className="flex h-48 flex-1 items-center justify-center"
-            style={{ background: token.colorFillAlter }}
-          >
-            <Spin />
-          </div>
+          <DrawingImagePlaceholder key={index} />
         ))}
       </div>
     );
   }
   return (
-    <div className="flex gap-px overflow-x-auto overflow-y-hidden rounded-md">
+    <div className="drawing-image-strip flex w-full overflow-x-auto overflow-y-hidden rounded-md" style={{ gap: 7 }}>
       {images.map((image) => (
         <DrawingPreviewImage
           key={image.id}
           image={image}
-          onEdit={onEdit}
-          onMaskEdit={onMaskEdit}
         />
       ))}
     </div>

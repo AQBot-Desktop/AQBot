@@ -17,7 +17,8 @@ pub struct GeminiAdapter {
 impl GeminiAdapter {
     pub fn new() -> Self {
         Self {
-            client: crate::build_default_http_client().expect("Failed to build default HTTP client"),
+            client: crate::build_default_http_client()
+                .expect("Failed to build default HTTP client"),
         }
     }
 
@@ -343,7 +344,9 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
 }
 
 fn make_gen_config(request: &ChatRequest) -> Option<GeminiGenerationConfig> {
-    let thinking_config = request.thinking_budget.map(|b| GeminiThinkingConfig { thinking_budget: b });
+    let thinking_config = request
+        .thinking_budget
+        .map(|b| GeminiThinkingConfig { thinking_budget: b });
     if request.temperature.is_some()
         || request.top_p.is_some()
         || request.max_tokens.is_some()
@@ -396,6 +399,8 @@ mod tests {
                     }),
                 },
             ]),
+            tool_calls: None,
+            tool_call_id: None,
         }]);
 
         assert_eq!(

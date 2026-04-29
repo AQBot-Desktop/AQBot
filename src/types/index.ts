@@ -530,6 +530,9 @@ export interface DrawingGeneration {
   created_at: number;
   completed_at: number | null;
   images: DrawingImage[];
+  reference_files?: DrawingStoredFile[];
+  source_images?: DrawingImage[];
+  mask_file?: DrawingStoredFile | null;
 }
 
 export interface DrawingGenerateInput {

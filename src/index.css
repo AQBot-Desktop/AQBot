@@ -272,6 +272,60 @@ html[data-theme="dark"] .chat-scroll-indicator-track.is-dragging .chat-scroll-in
   background: rgba(255, 255, 255, 0.28);
 }
 
+.drawing-image-strip {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+.drawing-image-strip::-webkit-scrollbar {
+  height: 7px;
+}
+
+.drawing-image-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.drawing-image-strip::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+}
+
+.drawing-image-strip::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.34);
+}
+
+html[data-theme="dark"] .drawing-image-strip {
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+html[data-theme="dark"] .drawing-image-strip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+html[data-theme="dark"] .drawing-image-strip::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.drawing-prompt-line {
+  display: inline;
+}
+
+.drawing-prompt-trigger {
+  cursor: pointer;
+  outline: none;
+  padding: 2px 4px;
+  transition: background-color 0.16s ease;
+}
+
+.drawing-prompt-trigger:hover {
+  background: var(--drawing-prompt-hover-bg, var(--ant-color-fill-secondary));
+}
+
+.drawing-prompt-copy.ant-btn {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 /* Custom action item hover style (for actionRender items in @ant-design/x Actions) */
 .aqbot-action-item {
   cursor: pointer;
@@ -366,6 +420,11 @@ svg.lucide {
 @keyframes model-tag-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.7; }
+}
+
+@keyframes aqbot-drawing-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
 }
 
 /* ── markstream-react dark mode border overrides ──────────────────────── */

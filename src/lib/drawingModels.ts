@@ -85,14 +85,30 @@ export function getDrawingOutputFormatOptions(
   ];
 }
 
+export function isDrawingTransparentBackgroundSupported(modelId?: DrawingModelId): boolean {
+  return modelId !== 'gpt-image-2';
+}
+
+export function isDrawingOutputCompressionSupported(
+  modelId: DrawingModelId,
+  outputFormat: DrawingOutputFormat,
+): boolean {
+  return modelId !== 'gpt-image-2' && (outputFormat === 'jpeg' || outputFormat === 'webp');
+}
+
 export function getDrawingBackgroundOptions(
   t: DrawingTranslate,
+  modelId?: DrawingModelId,
 ): Array<{ label: string; value: DrawingBackground }> {
-  return [
+  const options: Array<{ label: string; value: DrawingBackground }> = [
     { label: t('drawing.option.auto', 'Auto'), value: 'auto' },
     { label: t('drawing.option.background.opaque', 'Opaque'), value: 'opaque' },
     { label: t('drawing.option.background.transparent', 'Transparent'), value: 'transparent' },
   ];
+  if (!isDrawingTransparentBackgroundSupported(modelId)) {
+    return options.filter((option) => option.value !== 'transparent');
+  }
+  return options;
 }
 
 export function describeDrawingSize(size: string) {
