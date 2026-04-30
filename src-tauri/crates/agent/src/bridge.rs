@@ -212,6 +212,8 @@ fn convert_request(request: ProviderRequest<'_>) -> ChatRequest {
             .thinking
             .as_ref()
             .and_then(|t| t.budget_tokens.map(|b| b as u32)),
+        thinking_level: None,
+        reasoning_profile: None,
         use_max_completion_tokens: None,
         thinking_param_style: None,
     }

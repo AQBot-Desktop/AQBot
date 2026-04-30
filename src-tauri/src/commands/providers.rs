@@ -344,6 +344,8 @@ pub async fn test_model(
         max_tokens: Some(1),
         tools: None,
         thinking_budget: None,
+        thinking_level: None,
+        reasoning_profile: None,
         use_max_completion_tokens: None,
         thinking_param_style: None,
     };

@@ -82,6 +82,9 @@ export interface ModelParamOverrides {
   no_system_role?: boolean;
   force_max_tokens?: boolean;
   thinking_param_style?: string;
+  reasoning_profile?: string;
+  reasoning_options?: string[];
+  reasoning_default?: string;
 }
 
 // === Conversation & Message ===
@@ -118,6 +121,7 @@ export interface Conversation {
   search_enabled: boolean;
   search_provider_id: string | null;
   thinking_budget: number | null;
+  thinking_level?: string | null;
   enabled_mcp_server_ids: string[];
   enabled_knowledge_base_ids: string[];
   enabled_memory_namespace_ids: string[];
@@ -229,6 +233,7 @@ export interface UpdateConversationInput {
   search_enabled?: boolean;
   search_provider_id?: string | null;
   thinking_budget?: number | null;
+  thinking_level?: string | null;
   enabled_mcp_server_ids?: string[];
   enabled_knowledge_base_ids?: string[];
   enabled_memory_namespace_ids?: string[];

@@ -437,6 +437,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         search_enabled: false,
         search_provider_id: null,
         thinking_budget: null,
+        thinking_level: null,
         enabled_mcp_server_ids: [],
         enabled_knowledge_base_ids: [],
         enabled_memory_namespace_ids: [],

@@ -100,6 +100,25 @@ const DEFAULT_HOSTS: Record<ProviderType, string> = {
   custom: '',
 };
 
+const REASONING_PROFILE_OPTIONS = [
+  { value: 'reasoning_effort', label: '自动匹配（推荐）' },
+  { value: 'openai_reasoning_effort', label: 'OpenAI Chat' },
+  { value: 'openai_responses_reasoning', label: 'OpenAI Responses' },
+  { value: 'gemini_thinking_level', label: 'Gemini thinkingLevel' },
+  { value: 'gemini_thinking_budget', label: 'Gemini thinkingBudget' },
+  { value: 'anthropic_adaptive', label: 'Claude adaptive' },
+  { value: 'anthropic_budget_tokens', label: 'Claude budget_tokens' },
+  { value: 'enable_thinking', label: 'SiliconFlow enable_thinking' },
+  { value: 'none', label: 'none' },
+];
+
+const REASONING_PROFILE_SELECT_WIDTH = 260;
+const REASONING_PROFILE_POPUP_WIDTH = 320;
+
+function normalizeReasoningProfile(value: string): string | undefined {
+  return value === 'reasoning_effort' ? undefined : value;
+}
+
 type KeyModalMode = 'add' | 'edit';
 type ModelSyncStatus = 'synced' | 'local-only' | 'remote-only';
 
@@ -668,7 +687,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setEditUseMaxCompletionTokens(model.param_overrides?.use_max_completion_tokens ?? false);
       setEditNoSystemRole(model.param_overrides?.no_system_role ?? false);
       setEditForceMaxTokens(model.param_overrides?.force_max_tokens ?? false);
-      setEditThinkingParamStyle(model.param_overrides?.thinking_param_style ?? 'reasoning_effort');
+      setEditThinkingParamStyle(model.param_overrides?.reasoning_profile ?? model.param_overrides?.thinking_param_style ?? 'reasoning_effort');
       setSettingsModalOpen(true);
     },
     [],
@@ -684,7 +703,10 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       use_max_completion_tokens: editUseMaxCompletionTokens,
       no_system_role: editNoSystemRole,
       force_max_tokens: editForceMaxTokens,
-      thinking_param_style: editThinkingParamStyle === 'reasoning_effort' ? undefined : editThinkingParamStyle,
+      thinking_param_style: editThinkingParamStyle === 'enable_thinking' || editThinkingParamStyle === 'none'
+        ? editThinkingParamStyle
+        : undefined,
+      reasoning_profile: normalizeReasoningProfile(editThinkingParamStyle),
     };
     const nextCapabilities = sanitizeModelCapabilities(editModelType, editCapabilities);
     try {
@@ -846,7 +868,12 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       if (batchUseMaxCompletionTokensEnabled) overrides.use_max_completion_tokens = batchUseMaxCompletionTokens;
       if (batchNoSystemRoleEnabled) overrides.no_system_role = batchNoSystemRole;
       if (batchForceMaxTokensEnabled) overrides.force_max_tokens = batchForceMaxTokens;
-      if (batchThinkingParamStyleEnabled) overrides.thinking_param_style = batchThinkingParamStyle === 'reasoning_effort' ? undefined : batchThinkingParamStyle;
+      if (batchThinkingParamStyleEnabled) {
+        overrides.thinking_param_style = batchThinkingParamStyle === 'enable_thinking' || batchThinkingParamStyle === 'none'
+          ? batchThinkingParamStyle
+          : undefined;
+        overrides.reasoning_profile = normalizeReasoningProfile(batchThinkingParamStyle);
+      }
       updated.param_overrides = overrides;
       return updated;
     });
@@ -1879,14 +1906,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <span className="text-sm" style={{ color: token.colorText }}>{t('settings.thinkingParamStyle')}</span>
                   <Select
                     size="small"
-                    style={{ width: 180 }}
+                    style={{ width: REASONING_PROFILE_SELECT_WIDTH }}
+                    popupMatchSelectWidth={REASONING_PROFILE_POPUP_WIDTH}
                     value={editThinkingParamStyle}
                     onChange={setEditThinkingParamStyle}
-                    options={[
-                      { value: 'reasoning_effort', label: 'reasoning_effort (OpenAI)' },
-                      { value: 'enable_thinking', label: 'enable_thinking (SiliconFlow)' },
-                      { value: 'none', label: t('settings.thinkingParamStyleNone') },
-                    ]}
+                    options={REASONING_PROFILE_OPTIONS.map((option) => (
+                      option.value === 'none'
+                        ? { ...option, label: t('settings.thinkingParamStyleNone') }
+                        : option
+                    ))}
                   />
                 </div>
               </div>
@@ -2065,15 +2093,16 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 </Space>
                 <Select
                   size="small"
-                  style={{ width: 180 }}
+                  style={{ width: REASONING_PROFILE_SELECT_WIDTH }}
+                  popupMatchSelectWidth={REASONING_PROFILE_POPUP_WIDTH}
                   value={batchThinkingParamStyle}
                   onChange={setBatchThinkingParamStyle}
                   disabled={!batchThinkingParamStyleEnabled}
-                  options={[
-                    { value: 'reasoning_effort', label: 'reasoning_effort (OpenAI)' },
-                    { value: 'enable_thinking', label: 'enable_thinking (SiliconFlow)' },
-                    { value: 'none', label: t('settings.thinkingParamStyleNone') },
-                  ]}
+                  options={REASONING_PROFILE_OPTIONS.map((option) => (
+                    option.value === 'none'
+                      ? { ...option, label: t('settings.thinkingParamStyleNone') }
+                      : option
+                  ))}
                 />
               </div>
             </div>

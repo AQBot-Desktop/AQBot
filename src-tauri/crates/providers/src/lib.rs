@@ -4,6 +4,7 @@ pub mod gemini;
 pub mod openai;
 pub mod openai_images;
 pub mod openai_responses;
+pub mod reasoning;
 pub mod registry;
 
 use aqbot_core::error::{AQBotError, Result};

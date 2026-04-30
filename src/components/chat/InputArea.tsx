@@ -6,6 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore, useMemoryStore, useKnowledgeStore } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
 import { findModelByIds, supportsReasoning, modelHasCapability } from '@/lib/modelCapabilities';
+import {
+  coerceReasoningOptionKey,
+  legacyThinkingBudgetToOptionKey,
+  resolveReasoningProfile,
+} from '@/lib/reasoningProfile';
 import { estimateMessageTokens, estimateTokens } from '@/lib/tokenEstimator';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
 import { NamespaceIcon } from '@/components/shared/NamespaceIcon';
@@ -17,7 +22,7 @@ import { ConversationSettingsModal } from './ConversationSettingsModal';
 import { ModelSelector } from './ModelSelector';
 import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
 import { ModelIcon } from '@lobehub/icons';
-import type { AttachmentInput, RealtimeConfig } from '@/types';
+import type { AttachmentInput, ProviderType, RealtimeConfig } from '@/types';
 import { invoke } from '@/lib/invoke';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -128,6 +133,8 @@ export function InputArea() {
   // Thinking state
   const thinkingBudget = useConversationStore((s) => s.thinkingBudget);
   const setThinkingBudget = useConversationStore((s) => s.setThinkingBudget);
+  const thinkingLevel = useConversationStore((s) => s.thinkingLevel);
+  const setThinkingLevel = useConversationStore((s) => s.setThinkingLevel);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
 
   // Agent permission mode state
@@ -355,60 +362,6 @@ export function InputArea() {
     );
   }, [mcpServers, enabledMcpServerIds, toggleMcpServer, token, t]);
 
-  const thinkingOptions = useMemo(() => ([
-    { key: 'default', label: t('chat.thinking.default'), value: null },
-    { key: 'none', label: t('chat.thinking.none'), value: 0 },
-    { key: 'low', label: t('chat.thinking.low'), value: 1024 },
-    { key: 'medium', label: t('chat.thinking.medium'), value: 4096 },
-    { key: 'high', label: t('chat.thinking.high'), value: 8192 },
-    { key: 'xhigh', label: t('chat.thinking.xhigh'), value: 16384 },
-  ]), [t]);
-
-  const selectedThinkingOption = useMemo(
-    () => thinkingOptions.find((opt) => opt.value === thinkingBudget) ?? thinkingOptions[0],
-    [thinkingBudget, thinkingOptions],
-  );
-
-  const thinkingIcon = useMemo(() => {
-    switch (selectedThinkingOption.key) {
-      case 'none': return <CircleOff size={14} />;
-      case 'low': return <SignalLow size={14} />;
-      case 'medium': return <SignalMedium size={14} />;
-      case 'high': return <SignalHigh size={14} />;
-      case 'xhigh': return <Signal size={14} />;
-      default: return <Atom size={14} />;
-    }
-  }, [selectedThinkingOption.key]);
-
-  const thinkingMenuItems = useMemo<MenuProps['items']>(
-    () => thinkingOptions.map((opt) => ({
-      key: opt.key,
-      label: opt.label,
-      icon: (() => {
-        switch (opt.key) {
-          case 'none': return <CircleOff size={14} />;
-          case 'default': return <Atom size={14} />;
-          case 'low': return <SignalLow size={14} />;
-          case 'medium': return <SignalMedium size={14} />;
-          case 'high': return <SignalHigh size={14} />;
-          case 'xhigh': return <Signal size={14} />;
-          default: return <Atom size={14} />;
-        }
-      })(),
-    })),
-    [thinkingOptions],
-  );
-
-  const handleThinkingMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
-    ({ key }) => {
-      const selected = thinkingOptions.find((opt) => opt.key === key);
-      if (!selected) return;
-      setThinkingBudget(selected.value);
-      setThinkingDropdownOpen(false);
-    },
-    [setThinkingBudget, thinkingOptions],
-  );
-
   // Agent permission mode menu items
   const permissionModeItems = useMemo<MenuProps['items']>(() => [
     {
@@ -605,6 +558,79 @@ export function InputArea() {
 
     return null;
   }, [activeConversation, providers, settings.default_provider_id, settings.default_model_id]);
+
+  const currentProviderType = useMemo<ProviderType | undefined>(() => {
+    const providerId = currentModel?.provider_id ?? activeConversation?.provider_id;
+    return providers.find((provider) => provider.id === providerId)?.provider_type;
+  }, [activeConversation?.provider_id, currentModel?.provider_id, providers]);
+
+  const reasoningProfile = useMemo(
+    () => resolveReasoningProfile(currentProviderType, currentModel),
+    [currentModel, currentProviderType],
+  );
+
+  const thinkingOptions = useMemo(
+    () => reasoningProfile.options.map((option) => ({
+      ...option,
+      label: t(option.labelKey, option.fallbackLabel),
+    })),
+    [reasoningProfile, t],
+  );
+
+  const selectedThinkingKey = useMemo(() => {
+    const legacyKey = thinkingLevel === null
+      ? legacyThinkingBudgetToOptionKey(reasoningProfile, thinkingBudget)
+      : null;
+    return coerceReasoningOptionKey(reasoningProfile, thinkingLevel ?? legacyKey);
+  }, [reasoningProfile, thinkingBudget, thinkingLevel]);
+
+  const selectedThinkingOption = useMemo(
+    () => thinkingOptions.find((opt) => opt.key === selectedThinkingKey) ?? thinkingOptions[0],
+    [selectedThinkingKey, thinkingOptions],
+  );
+
+  const thinkingIcon = useMemo(() => {
+    switch (selectedThinkingOption.icon) {
+      case 'off': return <CircleOff size={14} />;
+      case 'low': return <SignalLow size={14} />;
+      case 'medium': return <SignalMedium size={14} />;
+      case 'high': return <SignalHigh size={14} />;
+      case 'xhigh': return <Signal size={14} />;
+      case 'max': return <Signal size={14} />;
+      default: return <Atom size={14} />;
+    }
+  }, [selectedThinkingOption.icon]);
+
+  const thinkingMenuItems = useMemo<MenuProps['items']>(
+    () => thinkingOptions.map((opt) => ({
+      key: opt.key,
+      label: opt.label,
+      icon: (() => {
+        switch (opt.icon) {
+          case 'off': return <CircleOff size={14} />;
+          case 'default': return <Atom size={14} />;
+          case 'low': return <SignalLow size={14} />;
+          case 'medium': return <SignalMedium size={14} />;
+          case 'high': return <SignalHigh size={14} />;
+          case 'xhigh': return <Signal size={14} />;
+          case 'max': return <Signal size={14} />;
+          default: return <Atom size={14} />;
+        }
+      })(),
+    })),
+    [thinkingOptions],
+  );
+
+  const handleThinkingMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ key }) => {
+      const selected = thinkingOptions.find((opt) => opt.key === key);
+      if (!selected) return;
+      setThinkingLevel(selected.key === 'default' ? null : selected.key);
+      if (selected.key === 'default') setThinkingBudget(null);
+      setThinkingDropdownOpen(false);
+    },
+    [setThinkingBudget, setThinkingLevel, thinkingOptions],
+  );
 
   // Context token usage calculation
   const getCompressionSummary = useConversationStore((s) => s.getCompressionSummary);
@@ -1248,13 +1274,14 @@ export function InputArea() {
                   open={thinkingDropdownOpen ? false : undefined}
                 >
                   <Button
+                    aria-label={t('chat.thinkingIntensity')}
                     type="text"
                     size="small"
                     icon={thinkingIcon}
                     style={
-                      thinkingBudget === 0
+                      selectedThinkingOption.key === 'off' || selectedThinkingOption.key === 'none'
                         ? { color: token.colorError }
-                        : thinkingBudget !== null
+                        : selectedThinkingOption.key !== 'default'
                           ? { color: token.colorPrimary }
                           : undefined
                     }

@@ -54,6 +54,7 @@ function makeConversation(id: string, overrides: Record<string, unknown> = {}) {
     search_enabled: false,
     search_provider_id: null,
     thinking_budget: null,
+    thinking_level: null,
     enabled_mcp_server_ids: [],
     enabled_knowledge_base_ids: [],
     enabled_memory_namespace_ids: [],
@@ -103,6 +104,7 @@ describe('conversationStore pagination', () => {
       searchProviderId: null,
       enabledMcpServerIds: [],
       thinkingBudget: null,
+      thinkingLevel: null,
       enabledKnowledgeBaseIds: [],
       enabledMemoryNamespaceIds: [],
       archivedConversations: [],
@@ -193,6 +195,7 @@ describe('conversationStore pagination', () => {
           search_enabled: true,
           search_provider_id: 'search-a',
           thinking_budget: 2048,
+          thinking_level: 'medium',
           enabled_mcp_server_ids: ['mcp-a'],
           enabled_knowledge_base_ids: ['kb-a'],
           enabled_memory_namespace_ids: ['mem-a'],
@@ -201,6 +204,7 @@ describe('conversationStore pagination', () => {
           search_enabled: false,
           search_provider_id: null,
           thinking_budget: null,
+          thinking_level: null,
           enabled_mcp_server_ids: ['mcp-b'],
           enabled_knowledge_base_ids: [],
           enabled_memory_namespace_ids: ['mem-b'],
@@ -214,6 +218,7 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().searchEnabled).toBe(true);
     expect(useConversationStore.getState().searchProviderId).toBe('search-a');
     expect(useConversationStore.getState().thinkingBudget).toBe(2048);
+    expect(useConversationStore.getState().thinkingLevel).toBe('medium');
     expect(useConversationStore.getState().enabledMcpServerIds).toEqual(['mcp-a']);
     expect(useConversationStore.getState().enabledKnowledgeBaseIds).toEqual(['kb-a']);
     expect(useConversationStore.getState().enabledMemoryNamespaceIds).toEqual(['mem-a']);
@@ -224,6 +229,7 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().searchEnabled).toBe(false);
     expect(useConversationStore.getState().searchProviderId).toBeNull();
     expect(useConversationStore.getState().thinkingBudget).toBeNull();
+    expect(useConversationStore.getState().thinkingLevel).toBeNull();
     expect(useConversationStore.getState().enabledMcpServerIds).toEqual(['mcp-b']);
     expect(useConversationStore.getState().enabledKnowledgeBaseIds).toEqual([]);
     expect(useConversationStore.getState().enabledMemoryNamespaceIds).toEqual(['mem-b']);
@@ -248,6 +254,30 @@ describe('conversationStore pagination', () => {
         search_enabled: true,
       },
     });
+  });
+
+  it('persists reasoning level changes separately from legacy thinking budget', async () => {
+    invokeMock.mockResolvedValueOnce(makeConversation('conv-1', { thinking_budget: 4096, thinking_level: 'high' }));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      thinkingLevel: null,
+      thinkingBudget: 4096,
+    });
+
+    useConversationStore.getState().setThinkingLevel('high');
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('update_conversation', {
+      id: 'conv-1',
+      input: {
+        thinking_level: 'high',
+      },
+    });
+    expect(useConversationStore.getState().thinkingLevel).toBe('high');
+    expect(useConversationStore.getState().thinkingBudget).toBe(4096);
   });
 
   it('rolls back optimistic MCP changes when persistence fails', async () => {
@@ -918,6 +948,7 @@ describe('conversationStore pagination', () => {
             search_enabled: false,
             search_provider_id: null,
             thinking_budget: null,
+            thinking_level: null,
             enabled_mcp_server_ids: [],
             enabled_knowledge_base_ids: [],
             enabled_memory_namespace_ids: [],

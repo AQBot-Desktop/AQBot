@@ -338,6 +338,7 @@ async fn test_conversation_update_input() {
         search_enabled: Some(true),
         search_provider_id: Some(Some("search-1".into())),
         thinking_budget: Some(Some(4096)),
+        thinking_level: Some(Some("high".into())),
         enabled_mcp_server_ids: Some(vec!["mcp-a".into(), "mcp-b".into()]),
         enabled_knowledge_base_ids: Some(vec!["kb-a".into()]),
         enabled_memory_namespace_ids: Some(vec!["mem-a".into()]),
@@ -352,6 +353,7 @@ async fn test_conversation_update_input() {
     assert!(updated.search_enabled);
     assert_eq!(updated.search_provider_id.as_deref(), Some("search-1"));
     assert_eq!(updated.thinking_budget, Some(4096));
+    assert_eq!(updated.thinking_level.as_deref(), Some("high"));
     assert_eq!(
         updated.enabled_mcp_server_ids,
         vec!["mcp-a".to_string(), "mcp-b".to_string()]

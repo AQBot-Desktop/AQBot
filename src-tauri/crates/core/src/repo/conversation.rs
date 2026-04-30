@@ -22,6 +22,7 @@ fn conversation_from_entity(m: conversations::Model) -> Conversation {
         search_enabled: m.search_enabled != 0,
         search_provider_id: m.search_provider_id,
         thinking_budget: m.thinking_budget,
+        thinking_level: m.thinking_level,
         enabled_mcp_server_ids: parse_string_list(&m.enabled_mcp_server_ids),
         enabled_knowledge_base_ids: parse_string_list(&m.enabled_knowledge_base_ids),
         enabled_memory_namespace_ids: parse_string_list(&m.enabled_memory_namespace_ids),
@@ -156,6 +157,9 @@ pub async fn update_conversation(
     }
     if let Some(thinking_budget) = input.thinking_budget {
         am.thinking_budget = Set(thinking_budget);
+    }
+    if let Some(thinking_level) = input.thinking_level {
+        am.thinking_level = Set(thinking_level);
     }
     if let Some(enabled_mcp_server_ids) = input.enabled_mcp_server_ids {
         am.enabled_mcp_server_ids = Set(stringify_string_list(&enabled_mcp_server_ids));
@@ -322,6 +326,7 @@ pub async fn branch_conversation(
         search_enabled: Set(source.search_enabled),
         search_provider_id: Set(source.search_provider_id.clone()),
         thinking_budget: Set(source.thinking_budget),
+        thinking_level: Set(source.thinking_level.clone()),
         enabled_mcp_server_ids: Set(source.enabled_mcp_server_ids.clone()),
         enabled_knowledge_base_ids: Set(source.enabled_knowledge_base_ids.clone()),
         enabled_memory_namespace_ids: Set(source.enabled_memory_namespace_ids.clone()),

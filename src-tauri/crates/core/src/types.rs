@@ -216,6 +216,13 @@ pub struct ModelParamOverrides {
     /// Thinking parameter format for the provider API.
     /// "reasoning_effort" (default/OpenAI) or "enable_thinking" (SiliconFlow).
     pub thinking_param_style: Option<String>,
+    /// Model-specific reasoning profile. When set, this overrides legacy
+    /// thinking_param_style for reasoning payload serialization.
+    pub reasoning_profile: Option<String>,
+    /// Optional whitelist of reasoning option keys for this model.
+    pub reasoning_options: Option<Vec<String>>,
+    /// Optional default reasoning option key for this model.
+    pub reasoning_default: Option<String>,
 }
 
 // === Conversation & Message ===
@@ -234,6 +241,7 @@ pub struct Conversation {
     pub search_enabled: bool,
     pub search_provider_id: Option<String>,
     pub thinking_budget: Option<i64>,
+    pub thinking_level: Option<String>,
     pub enabled_mcp_server_ids: Vec<String>,
     pub enabled_knowledge_base_ids: Vec<String>,
     pub enabled_memory_namespace_ids: Vec<String>,
@@ -362,6 +370,8 @@ pub struct UpdateConversationInput {
     pub search_provider_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub thinking_budget: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub thinking_level: Option<Option<String>>,
     pub enabled_mcp_server_ids: Option<Vec<String>>,
     pub enabled_knowledge_base_ids: Option<Vec<String>>,
     pub enabled_memory_namespace_ids: Option<Vec<String>>,
@@ -767,6 +777,12 @@ pub struct ChatRequest {
     /// Optional thinking/reasoning token budget. Mapped to provider-specific fields.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_budget: Option<u32>,
+    /// Optional model-specific reasoning level key, e.g. none/minimal/low/high/xhigh/max.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    /// Optional model/provider reasoning profile for payload serialization.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_profile: Option<String>,
     /// When true, send `max_completion_tokens` instead of `max_tokens` (OpenAI o-series).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_max_completion_tokens: Option<bool>,

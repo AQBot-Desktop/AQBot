@@ -17,6 +17,7 @@ pub struct Model {
     pub search_enabled: i32,
     pub search_provider_id: Option<String>,
     pub thinking_budget: Option<i64>,
+    pub thinking_level: Option<String>,
     pub enabled_mcp_server_ids: String,
     pub enabled_knowledge_base_ids: String,
     pub enabled_memory_namespace_ids: String,

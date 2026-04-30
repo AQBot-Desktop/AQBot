@@ -6,6 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
+use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 use crate::{build_http_client, parse_base64_data_url, ProviderAdapter, ProviderRequestContext};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
@@ -107,7 +108,10 @@ struct GeminiGenerationConfig {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiThinkingConfig {
-    thinking_budget: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_budget: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -344,9 +348,20 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
 }
 
 fn make_gen_config(request: &ChatRequest) -> Option<GeminiGenerationConfig> {
-    let thinking_config = request
-        .thinking_budget
-        .map(|b| GeminiThinkingConfig { thinking_budget: b });
+    let model_id = request.model.to_lowercase();
+    let default_style = if model_id.contains("3.")
+        || model_id.contains("gemini-3")
+        || model_id.contains("-3-")
+    {
+        ReasoningStyle::GeminiThinkingLevel
+    } else {
+        ReasoningStyle::GeminiThinkingBudget
+    };
+    let thinking_config =
+        resolve_reasoning(request, default_style).map(|r| GeminiThinkingConfig {
+            thinking_budget: r.budget_tokens,
+            thinking_level: r.thinking_level,
+        });
     if request.temperature.is_some()
         || request.top_p.is_some()
         || request.max_tokens.is_some()
@@ -418,6 +433,38 @@ mod tests {
                 ]
             })
         );
+    }
+
+    fn request(model: &str, thinking_level: Option<&str>, thinking_budget: Option<u32>) -> ChatRequest {
+        ChatRequest {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::Text("hi".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            temperature: Some(0.7),
+            top_p: None,
+            max_tokens: None,
+            tools: None,
+            thinking_budget,
+            thinking_level: thinking_level.map(str::to_string),
+            reasoning_profile: Some("gemini_thinking_level".to_string()),
+            use_max_completion_tokens: None,
+            thinking_param_style: None,
+        }
+    }
+
+    #[test]
+    fn make_gen_config_sends_thinking_level_for_gemini_3() {
+        let config = make_gen_config(&request("gemini-3.1-flash", Some("minimal"), Some(8192)))
+            .expect("generation config");
+        let thinking = config.thinking_config.expect("thinking config");
+
+        assert_eq!(thinking.thinking_level.as_deref(), Some("minimal"));
+        assert_eq!(thinking.thinking_budget, None);
     }
 }
 

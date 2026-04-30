@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke, listen, type UnlistenFn, isTauri } from '@/lib/invoke';
 import { supportsReasoning, findModelByIds } from '@/lib/modelCapabilities';
+import { coerceReasoningOptionKey, resolveReasoningProfile } from '@/lib/reasoningProfile';
 import {
   applyMultiModelStreamError,
   hasMultipleModelVersions,
@@ -86,6 +87,7 @@ type ConversationPreferenceState = Pick<
   | 'searchEnabled'
   | 'searchProviderId'
   | 'thinkingBudget'
+  | 'thinkingLevel'
   | 'enabledMcpServerIds'
   | 'enabledKnowledgeBaseIds'
   | 'enabledMemoryNamespaceIds'
@@ -98,6 +100,7 @@ function conversationPreferenceStateFromConversation(
     searchEnabled: conversation?.search_enabled ?? false,
     searchProviderId: conversation?.search_provider_id ?? null,
     thinkingBudget: conversation?.thinking_budget ?? null,
+    thinkingLevel: conversation?.thinking_level ?? null,
     enabledMcpServerIds: [...(conversation?.enabled_mcp_server_ids ?? [])],
     enabledKnowledgeBaseIds: [...(conversation?.enabled_knowledge_base_ids ?? [])],
     enabledMemoryNamespaceIds: [...(conversation?.enabled_memory_namespace_ids ?? [])],
@@ -110,6 +113,7 @@ function conversationPreferenceUpdateFromState(
     | 'searchEnabled'
     | 'searchProviderId'
     | 'thinkingBudget'
+    | 'thinkingLevel'
     | 'enabledMcpServerIds'
     | 'enabledKnowledgeBaseIds'
     | 'enabledMemoryNamespaceIds'
@@ -119,6 +123,7 @@ function conversationPreferenceUpdateFromState(
   | 'search_enabled'
   | 'search_provider_id'
   | 'thinking_budget'
+  | 'thinking_level'
   | 'enabled_mcp_server_ids'
   | 'enabled_knowledge_base_ids'
   | 'enabled_memory_namespace_ids'
@@ -127,6 +132,7 @@ function conversationPreferenceUpdateFromState(
     search_enabled: state.searchEnabled,
     search_provider_id: state.searchProviderId,
     thinking_budget: state.thinkingBudget,
+    thinking_level: state.thinkingLevel,
     enabled_mcp_server_ids: [...state.enabledMcpServerIds],
     enabled_knowledge_base_ids: [...state.enabledKnowledgeBaseIds],
     enabled_memory_namespace_ids: [...state.enabledMemoryNamespaceIds],
@@ -169,6 +175,7 @@ function isLatestConversationPreferenceSave(conversationId: string, seq: number)
 }
 
 function getEffectiveThinkingBudget(get: () => ConversationState, conversationId: string): number | undefined {
+  if (get().thinkingLevel !== null) return undefined;
   const thinkingBudget = get().thinkingBudget;
   if (thinkingBudget === null) return undefined;
 
@@ -179,6 +186,23 @@ function getEffectiveThinkingBudget(get: () => ConversationState, conversationId
   const model = findModelByIds(providers, conversation.provider_id, conversation.model_id);
   if (!model) return thinkingBudget;
   return supportsReasoning(model) ? thinkingBudget : undefined;
+}
+
+function getEffectiveThinkingLevel(get: () => ConversationState, conversationId: string): string | undefined {
+  const thinkingLevel = get().thinkingLevel;
+  if (thinkingLevel === null) return undefined;
+
+  const conversation = get().conversations.find((item) => item.id === conversationId);
+  if (!conversation) return thinkingLevel;
+
+  const providers = useProviderStore.getState().providers;
+  const provider = providers.find((item) => item.id === conversation.provider_id);
+  const model = findModelByIds(providers, conversation.provider_id, conversation.model_id);
+  if (!model) return thinkingLevel;
+  if (!supportsReasoning(model)) return undefined;
+  const profile = resolveReasoningProfile(provider?.provider_type, model);
+  const optionKey = coerceReasoningOptionKey(profile, thinkingLevel);
+  return optionKey === 'default' ? undefined : optionKey;
 }
 
 function mergePreservedMessages(
@@ -312,6 +336,7 @@ async function persistConversationPreferences(
           searchEnabled: state.searchEnabled,
           searchProviderId: state.searchProviderId,
           thinkingBudget: state.thinkingBudget,
+          thinkingLevel: state.thinkingLevel,
           enabledMcpServerIds: state.enabledMcpServerIds,
           enabledKnowledgeBaseIds: state.enabledKnowledgeBaseIds,
           enabledMemoryNamespaceIds: state.enabledMemoryNamespaceIds,
@@ -356,6 +381,9 @@ interface ConversationState {
   /** Thinking setting for reasoning-capable models (null = provider default, 0 = disabled) */
   thinkingBudget: number | null;
   setThinkingBudget: (budget: number | null) => void;
+  /** Reasoning level key for model-specific reasoning profiles (null = provider default) */
+  thinkingLevel: string | null;
+  setThinkingLevel: (level: string | null) => void;
   /** Knowledge base IDs enabled for the active conversation */
   enabledKnowledgeBaseIds: string[];
   setEnabledKnowledgeBaseIds: (ids: string[]) => void;
@@ -606,6 +634,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   searchProviderId: null,
   enabledMcpServerIds: [],
   thinkingBudget: null,
+  thinkingLevel: null,
   enabledKnowledgeBaseIds: [],
   enabledMemoryNamespaceIds: [],
   setSearchEnabled: (enabled) => {
@@ -679,6 +708,20 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         { thinking_budget: budget },
         { thinkingBudget: budget },
         { thinkingBudget: previous },
+      );
+    }
+  },
+  setThinkingLevel: (level) => {
+    const previous = get().thinkingLevel;
+    const conversationId = get().activeConversationId;
+    set({ thinkingLevel: level });
+    if (conversationId) {
+      void persistConversationPreferences(
+        set,
+        conversationId,
+        { thinking_level: level },
+        { thinkingLevel: level },
+        { thinkingLevel: previous },
       );
     }
   },
@@ -1283,6 +1326,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       const mcpIds = get().enabledMcpServerIds;
       const thinkingBudget = getEffectiveThinkingBudget(get, conversationId);
+      const thinkingLevel = getEffectiveThinkingLevel(get, conversationId);
       const kbIds = get().enabledKnowledgeBaseIds;
       const memIds = get().enabledMemoryNamespaceIds;
       const userMessage = await invoke<Message>('send_message', {
@@ -1291,6 +1335,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         attachments,
         enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
         thinkingBudget,
+        thinkingLevel,
         enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
         enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
       });
@@ -1770,6 +1815,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     try {
       const rMcpIds = get().enabledMcpServerIds;
       const rThinkingBudget = getEffectiveThinkingBudget(get, conversationId);
+      const rThinkingLevel = getEffectiveThinkingLevel(get, conversationId);
       const rKbIds = get().enabledKnowledgeBaseIds;
       const rMemIds = get().enabledMemoryNamespaceIds;
       await invoke('regenerate_message', {
@@ -1777,6 +1823,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         userMessageId: userMsg.id,
         enabledMcpServerIds: rMcpIds.length > 0 ? rMcpIds : undefined,
         thinkingBudget: rThinkingBudget,
+        thinkingLevel: rThinkingLevel,
         enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
         enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
       });
@@ -1862,6 +1909,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     try {
       const rMcpIds = get().enabledMcpServerIds;
       const rThinkingBudget = getEffectiveThinkingBudget(get, conversationId);
+      const rThinkingLevel = getEffectiveThinkingLevel(get, conversationId);
       const rKbIds = get().enabledKnowledgeBaseIds;
       const rMemIds = get().enabledMemoryNamespaceIds;
       await invoke('regenerate_with_model', {
@@ -1871,6 +1919,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         targetModelId: modelId,
         enabledMcpServerIds: rMcpIds.length > 0 ? rMcpIds : undefined,
         thinkingBudget: rThinkingBudget,
+        thinkingLevel: rThinkingLevel,
         enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
         enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
         isCompanion: appendAsCompanion ? true : undefined,
@@ -1977,6 +2026,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       const mcpIds = get().enabledMcpServerIds;
       const thinkingBudget = getEffectiveThinkingBudget(get, conversationId);
+      const thinkingLevel = getEffectiveThinkingLevel(get, conversationId);
       const kbIds = get().enabledKnowledgeBaseIds;
       const memIds = get().enabledMemoryNamespaceIds;
 
@@ -1988,6 +2038,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           targetModelId: model.modelId,
           enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
           thinkingBudget,
+          thinkingLevel,
           enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
           isCompanion: true,

@@ -11,7 +11,12 @@ const setSearchProviderId = vi.fn();
 const loadSearchProviders = vi.fn();
 const loadMcpServers = vi.fn();
 const toggleMcpServer = vi.fn();
+const loadKnowledgeBases = vi.fn();
+const toggleKnowledgeBase = vi.fn();
+const loadMemoryNamespaces = vi.fn();
+const toggleMemoryNamespace = vi.fn();
 const setThinkingBudget = vi.fn();
+const setThinkingLevel = vi.fn();
 const insertContextClear = vi.fn();
 const setActivePage = vi.fn();
 const setSettingsSection = vi.fn();
@@ -36,8 +41,14 @@ const conversationState = {
   setSearchProviderId,
   enabledMcpServerIds: [] as string[],
   toggleMcpServer,
+  enabledKnowledgeBaseIds: [] as string[],
+  toggleKnowledgeBase,
+  enabledMemoryNamespaceIds: [] as string[],
+  toggleMemoryNamespace,
   thinkingBudget: null as number | null,
+  thinkingLevel: null as string | null,
   setThinkingBudget,
+  setThinkingLevel,
   insertContextClear,
 };
 
@@ -45,12 +56,18 @@ const providerState = {
   providers: [
     {
       id: 'provider-1',
+      provider_type: 'gemini',
       enabled: true,
       models: [
         {
+          provider_id: 'provider-1',
           model_id: 'model-1',
+          name: 'model-1',
+          model_type: 'Chat',
           enabled: true,
-          capabilities: [],
+          capabilities: [] as string[],
+          max_tokens: 128000,
+          param_overrides: null,
         },
       ],
     },
@@ -80,6 +97,16 @@ const mcpState = {
   loadServers: loadMcpServers,
 };
 
+const knowledgeState = {
+  bases: [],
+  loadBases: loadKnowledgeBases,
+};
+
+const memoryState = {
+  namespaces: [],
+  loadNamespaces: loadMemoryNamespaces,
+};
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
@@ -87,11 +114,19 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/stores', () => ({
-  useConversationStore: (selector: (state: typeof conversationState) => unknown) => selector(conversationState),
-  useProviderStore: (selector: (state: typeof providerState) => unknown) => selector(providerState),
+  useConversationStore: Object.assign(
+    (selector: (state: typeof conversationState) => unknown) => selector(conversationState),
+    { getState: () => conversationState },
+  ),
+  useProviderStore: Object.assign(
+    (selector: (state: typeof providerState) => unknown) => selector(providerState),
+    { getState: () => providerState },
+  ),
   useSettingsStore: (selector: (state: typeof settingsState) => unknown) => selector(settingsState),
   useSearchStore: (selector: (state: typeof searchState) => unknown) => selector(searchState),
   useMcpStore: (selector: (state: typeof mcpState) => unknown) => selector(mcpState),
+  useKnowledgeStore: (selector: (state: typeof knowledgeState) => unknown) => selector(knowledgeState),
+  useMemoryStore: (selector: (state: typeof memoryState) => unknown) => selector(memoryState),
 }));
 
 vi.mock('@/stores/uiStore', () => ({
@@ -100,11 +135,11 @@ vi.mock('@/stores/uiStore', () => ({
 }));
 
 vi.mock('@/lib/modelCapabilities', () => ({
-  findModelByIds: () => ({
-    model_id: 'model-1',
-    capabilities: [],
-  }),
-  supportsReasoning: () => false,
+  findModelByIds: (providers: typeof providerState.providers, providerId: string, modelId: string) =>
+    providers.find((provider) => provider.id === providerId)?.models.find((model) => model.model_id === modelId) ?? null,
+  supportsReasoning: (model: { capabilities?: string[] } | null | undefined) => model?.capabilities?.includes('Reasoning') ?? false,
+  modelHasCapability: (model: { capabilities?: string[] } | null | undefined, capability: string) =>
+    model?.capabilities?.includes(capability) ?? false,
 }));
 
 vi.mock('@/components/shared/SearchProviderIcon', () => ({
@@ -112,6 +147,10 @@ vi.mock('@/components/shared/SearchProviderIcon', () => ({
   PROVIDER_TYPE_LABELS: {
     tavily: 'Tavily',
   },
+}));
+
+vi.mock('@lobehub/icons', () => ({
+  ModelIcon: () => null,
 }));
 
 vi.mock('../VoiceCall', () => ({
@@ -122,9 +161,21 @@ vi.mock('../ConversationSettingsModal', () => ({
   ConversationSettingsModal: () => null,
 }));
 
+vi.mock('../ModelSelector', () => ({
+  ModelSelector: () => null,
+}));
+
 describe('InputArea', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    providerState.providers[0].provider_type = 'gemini';
+    providerState.providers[0].models[0].model_id = 'model-1';
+    providerState.providers[0].models[0].name = 'model-1';
+    providerState.providers[0].models[0].capabilities = [];
+    providerState.providers[0].models[0].param_overrides = null;
+    conversationState.conversations[0].model_id = 'model-1';
+    conversationState.thinkingBudget = null;
+    conversationState.thinkingLevel = null;
   });
 
   it('clears the textarea immediately after sending even while search-backed send is still pending', async () => {
@@ -153,5 +204,27 @@ describe('InputArea', () => {
     expect(textarea.value).toBe('');
 
     resolveSend();
+  });
+
+  it('renders model-specific reasoning options for Gemini 3.1 models', async () => {
+    providerState.providers[0].provider_type = 'gemini';
+    providerState.providers[0].models[0].model_id = 'gemini-3.1-flash';
+    providerState.providers[0].models[0].name = 'Gemini 3.1 Flash';
+    providerState.providers[0].models[0].capabilities = ['Reasoning'];
+    conversationState.conversations[0].model_id = 'gemini-3.1-flash';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.thinkingIntensity'));
+
+    expect(await screen.findByText('Minimal')).toBeInTheDocument();
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('Medium')).toBeInTheDocument();
+    expect(screen.getByText('High')).toBeInTheDocument();
+    expect(screen.queryByText('XHigh')).not.toBeInTheDocument();
   });
 });

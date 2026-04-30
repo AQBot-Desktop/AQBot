@@ -10,6 +10,7 @@ use crate::{
     build_http_client, parse_base64_data_url, resolve_chat_url, ProviderAdapter,
     ProviderRequestContext,
 };
+use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -63,12 +64,20 @@ struct AnthropicRequest {
     tools: Option<Vec<AnthropicTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<AnthropicOutputConfig>,
 }
 
 #[derive(Serialize)]
 struct AnthropicThinking {
     r#type: String,
-    budget_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct AnthropicOutputConfig {
+    effort: String,
 }
 
 #[derive(Serialize)]
@@ -245,6 +254,91 @@ fn convert_tools_to_anthropic(tools: &Option<Vec<ChatTool>>) -> Option<Vec<Anthr
     })
 }
 
+fn default_reasoning_style(model: &str) -> ReasoningStyle {
+    let model = model.to_lowercase();
+    if model.contains("4.6")
+        || model.contains("4-6")
+        || model.contains("4.7")
+        || model.contains("4-7")
+    {
+        ReasoningStyle::AnthropicAdaptive
+    } else {
+        ReasoningStyle::AnthropicBudgetTokens
+    }
+}
+
+fn build_request(
+    request: &ChatRequest,
+    system: Option<String>,
+    messages: Vec<AnthropicMessage>,
+    stream: Option<bool>,
+) -> AnthropicRequest {
+    let reasoning = resolve_reasoning(request, default_reasoning_style(&request.model));
+    let mut thinking = None;
+    let mut output_config = None;
+    let mut suppress_sampling = false;
+
+    if let Some(reasoning) = reasoning {
+        match reasoning.style {
+            ReasoningStyle::AnthropicAdaptive => {
+                if matches!(reasoning.level.as_str(), "off" | "none") {
+                    thinking = Some(AnthropicThinking {
+                        r#type: "disabled".to_string(),
+                        budget_tokens: None,
+                    });
+                } else {
+                    thinking = Some(AnthropicThinking {
+                        r#type: "adaptive".to_string(),
+                        budget_tokens: None,
+                    });
+                    output_config = reasoning.reasoning_effort.map(|effort| AnthropicOutputConfig { effort });
+                    suppress_sampling = reasoning.suppress_sampling_params;
+                }
+            }
+            ReasoningStyle::AnthropicBudgetTokens => {
+                if let Some(budget_tokens) = reasoning.budget_tokens {
+                    if budget_tokens == 0 {
+                        thinking = Some(AnthropicThinking {
+                            r#type: "disabled".to_string(),
+                            budget_tokens: None,
+                        });
+                    } else {
+                        thinking = Some(AnthropicThinking {
+                            r#type: "enabled".to_string(),
+                            budget_tokens: Some(budget_tokens),
+                        });
+                        suppress_sampling = reasoning.suppress_sampling_params;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    AnthropicRequest {
+        model: request.model.clone(),
+        messages,
+        max_tokens: request
+            .max_tokens
+            .unwrap_or(if suppress_sampling { 16000 } else { 4096 }),
+        system,
+        temperature: if suppress_sampling {
+            None
+        } else {
+            request.temperature
+        },
+        top_p: if suppress_sampling {
+            None
+        } else {
+            request.top_p
+        },
+        stream,
+        tools: convert_tools_to_anthropic(&request.tools),
+        thinking,
+        output_config,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,6 +381,54 @@ mod tests {
             ])
         );
     }
+
+    fn request(thinking_level: Option<&str>, reasoning_profile: &str) -> ChatRequest {
+        ChatRequest {
+            model: "claude-opus-4-7".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::Text("hi".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            max_tokens: None,
+            tools: None,
+            thinking_budget: Some(8192),
+            thinking_level: thinking_level.map(str::to_string),
+            reasoning_profile: Some(reasoning_profile.to_string()),
+            use_max_completion_tokens: None,
+            thinking_param_style: None,
+        }
+    }
+
+    #[test]
+    fn build_request_sends_adaptive_thinking_effort_for_claude_opus_47() {
+        let req = request(Some("max"), "anthropic_adaptive");
+        let (system, messages) = convert_messages(&req.messages);
+        let built = build_request(&req, system, messages, Some(false));
+
+        let thinking = built.thinking.expect("thinking config");
+        assert_eq!(thinking.r#type, "adaptive");
+        assert_eq!(thinking.budget_tokens, None);
+        assert_eq!(built.output_config.expect("output config").effort, "max");
+        assert_eq!(built.temperature, None);
+        assert_eq!(built.top_p, None);
+    }
+
+    #[test]
+    fn build_request_keeps_budget_tokens_for_vertex_compatible_claude() {
+        let req = request(Some("high"), "anthropic_budget_tokens");
+        let (system, messages) = convert_messages(&req.messages);
+        let built = build_request(&req, system, messages, Some(false));
+
+        let thinking = built.thinking.expect("thinking config");
+        assert_eq!(thinking.r#type, "enabled");
+        assert_eq!(thinking.budget_tokens, Some(8192));
+        assert!(built.output_config.is_none());
+    }
 }
 
 #[async_trait]
@@ -298,38 +440,7 @@ impl ProviderAdapter for AnthropicAdapter {
     ) -> Result<ChatResponse> {
         let url = Self::chat_url(ctx);
         let (system, messages) = convert_messages(&request.messages);
-
-        let thinking = request.thinking_budget.and_then(|b| {
-            if b == 0 {
-                None
-            } else {
-                Some(AnthropicThinking {
-                    r#type: "enabled".to_string(),
-                    budget_tokens: b,
-                })
-            }
-        });
-        let body = AnthropicRequest {
-            model: request.model.clone(),
-            messages,
-            max_tokens: request
-                .max_tokens
-                .unwrap_or(if thinking.is_some() { 16000 } else { 4096 }),
-            system,
-            temperature: if thinking.is_some() {
-                None
-            } else {
-                request.temperature
-            },
-            top_p: if thinking.is_some() {
-                None
-            } else {
-                request.top_p
-            },
-            stream: None,
-            tools: convert_tools_to_anthropic(&request.tools),
-            thinking,
-        };
+        let body = build_request(&request, system, messages, None);
 
         let resp = crate::apply_request_headers(
             self.get_client(ctx)?
@@ -424,37 +535,7 @@ impl ProviderAdapter for AnthropicAdapter {
         let url = Self::chat_url(ctx);
 
         let (system, messages) = convert_messages(&request.messages);
-        let thinking = request.thinking_budget.and_then(|b| {
-            if b == 0 {
-                None
-            } else {
-                Some(AnthropicThinking {
-                    r#type: "enabled".to_string(),
-                    budget_tokens: b,
-                })
-            }
-        });
-        let body = AnthropicRequest {
-            model: request.model.clone(),
-            messages,
-            max_tokens: request
-                .max_tokens
-                .unwrap_or(if thinking.is_some() { 16000 } else { 4096 }),
-            system,
-            temperature: if thinking.is_some() {
-                None
-            } else {
-                request.temperature
-            },
-            top_p: if thinking.is_some() {
-                None
-            } else {
-                request.top_p
-            },
-            stream: Some(true),
-            tools: convert_tools_to_anthropic(&request.tools),
-            thinking,
-        };
+        let body = build_request(&request, system, messages, Some(true));
 
         let (tx, rx) = futures::channel::mpsc::unbounded();
 

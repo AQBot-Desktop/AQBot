@@ -28,6 +28,7 @@ mod m20250719_000001_add_skill_states;
 mod m20250720_000001_add_provider_builtin_id;
 mod m20260417_000001_add_category_default_templates;
 mod m20260428_000001_add_drawing_history;
+mod m20260430_000001_add_conversation_thinking_level;
 
 pub struct Migrator;
 
@@ -63,6 +64,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250720_000001_add_provider_builtin_id::Migration),
             Box::new(m20260417_000001_add_category_default_templates::Migration),
             Box::new(m20260428_000001_add_drawing_history::Migration),
+            Box::new(m20260430_000001_add_conversation_thinking_level::Migration),
         ]
     }
 }
@@ -125,6 +127,24 @@ mod tests {
                 "missing table {table}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_conversation_thinking_level_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let manager = SchemaManager::new(&db);
+        assert!(
+            manager
+                .has_column("conversations", "thinking_level")
+                .await
+                .expect("check thinking level column"),
+            "missing conversations.thinking_level"
+        );
     }
 
     #[tokio::test]

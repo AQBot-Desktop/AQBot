@@ -1109,6 +1109,8 @@ async fn generate_ai_title_with(
         max_tokens: settings.title_summary_max_tokens.or(Some(50)),
         tools: None,
         thinking_budget: None,
+        thinking_level: None,
+        reasoning_profile: None,
         use_max_completion_tokens,
         thinking_param_style: None,
     };
@@ -1341,11 +1343,13 @@ fn spawn_stream_task(
     version_index: i32,
     tools: Option<Vec<ChatTool>>,
     thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
     mcp_server_ids: Vec<String>,
     override_created_at: Option<i64>,
     use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
     thinking_param_style: Option<String>,
+    reasoning_profile: Option<String>,
     model_param_overrides: Option<ModelParamOverrides>,
     settings: AppSettings,
     master_key: [u8; 32],
@@ -1455,12 +1459,15 @@ fn spawn_stream_task(
                 max_tokens: effective_chat_params.max_tokens,
                 tools: tools.clone(),
                 thinking_budget,
+                thinking_level: thinking_level.clone(),
+                reasoning_profile: reasoning_profile.clone(),
                 use_max_completion_tokens,
                 thinking_param_style: thinking_param_style.clone(),
             };
 
             let mut stream = adapter.chat_stream(&ctx, request);
-            let suppress_thinking = thinking_budget == Some(0);
+            let suppress_thinking = thinking_budget == Some(0)
+                || matches!(thinking_level.as_deref(), Some("off" | "none"));
             let (content, usage, tool_calls, stream_error, iter_tps, iter_ttft) = consume_stream(
                 &app,
                 &mut stream,
@@ -1834,6 +1841,7 @@ pub async fn send_message(
     attachments: Vec<AttachmentInput>,
     enabled_mcp_server_ids: Option<Vec<String>>,
     thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<Message, String> {
@@ -1904,6 +1912,9 @@ pub async fn send_message(
     let thinking_param_style = model_param_overrides
         .as_ref()
         .and_then(|p| p.thinking_param_style.clone());
+    let reasoning_profile = model_param_overrides
+        .as_ref()
+        .and_then(|p| p.reasoning_profile.clone());
 
     // 4. Build ChatRequest from conversation messages
     let db_messages = aqbot_core::repo::message::list_messages(&state.sea_db, &conversation_id)
@@ -2180,11 +2191,13 @@ pub async fn send_message(
         0,
         tools,
         thinking_budget,
+        thinking_level,
         mcp_ids,
         Some(user_message.created_at + 1),
         use_max_completion_tokens,
         force_max_tokens,
         thinking_param_style,
+        reasoning_profile,
         model_param_overrides,
         global_settings,
         state.master_key,
@@ -2207,6 +2220,7 @@ pub async fn regenerate_message(
     user_message_id: Option<String>,
     enabled_mcp_server_ids: Option<Vec<String>>,
     thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
@@ -2459,6 +2473,9 @@ pub async fn regenerate_message(
     let thinking_param_style = regen_model_overrides
         .as_ref()
         .and_then(|p| p.thinking_param_style.clone());
+    let reasoning_profile = regen_model_overrides
+        .as_ref()
+        .and_then(|p| p.reasoning_profile.clone());
 
     // Convert system messages to user messages if model doesn't support system role
     if no_system_role {
@@ -2490,11 +2507,13 @@ pub async fn regenerate_message(
         new_version_index,
         tools,
         thinking_budget,
+        thinking_level,
         mcp_ids,
         original_created_at,
         use_max_completion_tokens,
         force_max_tokens,
         thinking_param_style,
+        reasoning_profile,
         regen_model_overrides,
         global_settings,
         state.master_key,
@@ -2518,6 +2537,7 @@ pub async fn regenerate_with_model(
     target_model_id: String,
     enabled_mcp_server_ids: Option<Vec<String>>,
     thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
     is_companion: Option<bool>,
@@ -2750,6 +2770,9 @@ pub async fn regenerate_with_model(
     let thinking_param_style = rwm_overrides
         .as_ref()
         .and_then(|p| p.thinking_param_style.clone());
+    let reasoning_profile = rwm_overrides
+        .as_ref()
+        .and_then(|p| p.reasoning_profile.clone());
 
     if no_system_role {
         for msg in &mut chat_messages {
@@ -2822,11 +2845,13 @@ pub async fn regenerate_with_model(
         new_version_index,
         tools,
         thinking_budget,
+        thinking_level,
         mcp_ids,
         original_created_at,
         use_max_completion_tokens,
         force_max_tokens,
         thinking_param_style,
+        reasoning_profile,
         rwm_overrides,
         global_settings,
         state.master_key,
@@ -2988,6 +3013,8 @@ async fn do_compress(
         max_tokens: settings.compression_max_tokens.or(Some(1024)),
         tools: None,
         thinking_budget: None,
+        thinking_level: None,
+        reasoning_profile: None,
         use_max_completion_tokens: comp_use_max,
         thinking_param_style: None,
     };
@@ -3261,6 +3288,7 @@ mod tests {
             search_enabled: false,
             search_provider_id: None,
             thinking_budget: None,
+            thinking_level: None,
             enabled_mcp_server_ids: Vec::new(),
             enabled_knowledge_base_ids: Vec::new(),
             enabled_memory_namespace_ids: Vec::new(),
@@ -3290,6 +3318,9 @@ mod tests {
             no_system_role: None,
             force_max_tokens: None,
             thinking_param_style: None,
+            reasoning_profile: None,
+            reasoning_options: None,
+            reasoning_default: None,
         }
     }
 

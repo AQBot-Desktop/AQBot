@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::{build_http_client, resolve_chat_url, ProviderAdapter, ProviderRequestContext};
+use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -391,22 +392,16 @@ fn build_responses_input(messages: &[ChatMessage]) -> (serde_json::Value, Option
 fn build_request(request: &ChatRequest, stream: bool) -> ResponsesRequest {
     let (input, instructions) = build_responses_input(&request.messages);
 
-    let reasoning = request.thinking_budget.map(|b| {
-        let effort = match b {
-            0 => "none",
-            1..=2048 => "low",
-            2049..=6144 => "medium",
-            6145..=12288 => "high",
-            _ => "xhigh",
-        };
-        ResponsesReasoning {
-            effort: effort.to_string(),
+    let reasoning = resolve_reasoning(request, ReasoningStyle::OpenAIResponsesReasoning).and_then(|r| {
+        let effort = r.reasoning_effort?;
+        Some(ResponsesReasoning {
+            effort: effort.clone(),
             summary: if effort == "none" {
                 None
             } else {
                 Some("auto".to_string())
             },
-        }
+        })
     });
 
     let tools = request.tools.as_ref().map(|tools| {
@@ -1167,6 +1162,8 @@ mod tests {
             max_tokens: Some(100),
             tools: None,
             thinking_budget: None,
+            thinking_level: None,
+            reasoning_profile: None,
             use_max_completion_tokens: None,
             thinking_param_style: None,
         };
@@ -1192,10 +1189,41 @@ mod tests {
             max_tokens: Some(1),
             tools: None,
             thinking_budget: None,
+            thinking_level: None,
+            reasoning_profile: None,
             use_max_completion_tokens: None,
             thinking_param_style: None,
         };
         let built = build_request(&request, false);
         assert_eq!(built.max_output_tokens, Some(16));
+    }
+
+    #[test]
+    fn build_request_uses_explicit_reasoning_level_over_legacy_budget() {
+        let request = ChatRequest {
+            model: "gpt-5.5".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::Text("hi".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            max_tokens: Some(100),
+            tools: None,
+            thinking_budget: Some(4096),
+            thinking_level: Some("xhigh".to_string()),
+            reasoning_profile: Some("openai_responses_reasoning".to_string()),
+            use_max_completion_tokens: None,
+            thinking_param_style: None,
+        };
+        let built = build_request(&request, false);
+        let reasoning = built.reasoning.expect("reasoning should be sent");
+        assert_eq!(reasoning.effort, "xhigh");
+        assert_eq!(reasoning.summary.as_deref(), Some("auto"));
+        assert_eq!(built.temperature, None);
+        assert_eq!(built.top_p, None);
     }
 }
