@@ -62,6 +62,7 @@ import { MultiModelDisplay, LayoutSwitcher, type MultiModelDisplayMode } from '.
 import PermissionCard from './PermissionCard';
 import AskUserCard from './AskUserCard';
 import { ChatImageNode } from './ChatImageNode';
+import { formatChatTime } from './chatTime';
 
 import { invoke } from '@/lib/invoke';
 import { registerHighlight } from 'stream-markdown';
@@ -2873,8 +2874,7 @@ export function ChatView() {
   }, [bubbleItems, assistantByParentId, messageById, streaming, streamingMessageId]);
   // ── Format timestamp ──────────────────────────────────────────────
   const formatTime = useCallback((ts: number) => {
-    const d = new Date(ts);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return formatChatTime(ts);
   }, []);
 
   // ── Resolve model name for the conversation ──────────────────────
