@@ -1,6 +1,8 @@
 use crate::AppState;
 use aqbot_core::types::*;
-use aqbot_providers::{registry::ProviderRegistry, resolve_base_url_for_type, ProviderRequestContext};
+use aqbot_providers::{
+    registry::ProviderRegistry, resolve_base_url_for_type, ProviderRequestContext,
+};
 use base64::Engine;
 use sea_orm::*;
 use std::sync::atomic::AtomicBool;
@@ -179,10 +181,7 @@ fn strip_disabled_thinking_content(content: &str) -> String {
     strip_think_tags(content)
 }
 
-fn strip_disabled_thinking_delta(
-    delta: &str,
-    state: &mut DisabledThinkingStripState,
-) -> String {
+fn strip_disabled_thinking_delta(delta: &str, state: &mut DisabledThinkingStripState) -> String {
     if delta.is_empty() && state.trailing_fragment.is_empty() {
         return String::new();
     }
@@ -269,7 +268,11 @@ fn strip_display_tags(content: &str) -> String {
                     if let Some(end_offset) = s[start_pos..].find(&tag_end) {
                         let after = &s[start_pos + end_offset + tag_end.len()..];
                         let before = &s[..start_pos];
-                        s = format!("{}{}", before.trim_end_matches('\n'), after.trim_start_matches('\n'));
+                        s = format!(
+                            "{}{}",
+                            before.trim_end_matches('\n'),
+                            after.trim_start_matches('\n')
+                        );
                         continue;
                     }
                 }
@@ -537,12 +540,12 @@ async fn consume_stream(
     cancel_flag: &AtomicBool,
     suppress_thinking: bool,
 ) -> (
-    String,              // full_content (includes <think> blocks)
+    String, // full_content (includes <think> blocks)
     Option<TokenUsage>,
     Option<Vec<ToolCall>>,
-    Option<String>,      // stream_error
-    Option<f64>,         // tokens_per_second
-    Option<i64>,         // first_token_latency_ms
+    Option<String>, // stream_error
+    Option<f64>,    // tokens_per_second
+    Option<i64>,    // first_token_latency_ms
 ) {
     use futures::StreamExt;
     let mut full_content = String::new();
@@ -570,10 +573,7 @@ async fn consume_stream(
                 let is_done = chunk.done;
                 let content_delta = chunk.content.as_deref().map(|content| {
                     if suppress_thinking {
-                        strip_disabled_thinking_delta(
-                            content,
-                            &mut disabled_thinking_strip_state,
-                        )
+                        strip_disabled_thinking_delta(content, &mut disabled_thinking_strip_state)
                     } else {
                         content.to_string()
                     }
@@ -671,7 +671,11 @@ async fn consume_stream(
                 }
 
                 let mut emitted_chunk = ChatStreamChunk {
-                    content: if emit_content.is_empty() { None } else { Some(emit_content) },
+                    content: if emit_content.is_empty() {
+                        None
+                    } else {
+                        Some(emit_content)
+                    },
                     thinking: emit_thinking_signal,
                     done: is_done,
                     is_final: None,
@@ -745,11 +749,11 @@ async fn consume_stream(
     }
 
     // Compute timing metrics
-    let first_token_latency_ms = first_token_time
-        .map(|t| (t - stream_start).as_millis() as i64);
+    let first_token_latency_ms = first_token_time.map(|t| (t - stream_start).as_millis() as i64);
     let tokens_per_second = match (final_usage.as_ref(), first_token_time) {
         (Some(usage), Some(ft)) if usage.completion_tokens > 0 => {
-            let gen_duration = stream_start.elapsed().as_secs_f64() - (ft - stream_start).as_secs_f64();
+            let gen_duration =
+                stream_start.elapsed().as_secs_f64() - (ft - stream_start).as_secs_f64();
             if gen_duration > 0.0 {
                 Some(usage.completion_tokens as f64 / gen_duration)
             } else {
@@ -1028,7 +1032,10 @@ pub async fn generate_ai_title(
             api_key: dk,
             key_id: key_row.id.clone(),
             provider_id: provider.id.clone(),
-            base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+            base_url: Some(resolve_base_url_for_type(
+                &provider.api_host,
+                &provider.provider_type,
+            )),
             api_path: provider.api_path.clone(),
             proxy_config: proxy,
             custom_headers: provider
@@ -1207,7 +1214,10 @@ pub async fn regenerate_conversation_title(
         api_key: decrypted_key,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -1315,8 +1325,14 @@ fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
     if sources.is_empty() {
         return String::new();
     }
-    let knowledge: Vec<&RagSourceResult> = sources.iter().filter(|s| s.source_type == "knowledge").collect();
-    let memory: Vec<&RagSourceResult> = sources.iter().filter(|s| s.source_type != "knowledge").collect();
+    let knowledge: Vec<&RagSourceResult> = sources
+        .iter()
+        .filter(|s| s.source_type == "knowledge")
+        .collect();
+    let memory: Vec<&RagSourceResult> = sources
+        .iter()
+        .filter(|s| s.source_type != "knowledge")
+        .collect();
     let mut result = String::new();
     if !knowledge.is_empty() {
         let json = serde_json::to_string(&knowledge).unwrap_or_default();
@@ -1324,7 +1340,10 @@ fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
     }
     if !memory.is_empty() {
         let json = serde_json::to_string(&memory).unwrap_or_default();
-        result.push_str(&format!("<memory-retrieval status=\"done\" data-aqbot=\"1\">\n{}\n</memory-retrieval>\n\n", json));
+        result.push_str(&format!(
+            "<memory-retrieval status=\"done\" data-aqbot=\"1\">\n{}\n</memory-retrieval>\n\n",
+            json
+        ));
     }
     result
 }
@@ -1404,34 +1423,34 @@ fn spawn_stream_task(
         // Early create: persist a placeholder message so it survives crash/refresh
         // Skip if the caller already created the placeholder before spawning.
         if !skip_placeholder_create {
-        if let Err(e) = (aqbot_core::entity::messages::ActiveModel {
-            id: Set(assistant_message_id.clone()),
-            conversation_id: Set(conversation_id.clone()),
-            role: Set("assistant".to_string()),
-            content: Set(String::new()),
-            provider_id: Set(Some(provider.id.clone())),
-            model_id: Set(Some(model_id.clone())),
-            token_count: Set(None),
-            prompt_tokens: Set(None),
-            completion_tokens: Set(None),
-            attachments: Set("[]".to_string()),
-            thinking: Set(None),
-            created_at: Set(override_created_at.unwrap_or_else(aqbot_core::utils::now_ts)),
-            branch_id: Set(None),
-            parent_message_id: Set(Some(parent_message_id.clone())),
-            version_index: Set(version_index),
-            is_active: Set(if create_inactive { 0 } else { 1 }),
-            tool_calls_json: Set(None),
-            tool_call_id: Set(None),
-            status: Set("partial".to_string()),
-            tokens_per_second: Set(None),
-            first_token_latency_ms: Set(None),
-        })
-        .insert(&db)
-        .await
-        {
-            tracing::error!("Failed to create placeholder assistant message: {}", e);
-        }
+            if let Err(e) = (aqbot_core::entity::messages::ActiveModel {
+                id: Set(assistant_message_id.clone()),
+                conversation_id: Set(conversation_id.clone()),
+                role: Set("assistant".to_string()),
+                content: Set(String::new()),
+                provider_id: Set(Some(provider.id.clone())),
+                model_id: Set(Some(model_id.clone())),
+                token_count: Set(None),
+                prompt_tokens: Set(None),
+                completion_tokens: Set(None),
+                attachments: Set("[]".to_string()),
+                thinking: Set(None),
+                created_at: Set(override_created_at.unwrap_or_else(aqbot_core::utils::now_ts)),
+                branch_id: Set(None),
+                parent_message_id: Set(Some(parent_message_id.clone())),
+                version_index: Set(version_index),
+                is_active: Set(if create_inactive { 0 } else { 1 }),
+                tool_calls_json: Set(None),
+                tool_call_id: Set(None),
+                status: Set("partial".to_string()),
+                tokens_per_second: Set(None),
+                first_token_latency_ms: Set(None),
+            })
+            .insert(&db)
+            .await
+            {
+                tracing::error!("Failed to create placeholder assistant message: {}", e);
+            }
         }
 
         loop {
@@ -1954,6 +1973,10 @@ pub async fn send_message(
         );
     }
 
+    // 5. Generate assistant message ID upfront so early RAG events can target
+    // the same assistant row that the stream will later update.
+    let assistant_message_id = aqbot_core::utils::gen_id();
+
     // RAG retrieval: search enabled knowledge bases and memory namespaces
     let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
     let mem_ids = enabled_memory_namespace_ids.unwrap_or_default();
@@ -1976,6 +1999,7 @@ pub async fn send_message(
         "rag-context-retrieved",
         RagContextRetrievedEvent {
             conversation_id: conversation_id.clone(),
+            message_id: Some(assistant_message_id.clone()),
             sources: rag_result.source_results,
         },
     );
@@ -2113,14 +2137,14 @@ pub async fn send_message(
         );
     }
 
-    // 5. Generate assistant message ID upfront
-    let assistant_message_id = aqbot_core::utils::gen_id();
-
     let ctx = ProviderRequestContext {
         api_key: decrypted_key,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -2324,6 +2348,9 @@ pub async fn regenerate_message(
         });
     }
 
+    // 7. Spawn streaming with new version
+    let assistant_message_id = aqbot_core::utils::gen_id();
+
     // RAG retrieval for regeneration
     let memory_tag = {
         let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
@@ -2346,6 +2373,7 @@ pub async fn regenerate_message(
             "rag-context-retrieved",
             RagContextRetrievedEvent {
                 conversation_id: conversation_id.clone(),
+                message_id: Some(assistant_message_id.clone()),
                 sources: rag_result.source_results,
             },
         );
@@ -2401,9 +2429,6 @@ pub async fn regenerate_message(
         }
     }
 
-    // 7. Spawn streaming with new version
-    let assistant_message_id = aqbot_core::utils::gen_id();
-
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .unwrap_or_default();
@@ -2413,7 +2438,10 @@ pub async fn regenerate_message(
         api_key: decrypted_key,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -2631,6 +2659,8 @@ pub async fn regenerate_with_model(
         );
     }
 
+    let assistant_message_id = aqbot_core::utils::gen_id();
+
     // RAG retrieval
     let memory_tag = {
         let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
@@ -2653,6 +2683,7 @@ pub async fn regenerate_with_model(
             "rag-context-retrieved",
             RagContextRetrievedEvent {
                 conversation_id: conversation_id.clone(),
+                message_id: Some(assistant_message_id.clone()),
                 sources: rag_result.source_results,
             },
         );
@@ -2703,7 +2734,6 @@ pub async fn regenerate_with_model(
         }
     }
 
-    let assistant_message_id = aqbot_core::utils::gen_id();
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .unwrap_or_default();
@@ -2713,7 +2743,10 @@ pub async fn regenerate_with_model(
         api_key: decrypted_key,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -2831,7 +2864,10 @@ pub async fn regenerate_with_model(
         "[regenerate_with_model] spawning stream: model={} total_messages={} has_system_prompt={}",
         &conversation.model_id,
         chat_messages.len(),
-        chat_messages.first().map(|m| m.role == "system").unwrap_or(false)
+        chat_messages
+            .first()
+            .map(|m| m.role == "system")
+            .unwrap_or(false)
     );
     spawn_stream_task(
         app,
@@ -2863,7 +2899,8 @@ pub async fn regenerate_with_model(
         memory_tag,
         companion,
         true,
-    );    Ok(())
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -3026,7 +3063,10 @@ async fn do_compress(
         api_key: comp_key,
         key_id: comp_key_id,
         provider_id: comp_provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&comp_provider.api_host, &comp_provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &comp_provider.api_host,
+            &comp_provider.provider_type,
+        )),
         api_path: comp_provider.api_path.clone(),
         proxy_config: comp_proxy,
         custom_headers: comp_provider

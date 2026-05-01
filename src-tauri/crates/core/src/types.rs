@@ -1005,6 +1005,7 @@ pub struct RagContextResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RagContextRetrievedEvent {
     pub conversation_id: String,
+    pub message_id: Option<String>,
     pub sources: Vec<RagSourceResult>,
 }
 

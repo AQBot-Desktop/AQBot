@@ -78,19 +78,22 @@ function deferred<T>() {
 }
 
 async function flushPromises() {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe('conversationStore pagination', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
+    listenMock.mockResolvedValue(() => {});
     const { useConversationStore } = await import('../conversationStore');
     useConversationStore.setState({
       conversations: [],
       activeConversationId: null,
       messages: [],
+      ragDisplayByMessageId: {},
       loading: false,
       loadingOlder: false,
       hasOlderMessages: false,
@@ -157,6 +160,185 @@ describe('conversationStore pagination', () => {
     expect(merged?.content).toContain('fresh streamed answer');
     expect(merged?.content).not.toContain('stale db answer');
     expect(merged?.token_count).toBe(123);
+  });
+
+  it('registers RAG stream listener before invoking send_message', async () => {
+    vi.useFakeTimers();
+    const registeredEvents: string[] = [];
+    listenMock.mockImplementation(async (eventName: string) => {
+      registeredEvents.push(eventName);
+      return () => {};
+    });
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'send_message') {
+        expect(registeredEvents).toContain('rag-context-retrieved');
+        return Promise.resolve({
+          ...makeMessage(1),
+          id: 'user-real',
+          role: 'user',
+          content: 'question',
+          provider_id: null,
+          model_id: null,
+        });
+      }
+      if (cmd === 'list_messages_page') {
+        return Promise.resolve(makePage([], false));
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1', { enabled_knowledge_base_ids: ['kb-1'] })] as never[],
+      enabledKnowledgeBaseIds: ['kb-1'],
+      enabledMemoryNamespaceIds: [],
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMessage('question');
+    await flushPromises();
+    expect(Object.values(useConversationStore.getState().ragDisplayByMessageId)[0]).toContain('status="searching"');
+    await vi.advanceTimersByTimeAsync(600);
+    await pending;
+
+    expect(invokeMock).toHaveBeenCalledWith('send_message', expect.objectContaining({
+      conversationId: 'conv-1',
+      enabledKnowledgeBaseIds: ['kb-1'],
+    }));
+    vi.useRealTimers();
+  });
+
+  it('keeps RAG display state when the streaming assistant resolves from temp to real id', async () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, (event: unknown) => void>();
+    listenMock.mockImplementation(async (eventName: string, handler: (event: unknown) => void) => {
+      listeners.set(eventName, handler);
+      return () => {};
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    const searching = '<knowledge-retrieval status="searching" data-aqbot="1"></knowledge-retrieval>';
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      streaming: true,
+      streamingMessageId: 'temp-assistant-1',
+      streamingConversationId: 'conv-1',
+      ragDisplayByMessageId: {
+        'temp-assistant-1': searching,
+      },
+      messages: [
+        {
+          ...makeMessage(2),
+          id: 'temp-assistant-1',
+          role: 'assistant',
+          content: '',
+          status: 'partial',
+        },
+      ],
+    });
+
+    await useConversationStore.getState().startStreamListening();
+    listeners.get('rag-context-retrieved')?.({
+      payload: {
+        conversation_id: 'conv-1',
+        message_id: 'assistant-1',
+        sources: [
+          {
+            source_type: 'knowledge',
+            container_id: 'kb-1',
+            items: [
+              {
+                content: 'hit',
+                score: 0.2,
+                document_id: 'doc-1',
+                id: 'chunk-1',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    listeners.get('chat-stream-chunk')?.({
+      payload: {
+        conversation_id: 'conv-1',
+        message_id: 'assistant-1',
+        chunk: {
+          content: 'answer',
+          thinking: null,
+          tool_calls: null,
+          done: false,
+          usage: null,
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(20);
+
+    const message = useConversationStore.getState().messages[0];
+    const displayById = useConversationStore.getState().ragDisplayByMessageId;
+    expect(message?.id).toBe('assistant-1');
+    expect(message?.content).toBe('answer');
+    expect(displayById['assistant-1']).toContain('<knowledge-retrieval status="done" data-aqbot="1">');
+    expect(displayById['assistant-1']).toContain('"content":"hit"');
+    vi.useRealTimers();
+  });
+
+  it('applies early RAG retrieval events to the temporary streaming assistant', async () => {
+    const listeners = new Map<string, (event: unknown) => void>();
+    listenMock.mockImplementation(async (eventName: string, handler: (event: unknown) => void) => {
+      listeners.set(eventName, handler);
+      return () => {};
+    });
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      streaming: true,
+      streamingMessageId: 'temp-assistant-1',
+      streamingConversationId: 'conv-1',
+      ragDisplayByMessageId: {
+        'temp-assistant-1': '<knowledge-retrieval status="searching" data-aqbot="1"></knowledge-retrieval>',
+      },
+      messages: [
+        {
+          ...makeMessage(2),
+          id: 'temp-assistant-1',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: '',
+          status: 'partial',
+        },
+      ],
+    });
+
+    await useConversationStore.getState().startStreamListening();
+    listeners.get('rag-context-retrieved')?.({
+      payload: {
+        conversation_id: 'conv-1',
+        message_id: 'assistant-1',
+        sources: [
+          {
+            source_type: 'knowledge',
+            container_id: 'kb-1',
+            items: [
+              {
+                content: 'hit',
+                score: 0.2,
+                document_id: 'doc-1',
+                id: 'chunk-1',
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const message = useConversationStore.getState().messages[0];
+    const displayById = useConversationStore.getState().ragDisplayByMessageId;
+    expect(message?.id).toBe('temp-assistant-1');
+    expect(message?.content).toBe('');
+    expect(displayById['temp-assistant-1']).toContain('<knowledge-retrieval status="done" data-aqbot="1">');
+    expect(displayById['assistant-1']).toContain('"content":"hit"');
   });
 
   it('keeps loading until the newest active conversation request resolves', async () => {

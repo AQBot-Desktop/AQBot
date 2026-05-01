@@ -52,7 +52,11 @@ import {
 import { formatTokenCount, formatSpeed, formatDuration } from '../gateway/tokenFormat';
 import {
   getStreamingLoadingState,
+  hasAqbotDisplayContent,
+  hasModelVisibleContent,
   shouldRenderAssistantMarkdownFromContent,
+  splitLeadingAqbotDisplayContent,
+  stripLeadingAqbotDisplayTags,
 } from './chatStreaming';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { buildAssistantDisplayContent, shouldHideAssistantBubble } from './toolCallDisplay';
@@ -1036,6 +1040,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   codeBlockLightTheme,
   codeBlockThemes,
   codeFontFamily,
+  displayPrefix,
 }: {
   content: string;
   nodes?: ChatMarkdownNode[];
@@ -1045,6 +1050,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   codeBlockLightTheme: string;
   codeBlockThemes: string[];
   codeFontFamily?: string;
+  displayPrefix?: string;
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
@@ -1064,6 +1070,25 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   );
   const [readyToRenderHeavyNodes, setReadyToRenderHeavyNodes] = useState(!hasDeferredHeavyNodes);
   const rendererKey = `${isDarkMode ? 'dark' : 'light'}:${codeBlockDarkTheme}:${codeBlockLightTheme}`;
+  const contentWithoutExplicitDisplay = useMemo(() => (
+    displayPrefix
+      ? stripLeadingAqbotDisplayTags(content, ['knowledge-retrieval', 'memory-retrieval'])
+      : content
+  ), [content, displayPrefix]);
+  const displaySplit = useMemo(() => {
+    if (nodes) return { prefix: displayPrefix ?? '', body: content };
+    const split = splitLeadingAqbotDisplayContent(contentWithoutExplicitDisplay);
+    return {
+      prefix: `${split.prefix}${displayPrefix ?? ''}`,
+      body: split.body,
+    };
+  }, [content, contentWithoutExplicitDisplay, displayPrefix, nodes]);
+  const displayPrefixNodes = useMemo(() => (
+    displaySplit.prefix
+      ? parseChatMarkdown(displaySplit.prefix)
+      : undefined
+  ), [displaySplit.prefix]);
+  const rendererContent = displaySplit.prefix ? displaySplit.body : content;
 
   useEffect(() => {
     if (!hasDeferredHeavyNodes) {
@@ -1164,23 +1189,46 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
           {...CHAT_RENDER_BATCH_PROPS}
         />
       ) : (
-        <NodeRenderer
-          key={rendererKey}
-          content={content}
-          isDark={isDarkMode}
-          customId="chat"
-          customHtmlTags={CHAT_CUSTOM_HTML_TAGS}
-          final={!isStreaming}
-          typewriter={false}
-          themes={codeBlockThemes}
-          codeBlockLightTheme={codeBlockLightTheme}
-          codeBlockDarkTheme={codeBlockDarkTheme}
-          codeBlockProps={codeBlockProps}
-          codeBlockMonacoOptions={codeBlockMonacoOptions}
-          mermaidProps={CHAT_MERMAID_PROPS}
-          infographicProps={CHAT_INFOGRAPHIC_PROPS}
-          {...CHAT_RENDER_BATCH_PROPS}
-        />
+        <>
+          {displayPrefixNodes && (
+            <NodeRenderer
+              key={`${rendererKey}:display-prefix`}
+              nodes={displayPrefixNodes}
+              isDark={isDarkMode}
+              customId="chat"
+              customHtmlTags={CHAT_CUSTOM_HTML_TAGS}
+              final
+              typewriter={false}
+              themes={codeBlockThemes}
+              codeBlockLightTheme={codeBlockLightTheme}
+              codeBlockDarkTheme={codeBlockDarkTheme}
+              codeBlockProps={codeBlockProps}
+              codeBlockMonacoOptions={codeBlockMonacoOptions}
+              mermaidProps={CHAT_MERMAID_PROPS}
+              infographicProps={CHAT_INFOGRAPHIC_PROPS}
+              {...CHAT_RENDER_BATCH_PROPS}
+            />
+          )}
+          {rendererContent && (
+            <NodeRenderer
+              key={rendererKey}
+              content={rendererContent}
+              isDark={isDarkMode}
+              customId="chat"
+              customHtmlTags={CHAT_CUSTOM_HTML_TAGS}
+              final={!isStreaming}
+              typewriter={false}
+              themes={codeBlockThemes}
+              codeBlockLightTheme={codeBlockLightTheme}
+              codeBlockDarkTheme={codeBlockDarkTheme}
+              codeBlockProps={codeBlockProps}
+              codeBlockMonacoOptions={codeBlockMonacoOptions}
+              mermaidProps={CHAT_MERMAID_PROPS}
+              infographicProps={CHAT_INFOGRAPHIC_PROPS}
+              {...CHAT_RENDER_BATCH_PROPS}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -1193,6 +1241,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   && prev.codeBlockLightTheme === next.codeBlockLightTheme
   && prev.codeBlockThemes === next.codeBlockThemes
   && prev.codeFontFamily === next.codeFontFamily
+  && prev.displayPrefix === next.displayPrefix
 ));
 
 // ── Version pagination component for multi-version AI replies ──────────
@@ -1887,6 +1936,7 @@ export function ChatView() {
   const conversations = useConversationStore((s) => s.conversations);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const messages = useConversationStore((s) => s.messages);
+  const ragDisplayByMessageId = useConversationStore((s) => s.ragDisplayByMessageId);
   const loading = useConversationStore((s) => s.loading);
   const loadingOlder = useConversationStore((s) => s.loadingOlder);
   const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
@@ -3067,10 +3117,13 @@ export function ChatView() {
       Boolean(msg?.id && contentRendererMessageIdsRef.current.has(msg.id)),
     );
     const assistantCopyText = stripAqbotTags(msg?.content ?? (typeof bubbleData.content === 'string' ? bubbleData.content : ''));
-    const parsedNodes = shouldRenderFromContent
+    const ragDisplayPrefix = msg?.id ? ragDisplayByMessageId[msg.id] : undefined;
+    const parsedNodes = shouldRenderFromContent || ragDisplayPrefix
       ? undefined
       : aiContentNodesById.get(String(bubbleData.key));
-    const { bubbleLoading: rawBubbleLoading, footerLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
+    const { footerLoading: rawFooterLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
+    const hasModelText = hasModelVisibleContent(bubbleData.content, stripAqbotTags);
+    const footerLoading = rawFooterLoading && hasModelText;
     // Never let Ant Design Bubble's loading state replace AI content while a
     // stream is active; the markdown renderer receives incremental content and
     // the content area renders its own lightweight placeholder before the first token.
@@ -3111,6 +3164,13 @@ export function ChatView() {
       avatar: isNonTabsMultiModel ? undefined : renderConvIconForChat(32, msg?.model_id),
       loading: bubbleLoading,
       contentRender: (content: string) => {
+        const renderContent = typeof content === 'string' && content.length > 0
+          ? content
+          : (msg?.content ?? '');
+        const renderLoadingState = getStreamingLoadingState(isStreaming, renderContent);
+        const hasDisplayContent = hasAqbotDisplayContent(renderContent) || Boolean(ragDisplayPrefix);
+        const hasRenderedModelText = hasModelVisibleContent(renderContent, stripAqbotTags);
+        const shouldShowInitialDots = renderLoadingState.bubbleLoading && !hasDisplayContent;
         const msgMarker = <span data-aqbot-msg={msg?.id} style={{ height: 0, overflow: 'hidden', lineHeight: 0 }} />;
         // Multi-model non-tabs mode: render all versions in side-by-side or stacked layout
         if (isNonTabsMultiModel && parentId && activeConversationId) {
@@ -3144,7 +3204,7 @@ export function ChatView() {
           return <>{msgMarker}<Alert type="error" message={content} showIcon /></>;
         }
 
-        if (!isAgentMsg && rawBubbleLoading) {
+        if (!isAgentMsg && shouldShowInitialDots) {
           return (
             <>{msgMarker}<span className="aqbot-streaming-dots" aria-hidden="true">
               <span /><span /><span />
@@ -3172,7 +3232,7 @@ export function ChatView() {
           : [];
 
         // In agent mode: show inline loading dots only when no content AND no permissions/asks yet
-        if (isAgentMsg && rawBubbleLoading && msgPermissions.length === 0 && msgAskUsers.length === 0) {
+        if (isAgentMsg && shouldShowInitialDots && msgPermissions.length === 0 && msgAskUsers.length === 0) {
           return (
             <>{msgMarker}<span className="aqbot-streaming-dots" aria-hidden="true">
               <span /><span /><span />
@@ -3184,7 +3244,7 @@ export function ChatView() {
           <>
             {msgMarker}
             <AssistantMarkdown
-              content={content}
+              content={renderContent}
               nodes={parsedNodes}
               isDarkMode={isDarkMode}
               isStreaming={isStreaming}
@@ -3192,7 +3252,13 @@ export function ChatView() {
               codeBlockLightTheme={codeBlockLightTheme}
               codeBlockThemes={codeBlockThemes}
               codeFontFamily={settings.code_font_family || undefined}
+              displayPrefix={ragDisplayPrefix}
             />
+            {!isAgentMsg && isStreaming && hasDisplayContent && !hasRenderedModelText && (
+              <div className="aqbot-streaming-dots" aria-hidden="true" style={{ marginTop: 8 }}>
+                <span /><span /><span />
+              </div>
+            )}
             {msgPermissions.map((pr) => {
               const resolvedTc = agentToolCalls[pr.toolUseId];
               const permStatus = resolvedTc?.approvalStatus === 'approved'
@@ -3302,7 +3368,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayModeOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleDisplayModeOverride, handleEditMessage, handleMultiModelDetected, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, renderConvIconForChat, settings, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayModeOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleDisplayModeOverride, handleEditMessage, handleMultiModelDetected, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, settings, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

@@ -230,6 +230,20 @@ function readLeadingAqbotDisplayTag(content: string): { tag: string; raw: string
   return null;
 }
 
+function readLeadingAqbotDisplayTags(content: string): { tags: { tag: string; raw: string }[]; body: string } {
+  let remaining = content;
+  const tags: { tag: string; raw: string }[] = [];
+
+  for (;;) {
+    const tag = readLeadingAqbotDisplayTag(remaining);
+    if (!tag) break;
+    tags.push(tag);
+    remaining = remaining.slice(tag.raw.length);
+  }
+
+  return { tags, body: remaining };
+}
+
 function extractLeadingRagDisplayPrefix(content: string): string {
   let remaining = content;
   let prefix = '';
@@ -266,6 +280,81 @@ function mergeDbRagDisplayPrefix(dbContent: string, localContent: string): strin
   const dbPrefix = extractLeadingRagDisplayPrefix(dbContent);
   if (!dbPrefix) return localContent;
   return dbPrefix + stripLeadingRagDisplayTags(localContent);
+}
+
+function hasLeadingDisplayTag(content: string, tagName: string): boolean {
+  return readLeadingAqbotDisplayTags(content).tags.some(({ tag }) => tag === tagName);
+}
+
+function insertAfterLeadingDisplayTags(content: string, rawTag: string): string {
+  const { tags, body } = readLeadingAqbotDisplayTags(content);
+  return tags.map(({ raw }) => raw).join('') + rawTag + body;
+}
+
+function mergeIncomingDisplayChunk(currentContent: string, incomingContent: string): string {
+  const { tags, body } = readLeadingAqbotDisplayTags(incomingContent);
+  const ragTags = tags.filter(({ tag }) => RAG_DISPLAY_TAGS.has(tag));
+
+  if (ragTags.length === 0) {
+    return currentContent + incomingContent;
+  }
+
+  let updated = currentContent;
+  for (const { tag, raw } of ragTags) {
+    const searching = tag === 'knowledge-retrieval'
+      ? buildKnowledgeTag('searching')
+      : buildMemoryTag('searching');
+    if (updated.includes(searching)) {
+      updated = updated.replace(searching, raw);
+    } else if (!hasLeadingDisplayTag(updated, tag)) {
+      updated = insertAfterLeadingDisplayTags(updated, raw);
+    }
+  }
+
+  const nonRagPrefix = tags
+    .filter(({ tag }) => !RAG_DISPLAY_TAGS.has(tag))
+    .map(({ raw }) => raw)
+    .join('');
+  return updated + nonRagPrefix + body;
+}
+
+function buildRagDisplayTagFromSources(sources: RagContextRetrievedEvent['sources']): string {
+  const knowledgeSources = sources.filter(s => s.source_type === 'knowledge');
+  const memorySources = sources.filter(s => s.source_type === 'memory');
+  return [
+    knowledgeSources.length > 0 ? buildKnowledgeTag('done', knowledgeSources) : '',
+    memorySources.length > 0 ? buildMemoryTag('done', memorySources) : '',
+  ].join('');
+}
+
+function collectRagDisplayTargetIds(
+  messages: Message[],
+  conversationId: string,
+  requestedIds: Set<string>,
+): string[] {
+  const kbSearching = buildKnowledgeTag('searching');
+  const memSearching = buildMemoryTag('searching');
+  const targets = new Set<string>(requestedIds);
+
+  for (const message of messages) {
+    if (
+      message.conversation_id !== conversationId
+      || message.role !== 'assistant'
+      || message.status !== 'partial'
+    ) {
+      continue;
+    }
+    if (
+      message.content.includes(kbSearching)
+      || message.content.includes(memSearching)
+      || hasLeadingDisplayTag(message.content, 'knowledge-retrieval')
+      || hasLeadingDisplayTag(message.content, 'memory-retrieval')
+    ) {
+      targets.add(message.id);
+    }
+  }
+
+  return Array.from(targets);
 }
 
 function mergePreservedMessages(
@@ -423,6 +512,7 @@ interface ConversationState {
   conversations: Conversation[];
   activeConversationId: string | null;
   messages: Message[];
+  ragDisplayByMessageId: Record<string, string>;
   loading: boolean;
   loadingOlder: boolean;
   hasOlderMessages: boolean;
@@ -549,7 +639,7 @@ function appendStreamChunk(
       _streamBuffer = { messageId, conversationId, content: _streamPrefix, resolvedId: null, thinking: null };
       _streamPrefix = ''; // consumed
     }
-    _streamBuffer.content += content ?? '';
+    _streamBuffer.content = mergeIncomingDisplayChunk(_streamBuffer.content, content ?? '');
     // Track ID resolution (placeholder → real ID)
     if (_streamBuffer.messageId !== messageId && !_streamBuffer.resolvedId) {
       _streamBuffer.resolvedId = messageId;
@@ -610,7 +700,7 @@ function flushPendingStreamChunk(
           m.id === messageId
             ? {
                 ...m,
-                content: m.content + (content ?? ''),
+                content: mergeIncomingDisplayChunk(m.content, content ?? ''),
                 // Enrich model info from chunk if missing
                 model_id: m.model_id ?? chunkModelId ?? null,
                 provider_id: m.provider_id ?? chunkProviderId ?? null,
@@ -629,16 +719,23 @@ function flushPendingStreamChunk(
       if (!_isMultiModelActive || s.streamingMessageId.startsWith('temp-')) {
         const placeholder = s.messages.find((m) => m.id === s.streamingMessageId);
         if (placeholder) {
+          const nextRagDisplayByMessageId = s.ragDisplayByMessageId[s.streamingMessageId]
+            ? {
+                ...s.ragDisplayByMessageId,
+                [messageId]: s.ragDisplayByMessageId[s.streamingMessageId],
+              }
+            : s.ragDisplayByMessageId;
           return {
             messages: s.messages.map((m) =>
               m.id === s.streamingMessageId
                 ? {
                     ...m,
                     id: messageId,
-                    content: m.content + (content ?? ''),
+                    content: mergeIncomingDisplayChunk(m.content, content ?? ''),
                   }
                 : m,
             ),
+            ragDisplayByMessageId: nextRagDisplayByMessageId,
             streamingMessageId: messageId,
           };
         }
@@ -679,6 +776,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   messages: [],
+  ragDisplayByMessageId: {},
   loading: false,
   loadingOlder: false,
   hasOlderMessages: false,
@@ -1325,9 +1423,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const hasMemoryRag = memIds.length > 0;
     const hasAnyRag = hasKnowledgeRag || hasMemoryRag;
     let placeholderContent = '';
+    let placeholderRagDisplay = '';
     if (searchProviderId) placeholderContent += buildSearchTag('searching');
-    if (hasKnowledgeRag) placeholderContent += buildKnowledgeTag('searching');
-    if (hasMemoryRag) placeholderContent += buildMemoryTag('searching');
+    if (hasKnowledgeRag) placeholderRagDisplay += buildKnowledgeTag('searching');
+    if (hasMemoryRag) placeholderRagDisplay += buildMemoryTag('searching');
     const placeholderAssistant: Message = {
       id: tempAssistantId,
       conversation_id: conversationId,
@@ -1349,6 +1448,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     set((s) => ({
       messages: [...s.messages, optimisticUserMsg, placeholderAssistant],
+      ragDisplayByMessageId: placeholderRagDisplay
+        ? { ...s.ragDisplayByMessageId, [tempAssistantId]: placeholderRagDisplay }
+        : s.ragDisplayByMessageId,
       streaming: true,
       streamingConversationId: conversationId,
       streamingMessageId: tempAssistantId,
@@ -1361,6 +1463,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
 
     try {
+      await get().startStreamListening();
+
       // If web search is enabled, execute search before sending to backend
       let finalContent = content;
       if (searchProviderId) {
@@ -1375,19 +1479,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           // Search failed, continue without search results
         }
         // Replace searching tag with results, keep RAG searching tags if present
-        const kbPart = hasKnowledgeRag ? buildKnowledgeTag('searching') : '';
-        const memPart = hasMemoryRag ? buildMemoryTag('searching') : '';
-        _streamPrefix = searchResultTag + kbPart + memPart;
+        _streamPrefix = searchResultTag;
         set((s) => ({
           messages: s.messages.map(m =>
-            m.id === tempAssistantId ? { ...m, content: searchResultTag + kbPart + memPart } : m
+            m.id === tempAssistantId ? { ...m, content: searchResultTag } : m
           ),
         }));
       } else if (hasAnyRag) {
-        // RAG only — set prefix so searching tags flow into stream buffer
-        const kbPart = hasKnowledgeRag ? buildKnowledgeTag('searching') : '';
-        const memPart = hasMemoryRag ? buildMemoryTag('searching') : '';
-        _streamPrefix = kbPart + memPart;
+        // RAG display is tracked separately from assistant text to avoid stream
+        // content/id updates temporarily removing the retrieval card.
+        _streamPrefix = '';
       }
 
       const mcpIds = get().enabledMcpServerIds;
@@ -1410,7 +1511,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set((s) => ({
         messages: s.messages.map(m => {
           if (m.id === optimisticUserMsg.id) return userMessage;
-          if (m.id === tempAssistantId) return { ...m, parent_message_id: userMessage.id };
+          if (
+            m.id === tempAssistantId
+            || (m.role === 'assistant' && m.parent_message_id === optimisticUserMsg.id && m.status === 'partial')
+          ) {
+            return { ...m, parent_message_id: userMessage.id };
+          }
           return m;
         }),
       }));
@@ -1823,6 +1929,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     // Create placeholder for new version, preserving original created_at for position
     const tempAssistantId = `temp-assistant-${Date.now()}`;
     const parentId = userMsg.id;
+    const rKbIdsForPlaceholder = get().enabledKnowledgeBaseIds;
+    const rMemIdsForPlaceholder = get().enabledMemoryNamespaceIds;
+    const placeholderRagDisplay = [
+      rKbIdsForPlaceholder.length > 0 ? buildKnowledgeTag('searching') : '',
+      rMemIdsForPlaceholder.length > 0 ? buildMemoryTag('searching') : '',
+    ].join('');
 
     // Find the original active AI message to preserve its created_at
     const originalAiMsg = msgs.find(m => m.parent_message_id === parentId && m.is_active);
@@ -1866,6 +1978,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       return {
         messages: updated,
+        ragDisplayByMessageId: placeholderRagDisplay
+          ? { ...s.ragDisplayByMessageId, [tempAssistantId]: placeholderRagDisplay }
+          : s.ragDisplayByMessageId,
         streaming: true,
         streamingMessageId: tempAssistantId,
         streamingConversationId: conversationId,
@@ -1879,6 +1994,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
 
     try {
+      await get().startStreamListening();
+
       const rMcpIds = get().enabledMcpServerIds;
       const rThinkingBudget = getEffectiveThinkingBudget(get, conversationId);
       const rThinkingLevel = getEffectiveThinkingLevel(get, conversationId);
@@ -1937,6 +2054,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     // Create placeholder with the target model info
     const tempAssistantId = `temp-assistant-${Date.now()}`;
+    const rKbIdsForPlaceholder = get().enabledKnowledgeBaseIds;
+    const rMemIdsForPlaceholder = get().enabledMemoryNamespaceIds;
+    const placeholderRagDisplay = [
+      rKbIdsForPlaceholder.length > 0 ? buildKnowledgeTag('searching') : '',
+      rMemIdsForPlaceholder.length > 0 ? buildMemoryTag('searching') : '',
+    ].join('');
     const placeholderAssistant: Message = {
       id: tempAssistantId,
       conversation_id: conversationId,
@@ -1960,6 +2083,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((s) => {
       return {
         messages: insertModelVersionPlaceholder(s.messages, parentId, placeholderAssistant),
+        ragDisplayByMessageId: placeholderRagDisplay
+          ? { ...s.ragDisplayByMessageId, [tempAssistantId]: placeholderRagDisplay }
+          : s.ragDisplayByMessageId,
         streaming: true,
         streamingMessageId: tempAssistantId,
         streamingConversationId: conversationId,
@@ -1973,6 +2099,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
 
     try {
+      await get().startStreamListening();
+
       const rMcpIds = get().enabledMcpServerIds;
       const rThinkingBudget = getEffectiveThinkingBudget(get, conversationId);
       const rThinkingLevel = getEffectiveThinkingLevel(get, conversationId);
@@ -2635,44 +2763,30 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const ragUnsub = await listen<RagContextRetrievedEvent>('rag-context-retrieved', (event) => {
       if (_listenerGen !== gen) return;
       if (!get().streaming) return;
-      const { conversation_id, sources } = event.payload;
-
-      // Split sources by type and build separate tags
-      const knowledgeSources = sources.filter(s => s.source_type === 'knowledge');
-      const memorySources = sources.filter(s => s.source_type === 'memory');
-
-      const kbSearching = buildKnowledgeTag('searching');
-      const memSearching = buildMemoryTag('searching');
-      const kbDone = knowledgeSources.length > 0 ? buildKnowledgeTag('done', knowledgeSources) : '';
-      const memDone = memorySources.length > 0 ? buildMemoryTag('done', memorySources) : '';
-
-      // Replace each searching tag with its done counterpart (or remove if empty)
-      const replaceTag = (content: string, searching: string, done: string) => {
-        if (content.includes(searching)) return content.replace(searching, done);
-        if (done) return done + content;
-        return content;
-      };
-
-      if (_streamBuffer && _streamBuffer.conversationId === conversation_id) {
-        _streamBuffer.content = replaceTag(_streamBuffer.content, kbSearching, kbDone);
-        _streamBuffer.content = replaceTag(_streamBuffer.content, memSearching, memDone);
-      } else {
-        _streamPrefix = replaceTag(_streamPrefix, kbSearching, kbDone);
-        _streamPrefix = replaceTag(_streamPrefix, memSearching, memDone);
-      }
+      const { conversation_id, message_id, sources } = event.payload;
+      const displayTag = buildRagDisplayTagFromSources(sources);
 
       // Update UI immediately
       if (get().activeConversationId === conversation_id) {
-        const msgId = get().streamingMessageId;
-        if (msgId) {
+        const targetIds = new Set<string>();
+        if (message_id) targetIds.add(message_id);
+        const streamingId = get().streamingMessageId;
+        if (streamingId) targetIds.add(streamingId);
+
+        if (targetIds.size > 0) {
           set((s) => ({
-            messages: s.messages.map(m => {
-              if (m.id !== msgId) return m;
-              let updated = m.content;
-              updated = replaceTag(updated, kbSearching, kbDone);
-              updated = replaceTag(updated, memSearching, memDone);
-              return { ...m, content: updated };
-            }),
+            ragDisplayByMessageId: collectRagDisplayTargetIds(s.messages, conversation_id, targetIds)
+              .reduce<Record<string, string>>(
+                (acc, targetId) => {
+                  if (displayTag) {
+                    acc[targetId] = displayTag;
+                  } else {
+                    delete acc[targetId];
+                  }
+                  return acc;
+                },
+                { ...s.ragDisplayByMessageId },
+              ),
           }));
         }
       }

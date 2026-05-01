@@ -17,6 +17,7 @@ export interface MemorySourceResult {
 
 export interface RagContextRetrievedEvent {
   conversation_id: string;
+  message_id?: string | null;
   sources: MemorySourceResult[];
 }
 
