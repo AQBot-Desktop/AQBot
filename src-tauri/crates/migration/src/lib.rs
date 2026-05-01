@@ -29,6 +29,7 @@ mod m20250720_000001_add_provider_builtin_id;
 mod m20260417_000001_add_category_default_templates;
 mod m20260428_000001_add_drawing_history;
 mod m20260430_000001_add_conversation_thinking_level;
+mod m20260501_000001_add_knowledge_base_rerank_settings;
 
 pub struct Migrator;
 
@@ -65,6 +66,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260417_000001_add_category_default_templates::Migration),
             Box::new(m20260428_000001_add_drawing_history::Migration),
             Box::new(m20260430_000001_add_conversation_thinking_level::Migration),
+            Box::new(m20260501_000001_add_knowledge_base_rerank_settings::Migration),
         ]
     }
 }
@@ -76,7 +78,9 @@ mod tests {
 
     async fn sqlite_test_db() -> DatabaseConnection {
         let mut opts = ConnectOptions::new("sqlite::memory:");
-        opts.max_connections(1).min_connections(1).sqlx_logging(false);
+        opts.max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
         Database::connect(opts)
             .await
             .expect("connect sqlite test db")
@@ -120,10 +124,7 @@ mod tests {
         let manager = SchemaManager::new(&db);
         for table in ["drawing_generations", "drawing_images"] {
             assert!(
-                manager
-                    .has_table(table)
-                    .await
-                    .expect("check drawing table"),
+                manager.has_table(table).await.expect("check drawing table"),
                 "missing table {table}"
             );
         }
@@ -145,6 +146,26 @@ mod tests {
                 .expect("check thinking level column"),
             "missing conversations.thinking_level"
         );
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_knowledge_base_rerank_settings_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let manager = SchemaManager::new(&db);
+        for column in ["rerank_provider", "rerank_candidate_k"] {
+            assert!(
+                manager
+                    .has_column("knowledge_bases", column)
+                    .await
+                    .expect("check knowledge base rerank column"),
+                "missing knowledge_bases.{column}"
+            );
+        }
     }
 
     #[tokio::test]

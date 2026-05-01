@@ -551,7 +551,8 @@
       "Chat": "對話",
       "Voice": "語音",
       "Embedding": "向量",
-      "Image": "繪圖"
+      "Image": "繪圖",
+      "Rerank": "重排"
     },
     "chooseIcon": "選擇圖示",
     "searchIcon": "搜尋圖示...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "自動",
       "retrievalThreshold": "檢索閾值",
       "retrievalTopK": "檢索記錄數",
+      "rerankModel": "重排模型",
+      "rerankModelPlaceholder": "選擇重排模型",
+      "rerankCandidateK": "重排候選數",
       "chunkingConfig": "分段設定",
       "chunkSize": "分段大小",
       "chunkOverlap": "重疊大小",

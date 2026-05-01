@@ -7,7 +7,16 @@ export interface ProviderDeepLinkPayload {
   type: ProviderType;
 }
 
-const PROVIDER_TYPES: ProviderType[] = ['openai', 'openai_responses', 'anthropic', 'gemini', 'custom'];
+const PROVIDER_TYPES: ProviderType[] = [
+  'openai',
+  'openai_responses',
+  'anthropic',
+  'gemini',
+  'jina',
+  'cohere',
+  'voyage',
+  'custom',
+];
 
 function readRequiredParam(params: URLSearchParams, key: string): string | null {
   const value = params.get(key)?.trim();

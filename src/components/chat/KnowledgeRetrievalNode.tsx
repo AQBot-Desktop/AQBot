@@ -29,6 +29,13 @@ function truncateContent(text: string, maxLen = 120): string {
   return text.slice(0, maxLen) + '…';
 }
 
+function formatRetrievalScore(item: MemoryRetrievedItem, digits: number): string {
+  if (typeof item.rerankScore === 'number') {
+    return item.rerankScore.toFixed(digits);
+  }
+  return (1 / (1 + item.score)).toFixed(digits);
+}
+
 export function KnowledgeRetrievalNode(props: NodeComponentProps<KnowledgeRetrievalNodeData>) {
   const { node } = props;
   const { token } = theme.useToken();
@@ -168,7 +175,7 @@ export function KnowledgeRetrievalNode(props: NodeComponentProps<KnowledgeRetrie
               </span>
               {item.id && <span style={{ opacity: 0.5 }}>#{item.id.slice(0, 6)}</span>}
               <span style={{ color: token.colorPrimary, fontFamily: 'monospace' }}>
-                {(1 / (1 + item.score)).toFixed(3)}
+                {formatRetrievalScore(item, 3)}
               </span>
             </span>
           )),
@@ -216,7 +223,7 @@ export function KnowledgeRetrievalNode(props: NodeComponentProps<KnowledgeRetrie
                       color: token.colorTextQuaternary,
                     }}
                   >
-                    {(1 / (1 + item.score)).toFixed(4)}
+                    {formatRetrievalScore(item, 4)}
                   </span>
                 </div>
                 <p

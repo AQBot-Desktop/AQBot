@@ -265,6 +265,9 @@ fn provider_type_to_registry_key(pt: &ProviderType) -> &'static str {
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "openai",
     }
 }
@@ -283,6 +286,9 @@ fn create_adapter_arc(pt: &ProviderType) -> Result<Arc<dyn ProviderAdapter>, Str
         ProviderType::OpenAIResponses => Ok(Arc::new(
             aqbot_providers::openai_responses::OpenAIResponsesAdapter::new(),
         )),
+        ProviderType::Jina | ProviderType::Cohere | ProviderType::Voyage => Err(
+            "Rerank-only providers cannot be used as agent chat providers".to_string(),
+        ),
     }
 }
 

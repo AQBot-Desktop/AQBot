@@ -1,11 +1,14 @@
 pub mod adapter;
 pub mod anthropic;
+pub mod cohere;
 pub mod gemini;
+pub mod jina;
 pub mod openai;
 pub mod openai_images;
 pub mod openai_responses;
 pub mod reasoning;
 pub mod registry;
+pub mod voyage;
 
 use aqbot_core::error::{AQBotError, Result};
 use aqbot_core::types::*;
@@ -35,6 +38,16 @@ pub trait ProviderAdapter: Send + Sync {
         request: EmbedRequest,
     ) -> Result<EmbedResponse>;
 
+    async fn rerank(
+        &self,
+        _ctx: &ProviderRequestContext,
+        _request: RerankRequest,
+    ) -> Result<RerankResponse> {
+        Err(AQBotError::Provider(
+            "Rerank is not supported by this provider".into(),
+        ))
+    }
+
     /// Validate the API key. Default: try list_models.
     /// Providers may override for endpoints that don't support model listing.
     async fn validate_key(&self, ctx: &ProviderRequestContext) -> Result<bool> {
@@ -57,6 +70,7 @@ pub struct ProviderRequestContext {
 pub fn default_version_for_type(provider_type: &ProviderType) -> &'static str {
     match provider_type {
         ProviderType::Gemini => "/v1beta",
+        ProviderType::Cohere => "/v2",
         _ => "/v1",
     }
 }
@@ -192,8 +206,9 @@ pub fn build_http_client(proxy_config: Option<&ProviderProxyConfig>) -> Result<r
                             "http"
                         };
                         let proxy_url = format!("{}://{}:{}", scheme, addr, port);
-                        let proxy = reqwest::Proxy::all(&proxy_url)
-                            .map_err(|e| AQBotError::Provider(format!("Invalid proxy URL: {}", e)))?;
+                        let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
+                            AQBotError::Provider(format!("Invalid proxy URL: {}", e))
+                        })?;
                         builder = builder.proxy(proxy);
                     } else {
                         builder = builder.no_proxy();

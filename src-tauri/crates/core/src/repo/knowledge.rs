@@ -21,6 +21,8 @@ fn model_to_kb(m: knowledge_bases::Model) -> KnowledgeBase {
         embedding_dimensions: m.embedding_dimensions,
         retrieval_threshold: m.retrieval_threshold,
         retrieval_top_k: m.retrieval_top_k,
+        rerank_provider: m.rerank_provider,
+        rerank_candidate_k: m.rerank_candidate_k,
         chunk_size: m.chunk_size,
         chunk_overlap: m.chunk_overlap,
         separator: m.separator,
@@ -78,6 +80,8 @@ pub async fn create_knowledge_base(
         embedding_dimensions: Set(None),
         retrieval_threshold: Set(None),
         retrieval_top_k: Set(None),
+        rerank_provider: Set(None),
+        rerank_candidate_k: Set(None),
         chunk_size: Set(None),
         chunk_overlap: Set(None),
         separator: Set(None),
@@ -121,6 +125,12 @@ pub async fn update_knowledge_base(
     }
     if input.update_retrieval_top_k {
         am.retrieval_top_k = Set(input.retrieval_top_k);
+    }
+    if input.update_rerank_provider {
+        am.rerank_provider = Set(input.rerank_provider);
+    }
+    if input.update_rerank_candidate_k {
+        am.rerank_candidate_k = Set(input.rerank_candidate_k);
     }
     if input.update_chunk_size {
         am.chunk_size = Set(input.chunk_size);
@@ -205,11 +215,7 @@ pub async fn add_document(
     Ok(model_to_doc(model))
 }
 
-pub async fn update_document_status(
-    db: &DatabaseConnection,
-    id: &str,
-    status: &str,
-) -> Result<()> {
+pub async fn update_document_status(db: &DatabaseConnection, id: &str, status: &str) -> Result<()> {
     update_document_status_with_error(db, id, status, None).await
 }
 

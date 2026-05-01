@@ -162,6 +162,9 @@ pub async fn validate_provider_key(
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "openai",
     };
     let adapter = registry
@@ -272,6 +275,9 @@ pub async fn fetch_remote_models(
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "openai",
     };
     let adapter = registry
@@ -297,7 +303,7 @@ pub async fn fetch_remote_models(
     adapter.list_models(&ctx).await.map_err(|e| e.to_string())
 }
 
-/// Test a single model's availability by sending a minimal chat request.
+/// Test a single model's availability by sending the minimal native request.
 /// Returns latency in milliseconds on success.
 #[tauri::command]
 pub async fn test_model(
@@ -322,6 +328,9 @@ pub async fn test_model(
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "openai",
     };
     let adapter = registry
@@ -344,30 +353,50 @@ pub async fn test_model(
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok()),
     };
-    let request = ChatRequest {
-        model: model_id,
-        messages: vec![ChatMessage {
-            role: "user".into(),
-            content: ChatContent::Text("hi".into()),
-            tool_calls: None,
-            tool_call_id: None,
-        }],
-        stream: false,
-        temperature: None,
-        top_p: None,
-        max_tokens: Some(1),
-        tools: None,
-        thinking_budget: None,
-        thinking_level: None,
-        reasoning_profile: None,
-        use_max_completion_tokens: None,
-        thinking_param_style: None,
-    };
+    let model_type = provider
+        .models
+        .iter()
+        .find(|model| model.model_id == model_id)
+        .map(|model| &model.model_type);
     let start = Instant::now();
-    adapter
-        .chat(&ctx, request)
-        .await
-        .map_err(|e| e.to_string())?;
+    if model_type.is_some_and(|model_type| *model_type == ModelType::Rerank) {
+        adapter
+            .rerank(
+                &ctx,
+                RerankRequest {
+                    model: model_id,
+                    query: "test".into(),
+                    documents: vec!["test".into()],
+                    top_n: 1,
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        let request = ChatRequest {
+            model: model_id,
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: ChatContent::Text("hi".into()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            max_tokens: Some(1),
+            tools: None,
+            thinking_budget: None,
+            thinking_level: None,
+            reasoning_profile: None,
+            use_max_completion_tokens: None,
+            thinking_param_style: None,
+        };
+        adapter
+            .chat(&ctx, request)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     Ok(start.elapsed().as_millis() as u64)
 }
 

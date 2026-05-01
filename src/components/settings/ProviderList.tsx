@@ -26,6 +26,9 @@ const PROVIDER_TYPE_OPTIONS: { label: string; value: ProviderType }[] = [
   { label: 'OpenAI Responses', value: 'openai_responses' },
   { label: 'Anthropic', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
+  { label: 'Jina', value: 'jina' },
+  { label: 'Cohere', value: 'cohere' },
+  { label: 'Voyage', value: 'voyage' },
 ];
 
 const DEFAULT_HOSTS: Record<ProviderType, string> = {
@@ -33,6 +36,9 @@ const DEFAULT_HOSTS: Record<ProviderType, string> = {
   openai_responses: 'https://api.openai.com',
   anthropic: 'https://api.anthropic.com',
   gemini: 'https://generativelanguage.googleapis.com',
+  jina: 'https://api.jina.ai',
+  cohere: 'https://api.cohere.com',
+  voyage: 'https://api.voyageai.com',
   custom: '',
 };
 

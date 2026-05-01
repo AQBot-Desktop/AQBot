@@ -551,7 +551,8 @@
       "Chat": "चैट",
       "Voice": "वॉयस",
       "Embedding": "एम्बेडिंग",
-      "Image": "चित्र"
+      "Image": "चित्र",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "आइकन चुनें",
     "searchIcon": "आइकन खोजें...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "स्वतः",
       "retrievalThreshold": "पुनर्प्राप्ति सीमा",
       "retrievalTopK": "शीर्ष K परिणाम",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "चंकिंग कॉन्फ़िगरेशन",
       "chunkSize": "चंक आकार",
       "chunkOverlap": "चंक ओवरलैप",

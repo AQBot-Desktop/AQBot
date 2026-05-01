@@ -23,7 +23,7 @@ import {
   App,
   theme,
 } from 'antd';
-import { Maximize2, Mic, Lightbulb, Database, Trash2, Eye, EyeOff, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp, ChevronRight, ChevronDown, Expand, Shrink, SquarePen, ListChecks, X, Power, PowerOff, Pencil, ImagePlus } from 'lucide-react';
+import { Maximize2, Mic, Lightbulb, Database, Trash2, Eye, EyeOff, Heart, Key, MessageSquare, Plus, RefreshCw, Search, Settings, Minimize2, Wrench, Undo2, CircleHelp, ChevronRight, ChevronDown, Expand, Shrink, SquarePen, ListChecks, X, Power, PowerOff, Pencil, ImagePlus, ListFilter } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -69,6 +69,7 @@ const MODEL_TYPE_LABEL_KEYS: Record<ModelType, string> = {
   Voice: 'settings.modelType.Voice',
   Embedding: 'settings.modelType.Embedding',
   Image: 'settings.modelType.Image',
+  Rerank: 'settings.modelType.Rerank',
 };
 
 const MODEL_TYPE_CONFIG: Record<ModelType, { color: string; icon: React.ReactNode }> = {
@@ -76,6 +77,7 @@ const MODEL_TYPE_CONFIG: Record<ModelType, { color: string; icon: React.ReactNod
   Voice: { color: 'red', icon: <Mic size={12} /> },
   Embedding: { color: 'cyan', icon: <Database size={12} /> },
   Image: { color: 'green', icon: <ImagePlus size={12} /> },
+  Rerank: { color: 'purple', icon: <ListFilter size={12} /> },
 };
 
 const MODEL_SYNC_STATUS_CONFIG: Record<ModelSyncStatus, { color: string; labelKey: string }> = {
@@ -89,6 +91,9 @@ const DEFAULT_PATHS: Record<ProviderType, string> = {
   openai_responses: '/v1/responses',
   anthropic: '/v1/messages',
   gemini: '/v1beta/models',
+  jina: '/v1/rerank',
+  cohere: '/v2/rerank',
+  voyage: '/v1/rerank',
   custom: '/v1/chat/completions',
 };
 
@@ -97,6 +102,9 @@ const DEFAULT_HOSTS: Record<ProviderType, string> = {
   openai_responses: 'https://api.openai.com',
   anthropic: 'https://api.anthropic.com',
   gemini: 'https://generativelanguage.googleapis.com',
+  jina: 'https://api.jina.ai',
+  cohere: 'https://api.cohere.com',
+  voyage: 'https://api.voyageai.com',
   custom: '',
 };
 
@@ -163,6 +171,7 @@ function getDefaultCapabilitiesForType(modelType: ModelType): ModelCapability[] 
       return ['RealtimeVoice'];
     case 'Embedding':
     case 'Image':
+    case 'Rerank':
       return [];
     case 'Chat':
     default:
@@ -384,7 +393,11 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     const path = apiPathLocal || DEFAULT_PATHS[providerType] || '';
 
     // Default version path per provider type
-    const defaultVersion = providerType === 'gemini' ? '/v1beta' : '/v1';
+    const defaultVersion = providerType === 'gemini'
+      ? '/v1beta'
+      : providerType === 'cohere'
+        ? '/v2'
+        : '/v1';
 
     // Check if URL ends with a versioned path like /v1, /v1beta, /v2, etc.
     const hasVersionSuffix = (url: string) => {
@@ -2383,6 +2396,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 { label: 'OpenAI Responses', value: 'openai_responses' },
                 { label: 'Anthropic', value: 'anthropic' },
                 { label: 'Gemini', value: 'gemini' },
+                { label: 'Jina', value: 'jina' },
+                { label: 'Cohere', value: 'cohere' },
+                { label: 'Voyage', value: 'voyage' },
                 { label: t('settings.custom'), value: 'custom' },
               ]}
               popupMatchSelectWidth={false}

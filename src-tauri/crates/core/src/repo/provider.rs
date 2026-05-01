@@ -13,6 +13,9 @@ fn parse_provider_type(s: &str) -> ProviderType {
         "openai_responses" => ProviderType::OpenAIResponses,
         "anthropic" => ProviderType::Anthropic,
         "gemini" => ProviderType::Gemini,
+        "jina" => ProviderType::Jina,
+        "cohere" => ProviderType::Cohere,
+        "voyage" => ProviderType::Voyage,
         _ => ProviderType::Custom,
     }
 }
@@ -23,6 +26,9 @@ fn provider_type_str(pt: &ProviderType) -> &'static str {
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "custom",
     }
 }
@@ -193,6 +199,9 @@ fn parse_deep_link_provider_type(value: &str) -> Result<ProviderType> {
         "openai_responses" => Ok(ProviderType::OpenAIResponses),
         "anthropic" => Ok(ProviderType::Anthropic),
         "gemini" => Ok(ProviderType::Gemini),
+        "jina" => Ok(ProviderType::Jina),
+        "cohere" => Ok(ProviderType::Cohere),
+        "voyage" => Ok(ProviderType::Voyage),
         "custom" => Ok(ProviderType::Custom),
         other => Err(AQBotError::Validation(format!(
             "Unsupported provider type: {other}"
@@ -248,7 +257,10 @@ fn find_matching_provider(
         .iter()
         .find(|provider| {
             provider.provider_type == *provider_type
-                && normalize_deep_link_baseurl(&provider.api_host).ok().as_deref() == Some(baseurl)
+                && normalize_deep_link_baseurl(&provider.api_host)
+                    .ok()
+                    .as_deref()
+                    == Some(baseurl)
         })
         .cloned()
 }
@@ -725,10 +737,7 @@ pub async fn list_providers_merged(db: &DatabaseConnection) -> Result<Vec<Provid
 /// Materialize a virtual built-in provider into the database.
 /// Called when a user first modifies a built-in provider that has no DB record.
 /// Returns the new real provider ID.
-pub async fn ensure_builtin_provider(
-    db: &DatabaseConnection,
-    builtin_id: &str,
-) -> Result<String> {
+pub async fn ensure_builtin_provider(db: &DatabaseConnection, builtin_id: &str) -> Result<String> {
     let existing = providers::Entity::find()
         .filter(providers::Column::BuiltinId.eq(builtin_id))
         .one(db)
@@ -964,9 +973,19 @@ mod tests {
         let cases = [
             ("", "https://api.example.com", "sk-example", "openai"),
             ("Example", "ftp://api.example.com", "sk-example", "openai"),
-            ("Example", "https://api.example.com?x=1", "sk-example", "openai"),
+            (
+                "Example",
+                "https://api.example.com?x=1",
+                "sk-example",
+                "openai",
+            ),
             ("Example", "https://api.example.com", "", "openai"),
-            ("Example", "https://api.example.com", "sk-example", "unknown"),
+            (
+                "Example",
+                "https://api.example.com",
+                "sk-example",
+                "unknown",
+            ),
         ];
 
         for (name, baseurl, apikey, provider_type) in cases {

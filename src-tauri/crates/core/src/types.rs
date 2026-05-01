@@ -39,6 +39,9 @@ pub enum ProviderType {
     OpenAIResponses,
     Anthropic,
     Gemini,
+    Jina,
+    Cohere,
+    Voyage,
     Custom,
 }
 
@@ -155,6 +158,7 @@ pub enum ModelType {
     Voice,
     Embedding,
     Image,
+    Rerank,
 }
 
 impl Default for ModelType {
@@ -167,7 +171,9 @@ impl ModelType {
     /// Auto-detect model type from model_id string
     pub fn detect(model_id: &str) -> Self {
         let id = model_id.to_lowercase();
-        if id.contains("embed") {
+        if id.contains("rerank") || id.contains("colbert") {
+            ModelType::Rerank
+        } else if id.contains("embed") {
             ModelType::Embedding
         } else if id.contains("gpt-image") || id.contains("dall-e") || id.contains("image") {
             ModelType::Image
@@ -190,6 +196,7 @@ impl std::fmt::Display for ModelType {
             ModelType::Voice => write!(f, "voice"),
             ModelType::Embedding => write!(f, "embedding"),
             ModelType::Image => write!(f, "image"),
+            ModelType::Rerank => write!(f, "rerank"),
         }
     }
 }
@@ -202,8 +209,22 @@ impl std::str::FromStr for ModelType {
             "voice" => Ok(ModelType::Voice),
             "embedding" => Ok(ModelType::Embedding),
             "image" => Ok(ModelType::Image),
+            "rerank" => Ok(ModelType::Rerank),
             _ => Ok(ModelType::Chat),
         }
+    }
+}
+
+#[cfg(test)]
+mod model_type_tests {
+    use super::*;
+
+    #[test]
+    fn detect_identifies_rerank_models() {
+        assert_eq!(ModelType::detect("jina-reranker-v3"), ModelType::Rerank);
+        assert_eq!(ModelType::detect("rerank-v4.0-pro"), ModelType::Rerank);
+        assert_eq!(ModelType::detect("voyage-rerank-2.5"), ModelType::Rerank);
+        assert_eq!(ModelType::detect("jina-colbert-v2"), ModelType::Rerank);
     }
 }
 
@@ -947,6 +968,12 @@ pub struct ConversationTitleGeneratingEvent {
 pub struct RagRetrievedItem {
     pub content: String,
     pub score: f32,
+    #[serde(
+        default,
+        rename = "rerankScore",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rerank_score: Option<f32>,
     pub document_id: String,
     /// Chunk ID within the vector store.
     #[serde(default)]
@@ -994,6 +1021,27 @@ pub struct EmbedRequest {
 pub struct EmbedResponse {
     pub embeddings: Vec<Vec<f32>>,
     pub dimensions: usize,
+}
+
+// === Rerank Types ===
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RerankRequest {
+    pub model: String,
+    pub query: String,
+    pub documents: Vec<String>,
+    pub top_n: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RerankResult {
+    pub index: usize,
+    pub relevance_score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RerankResponse {
+    pub results: Vec<RerankResult>,
 }
 
 // === Realtime Voice ===
@@ -1139,6 +1187,8 @@ pub struct KnowledgeBase {
     pub embedding_dimensions: Option<i32>,
     pub retrieval_threshold: Option<f32>,
     pub retrieval_top_k: Option<i32>,
+    pub rerank_provider: Option<String>,
+    pub rerank_candidate_k: Option<i32>,
     pub chunk_size: Option<i32>,
     pub chunk_overlap: Option<i32>,
     pub separator: Option<String>,
@@ -1194,7 +1244,7 @@ pub struct MemoryItem {
     pub namespace_id: String,
     pub title: String,
     pub content: String,
-    pub source: String,      // manual | auto_extract
+    pub source: String,       // manual | auto_extract
     pub index_status: String, // pending | indexing | ready | failed | skipped
     pub index_error: Option<String>,
     pub updated_at: String,
@@ -1486,6 +1536,12 @@ pub struct UpdateKnowledgeBaseInput {
     pub retrieval_top_k: Option<i32>,
     #[serde(default)]
     pub update_retrieval_top_k: bool,
+    pub rerank_provider: Option<String>,
+    #[serde(default)]
+    pub update_rerank_provider: bool,
+    pub rerank_candidate_k: Option<i32>,
+    #[serde(default)]
+    pub update_rerank_candidate_k: bool,
     pub chunk_size: Option<i32>,
     #[serde(default)]
     pub update_chunk_size: bool,

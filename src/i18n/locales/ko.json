@@ -551,7 +551,8 @@
       "Chat": "채팅",
       "Voice": "음성",
       "Embedding": "임베딩",
-      "Image": "이미지"
+      "Image": "이미지",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "아이콘 선택",
     "searchIcon": "아이콘 검색...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "자동",
       "retrievalThreshold": "검색 임계값",
       "retrievalTopK": "상위 K개 결과",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "청크 설정",
       "chunkSize": "청크 크기",
       "chunkOverlap": "청크 겹침",

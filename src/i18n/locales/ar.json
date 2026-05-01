@@ -551,7 +551,8 @@
       "Chat": "محادثة",
       "Voice": "صوت",
       "Embedding": "تضمين",
-      "Image": "صورة"
+      "Image": "صورة",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "اختيار أيقونة",
     "searchIcon": "البحث عن أيقونات...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "تلقائي",
       "retrievalThreshold": "عتبة الاسترداد",
       "retrievalTopK": "أفضل K نتائج",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "إعداد التقطيع",
       "chunkSize": "حجم القطعة",
       "chunkOverlap": "تداخل القطع",

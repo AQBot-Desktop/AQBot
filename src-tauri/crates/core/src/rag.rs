@@ -59,9 +59,7 @@ impl RAGSource for KnowledgeRAG {
     ) -> Result<String> {
         let kb = crate::repo::knowledge::get_knowledge_base(db, container_id).await?;
         kb.embedding_provider.ok_or_else(|| {
-            AQBotError::Provider(
-                "Knowledge base has no embedding provider configured".to_string(),
-            )
+            AQBotError::Provider("Knowledge base has no embedding provider configured".to_string())
         })
     }
 }
@@ -122,7 +120,13 @@ pub async fn search<S: RAGSource + ?Sized>(
     let cid = collection_id(source.collection_prefix(), container_id);
 
     let embed_response = embed_fn
-        .generate(db, master_key, &embedding_provider, vec![query.to_string()], dimensions)
+        .generate(
+            db,
+            master_key,
+            &embedding_provider,
+            vec![query.to_string()],
+            dimensions,
+        )
         .await?;
 
     let query_embedding = embed_response
@@ -218,13 +222,7 @@ pub fn prepare_chunks(
 
             Ok(chunks
                 .into_iter()
-                .map(|c| {
-                    (
-                        format!("{}_{}", item_id, c.index),
-                        c.content,
-                        c.index,
-                    )
-                })
+                .map(|c| (format!("{}_{}", item_id, c.index), c.content, c.index))
                 .collect())
         }
         ChunkStrategy::Direct => {
@@ -282,6 +280,7 @@ pub async fn collect_rag_context(
     query: &str,
     top_k: usize,
     embed_fn: impl AsyncEmbedFn + Clone,
+    rerank_fn: impl AsyncRerankFn + Clone,
 ) -> RagContextResult {
     let mut sources: Vec<RAGSourceRef> = Vec::new();
 
@@ -305,17 +304,60 @@ pub async fn collect_rag_context(
         let source = src_ref.source();
 
         // Resolve per-source search parameters (top_k, threshold, dimensions)
-        let (source_top_k, threshold, dims) = if src_ref.source_type == RAGSourceType::Memory {
-            match crate::repo::memory::get_namespace(db, &src_ref.container_id).await {
-                Ok(ns) => (
-                    ns.retrieval_top_k.map(|v| v as usize).unwrap_or(top_k),
-                    ns.retrieval_threshold.unwrap_or(0.0),
-                    ns.embedding_dimensions.map(|v| v as usize),
-                ),
-                Err(_) => (top_k, 0.0, None),
+        let (source_top_k, threshold, dims, final_top_k, rerank_provider) = match src_ref
+            .source_type
+        {
+            RAGSourceType::Memory => {
+                match crate::repo::memory::get_namespace(db, &src_ref.container_id).await {
+                    Ok(ns) => {
+                        let final_top_k = ns
+                            .retrieval_top_k
+                            .filter(|v| *v > 0)
+                            .map(|v| v as usize)
+                            .unwrap_or(top_k)
+                            .max(1);
+                        (
+                            final_top_k,
+                            ns.retrieval_threshold.unwrap_or(0.0),
+                            ns.embedding_dimensions.map(|v| v as usize),
+                            final_top_k,
+                            None,
+                        )
+                    }
+                    Err(_) => (top_k, 0.0, None, top_k, None),
+                }
             }
-        } else {
-            (top_k, 0.0, None)
+            RAGSourceType::Knowledge => {
+                match crate::repo::knowledge::get_knowledge_base(db, &src_ref.container_id).await {
+                    Ok(kb) => {
+                        let final_top_k = kb
+                            .retrieval_top_k
+                            .filter(|v| *v > 0)
+                            .map(|v| v as usize)
+                            .unwrap_or(top_k)
+                            .max(1);
+                        let rerank_provider = kb
+                            .rerank_provider
+                            .filter(|provider| !provider.trim().is_empty());
+                        let source_top_k = if rerank_provider.is_some() {
+                            let min_candidates = final_top_k.min(100) as i32;
+                            kb.rerank_candidate_k
+                                .unwrap_or(20)
+                                .clamp(min_candidates, 100) as usize
+                        } else {
+                            final_top_k
+                        };
+                        (
+                            source_top_k,
+                            kb.retrieval_threshold.unwrap_or(0.0),
+                            None,
+                            final_top_k,
+                            rerank_provider,
+                        )
+                    }
+                    Err(_) => (top_k, 0.0, None, top_k, None),
+                }
+            }
         };
 
         let result = search(
@@ -334,8 +376,11 @@ pub async fn collect_rag_context(
         match result {
             Ok(raw_results) if !raw_results.is_empty() => {
                 // Apply distance threshold filter
-                let results: Vec<_> = if threshold > 0.0 {
-                    raw_results.into_iter().filter(|r| r.score <= threshold).collect()
+                let mut results: Vec<_> = if threshold > 0.0 {
+                    raw_results
+                        .into_iter()
+                        .filter(|r| r.score <= threshold)
+                        .collect()
                 } else {
                     raw_results
                 };
@@ -343,11 +388,41 @@ pub async fn collect_rag_context(
                     continue;
                 }
 
+                if let Some(rerank_provider) = rerank_provider {
+                    match rerank_fn
+                        .rerank(
+                            db,
+                            master_key,
+                            &rerank_provider,
+                            query,
+                            &results,
+                            final_top_k,
+                        )
+                        .await
+                    {
+                        Ok(reranked) if !reranked.is_empty() => {
+                            results = reranked;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                "RAG rerank failed for {} {}: {}",
+                                source.collection_prefix(),
+                                src_ref.container_id,
+                                e
+                            );
+                        }
+                    }
+                }
+
+                results.truncate(final_top_k);
+
                 let items: Vec<RagRetrievedItem> = results
                     .iter()
                     .map(|r| RagRetrievedItem {
                         content: r.content.clone(),
                         score: r.score,
+                        rerank_score: r.rerank_score,
                         document_id: r.document_id.clone(),
                         id: r.id.clone(),
                         document_name: None,
@@ -402,7 +477,10 @@ pub async fn collect_rag_context(
         if !kb_doc_ids.is_empty() {
             match crate::repo::knowledge::get_document_titles(db, &kb_doc_ids).await {
                 Ok(titles) => {
-                    for src in source_results.iter_mut().filter(|s| s.source_type == "knowledge") {
+                    for src in source_results
+                        .iter_mut()
+                        .filter(|s| s.source_type == "knowledge")
+                    {
                         for item in &mut src.items {
                             item.document_name = titles.get(&item.document_id).cloned();
                         }
@@ -435,4 +513,17 @@ pub trait AsyncEmbedFn: Send + Sync + Clone {
         texts: Vec<String>,
         dimensions: Option<usize>,
     ) -> Result<crate::types::EmbedResponse>;
+}
+
+#[async_trait]
+pub trait AsyncRerankFn: Send + Sync + Clone {
+    async fn rerank(
+        &self,
+        db: &DatabaseConnection,
+        master_key: &[u8; 32],
+        rerank_provider: &str,
+        query: &str,
+        results: &[VectorSearchResult],
+        top_n: usize,
+    ) -> Result<Vec<VectorSearchResult>>;
 }

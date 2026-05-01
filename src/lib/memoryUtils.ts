@@ -1,6 +1,7 @@
 export interface MemoryRetrievedItem {
   content: string;
   score: number;
+  rerankScore?: number;
   document_id: string;
   /** Chunk ID within the vector store */
   id: string;

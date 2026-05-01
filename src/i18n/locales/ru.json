@@ -551,7 +551,8 @@
       "Chat": "Чат",
       "Voice": "Голос",
       "Embedding": "Эмбеддинг",
-      "Image": "Изображение"
+      "Image": "Изображение",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "Выбрать иконку",
     "searchIcon": "Поиск иконок...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "Авто",
       "retrievalThreshold": "Порог поиска",
       "retrievalTopK": "Top-K результатов",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "Настройки чанкинга",
       "chunkSize": "Размер чанка",
       "chunkOverlap": "Перекрытие чанков",

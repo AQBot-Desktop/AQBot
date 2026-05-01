@@ -14,6 +14,8 @@ export type KnowledgeBase = {
   embeddingDimensions?: number;
   retrievalThreshold?: number;
   retrievalTopK?: number;
+  rerankProvider?: string;
+  rerankCandidateK?: number;
   chunkSize?: number;
   chunkOverlap?: number;
   separator?: string;
@@ -59,6 +61,10 @@ export type UpdateKnowledgeBaseInput = Partial<CreateKnowledgeBaseInput> & {
   updateRetrievalThreshold?: boolean;
   retrievalTopK?: number;
   updateRetrievalTopK?: boolean;
+  rerankProvider?: string;
+  updateRerankProvider?: boolean;
+  rerankCandidateK?: number;
+  updateRerankCandidateK?: boolean;
   chunkSize?: number;
   updateChunkSize?: boolean;
   chunkOverlap?: number;

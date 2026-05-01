@@ -22,6 +22,7 @@ import { Plus, Trash2, Trash, Settings, GripVertical, MoreHorizontal, Search, Fi
 import { useTranslation } from 'react-i18next';
 import { useKnowledgeStore } from '@/stores';
 import { EmbeddingModelSelect } from '@/components/shared/EmbeddingModelSelect';
+import { RerankModelSelect } from '@/components/shared/RerankModelSelect';
 import { IconEditor } from '@/components/shared/IconEditor';
 import { KnowledgeBaseIcon } from '@/components/shared/KnowledgeBaseIcon';
 import { invoke } from '@/lib/invoke';
@@ -220,6 +221,7 @@ interface VectorSearchResult {
   chunk_index: number;
   content: string;
   score: number;
+  rerankScore?: number;
   has_embedding: boolean;
 }
 
@@ -229,6 +231,20 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function displayRetrievalScore(result: VectorSearchResult): string {
+  if (typeof result.rerankScore === 'number') {
+    return result.rerankScore.toFixed(4);
+  }
+  return (1 / (1 + result.score)).toFixed(4);
+}
+
+function compareRetrievalScore(a: VectorSearchResult, b: VectorSearchResult): number {
+  if (typeof a.rerankScore === 'number' || typeof b.rerankScore === 'number') {
+    return (b.rerankScore ?? Number.NEGATIVE_INFINITY) - (a.rerankScore ?? Number.NEGATIVE_INFINITY);
+  }
+  return a.score - b.score;
 }
 
 function KnowledgeBaseDetail({
@@ -251,6 +267,8 @@ function KnowledgeBaseDetail({
     embeddingDimensions: undefined as number | undefined,
     retrievalThreshold: undefined as number | undefined,
     retrievalTopK: undefined as number | undefined,
+    rerankProvider: undefined as string | undefined,
+    rerankCandidateK: 20 as number | undefined,
     chunkSize: undefined as number | undefined,
     chunkOverlap: undefined as number | undefined,
     separator: undefined as string | undefined,
@@ -376,7 +394,7 @@ function KnowledgeBaseDetail({
         query: searchQuery,
         topK: 5,
       });
-      setSearchResults([...results].sort((a, b) => a.score - b.score));
+      setSearchResults(results);
     } catch (e) {
       messageApi.error(String(e));
     } finally {
@@ -673,6 +691,8 @@ function KnowledgeBaseDetail({
                   embeddingDimensions: base.embeddingDimensions ?? undefined,
                   retrievalThreshold: base.retrievalThreshold ?? 0.1,
                   retrievalTopK: base.retrievalTopK ?? 5,
+                  rerankProvider: base.rerankProvider ?? undefined,
+                  rerankCandidateK: base.rerankCandidateK ?? 20,
                   chunkSize: base.chunkSize ?? undefined,
                   chunkOverlap: base.chunkOverlap ?? undefined,
                   separator: base.separator ?? undefined,
@@ -706,6 +726,10 @@ function KnowledgeBaseDetail({
             updateRetrievalThreshold: true,
             retrievalTopK: settingsForm.retrievalTopK,
             updateRetrievalTopK: true,
+            rerankProvider: settingsForm.rerankProvider,
+            updateRerankProvider: true,
+            rerankCandidateK: settingsForm.rerankCandidateK,
+            updateRerankCandidateK: true,
             chunkSize: settingsForm.chunkSize,
             updateChunkSize: true,
             chunkOverlap: settingsForm.chunkOverlap,
@@ -767,6 +791,27 @@ function KnowledgeBaseDetail({
             <InputNumber
               value={settingsForm.retrievalTopK}
               onChange={(val) => setSettingsForm(s => ({ ...s, retrievalTopK: val ?? 5 }))}
+              min={1}
+              max={100}
+              style={{ width: 280 }}
+            />
+          </div>
+          <Divider style={{ margin: 0 }} />
+          <div className="flex items-center justify-between">
+            <span>{t('settings.knowledge.rerankModel')}</span>
+            <RerankModelSelect
+              value={settingsForm.rerankProvider}
+              onChange={(val) => setSettingsForm(s => ({ ...s, rerankProvider: val || undefined }))}
+              placeholder={t('settings.knowledge.rerankModelPlaceholder')}
+              style={{ width: 280 }}
+            />
+          </div>
+          <Divider style={{ margin: 0 }} />
+          <div className="flex items-center justify-between">
+            <span>{t('settings.knowledge.rerankCandidateK')}</span>
+            <InputNumber
+              value={settingsForm.rerankCandidateK}
+              onChange={(val) => setSettingsForm(s => ({ ...s, rerankCandidateK: val ?? 20 }))}
               min={1}
               max={100}
               style={{ width: 280 }}
@@ -837,6 +882,10 @@ function KnowledgeBaseDetail({
             updateRetrievalThreshold: true,
             retrievalTopK: settingsForm.retrievalTopK,
             updateRetrievalTopK: true,
+            rerankProvider: settingsForm.rerankProvider,
+            updateRerankProvider: true,
+            rerankCandidateK: settingsForm.rerankCandidateK,
+            updateRerankCandidateK: true,
             chunkSize: settingsForm.chunkSize,
             updateChunkSize: true,
             chunkOverlap: settingsForm.chunkOverlap,
@@ -988,10 +1037,11 @@ function KnowledgeBaseDetail({
                 dataIndex: 'score',
                 key: 'score',
                 width: 90,
-                defaultSortOrder: 'ascend' as const,
-                sorter: (a: VectorSearchResult, b: VectorSearchResult) => a.score - b.score,
-                render: (score: number) => (
-                  <Tag color="blue" style={{ fontSize: 11 }}>{(1 / (1 + score)).toFixed(4)}</Tag>
+                sorter: compareRetrievalScore,
+                render: (_score: number, record: VectorSearchResult) => (
+                  <Tag color={typeof record.rerankScore === 'number' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
+                    {displayRetrievalScore(record)}
+                  </Tag>
                 ),
               },
             ]}

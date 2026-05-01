@@ -551,7 +551,8 @@
       "Chat": "Chat",
       "Voice": "Voz",
       "Embedding": "Incrustación",
-      "Image": "Imagen"
+      "Image": "Imagen",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "Elegir icono",
     "searchIcon": "Buscar iconos...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "Automático",
       "retrievalThreshold": "Umbral de recuperación",
       "retrievalTopK": "Top K resultados",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "Configuración de fragmentación",
       "chunkSize": "Tamaño del fragmento",
       "chunkOverlap": "Superposición del fragmento",

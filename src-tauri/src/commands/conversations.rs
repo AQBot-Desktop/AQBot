@@ -13,6 +13,9 @@ fn provider_type_to_registry_key(pt: &ProviderType) -> &'static str {
         ProviderType::OpenAIResponses => "openai_responses",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
         ProviderType::Custom => "openai", // Custom providers use OpenAI-compatible API
     }
 }

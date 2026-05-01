@@ -37,6 +37,12 @@ pub struct VectorSearchResult {
     pub content: String,
     /// Distance score (lower is more similar for L2 distance)
     pub score: f32,
+    #[serde(
+        default,
+        rename = "rerankScore",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rerank_score: Option<f32>,
     /// Whether this chunk has an embedding in vec0
     pub has_embedding: bool,
 }
@@ -335,6 +341,7 @@ impl VectorStore {
                     .try_get::<f64>("", "distance")
                     .map(|v| v as f32)
                     .map_err(Self::wrap)?,
+                rerank_score: None,
                 has_embedding: true,
             });
         }
@@ -404,10 +411,7 @@ impl VectorStore {
 
     /// List all chunk metadata with rowids for re-embedding.
     /// Returns (rowid, chunk_id, content) tuples.
-    pub async fn list_all_chunks(
-        &self,
-        collection_id: &str,
-    ) -> Result<Vec<(i64, String, String)>> {
+    pub async fn list_all_chunks(&self, collection_id: &str) -> Result<Vec<(i64, String, String)>> {
         self.list_chunks_raw(collection_id, None).await
     }
 
@@ -470,7 +474,8 @@ impl VectorStore {
         collection_id: &str,
         entries: Vec<(i64, Vec<f32>)>, // (rowid, embedding)
     ) -> Result<()> {
-        self.upsert_document_embeddings(collection_id, entries).await
+        self.upsert_document_embeddings(collection_id, entries)
+            .await
     }
 
     /// Insert or replace embeddings for specific rowids.
@@ -747,6 +752,7 @@ impl VectorStore {
                 chunk_index: row.try_get("", "chunk_index").map_err(Self::wrap)?,
                 content: row.try_get("", "content").map_err(Self::wrap)?,
                 score: 0.0,
+                rerank_score: None,
                 has_embedding: has_emb != 0,
             });
         }

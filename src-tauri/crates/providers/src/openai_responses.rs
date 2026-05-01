@@ -982,6 +982,7 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
                     ModelType::Chat => vec![ModelCapability::TextChat],
                     ModelType::Embedding => vec![],
                     ModelType::Image => vec![],
+                    ModelType::Rerank => vec![],
                     ModelType::Voice => vec![ModelCapability::RealtimeVoice],
                 };
                 let id_lower = m.id.to_lowercase();

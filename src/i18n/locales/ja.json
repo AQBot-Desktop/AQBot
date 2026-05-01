@@ -551,7 +551,8 @@
       "Chat": "チャット",
       "Voice": "音声",
       "Embedding": "埋め込み",
-      "Image": "画像"
+      "Image": "画像",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "アイコンを選択",
     "searchIcon": "アイコンを検索...",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "自動",
       "retrievalThreshold": "取得閾値",
       "retrievalTopK": "取得上位K件",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "チャンク設定",
       "chunkSize": "チャンクサイズ",
       "chunkOverlap": "チャンクオーバーラップ",

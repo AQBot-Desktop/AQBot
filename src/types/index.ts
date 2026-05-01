@@ -1,5 +1,13 @@
 // === Provider System ===
-export type ProviderType = 'openai' | 'openai_responses' | 'anthropic' | 'gemini' | 'custom';
+export type ProviderType =
+  | 'openai'
+  | 'openai_responses'
+  | 'anthropic'
+  | 'gemini'
+  | 'jina'
+  | 'cohere'
+  | 'voyage'
+  | 'custom';
 
 export interface ProviderConfig {
   id: string;
@@ -74,7 +82,7 @@ export interface DeepLinkProviderImportResult {
 
 // === Model System ===
 export type ModelCapability = 'TextChat' | 'Vision' | 'FunctionCalling' | 'Reasoning' | 'RealtimeVoice';
-export type ModelType = 'Chat' | 'Voice' | 'Embedding' | 'Image';
+export type ModelType = 'Chat' | 'Voice' | 'Embedding' | 'Image' | 'Rerank';
 
 export interface Model {
   provider_id: string;

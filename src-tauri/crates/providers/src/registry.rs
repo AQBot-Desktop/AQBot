@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use crate::ProviderAdapter;
 use crate::anthropic::AnthropicAdapter;
+use crate::cohere::CohereAdapter;
 use crate::gemini::GeminiAdapter;
+use crate::jina::JinaAdapter;
 use crate::openai::OpenAIAdapter;
 use crate::openai_responses::OpenAIResponsesAdapter;
-use crate::ProviderAdapter;
+use crate::voyage::VoyageAdapter;
 
 pub struct ProviderRegistry {
     adapters: HashMap<String, Box<dyn ProviderAdapter>>,
@@ -32,6 +35,9 @@ impl ProviderRegistry {
         registry.register("openai_responses", Box::new(OpenAIResponsesAdapter::new()));
         registry.register("anthropic", Box::new(AnthropicAdapter::new()));
         registry.register("gemini", Box::new(GeminiAdapter::new()));
+        registry.register("jina", Box::new(JinaAdapter::new()));
+        registry.register("cohere", Box::new(CohereAdapter::new()));
+        registry.register("voyage", Box::new(VoyageAdapter::new()));
         registry
     }
 }

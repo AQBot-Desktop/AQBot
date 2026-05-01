@@ -256,6 +256,45 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                 ),
             ],
         },
+        BuiltinProvider {
+            builtin_id: "jina",
+            name: "Jina",
+            provider_type: ProviderType::Jina,
+            api_host: "https://api.jina.ai",
+            models: vec![
+                ("jina-reranker-v3", "Jina Reranker v3", vec![], None),
+                (
+                    "jina-reranker-v2-base-multilingual",
+                    "Jina Reranker v2 Base Multilingual",
+                    vec![],
+                    None,
+                ),
+                ("jina-colbert-v2", "Jina ColBERT v2", vec![], None),
+            ],
+        },
+        BuiltinProvider {
+            builtin_id: "cohere",
+            name: "Cohere",
+            provider_type: ProviderType::Cohere,
+            api_host: "https://api.cohere.com",
+            models: vec![
+                ("rerank-v4.0-pro", "Rerank v4.0 Pro", vec![], None),
+                ("rerank-v4.0-fast", "Rerank v4.0 Fast", vec![], None),
+                ("rerank-v3.5", "Rerank v3.5", vec![], None),
+            ],
+        },
+        BuiltinProvider {
+            builtin_id: "voyage",
+            name: "Voyage",
+            provider_type: ProviderType::Voyage,
+            api_host: "https://api.voyageai.com",
+            models: vec![
+                ("rerank-2.5", "Rerank 2.5", vec![], None),
+                ("rerank-2.5-lite", "Rerank 2.5 Lite", vec![], None),
+                ("rerank-2", "Rerank 2", vec![], None),
+                ("rerank-2-lite", "Rerank 2 Lite", vec![], None),
+            ],
+        },
     ]
 }
 
@@ -313,8 +352,38 @@ async fn seed_builtin_providers(db: &DatabaseConnection) -> Result<()> {
         .await?;
     }
 
-    info!("Seeded {} built-in providers", 8);
+    info!("Seeded built-in providers");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_rerank_providers_are_registered_with_rerank_models() {
+        let providers = get_builtin_providers();
+
+        for (builtin_id, provider_type, model_id) in [
+            ("jina", ProviderType::Jina, "jina-reranker-v3"),
+            ("cohere", ProviderType::Cohere, "rerank-v4.0-pro"),
+            ("voyage", ProviderType::Voyage, "rerank-2.5"),
+        ] {
+            let provider = providers
+                .iter()
+                .find(|provider| provider.builtin_id == builtin_id)
+                .expect("missing rerank provider");
+
+            assert_eq!(provider.provider_type, provider_type);
+            assert!(
+                provider
+                    .models
+                    .iter()
+                    .any(|(id, _, _, _)| *id == model_id
+                        && ModelType::detect(id) == ModelType::Rerank)
+            );
+        }
+    }
 }
 
 pub async fn create_test_pool() -> Result<DbHandle> {

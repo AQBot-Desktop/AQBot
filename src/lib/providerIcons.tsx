@@ -8,6 +8,9 @@ const TYPE_TO_PROVIDER: Record<string, string> = {
   openai_responses: 'openai',
   anthropic: 'anthropic',
   gemini: 'google',
+  jina: 'jina',
+  cohere: 'cohere',
+  voyage: 'voyage',
   custom: 'openai',
 };
 

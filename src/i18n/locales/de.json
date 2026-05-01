@@ -551,7 +551,8 @@
       "Chat": "Chat",
       "Voice": "Stimme",
       "Embedding": "Embedding",
-      "Image": "Bild"
+      "Image": "Bild",
+      "Rerank": "Rerank"
     },
     "chooseIcon": "Symbol auswählen",
     "searchIcon": "Symbole suchen…",
@@ -711,6 +712,9 @@
       "embeddingDimensionsAuto": "Auto",
       "retrievalThreshold": "Abrufschwelle",
       "retrievalTopK": "Top-K-Ergebnisse",
+      "rerankModel": "Rerank model",
+      "rerankModelPlaceholder": "Select rerank model",
+      "rerankCandidateK": "Rerank candidates",
       "chunkingConfig": "Aufteilungskonfiguration",
       "chunkSize": "Abschnittsgröße",
       "chunkOverlap": "Abschnittsüberlappung",
