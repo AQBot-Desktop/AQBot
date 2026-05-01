@@ -3,6 +3,7 @@ import { Select, theme } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
 import { useProviderStore } from '@/stores';
 import { SmartProviderIcon } from '@/lib/providerIcons';
+import type { ModelType } from '@/types';
 
 /** Parse a combined `providerId::modelId` value. */
 export function parseModelValue(value: string | undefined) {
@@ -13,29 +14,32 @@ export function parseModelValue(value: string | undefined) {
 }
 
 /** Hook: returns grouped Select options (Provider → Models) */
-export function useGroupedModelOptions() {
+export function useGroupedModelOptions(modelType?: ModelType) {
   const providers = useProviderStore((s) => s.providers);
   return useMemo(() => {
     return providers
-      .filter((p) => p.enabled && p.models.some((m) => m.enabled))
-      .map((p) => ({
-        label: (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <SmartProviderIcon provider={p} size={16} type="avatar" />
-            {p.name}
-          </span>
-        ),
-        title: p.name,
-        options: p.models
-          .filter((m) => m.enabled)
-          .map((m) => ({
+      .filter((p) => p.enabled)
+      .map((p) => {
+        const models = p.models.filter((m) => m.enabled && (!modelType || m.model_type === modelType));
+        if (models.length === 0) return null;
+        return {
+          label: (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <SmartProviderIcon provider={p} size={16} type="avatar" />
+              {p.name}
+            </span>
+          ),
+          title: p.name,
+          options: models.map((m) => ({
             label: m.name,
             value: `${p.id}::${m.model_id}`,
             modelId: m.model_id,
             providerName: p.name,
           })),
-      }));
-  }, [providers]);
+        };
+      })
+      .filter((option): option is NonNullable<typeof option> => option !== null);
+  }, [providers, modelType]);
 }
 
 /** Hook: returns Map<providerId, providerName> */
@@ -58,15 +62,17 @@ export function ModelSelect({
   placeholder,
   allowClear = true,
   style,
+  modelType,
 }: {
   value?: string;
   onChange: (value: string | undefined) => void;
   placeholder?: string;
   allowClear?: boolean;
   style?: React.CSSProperties;
+  modelType?: ModelType;
 }) {
   const { token } = theme.useToken();
-  const groupedOptions = useGroupedModelOptions();
+  const groupedOptions = useGroupedModelOptions(modelType);
   const providerNameMap = useProviderNameMap();
 
   const optionRender = useCallback(

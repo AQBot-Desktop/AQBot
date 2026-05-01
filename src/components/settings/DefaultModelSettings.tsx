@@ -3,7 +3,7 @@ import { Settings, Info, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, useProviderStore } from '@/stores';
 import { useEffect, useCallback, useState } from 'react';
-import type { AppSettings } from '@/types';
+import type { AppSettings, ModelType } from '@/types';
 import { ModelSelect, parseModelValue } from '@/components/shared/ModelSelect';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { SettingsGroup } from './SettingsGroup';
@@ -202,6 +202,7 @@ function ModelCard({
   defaultMaxTokens,
   defaultPrompt,
   promptPlaceholder,
+  modelType,
 }: {
   title: string;
   description: string;
@@ -221,6 +222,7 @@ function ModelCard({
   defaultMaxTokens: number;
   defaultPrompt?: string;
   promptPlaceholder?: string;
+  modelType?: ModelType;
 }) {
   const { token } = theme.useToken();
   const settings = useSettingsStore((s) => s.settings);
@@ -259,6 +261,7 @@ function ModelCard({
             value={currentValue}
             onChange={handleChange}
             placeholder={placeholder}
+            modelType={modelType}
           />
           <Tooltip title={modalTitle}>
             <Button
@@ -320,6 +323,7 @@ export function DefaultModelSettings() {
         defaultTemperature={0.7}
         defaultTopP={1.0}
         defaultMaxTokens={4096}
+        modelType="Chat"
       />
 
       <ModelCard
@@ -338,6 +342,7 @@ export function DefaultModelSettings() {
         defaultTemperature={0.3}
         defaultTopP={1.0}
         defaultMaxTokens={1024}
+        modelType="Chat"
       />
 
       <ModelCard
@@ -358,6 +363,7 @@ export function DefaultModelSettings() {
         defaultMaxTokens={1024}
         defaultPrompt={DEFAULT_COMPRESSION_PROMPT}
         promptPlaceholder={t('settings.compressionPromptPlaceholder')}
+        modelType="Chat"
       />
     </div>
   );

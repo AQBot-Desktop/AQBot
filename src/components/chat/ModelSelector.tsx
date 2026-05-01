@@ -37,6 +37,10 @@ function savePinnedModels(ids: string[]) {
   localStorage.setItem(PINNED_MODELS_KEY, JSON.stringify(ids));
 }
 
+function isChatModel(model: Pick<Model, 'model_type'>) {
+  return model.model_type === 'Chat';
+}
+
 interface ModelSelectorProps {
   style?: React.CSSProperties;
   /** Custom select callback. When provided, overrides the default conversation/settings update. */
@@ -115,7 +119,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     } else {
       for (const p of providers) {
         if (!p.enabled) continue;
-        const m = p.models.find((m) => m.enabled);
+        const m = p.models.find((m) => m.enabled && isChatModel(m));
         if (m) { pid = p.id; mid = m.model_id; break; }
       }
     }
@@ -136,6 +140,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       if (!p.enabled) continue;
       for (const m of p.models) {
         if (!m.enabled) continue;
+        if (!isChatModel(m)) continue;
         const key = `${p.id}::${m.model_id}`;
         if (excludeModelKeys?.includes(key)) continue;
         result.push({ pid: p.id, mid: m.model_id, name: m.name, providerName: p.name, model: m });
@@ -167,6 +172,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         models: p.models.filter(
           (m) => {
             if (!m.enabled) return false;
+            if (!isChatModel(m)) return false;
             if (excludeModelKeys?.includes(`${p.id}::${m.model_id}`)) return false;
             if (!q) return true;
             return m.name.toLowerCase().includes(q) || m.model_id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
