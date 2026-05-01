@@ -59,6 +59,7 @@
     "exportFailed": "Export failed",
     "rename": "Rename",
     "delete": "Delete",
+    "directDeleteHint": "Hold {{shortcut}} to delete directly",
     "export": "Export",
     "copy": "Copy",
     "copied": "Copied",

@@ -59,6 +59,7 @@
     "exportFailed": "فشل التصدير",
     "rename": "إعادة التسمية",
     "delete": "حذف",
+    "directDeleteHint": "اضغط مع الاستمرار على {{shortcut}} للحذف مباشرة",
     "export": "تصدير",
     "copy": "نسخ",
     "copied": "تم النسخ",

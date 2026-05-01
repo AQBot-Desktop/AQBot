@@ -59,6 +59,7 @@
     "exportFailed": "निर्यात विफल",
     "rename": "नाम बदलें",
     "delete": "हटाएँ",
+    "directDeleteHint": "सीधे हटाने के लिए {{shortcut}} दबाए रखें",
     "export": "निर्यात",
     "copy": "कॉपी करें",
     "copied": "कॉपी किया गया",

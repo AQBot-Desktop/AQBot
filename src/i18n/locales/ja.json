@@ -59,6 +59,7 @@
     "exportFailed": "書き出し失敗",
     "rename": "名前を変更",
     "delete": "削除",
+    "directDeleteHint": "{{shortcut}} を押しながら直接削除",
     "export": "書き出し",
     "copy": "コピー",
     "copied": "コピー済み",

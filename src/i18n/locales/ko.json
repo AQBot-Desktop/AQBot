@@ -59,6 +59,7 @@
     "exportFailed": "내보내기 실패",
     "rename": "이름 바꾸기",
     "delete": "삭제",
+    "directDeleteHint": "{{shortcut}} 키를 누른 채 바로 삭제",
     "export": "내보내기",
     "copy": "복사",
     "copied": "복사됨",

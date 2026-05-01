@@ -59,6 +59,7 @@
     "exportFailed": "匯出失敗",
     "rename": "重新命名",
     "delete": "刪除",
+    "directDeleteHint": "按住 {{shortcut}} 可直接刪除",
     "export": "匯出",
     "copy": "複製",
     "copied": "已複製",

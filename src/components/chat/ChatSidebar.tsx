@@ -29,6 +29,21 @@ import {
   type DragOverEvent,
 } from '@dnd-kit/core'
 
+type DeleteShortcutEvent = Pick<React.MouseEvent<HTMLElement>, 'ctrlKey' | 'metaKey'>
+
+function isDirectDeleteEvent(event?: DeleteShortcutEvent): boolean {
+  return Boolean(event?.ctrlKey || event?.metaKey)
+}
+
+function getDirectDeleteShortcutLabel(): string {
+  if (typeof navigator === 'undefined') return 'Ctrl'
+  const platform = navigator.platform || ''
+  const userAgent = navigator.userAgent || ''
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(platform)
+    || (/Mac OS/i.test(userAgent) && !/Windows|Linux|Android/i.test(userAgent))
+  return isMac ? '⌘' : 'Ctrl'
+}
+
 function getDateGroup(timestamp: number): string {
   const now = new Date()
   const date = new Date(timestamp * 1000)
@@ -229,6 +244,23 @@ export function ChatSidebar() {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<ConversationCategory | null>(null)
   const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
+  const [directDeleteMode, setDirectDeleteMode] = useState(false)
+
+  useEffect(() => {
+    const updateFromKeyboard = (event: KeyboardEvent) => {
+      setDirectDeleteMode(event.ctrlKey || event.metaKey)
+    }
+    const reset = () => setDirectDeleteMode(false)
+
+    window.addEventListener('keydown', updateFromKeyboard)
+    window.addEventListener('keyup', updateFromKeyboard)
+    window.addEventListener('blur', reset)
+    return () => {
+      window.removeEventListener('keydown', updateFromKeyboard)
+      window.removeEventListener('keyup', updateFromKeyboard)
+      window.removeEventListener('blur', reset)
+    }
+  }, [])
 
   // Auto-expand parent when active conversation is a child
   useEffect(() => {
@@ -524,7 +556,42 @@ export function ChatSidebar() {
     return icon
   }, [streamingConversationId, token.colorPrimary, token.colorPrimaryBg, token.colorBgContainer])
 
-   const conversationItems: ConversationItemType[] = useMemo(
+  const directDeleteShortcutLabel = useMemo(() => getDirectDeleteShortcutLabel(), [])
+  const directDeleteHint = t('chat.directDeleteHint', { shortcut: directDeleteShortcutLabel })
+
+  const handleDelete = useCallback(
+    (
+      item: Pick<ConversationItemType, 'key'>,
+      event?: DeleteShortcutEvent,
+      afterDelete?: () => void | Promise<void>,
+    ) => {
+      const id = String(item.key)
+      const runDelete = async () => {
+        await deleteConversation(id)
+        await afterDelete?.()
+      }
+
+      if (isDirectDeleteEvent(event)) {
+        void runDelete()
+        return
+      }
+
+      modal.confirm({
+        title: t('chat.deleteConfirm'),
+        mask: { enabled: true, blur: true },
+        okButtonProps: { danger: true },
+        onOk: runDelete,
+      })
+    },
+    [deleteConversation, t, modal],
+  )
+
+  const syncDirectDeleteModeFromMouse = useCallback((event: DeleteShortcutEvent) => {
+    const next = isDirectDeleteEvent(event)
+    setDirectDeleteMode((current) => (current === next ? current : next))
+  }, [])
+
+  const conversationItems: ConversationItemType[] = useMemo(
     () => {
       const items: ConversationItemType[] = []
 
@@ -843,7 +910,8 @@ export function ChatSidebar() {
 
   const handleRename = useCallback(
     (item: ConversationItemType) => {
-      let newTitle = String(item.label ?? '')
+      const conversation = conversations.find((c) => c.id === String(item.key))
+      let newTitle = conversation?.title ?? (typeof item.label === 'string' ? item.label : '')
       modal.confirm({
         title: t('chat.rename'),
         mask: { enabled: true, blur: true },
@@ -862,19 +930,7 @@ export function ChatSidebar() {
         },
       })
     },
-    [updateConversation, t, modal],
-  )
-
-  const handleDelete = useCallback(
-    (item: ConversationItemType) => {
-      modal.confirm({
-        title: t('chat.deleteConfirm'),
-        mask: { enabled: true, blur: true },
-        okButtonProps: { danger: true },
-        onOk: () => deleteConversation(String(item.key)),
-      })
-    },
-    [deleteConversation, t, modal],
+    [conversations, updateConversation, t, modal],
   )
 
   const buildExportChildren = useCallback(
@@ -972,7 +1028,29 @@ export function ChatSidebar() {
         }
       }
       return {
-        items: [
+        trigger: (_conversation: ConversationItemType, info: { originNode: React.ReactNode }) => {
+          if (!directDeleteMode) {
+            return <Tooltip title={directDeleteHint}>{info.originNode}</Tooltip>
+          }
+          return (
+            <Tooltip title={directDeleteHint}>
+              <Button
+                type="text"
+                danger
+                size="small"
+                aria-label={t('chat.delete')}
+                className="ant-conversations-menu-icon aqbot-chat-conversation-menu-delete"
+                icon={<Trash2 size={14} />}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  handleDelete(item, event)
+                }}
+              />
+            </Tooltip>
+          )
+        },
+        items: directDeleteMode ? [] : [
           {
             key: 'pin',
             label: isPinned ? t('chat.unpin') : t('chat.pin'),
@@ -984,11 +1062,11 @@ export function ChatSidebar() {
           {
             key: 'export',
             label: (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Share size={14} />{t('chat.export')}</span>),
-            children: buildExportChildren(String(item.key), String(item.label ?? '')),
+            children: buildExportChildren(String(item.key), conv?.title ?? (typeof item.label === 'string' ? item.label : '')),
           },
           { key: 'delete', label: t('chat.delete'), icon: <Trash2 size={14} />, danger: true },
         ],
-        onClick: (menuInfo: { key: string }) => {
+        onClick: (menuInfo: { key: string; domEvent?: DeleteShortcutEvent }) => {
           if (menuInfo.key.startsWith('move-to-cat:')) {
             const catId = menuInfo.key.slice('move-to-cat:'.length)
             void updateConversation(String(item.key), { category_id: catId })
@@ -1009,13 +1087,13 @@ export function ChatSidebar() {
               handleRename(item)
               break
             case 'delete':
-              handleDelete(item)
+              handleDelete(item, menuInfo.domEvent)
               break
           }
         },
       }
     },
-    [t, conversations, multiSelectMode, handleRename, handleDelete, togglePin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation],
+    [t, conversations, multiSelectMode, handleRename, handleDelete, togglePin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, directDeleteMode, directDeleteHint],
   )
 
   const handleConversationClick = useCallback((key: string) => {
@@ -1063,7 +1141,7 @@ export function ChatSidebar() {
         },
         { key: 'delete', label: t('chat.delete'), icon: <Trash2 size={14} />, danger: true },
       ],
-      onClick: (menuInfo: { key: string }) => {
+      onClick: (menuInfo: { key: string; domEvent?: DeleteShortcutEvent }) => {
         if (menuInfo.key.startsWith('move-to-cat:')) {
           const catId = menuInfo.key.slice('move-to-cat:'.length)
           void updateConversation(conv.id, { category_id: catId })
@@ -1078,7 +1156,7 @@ export function ChatSidebar() {
           case 'pin': togglePin(conv.id); break
           case 'archive': toggleArchive(conv.id); break
           case 'rename': handleRename(item); break
-          case 'delete': handleDelete(item); break
+          case 'delete': handleDelete(item, menuInfo.domEvent); break
         }
       },
     }
@@ -1264,23 +1342,16 @@ export function ChatSidebar() {
                           }}
                         />
                       </Tooltip>
-                      <Tooltip title={t('chat.delete')}>
+                      <Tooltip title={directDeleteHint}>
                         <Button
                           type="text"
                           size="small"
                           danger
+                          aria-label={t('chat.delete')}
                           icon={<Trash2 size={14} />}
                           onClick={(e) => {
                             e.stopPropagation()
-                            modal.confirm({
-                              title: t('chat.deleteConfirm'),
-                              mask: { enabled: true, blur: true },
-                              okButtonProps: { danger: true },
-                              onOk: async () => {
-                                await deleteConversation(conv.id)
-                                await fetchArchivedConversations()
-                              },
-                            })
+                            handleDelete({ key: conv.id }, e, fetchArchivedConversations)
                           }}
                         />
                       </Tooltip>
@@ -1302,7 +1373,9 @@ export function ChatSidebar() {
           onOpenChange={(open) => { if (!open) setRightClickedConvId(null) }}
         >
           <div className="flex-1 overflow-y-auto">
-            <div onContextMenu={(e) => {
+            <div
+              onMouseMove={syncDirectDeleteModeFromMouse}
+              onContextMenu={(e) => {
               if (multiSelectMode) { e.preventDefault(); e.stopPropagation(); return }
               const listItem = (e.target as HTMLElement).closest('[data-conv-id]') as HTMLElement
               if (!listItem) { e.preventDefault(); e.stopPropagation(); return }
@@ -1316,6 +1389,25 @@ export function ChatSidebar() {
                 }
                 .ant-conversations .ant-conversations-item-active .ant-conversations-label {
                   color: ${token.colorPrimary} !important;
+                }
+                .aqbot-chat-conversation-menu-delete {
+                  width: 22px;
+                  height: 22px;
+                  min-width: 22px;
+                  padding: 0;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                }
+                .ant-conversations .ant-conversations-item-active .aqbot-chat-conversation-menu-delete {
+                  opacity: 0;
+                }
+                .ant-conversations .ant-conversations-item:hover .aqbot-chat-conversation-menu-delete,
+                .aqbot-chat-conversation-menu-delete:focus-visible {
+                  opacity: 0.85;
+                }
+                .aqbot-chat-conversation-menu-delete:hover {
+                  opacity: 1 !important;
                 }
                 .ant-conversations .ant-conversations-group-label {
                   flex: 1;

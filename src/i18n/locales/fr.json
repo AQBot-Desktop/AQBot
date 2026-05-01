@@ -59,6 +59,7 @@
     "exportFailed": "Échec de l'exportation",
     "rename": "Renommer",
     "delete": "Supprimer",
+    "directDeleteHint": "Maintenez {{shortcut}} pour supprimer directement",
     "export": "Exporter",
     "copy": "Copier",
     "copied": "Copié",
