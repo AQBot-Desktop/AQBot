@@ -242,6 +242,21 @@ pub fn prepare_direct_chunk(item_id: &str, content: &str) -> Vec<(String, String
     vec![(item_id.to_string(), content.to_string(), 0)]
 }
 
+pub fn vector_similarity(distance: f32) -> f32 {
+    1.0 / (1.0 + distance.max(0.0))
+}
+
+pub fn passes_retrieval_threshold(distance: f32, threshold: f32) -> bool {
+    if threshold <= 0.0 {
+        return true;
+    }
+    if threshold <= 1.0 {
+        vector_similarity(distance) >= threshold
+    } else {
+        distance <= threshold
+    }
+}
+
 // ── Context collection ───────────────────────────────────────────────────────
 
 /// A typed RAG source reference for context collection.
@@ -379,7 +394,7 @@ pub async fn collect_rag_context(
                 let mut results: Vec<_> = if threshold > 0.0 {
                     raw_results
                         .into_iter()
-                        .filter(|r| r.score <= threshold)
+                        .filter(|r| passes_retrieval_threshold(r.score, threshold))
                         .collect()
                 } else {
                     raw_results
@@ -526,4 +541,22 @@ pub trait AsyncRerankFn: Send + Sync + Clone {
         results: &[VectorSearchResult],
         top_n: usize,
     ) -> Result<Vec<VectorSearchResult>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retrieval_threshold_uses_displayed_similarity_for_zero_to_one_values() {
+        assert!(passes_retrieval_threshold(1.0, 0.5));
+        assert!(passes_retrieval_threshold(4.0, 0.1));
+        assert!(!passes_retrieval_threshold(4.0, 0.3));
+    }
+
+    #[test]
+    fn retrieval_threshold_keeps_distance_compatibility_for_values_above_one() {
+        assert!(passes_retrieval_threshold(1.5, 2.0));
+        assert!(!passes_retrieval_threshold(2.5, 2.0));
+    }
 }

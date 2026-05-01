@@ -205,6 +205,69 @@ function getEffectiveThinkingLevel(get: () => ConversationState, conversationId:
   return optionKey === 'default' ? undefined : optionKey;
 }
 
+const RAG_DISPLAY_TAGS = new Set(['knowledge-retrieval', 'memory-retrieval']);
+const AQBOT_DISPLAY_TAGS = ['knowledge-retrieval', 'memory-retrieval', 'web-search'];
+
+function readLeadingAqbotDisplayTag(content: string): { tag: string; raw: string } | null {
+  const leadingWhitespace = content.match(/^\s*/)?.[0] ?? '';
+  const offset = leadingWhitespace.length;
+  const rest = content.slice(offset);
+
+  for (const tag of AQBOT_DISPLAY_TAGS) {
+    const openMatch = rest.match(new RegExp(`^<${tag}\\b[^>]*data-aqbot=["']1["'][^>]*>`, 'i'));
+    if (!openMatch) continue;
+
+    const closeTag = `</${tag}>`;
+    const closeIndex = rest.toLowerCase().indexOf(closeTag, openMatch[0].length);
+    if (closeIndex < 0) return null;
+
+    const closeEnd = closeIndex + closeTag.length;
+    const trailingWhitespace = rest.slice(closeEnd).match(/^\s*/)?.[0] ?? '';
+    const raw = leadingWhitespace + rest.slice(0, closeEnd) + trailingWhitespace;
+    return { tag, raw };
+  }
+
+  return null;
+}
+
+function extractLeadingRagDisplayPrefix(content: string): string {
+  let remaining = content;
+  let prefix = '';
+
+  for (;;) {
+    const tag = readLeadingAqbotDisplayTag(remaining);
+    if (!tag) break;
+    if (RAG_DISPLAY_TAGS.has(tag.tag)) {
+      prefix += tag.raw;
+    }
+    remaining = remaining.slice(tag.raw.length);
+  }
+
+  return prefix;
+}
+
+function stripLeadingRagDisplayTags(content: string): string {
+  let remaining = content;
+  let keptPrefix = '';
+
+  for (;;) {
+    const tag = readLeadingAqbotDisplayTag(remaining);
+    if (!tag) break;
+    if (!RAG_DISPLAY_TAGS.has(tag.tag)) {
+      keptPrefix += tag.raw;
+    }
+    remaining = remaining.slice(tag.raw.length);
+  }
+
+  return keptPrefix + remaining;
+}
+
+function mergeDbRagDisplayPrefix(dbContent: string, localContent: string): string {
+  const dbPrefix = extractLeadingRagDisplayPrefix(dbContent);
+  if (!dbPrefix) return localContent;
+  return dbPrefix + stripLeadingRagDisplayTags(localContent);
+}
+
 function mergePreservedMessages(
   pageMessages: Message[],
   preserveMessageIds: string[],
@@ -223,10 +286,13 @@ function mergePreservedMessages(
         // For just-completed streams, local content is authoritative:
         // the DB save may not have finished within the fetchMessages delay,
         // so the DB row may still hold the empty placeholder content.
-        // Keep local content + status but merge in DB metadata (token counts, etc.)
+        // Keep local content + status but merge in DB metadata (token counts, etc.).
+        // RAG display tags are created before streaming and persisted in the DB;
+        // if the frontend missed the retrieval event, preserve local text while
+        // restoring the persisted retrieval prefix.
         merged.set(messageId, {
           ...dbMessage,
-          content: localMessage.content,
+          content: mergeDbRagDisplayPrefix(dbMessage.content, localMessage.content),
           status: localMessage.status,
         });
       } else {

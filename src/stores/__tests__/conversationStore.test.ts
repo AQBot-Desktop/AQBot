@@ -129,6 +129,36 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().oldestLoadedMessageId).toBe('msg-11');
   });
 
+  it('restores persisted RAG tags when preserving just-streamed local content', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const localMessage = {
+      ...makeMessage(2),
+      id: 'assistant-rag',
+      content: '<think>local thinking</think>\n\nfresh streamed answer',
+      token_count: null,
+    };
+    const dbMessage = {
+      ...localMessage,
+      content: '<knowledge-retrieval status="done" data-aqbot="1">\n[{"source_type":"knowledge","container_id":"kb-1","items":[{"content":"hit","score":0.2,"document_id":"doc-1","id":"chunk-1"}]}]\n</knowledge-retrieval>\n\nstale db answer',
+      token_count: 123,
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [localMessage],
+      loading: false,
+    });
+    invokeMock.mockResolvedValueOnce(makePage([dbMessage], false));
+
+    await useConversationStore.getState().fetchMessages('conv-1', ['assistant-rag']);
+
+    const merged = useConversationStore.getState().messages.find((message) => message.id === 'assistant-rag');
+    expect(merged?.content).toContain('<knowledge-retrieval status="done" data-aqbot="1">');
+    expect(merged?.content).toContain('fresh streamed answer');
+    expect(merged?.content).not.toContain('stale db answer');
+    expect(merged?.token_count).toBe(123);
+  });
+
   it('keeps loading until the newest active conversation request resolves', async () => {
     const pageA = deferred<MessagePage>();
     const pageB = deferred<MessagePage>();

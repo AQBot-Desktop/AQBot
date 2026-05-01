@@ -16,7 +16,7 @@ use aqbot_core::types::*;
 use aqbot_core::vector_store::{VectorSearchResult, VectorStore};
 
 use aqbot_providers::{
-    ProviderAdapter, ProviderRequestContext, registry::ProviderRegistry, resolve_base_url_for_type,
+    registry::ProviderRegistry, resolve_base_url_for_type, ProviderAdapter, ProviderRequestContext,
 };
 
 // ── AsyncEmbedFn implementation ──────────────────────────────────────────────
@@ -367,7 +367,7 @@ pub async fn search_knowledge(
     let mut results: Vec<_> = if let Some(threshold) = kb.retrieval_threshold.filter(|v| *v > 0.0) {
         raw_results
             .into_iter()
-            .filter(|r| r.score <= threshold)
+            .filter(|r| rag::passes_retrieval_threshold(r.score, threshold))
             .collect()
     } else {
         raw_results
