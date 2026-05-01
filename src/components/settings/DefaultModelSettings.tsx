@@ -337,7 +337,7 @@ export function DefaultModelSettings() {
         maxTokensKey="title_summary_max_tokens"
         defaultTemperature={0.3}
         defaultTopP={1.0}
-        defaultMaxTokens={256}
+        defaultMaxTokens={1024}
       />
 
       <ModelCard

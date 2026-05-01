@@ -1,7 +1,7 @@
 use crate::AppState;
 use aqbot_core::types::*;
 use aqbot_providers::{
-    registry::ProviderRegistry, resolve_base_url_for_type, ProviderRequestContext,
+    registry::ProviderRegistry, resolve_base_url_for_type, ProviderAdapter, ProviderRequestContext,
 };
 use base64::Engine;
 use sea_orm::*;
@@ -940,6 +940,37 @@ async fn execute_tool_call(
 }
 
 const DEFAULT_TITLE_PROMPT: &str = "You are a title generator. Based on the conversation below, generate a concise and descriptive title (maximum 30 characters). Reply with the title only, no quotes or extra text.";
+const DEFAULT_TITLE_SUMMARY_MAX_TOKENS: u32 = 1024;
+const RETRY_TITLE_SUMMARY_MAX_TOKENS: u32 = 4096;
+
+fn title_summary_max_tokens(settings: &AppSettings) -> u32 {
+    settings
+        .title_summary_max_tokens
+        .unwrap_or(DEFAULT_TITLE_SUMMARY_MAX_TOKENS)
+}
+
+fn clean_generated_title(content: &str) -> String {
+    content
+        .trim()
+        .trim_matches('"')
+        .trim_matches('「')
+        .trim_matches('」')
+        .trim_matches('《')
+        .trim_matches('》')
+        .to_string()
+}
+
+async fn call_title_chat(
+    adapter: &dyn ProviderAdapter,
+    ctx: &ProviderRequestContext,
+    request: ChatRequest,
+) -> Result<ChatResponse, String> {
+    adapter.chat(ctx, request).await.map_err(|e| {
+        let err = format!("Chat API error: {}", e);
+        tracing::error!("[title-gen] {}", err);
+        err
+    })
+}
 
 /// Generate an AI-powered conversation title using the configured title summary model.
 /// Returns Err with the actual error message if generation fails.
@@ -1107,7 +1138,7 @@ async fn generate_ai_title_with(
         },
     ];
 
-    let request = ChatRequest {
+    let mut request = ChatRequest {
         model: model_id.to_string(),
         messages,
         stream: false,
@@ -1116,7 +1147,7 @@ async fn generate_ai_title_with(
             .map(|v| v as f64)
             .or(Some(0.3)),
         top_p: settings.title_summary_top_p.map(|v| v as f64),
-        max_tokens: settings.title_summary_max_tokens.or(Some(50)),
+        max_tokens: Some(title_summary_max_tokens(settings)),
         tools: None,
         thinking_budget: None,
         thinking_level: None,
@@ -1136,21 +1167,22 @@ async fn generate_ai_title_with(
         }
     };
 
-    let response = adapter.chat(ctx, request).await.map_err(|e| {
-        let err = format!("Chat API error: {}", e);
-        tracing::error!("[title-gen] {}", err);
-        err
-    })?;
+    let mut response = call_title_chat(adapter, ctx, request.clone()).await?;
+    let mut title = clean_generated_title(&response.content);
+    if title.is_empty()
+        && request
+            .max_tokens
+            .is_some_and(|tokens| tokens < RETRY_TITLE_SUMMARY_MAX_TOKENS)
+    {
+        request.max_tokens = Some(RETRY_TITLE_SUMMARY_MAX_TOKENS);
+        tracing::warn!(
+            "[title-gen] Empty title returned with a small output budget; retrying with {} tokens",
+            RETRY_TITLE_SUMMARY_MAX_TOKENS
+        );
+        response = call_title_chat(adapter, ctx, request).await?;
+        title = clean_generated_title(&response.content);
+    }
 
-    let title = response
-        .content
-        .trim()
-        .trim_matches('"')
-        .trim_matches('「')
-        .trim_matches('」')
-        .trim_matches('《')
-        .trim_matches('》')
-        .to_string();
     if title.is_empty() {
         let err = "AI returned empty title".to_string();
         tracing::error!("[title-gen] {}", err);
@@ -3365,6 +3397,27 @@ mod tests {
             reasoning_options: None,
             reasoning_default: None,
         }
+    }
+
+    #[test]
+    fn title_summary_uses_reasoning_safe_default_max_tokens() {
+        let mut settings = AppSettings::default();
+        assert_eq!(
+            title_summary_max_tokens(&settings),
+            DEFAULT_TITLE_SUMMARY_MAX_TOKENS
+        );
+
+        settings.title_summary_max_tokens = Some(128);
+        assert_eq!(title_summary_max_tokens(&settings), 128);
+    }
+
+    #[test]
+    fn clean_generated_title_trims_common_quote_wrappers() {
+        assert_eq!(
+            clean_generated_title("  「项目排期讨论」  "),
+            "项目排期讨论"
+        );
+        assert_eq!(clean_generated_title("\"API 调试记录\""), "API 调试记录");
     }
 
     #[test]
