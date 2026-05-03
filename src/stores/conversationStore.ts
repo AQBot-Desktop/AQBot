@@ -81,6 +81,19 @@ let _isMultiModelActive = false;
 let _multiModelFirstModelId: string | null = null; // model_id of the first selected model (for auto-switch)
 let _multiModelFirstMessageId: string | null = null; // actual DB message_id of the first model's response
 let _userManuallySelectedVersion = false; // tracks if user manually switched version during multi-model streaming
+interface PendingLocalVersionSelection {
+  conversationId: string;
+  parentMessageId: string;
+  tempMessageId: string;
+  providerId: string | null;
+  modelId: string | null;
+  versionIndex: number;
+  createdAt: number;
+}
+const _pendingLocalVersionSelections = new Map<string, PendingLocalVersionSelection>();
+type ConversationStoreSet = (
+  partial: Partial<ConversationState> | ((state: ConversationState) => Partial<ConversationState>)
+) => void;
 
 type ConversationPreferenceState = Pick<
   ConversationState,
@@ -427,6 +440,80 @@ function isSameProviderModel(left: Message, right: Message): boolean {
   return left.provider_id === right.provider_id && left.model_id === right.model_id;
 }
 
+function isTemporaryMessageId(messageId: string | null | undefined): messageId is string {
+  return typeof messageId === 'string' && messageId.startsWith('temp-');
+}
+
+function rememberPendingLocalVersionSelection(
+  conversationId: string,
+  parentMessageId: string,
+  message: Message,
+) {
+  _pendingLocalVersionSelections.set(parentMessageId, {
+    conversationId,
+    parentMessageId,
+    tempMessageId: message.id,
+    providerId: message.provider_id ?? null,
+    modelId: message.model_id ?? null,
+    versionIndex: message.version_index,
+    createdAt: message.created_at,
+  });
+}
+
+function findResolvedVersionForPendingSelection(
+  pending: PendingLocalVersionSelection,
+  versions: Message[],
+): Message | null {
+  const candidates = versions.filter((version) =>
+    !isTemporaryMessageId(version.id)
+    && version.parent_message_id === pending.parentMessageId
+    && version.role === 'assistant'
+    && (version.provider_id ?? null) === pending.providerId
+    && (version.model_id ?? null) === pending.modelId
+    && version.version_index >= pending.versionIndex
+  );
+
+  return [...candidates].sort((left, right) =>
+    right.version_index - left.version_index
+    || right.created_at - left.created_at
+    || right.id.localeCompare(left.id)
+  )[0] ?? null;
+}
+
+function resolvePendingLocalVersionSelection(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  pending: PendingLocalVersionSelection,
+  resolvedMessageId: string,
+) {
+  if (isTemporaryMessageId(resolvedMessageId)) return;
+
+  const current = _pendingLocalVersionSelections.get(pending.parentMessageId);
+  if (!current || current.tempMessageId !== pending.tempMessageId) return;
+
+  _pendingLocalVersionSelections.delete(pending.parentMessageId);
+  set((s) => ({
+    messages: s.messages.map((message) => {
+      if (message.parent_message_id !== pending.parentMessageId || message.role !== 'assistant') {
+        return message;
+      }
+      return { ...message, is_active: message.id === resolvedMessageId };
+    }),
+  }));
+
+  if (_isMultiModelActive) return;
+
+  invoke('switch_message_version', {
+    conversationId: pending.conversationId,
+    parentMessageId: pending.parentMessageId,
+    messageId: resolvedMessageId,
+  }).catch((error) => {
+    if (get().activeConversationId === pending.conversationId) {
+      set({ error: String(error) });
+    }
+  });
+}
+
 function resolveHydratedStreamingMessageId(placeholder: Message, versions: Message[]): string | null {
   const activePartial = versions.find(
     (version) => isSameProviderModel(version, placeholder) && version.is_active && version.status === 'partial',
@@ -623,7 +710,7 @@ interface ConversationState {
 }
 
 function appendStreamChunk(
-  set: (fn: (s: ConversationState) => Partial<ConversationState>) => void,
+  set: ConversationStoreSet,
   get: () => ConversationState,
   messageId: string,
   content: string | null,
@@ -676,7 +763,7 @@ function appendStreamChunk(
 }
 
 function flushPendingStreamChunk(
-  set: (fn: (s: ConversationState) => Partial<ConversationState>) => void,
+  set: ConversationStoreSet,
   get: () => ConversationState,
 ) {
   if (_streamUiFlushTimer !== null) {
@@ -691,6 +778,7 @@ function flushPendingStreamChunk(
   const { messageId, content, conversationId, modelId: chunkModelId, providerId: chunkProviderId } = pending;
   if (get().activeConversationId !== conversationId) return;
 
+  const resolvedPendingSelections: Array<{ pending: PendingLocalVersionSelection; messageId: string }> = [];
   set((s) => {
     // 1. Direct ID match — append to existing message
     const existing = s.messages.find((m) => m.id === messageId);
@@ -719,6 +807,12 @@ function flushPendingStreamChunk(
       if (!_isMultiModelActive || s.streamingMessageId.startsWith('temp-')) {
         const placeholder = s.messages.find((m) => m.id === s.streamingMessageId);
         if (placeholder) {
+          const pendingSelection = placeholder.parent_message_id
+            ? _pendingLocalVersionSelections.get(placeholder.parent_message_id)
+            : null;
+          if (pendingSelection?.tempMessageId === placeholder.id) {
+            resolvedPendingSelections.push({ pending: pendingSelection, messageId });
+          }
           const nextRagDisplayByMessageId = s.ragDisplayByMessageId[s.streamingMessageId]
             ? {
                 ...s.ragDisplayByMessageId,
@@ -744,6 +838,17 @@ function flushPendingStreamChunk(
 
     // 3. No placeholder found — create new assistant message with full buffered content
     const isMultiModel = _isMultiModelActive;
+    const parentMessageId = isMultiModel ? s.multiModelParentId : null;
+    const pendingSelection = parentMessageId ? _pendingLocalVersionSelections.get(parentMessageId) : null;
+    const pendingPlaceholder = pendingSelection
+      ? s.messages.find((message) =>
+          message.id === pendingSelection.tempMessageId
+          && message.parent_message_id === parentMessageId
+          && message.role === 'assistant'
+          && (message.provider_id ?? null) === (chunkProviderId ?? null)
+          && (message.model_id ?? null) === (chunkModelId ?? null)
+        )
+      : null;
     const newMessage: Message = {
       id: messageId,
       conversation_id: conversationId,
@@ -756,20 +861,38 @@ function flushPendingStreamChunk(
       thinking: null,
       tool_calls_json: null,
       tool_call_id: null,
-      created_at: Date.now(),
+      created_at: pendingPlaceholder?.created_at ?? Date.now(),
       // In multi-model mode: group under the same parent and hide from main view
       // (only ModelTags pending animation is shown; fetchMessages after completion loads proper data)
-      parent_message_id: isMultiModel ? s.multiModelParentId : null,
-      version_index: 0,
-      is_active: !isMultiModel,
+      parent_message_id: parentMessageId,
+      version_index: pendingPlaceholder?.version_index ?? 0,
+      is_active: pendingPlaceholder?.is_active ?? !isMultiModel,
       status: 'partial',
     };
+    if (pendingSelection && pendingPlaceholder) {
+      resolvedPendingSelections.push({ pending: pendingSelection, messageId });
+      return {
+        messages: s.messages.map((message) =>
+          message.id === pendingPlaceholder.id ? newMessage : message
+        ),
+        // Don't overwrite streamingMessageId in multi-model mode
+        streamingMessageId: isMultiModel ? s.streamingMessageId : messageId,
+      };
+    }
     return {
       messages: [...s.messages, newMessage],
       // Don't overwrite streamingMessageId in multi-model mode
       streamingMessageId: isMultiModel ? s.streamingMessageId : messageId,
     };
   });
+  for (const resolvedPendingSelection of resolvedPendingSelections) {
+    resolvePendingLocalVersionSelection(
+      set,
+      get,
+      resolvedPendingSelection.pending,
+      resolvedPendingSelection.messageId,
+    );
+  }
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -2349,14 +2472,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           );
           targetMessageId = localMatch?.id ?? null;
         }
-        if (targetMessageId) {
+        if (targetMessageId && !isTemporaryMessageId(targetMessageId)) {
           await invoke('switch_message_version', {
             conversationId,
             parentMessageId: parentId,
             messageId: targetMessageId,
           }).catch(() => {});
         }
-      } else if (parentId && userSelectedMessageId) {
+      } else if (parentId && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)) {
         // User manually selected a version — sync that to backend
         await invoke('switch_message_version', {
           conversationId,
@@ -2371,10 +2494,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         const versions = await get().listMessageVersions(conversationId, parentId);
         if (versions.length > 0) {
           const firstModelId = companionModels[0].modelId;
+          const pendingSelection = _pendingLocalVersionSelections.get(parentId) ?? null;
+          const resolvedManualSelection = pendingSelection
+            ? findResolvedVersionForPendingSelection(pendingSelection, versions)
+            : null;
           const activeVersionId = (
-            (_userManuallySelectedVersion && userSelectedMessageId
+            (_userManuallySelectedVersion && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)
               ? versions.find((version) => version.id === userSelectedMessageId)
               : null)
+            ?? (_userManuallySelectedVersion ? resolvedManualSelection : null)
             ?? (_multiModelFirstMessageId
               ? versions.find((version) => version.id === _multiModelFirstMessageId)
               : null)
@@ -2871,10 +2999,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   hydrateMessageVersions: (parentMessageId, versions, activeMessageId) => {
+    const resolvedPendingSelections: Array<{ pending: PendingLocalVersionSelection; messageId: string }> = [];
     set((s) => {
       let versionsForMerge = versions;
       const resolvedStreamingMessageId = (() => {
-        if (!s.streamingMessageId?.startsWith('temp-')) {
+        if (!isTemporaryMessageId(s.streamingMessageId)) {
           return null;
         }
         const placeholder = s.messages.find((message) => message.id === s.streamingMessageId);
@@ -2888,7 +3017,42 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         return resolved ?? s.streamingMessageId;
       })();
 
-      const resolvedActiveMessageId = activeMessageId
+      const pendingSelection = _pendingLocalVersionSelections.get(parentMessageId) ?? null;
+      const resolvedPendingMessage = pendingSelection
+        ? findResolvedVersionForPendingSelection(pendingSelection, versions)
+        : null;
+      if (pendingSelection && resolvedPendingMessage) {
+        resolvedPendingSelections.push({ pending: pendingSelection, messageId: resolvedPendingMessage.id });
+      } else if (pendingSelection) {
+        const pendingPlaceholder = s.messages.find((message) =>
+          message.id === pendingSelection.tempMessageId
+          && message.parent_message_id === parentMessageId
+          && message.role === 'assistant'
+        );
+        if (
+          pendingPlaceholder
+          && !versionsForMerge.some((version) => version.id === pendingPlaceholder.id)
+        ) {
+          versionsForMerge = [...versionsForMerge, pendingPlaceholder];
+        }
+      }
+
+      const pendingActiveMessageId = resolvedPendingMessage?.id
+        ?? (
+          pendingSelection
+          && versionsForMerge.some((version) => version.id === pendingSelection.tempMessageId)
+            ? pendingSelection.tempMessageId
+            : null
+        );
+      const localActiveMessageId = s.messages.find((message) =>
+        message.parent_message_id === parentMessageId
+        && message.role === 'assistant'
+        && message.is_active
+        && versionsForMerge.some((version) => version.id === message.id)
+      )?.id ?? null;
+      const resolvedActiveMessageId = pendingActiveMessageId
+        ?? activeMessageId
+        ?? localActiveMessageId
         ?? versionsForMerge.find((version) => version.is_active)?.id
         ?? null;
 
@@ -2902,10 +3066,39 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         streamingMessageId: resolvedStreamingMessageId ?? s.streamingMessageId,
       };
     });
+    for (const resolvedPendingSelection of resolvedPendingSelections) {
+      resolvePendingLocalVersionSelection(
+        set,
+        get,
+        resolvedPendingSelection.pending,
+        resolvedPendingSelection.messageId,
+      );
+    }
   },
 
   switchMessageVersion: async (conversationId, parentMessageId, messageId) => {
     try {
+      const targetMessage = get().messages.find(
+        (message) => message.id === messageId
+          && message.parent_message_id === parentMessageId
+          && message.role === 'assistant',
+      );
+      if (isTemporaryMessageId(messageId)) {
+        if (!targetMessage) return;
+        _userManuallySelectedVersion = true;
+        rememberPendingLocalVersionSelection(conversationId, parentMessageId, targetMessage);
+        set((s) => ({
+          messages: s.messages.map((message) => {
+            if (message.parent_message_id !== parentMessageId || message.role !== 'assistant') {
+              return message;
+            }
+            return { ...message, is_active: message.id === messageId };
+          }),
+        }));
+        return;
+      }
+
+      _pendingLocalVersionSelections.delete(parentMessageId);
       if (_isMultiModelActive) {
         // During multi-model streaming, skip the backend call entirely to avoid:
         // 1. Race conditions with concurrent regenerate_with_model calls

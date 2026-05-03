@@ -931,6 +931,165 @@ describe('conversationStore pagination', () => {
     });
   });
 
+  it('switches to a temporary assistant version locally without calling the backend', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const active = {
+      ...makeMessage(2),
+      id: 'assistant-active',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'complete' as const,
+      version_index: 0,
+    };
+    const temp = {
+      ...makeMessage(6),
+      id: 'temp-assistant-1',
+      provider_id: 'provider-b',
+      model_id: 'model-b',
+      parent_message_id: user.id,
+      is_active: false,
+      status: 'partial' as const,
+      version_index: 1,
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, active, temp],
+    });
+
+    await useConversationStore.getState().switchMessageVersion('conv-1', user.id, temp.id);
+
+    expect(invokeMock).not.toHaveBeenCalledWith('switch_message_version', expect.anything());
+    const messages = useConversationStore.getState().messages;
+    expect(messages.find((message) => message.id === active.id)?.is_active).toBe(false);
+    expect(messages.find((message) => message.id === temp.id)?.is_active).toBe(true);
+  });
+
+  it('syncs a locally selected temporary version after hydration resolves its real id', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const active = {
+      ...makeMessage(2),
+      id: 'assistant-active',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'complete' as const,
+      version_index: 0,
+    };
+    const temp = {
+      ...makeMessage(6),
+      id: 'temp-assistant-1',
+      provider_id: 'provider-b',
+      model_id: 'model-b',
+      parent_message_id: user.id,
+      is_active: false,
+      status: 'partial' as const,
+      version_index: 1,
+    };
+    const resolved = {
+      ...temp,
+      id: 'assistant-resolved',
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, active, temp],
+    });
+
+    await useConversationStore.getState().switchMessageVersion('conv-1', user.id, temp.id);
+    invokeMock.mockClear();
+
+    useConversationStore.getState().hydrateMessageVersions(user.id, [active, resolved]);
+    await flushPromises();
+
+    const messages = useConversationStore.getState().messages;
+    expect(messages.map((message) => message.id)).toEqual(['user-1', 'assistant-active', 'assistant-resolved']);
+    expect(messages.find((message) => message.id === active.id)?.is_active).toBe(false);
+    expect(messages.find((message) => message.id === resolved.id)?.is_active).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('switch_message_version', {
+      conversationId: 'conv-1',
+      parentMessageId: user.id,
+      messageId: resolved.id,
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('switch_message_version', {
+      conversationId: 'conv-1',
+      parentMessageId: user.id,
+      messageId: temp.id,
+    });
+  });
+
+  it('keeps the locally active real version when hydration still marks the first version active', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const firstLocal = {
+      ...makeMessage(2),
+      id: 'assistant-first',
+      provider_id: 'provider-a',
+      model_id: 'model-a',
+      parent_message_id: user.id,
+      is_active: false,
+      status: 'partial' as const,
+      version_index: 0,
+    };
+    const secondLocal = {
+      ...makeMessage(6),
+      id: 'assistant-second',
+      provider_id: 'provider-b',
+      model_id: 'model-b',
+      parent_message_id: user.id,
+      is_active: true,
+      status: 'partial' as const,
+      version_index: 1,
+    };
+    const firstFromDb = {
+      ...firstLocal,
+      is_active: true,
+    };
+    const secondFromDb = {
+      ...secondLocal,
+      is_active: false,
+    };
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, firstLocal, secondLocal],
+    });
+
+    useConversationStore.getState().hydrateMessageVersions(user.id, [firstFromDb, secondFromDb]);
+
+    const messages = useConversationStore.getState().messages;
+    expect(messages.find((message) => message.id === firstLocal.id)?.is_active).toBe(false);
+    expect(messages.find((message) => message.id === secondLocal.id)?.is_active).toBe(true);
+  });
+
   it('regenerates the specified user message instead of falling back to the last user message', async () => {
     vi.useFakeTimers();
     const regenerate = deferred<void>();
