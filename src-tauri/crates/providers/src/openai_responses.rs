@@ -6,8 +6,8 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
-use crate::{build_http_client, resolve_chat_url, ProviderAdapter, ProviderRequestContext};
 use crate::reasoning::{resolve_reasoning, ReasoningStyle};
+use crate::{build_http_client, resolve_chat_url, ProviderAdapter, ProviderRequestContext};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -392,17 +392,18 @@ fn build_responses_input(messages: &[ChatMessage]) -> (serde_json::Value, Option
 fn build_request(request: &ChatRequest, stream: bool) -> ResponsesRequest {
     let (input, instructions) = build_responses_input(&request.messages);
 
-    let reasoning = resolve_reasoning(request, ReasoningStyle::OpenAIResponsesReasoning).and_then(|r| {
-        let effort = r.reasoning_effort?;
-        Some(ResponsesReasoning {
-            effort: effort.clone(),
-            summary: if effort == "none" {
-                None
-            } else {
-                Some("auto".to_string())
-            },
-        })
-    });
+    let reasoning =
+        resolve_reasoning(request, ReasoningStyle::OpenAIResponsesReasoning).and_then(|r| {
+            let effort = r.reasoning_effort?;
+            Some(ResponsesReasoning {
+                effort: effort.clone(),
+                summary: if effort == "none" {
+                    None
+                } else {
+                    Some("auto".to_string())
+                },
+            })
+        });
 
     let tools = request.tools.as_ref().map(|tools| {
         tools
@@ -1069,12 +1070,14 @@ mod tests {
             ChatMessage {
                 role: "system".to_string(),
                 content: ChatContent::Text("You are helpful.".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             },
             ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("Hello".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             },
@@ -1094,6 +1097,7 @@ mod tests {
             ChatMessage {
                 role: "assistant".to_string(),
                 content: ChatContent::Text("".to_string()),
+                reasoning_content: None,
                 tool_calls: Some(vec![ToolCall {
                     id: "call_1".to_string(),
                     call_type: "function".to_string(),
@@ -1107,6 +1111,7 @@ mod tests {
             ChatMessage {
                 role: "tool".to_string(),
                 content: ChatContent::Text("Sunny, 72F".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: Some("call_1".to_string()),
             },
@@ -1154,6 +1159,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],
@@ -1181,6 +1187,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],
@@ -1206,6 +1213,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],

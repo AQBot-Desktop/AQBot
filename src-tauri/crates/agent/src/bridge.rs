@@ -94,9 +94,7 @@ impl LLMProvider for AQBotProviderBridge {
                             // Emit streaming text delta via SDK channel
                             // (agent.rs will forward to frontend as agent-stream-text)
                             if let Some(ref tx) = stream_tx {
-                                let _ = tx.try_send(SDKMessage::TextDelta {
-                                    text: text.clone(),
-                                });
+                                let _ = tx.try_send(SDKMessage::TextDelta { text: text.clone() });
                             }
                         }
                     }
@@ -194,6 +192,7 @@ fn convert_request(request: ProviderRequest<'_>) -> ChatRequest {
         final_messages.push(ChatMessage {
             role: "system".to_string(),
             content: ChatContent::Text(sys),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -206,7 +205,11 @@ fn convert_request(request: ProviderRequest<'_>) -> ChatRequest {
         stream: true,
         temperature: None,
         top_p: None,
-        max_tokens: if request.max_tokens > 0 { Some(request.max_tokens as u32) } else { None },
+        max_tokens: if request.max_tokens > 0 {
+            Some(request.max_tokens as u32)
+        } else {
+            None
+        },
         tools,
         thinking_budget: request
             .thinking
@@ -281,6 +284,7 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
         result.push(ChatMessage {
             role: "assistant".to_string(),
             content,
+            reasoning_content: None,
             tool_calls: if tool_calls.is_empty() {
                 None
             } else {
@@ -293,6 +297,7 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
             result.push(ChatMessage {
                 role: "tool".to_string(),
                 content: ChatContent::Text(text),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: Some(tool_use_id),
             });
@@ -324,6 +329,7 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
         result.push(ChatMessage {
             role: role.to_string(),
             content,
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -356,8 +362,7 @@ fn convert_response(response: aqbot_core::types::ChatResponse) -> ProviderRespon
 
     if let Some(tool_calls) = &response.tool_calls {
         for tc in tool_calls {
-            let input: Value =
-                serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
+            let input: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
             content_blocks.push(ContentBlock::ToolUse {
                 id: tc.id.clone(),
                 name: tc.function.name.clone(),

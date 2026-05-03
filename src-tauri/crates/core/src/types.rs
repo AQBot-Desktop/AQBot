@@ -867,6 +867,9 @@ pub struct ToolCallFunction {
 pub struct ChatMessage {
     pub role: String,
     pub content: ChatContent,
+    /// Provider-native reasoning/thinking content for APIs that require it in history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     /// For assistant messages: tool calls the model wants to make
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,

@@ -179,7 +179,10 @@ pub async fn validate_provider_key(
         api_key: decrypted,
         key_id: key_id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(aqbot_providers::resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(aqbot_providers::resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -192,7 +195,9 @@ pub async fn validate_provider_key(
         Err(e) => {
             tracing::warn!("Key validation failed for key {}: {}", key_id, e);
             // Update as invalid, then return the error
-            let _ = aqbot_core::repo::provider::update_key_validation(&state.sea_db, &key_id, false).await;
+            let _ =
+                aqbot_core::repo::provider::update_key_validation(&state.sea_db, &key_id, false)
+                    .await;
             return Err(e.to_string());
         }
     };
@@ -242,14 +247,9 @@ pub async fn update_model_params(
     let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
         .await
         .map_err(|e| e.to_string())?;
-    aqbot_core::repo::provider::update_model_params(
-        &state.sea_db,
-        &real_id,
-        &model_id,
-        overrides,
-    )
-    .await
-    .map_err(|e| e.to_string())
+    aqbot_core::repo::provider::update_model_params(&state.sea_db, &real_id, &model_id, overrides)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -292,7 +292,10 @@ pub async fn fetch_remote_models(
         api_key: decrypted,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(aqbot_providers::resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(aqbot_providers::resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -345,7 +348,10 @@ pub async fn test_model(
         api_key: decrypted,
         key_id: key_row.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(aqbot_providers::resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(aqbot_providers::resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -378,6 +384,7 @@ pub async fn test_model(
             messages: vec![ChatMessage {
                 role: "user".into(),
                 content: ChatContent::Text("hi".into()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],

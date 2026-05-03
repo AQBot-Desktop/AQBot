@@ -349,19 +349,16 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
 
 fn make_gen_config(request: &ChatRequest) -> Option<GeminiGenerationConfig> {
     let model_id = request.model.to_lowercase();
-    let default_style = if model_id.contains("3.")
-        || model_id.contains("gemini-3")
-        || model_id.contains("-3-")
-    {
-        ReasoningStyle::GeminiThinkingLevel
-    } else {
-        ReasoningStyle::GeminiThinkingBudget
-    };
-    let thinking_config =
-        resolve_reasoning(request, default_style).map(|r| GeminiThinkingConfig {
-            thinking_budget: r.budget_tokens,
-            thinking_level: r.thinking_level,
-        });
+    let default_style =
+        if model_id.contains("3.") || model_id.contains("gemini-3") || model_id.contains("-3-") {
+            ReasoningStyle::GeminiThinkingLevel
+        } else {
+            ReasoningStyle::GeminiThinkingBudget
+        };
+    let thinking_config = resolve_reasoning(request, default_style).map(|r| GeminiThinkingConfig {
+        thinking_budget: r.budget_tokens,
+        thinking_level: r.thinking_level,
+    });
     if request.temperature.is_some()
         || request.top_p.is_some()
         || request.max_tokens.is_some()
@@ -414,6 +411,7 @@ mod tests {
                     }),
                 },
             ]),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }]);
@@ -435,12 +433,17 @@ mod tests {
         );
     }
 
-    fn request(model: &str, thinking_level: Option<&str>, thinking_budget: Option<u32>) -> ChatRequest {
+    fn request(
+        model: &str,
+        thinking_level: Option<&str>,
+        thinking_budget: Option<u32>,
+    ) -> ChatRequest {
         ChatRequest {
             model: model.to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],

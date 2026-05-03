@@ -6,11 +6,11 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
+use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 use crate::{
     build_http_client, parse_base64_data_url, resolve_chat_url, ProviderAdapter,
     ProviderRequestContext,
 };
-use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -291,7 +291,9 @@ fn build_request(
                         r#type: "adaptive".to_string(),
                         budget_tokens: None,
                     });
-                    output_config = reasoning.reasoning_effort.map(|effort| AnthropicOutputConfig { effort });
+                    output_config = reasoning
+                        .reasoning_effort
+                        .map(|effort| AnthropicOutputConfig { effort });
                     suppress_sampling = reasoning.suppress_sampling_params;
                 }
             }
@@ -362,6 +364,7 @@ mod tests {
                     }),
                 },
             ]),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }]);
@@ -388,6 +391,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             }],

@@ -161,6 +161,39 @@ fn strip_think_tags(content: &str) -> String {
     s
 }
 
+fn extract_think_blocks(content: &str) -> Option<String> {
+    let mut remaining = content;
+    let mut blocks = Vec::new();
+
+    while let Some(start) = remaining.find("<think") {
+        let after_tag_name = &remaining[start + 6..];
+        let is_tag = after_tag_name.starts_with('>') || after_tag_name.starts_with(' ');
+        if !is_tag {
+            break;
+        }
+
+        let Some(open_end_offset) = remaining[start..].find('>') else {
+            break;
+        };
+        let content_start = start + open_end_offset + 1;
+        let Some(close_offset) = remaining[content_start..].find("</think>") else {
+            break;
+        };
+
+        let block = remaining[content_start..content_start + close_offset].trim();
+        if !block.is_empty() {
+            blocks.push(block.to_string());
+        }
+        remaining = &remaining[content_start + close_offset + "</think>".len()..];
+    }
+
+    if blocks.is_empty() {
+        None
+    } else {
+        Some(blocks.join("\n\n"))
+    }
+}
+
 #[derive(Default)]
 struct DisabledThinkingStripState {
     in_think_block: bool,
@@ -397,6 +430,11 @@ fn chat_message_from_message(
         }
         .to_string(),
         content: build_message_content(file_store, message)?,
+        reasoning_content: if message.role == MessageRole::Assistant {
+            extract_think_blocks(&message.content)
+        } else {
+            None
+        },
         tool_calls,
         tool_call_id: message.tool_call_id.clone(),
     })
@@ -1127,12 +1165,14 @@ async fn generate_ai_title_with(
         ChatMessage {
             role: "system".to_string(),
             content: ChatContent::Text(prompt.to_string()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         },
         ChatMessage {
             role: "user".to_string(),
             content: ChatContent::Text(conversation_text),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         },
@@ -1577,6 +1617,7 @@ fn spawn_stream_task(
             chat_messages.push(ChatMessage {
                 role: "assistant".to_string(),
                 content: ChatContent::Text(stripped_content),
+                reasoning_content: extract_think_blocks(&content),
                 tool_calls: Some(tool_calls.clone()),
                 tool_call_id: None,
             });
@@ -1715,6 +1756,7 @@ fn spawn_stream_task(
                 chat_messages.push(ChatMessage {
                     role: "tool".to_string(),
                     content: ChatContent::Text(result_content.to_string()),
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: Some(tc.id.clone()),
                 });
@@ -1995,6 +2037,7 @@ pub async fn send_message(
                 "system".to_string()
             },
             content: ChatContent::Text(sys.clone()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -2043,6 +2086,7 @@ pub async fn send_message(
                 "The following reference materials may be relevant to the user's question. Use them if helpful:\n\n{}",
                 rag_result.context_parts.join("\n\n")
             )),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -2375,6 +2419,7 @@ pub async fn regenerate_message(
         chat_messages.push(ChatMessage {
             role: "system".to_string(),
             content: ChatContent::Text(sys.clone()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -2417,6 +2462,7 @@ pub async fn regenerate_message(
                     "The following reference materials may be relevant to the user's question. Use them if helpful:\n\n{}",
                     rag_result.context_parts.join("\n\n")
                 )),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             });
@@ -2680,6 +2726,7 @@ pub async fn regenerate_with_model(
         chat_messages.push(ChatMessage {
             role: "system".to_string(),
             content: ChatContent::Text(sys.clone()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
@@ -2727,6 +2774,7 @@ pub async fn regenerate_with_model(
                     "The following reference materials may be relevant to the user's question. Use them if helpful:\n\n{}",
                     rag_result.context_parts.join("\n\n")
                 )),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
             });
@@ -3418,6 +3466,39 @@ mod tests {
             "项目排期讨论"
         );
         assert_eq!(clean_generated_title("\"API 调试记录\""), "API 调试记录");
+    }
+
+    #[test]
+    fn assistant_history_extracts_thinking_into_reasoning_content() {
+        let file_store = aqbot_core::file_store::FileStore::new();
+        let message = Message {
+            id: "msg-1".into(),
+            conversation_id: "conv-1".into(),
+            role: MessageRole::Assistant,
+            content: "<think totalMs=\"123\">\nhidden thinking\n</think>\n\nfinal answer".into(),
+            provider_id: None,
+            model_id: None,
+            token_count: None,
+            prompt_tokens: None,
+            completion_tokens: None,
+            tokens_per_second: None,
+            first_token_latency_ms: None,
+            attachments: Vec::new(),
+            thinking: None,
+            tool_calls_json: None,
+            tool_call_id: None,
+            created_at: 0,
+            parent_message_id: None,
+            version_index: 0,
+            is_active: true,
+            status: "complete".into(),
+        };
+
+        let chat_message = chat_message_from_message(&file_store, &message).unwrap();
+        let serialized = serde_json::to_value(chat_message).unwrap();
+
+        assert_eq!(serialized["content"], "final answer");
+        assert_eq!(serialized["reasoning_content"], "hidden thinking");
     }
 
     #[test]

@@ -85,6 +85,8 @@ struct OpenAIMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
@@ -383,14 +385,28 @@ fn extract_text_content(content: &ChatContent) -> String {
     }
 }
 
-fn convert_messages(messages: &[ChatMessage]) -> Vec<OpenAIMessage> {
+fn is_deepseek_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("deepseek")
+}
+
+fn convert_messages(
+    messages: &[ChatMessage],
+    include_reasoning_content: bool,
+) -> Vec<OpenAIMessage> {
     messages
         .iter()
         .map(|msg| {
+            let reasoning_content = if include_reasoning_content && msg.role == "assistant" {
+                msg.reasoning_content.clone()
+            } else {
+                None
+            };
+
             match msg.role.as_str() {
                 "tool" => OpenAIMessage {
                     role: "tool".to_string(),
                     content: Some(serde_json::Value::String(extract_text_content(&msg.content))),
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: msg.tool_call_id.clone(),
                 },
@@ -428,6 +444,7 @@ fn convert_messages(messages: &[ChatMessage]) -> Vec<OpenAIMessage> {
                     OpenAIMessage {
                         role: "assistant".to_string(),
                         content,
+                        reasoning_content,
                         tool_calls: msg.tool_calls.as_ref().map(|tcs| {
                             tcs.iter().map(|tc| serde_json::json!({
                                 "id": tc.id,
@@ -467,6 +484,7 @@ fn convert_messages(messages: &[ChatMessage]) -> Vec<OpenAIMessage> {
                     OpenAIMessage {
                         role: msg.role.clone(),
                         content: Some(content),
+                        reasoning_content,
                         tool_calls: None,
                         tool_call_id: None,
                     }
@@ -483,15 +501,24 @@ fn build_request(request: &ChatRequest, messages: &[ChatMessage], stream: bool) 
         _ => ReasoningStyle::OpenAIReasoningEffort,
     };
     let reasoning = resolve_reasoning(request, default_style);
-    let reasoning_effort = reasoning.as_ref().and_then(|r| r.reasoning_effort.clone());
+    let reasoning_effort = reasoning.as_ref().and_then(|r| {
+        if matches!(r.level.as_str(), "off" | "none") {
+            None
+        } else {
+            r.reasoning_effort.clone()
+        }
+    });
     let enable_thinking = reasoning.as_ref().and_then(|r| r.enable_thinking);
-    let sf_thinking_budget = reasoning.as_ref().and_then(|r| r.budget_tokens).filter(|v| *v > 0);
-    let has_thinking = reasoning_effort.is_some() || enable_thinking == Some(true);
+    let sf_thinking_budget = reasoning
+        .as_ref()
+        .and_then(|r| r.budget_tokens)
+        .filter(|v| *v > 0);
+    let has_active_thinking = reasoning
+        .as_ref()
+        .is_some_and(|r| r.suppress_sampling_params || enable_thinking == Some(true));
 
-    // Use max_completion_tokens when: model config says so, reasoning mode,
-    // o-series models, or gpt-5+ (which deprecate max_tokens)
+    // Use max_completion_tokens only when the model/request contract requires it.
     let use_completion_tokens = request.use_max_completion_tokens == Some(true)
-        || has_thinking
         || request.model.starts_with("o1")
         || request.model.starts_with("o3")
         || request.model.starts_with("o4")
@@ -505,13 +532,20 @@ fn build_request(request: &ChatRequest, messages: &[ChatMessage], stream: bool) 
 
     OpenAIRequest {
         model: request.model.clone(),
-        messages: convert_messages(messages),
-        temperature: if has_thinking {
+        messages: convert_messages(
+            messages,
+            is_deepseek_model(&request.model) && has_active_thinking,
+        ),
+        temperature: if has_active_thinking {
             None
         } else {
             request.temperature
         },
-        top_p: if has_thinking { None } else { request.top_p },
+        top_p: if has_active_thinking {
+            None
+        } else {
+            request.top_p
+        },
         max_tokens,
         max_completion_tokens,
         stream,
@@ -534,27 +568,54 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn base_chat_request(model: &str) -> ChatRequest {
+        ChatRequest {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::Text("hi".to_string()),
+                reasoning_content: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            stream: true,
+            temperature: Some(0.7),
+            top_p: Some(1.0),
+            max_tokens: Some(300_000),
+            tools: None,
+            thinking_budget: None,
+            thinking_level: None,
+            reasoning_profile: None,
+            use_max_completion_tokens: None,
+            thinking_param_style: None,
+        }
+    }
+
     #[test]
     fn convert_messages_omits_null_fields_for_openai_compatible_requests() {
-        let messages = convert_messages(&[ChatMessage {
-            role: "user".to_string(),
-            content: ChatContent::Multipart(vec![
-                ContentPart {
-                    r#type: "text".to_string(),
-                    text: Some("Describe this image".to_string()),
-                    image_url: None,
-                },
-                ContentPart {
-                    r#type: "image_url".to_string(),
-                    text: None,
-                    image_url: Some(ImageUrl {
-                        url: "data:image/png;base64,YWJj".to_string(),
-                    }),
-                },
-            ]),
-            tool_calls: None,
-            tool_call_id: None,
-        }]);
+        let messages = convert_messages(
+            &[ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::Multipart(vec![
+                    ContentPart {
+                        r#type: "text".to_string(),
+                        text: Some("Describe this image".to_string()),
+                        image_url: None,
+                    },
+                    ContentPart {
+                        r#type: "image_url".to_string(),
+                        text: None,
+                        image_url: Some(ImageUrl {
+                            url: "data:image/png;base64,YWJj".to_string(),
+                        }),
+                    },
+                ]),
+                reasoning_content: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            false,
+        );
 
         assert_eq!(
             messages[0].content,
@@ -566,6 +627,96 @@ mod tests {
                 }
             ]))
         );
+    }
+
+    #[test]
+    fn deepseek_thinking_keeps_max_tokens_when_completion_tokens_not_enabled() {
+        let mut request = base_chat_request("deepseek-v4");
+        request.thinking_level = Some("high".to_string());
+        request.use_max_completion_tokens = Some(false);
+
+        let body = build_request(&request, &request.messages, true);
+
+        assert_eq!(body.max_tokens, Some(300_000));
+        assert_eq!(body.max_completion_tokens, None);
+        assert_eq!(body.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(body.temperature, None);
+        assert_eq!(body.top_p, None);
+    }
+
+    #[test]
+    fn deepseek_none_omits_reasoning_effort_and_keeps_sampling_params() {
+        let mut request = base_chat_request("deepseek-v4-flash");
+        request.thinking_level = Some("none".to_string());
+
+        let body = build_request(&request, &request.messages, true);
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert!(serialized.get("reasoning_effort").is_none());
+        assert_eq!(serialized["max_tokens"], json!(300_000));
+        assert!(serialized.get("max_completion_tokens").is_none());
+        assert_eq!(serialized["temperature"], json!(0.7));
+        assert_eq!(serialized["top_p"], json!(1.0));
+    }
+
+    #[test]
+    fn explicit_completion_tokens_override_still_uses_max_completion_tokens() {
+        let mut request = base_chat_request("deepseek-v4");
+        request.use_max_completion_tokens = Some(true);
+
+        let body = build_request(&request, &request.messages, true);
+
+        assert_eq!(body.max_tokens, None);
+        assert_eq!(body.max_completion_tokens, Some(300_000));
+    }
+
+    #[test]
+    fn openai_reasoning_models_still_use_max_completion_tokens() {
+        let request = base_chat_request("o3-mini");
+
+        let body = build_request(&request, &request.messages, true);
+
+        assert_eq!(body.max_tokens, None);
+        assert_eq!(body.max_completion_tokens, Some(300_000));
+    }
+
+    #[test]
+    fn deepseek_thinking_serializes_assistant_reasoning_content() {
+        let assistant: ChatMessage = serde_json::from_value(json!({
+            "role": "assistant",
+            "content": "final answer",
+            "reasoning_content": "hidden thinking"
+        }))
+        .expect("chat message");
+        let mut request = base_chat_request("deepseek-v4");
+        request.thinking_level = Some("high".to_string());
+        request.messages = vec![assistant];
+
+        let body = build_request(&request, &request.messages, true);
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert_eq!(
+            serialized["messages"][0]["reasoning_content"],
+            json!("hidden thinking")
+        );
+    }
+
+    #[test]
+    fn non_deepseek_models_do_not_serialize_assistant_reasoning_content() {
+        let assistant: ChatMessage = serde_json::from_value(json!({
+            "role": "assistant",
+            "content": "final answer",
+            "reasoning_content": "hidden thinking"
+        }))
+        .expect("chat message");
+        let mut request = base_chat_request("gpt-4o");
+        request.thinking_level = Some("high".to_string());
+        request.messages = vec![assistant];
+
+        let body = build_request(&request, &request.messages, true);
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert!(serialized["messages"][0].get("reasoning_content").is_none());
     }
 }
 
