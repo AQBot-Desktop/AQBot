@@ -11,18 +11,18 @@ use open_agent_sdk::{
 
 use aqbot_core::types::{
     ChatContent, ChatMessage, ChatRequest, ChatTool, ChatToolFunction, ContentPart, ImageUrl,
-    TokenUsage, ToolCall, ToolCallFunction,
+    ModelParamOverrides, TokenUsage, ToolCall, ToolCallFunction,
 };
 use aqbot_providers::{ProviderAdapter, ProviderRequestContext};
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::Emitter;
 
 /// Bridge between AQBot providers and the open-agent-sdk LLMProvider interface.
 pub struct AQBotProviderBridge {
     adapter: Arc<dyn ProviderAdapter>,
     ctx: ProviderRequestContext,
     api_type: ApiType,
+    model_param_overrides: Option<ModelParamOverrides>,
     app: Option<tauri::AppHandle>,
     conversation_id: Option<String>,
 }
@@ -56,9 +56,15 @@ impl AQBotProviderBridge {
             adapter,
             ctx,
             api_type,
+            model_param_overrides: None,
             app: None,
             conversation_id: None,
         })
+    }
+
+    pub fn with_model_param_overrides(mut self, overrides: Option<ModelParamOverrides>) -> Self {
+        self.model_param_overrides = overrides;
+        self
     }
 
     /// Attach a Tauri AppHandle for streaming text chunks to the frontend.
@@ -80,7 +86,7 @@ impl LLMProvider for AQBotProviderBridge {
         request: ProviderRequest<'_>,
         stream_tx: Option<tokio::sync::mpsc::Sender<SDKMessage>>,
     ) -> Result<ProviderResponse, ApiError> {
-        let chat_request = convert_request(request);
+        let chat_request = convert_request(request, self.model_param_overrides.as_ref());
 
         let mut stream = self.adapter.chat_stream(&self.ctx, chat_request);
         let mut accumulated_text = String::new();
@@ -162,7 +168,10 @@ impl LLMProvider for AQBotProviderBridge {
 // SDK ProviderRequest → AQBot ChatRequest
 // ---------------------------------------------------------------------------
 
-fn convert_request(request: ProviderRequest<'_>) -> ChatRequest {
+fn convert_request(
+    request: ProviderRequest<'_>,
+    model_param_overrides: Option<&ModelParamOverrides>,
+) -> ChatRequest {
     let messages: Vec<ChatMessage> = request
         .messages
         .iter()
@@ -203,26 +212,38 @@ fn convert_request(request: ProviderRequest<'_>) -> ChatRequest {
     }
     final_messages.extend(messages);
 
+    let max_tokens = if request.max_tokens > 0 {
+        Some(request.max_tokens as u32)
+    } else {
+        model_param_overrides.and_then(|overrides| {
+            overrides.max_tokens.or_else(|| {
+                overrides
+                    .force_max_tokens
+                    .filter(|force| *force)
+                    .map(|_| 4096)
+            })
+        })
+    };
+
     ChatRequest {
         model: request.model.to_string(),
         messages: final_messages,
         stream: true,
         temperature: None,
         top_p: None,
-        max_tokens: if request.max_tokens > 0 {
-            Some(request.max_tokens as u32)
-        } else {
-            None
-        },
+        max_tokens,
         tools,
         thinking_budget: request
             .thinking
             .as_ref()
             .and_then(|t| t.budget_tokens.map(|b| b as u32)),
         thinking_level: None,
-        reasoning_profile: None,
-        use_max_completion_tokens: None,
-        thinking_param_style: None,
+        reasoning_profile: model_param_overrides
+            .and_then(|overrides| overrides.reasoning_profile.clone()),
+        use_max_completion_tokens: model_param_overrides
+            .and_then(|overrides| overrides.use_max_completion_tokens),
+        thinking_param_style: model_param_overrides
+            .and_then(|overrides| overrides.thinking_param_style.clone()),
     }
 }
 
@@ -235,6 +256,7 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
     };
 
     let mut text_parts: Vec<String> = Vec::new();
+    let mut thinking_parts: Vec<String> = Vec::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
     let mut tool_results: Vec<(String, String)> = Vec::new();
     let mut image_parts: Vec<ImageContentSource> = Vec::new();
@@ -269,7 +291,11 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
                     .join("\n");
                 tool_results.push((tool_use_id.clone(), text));
             }
-            ContentBlock::Thinking { .. } => {}
+            ContentBlock::Thinking { thinking, .. } => {
+                if msg.role == MessageRole::Assistant && !thinking.is_empty() {
+                    thinking_parts.push(thinking.clone());
+                }
+            }
             ContentBlock::Image { source } => {
                 image_parts.push(source.clone());
             }
@@ -288,7 +314,11 @@ fn convert_sdk_message_to_chat_messages(msg: &Message) -> Vec<ChatMessage> {
         result.push(ChatMessage {
             role: "assistant".to_string(),
             content,
-            reasoning_content: None,
+            reasoning_content: if thinking_parts.is_empty() {
+                None
+            } else {
+                Some(thinking_parts.join(""))
+            },
             tool_calls: if tool_calls.is_empty() {
                 None
             } else {
@@ -444,5 +474,110 @@ fn classify_provider_error(e: aqbot_core::error::AQBotError) -> ApiError {
         }
     } else {
         ApiError::NetworkError(err_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use open_agent_sdk::api::provider::ProviderRequest;
+
+    fn param_overrides() -> ModelParamOverrides {
+        ModelParamOverrides {
+            temperature: None,
+            max_tokens: Some(2048),
+            top_p: None,
+            frequency_penalty: None,
+            use_max_completion_tokens: Some(false),
+            no_system_role: None,
+            force_max_tokens: None,
+            thinking_param_style: Some("enable_thinking".to_string()),
+            reasoning_profile: Some("siliconflow_enable_thinking".to_string()),
+            reasoning_options: None,
+            reasoning_default: None,
+        }
+    }
+
+    #[test]
+    fn convert_request_applies_model_param_overrides() {
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let request = ProviderRequest {
+            model: "deepseek-reasoner",
+            max_tokens: 0,
+            messages: &messages,
+            system: None,
+            tools: None,
+            thinking: None,
+        };
+
+        let converted = convert_request(request, Some(&param_overrides()));
+
+        assert_eq!(converted.max_tokens, Some(2048));
+        assert_eq!(
+            converted.reasoning_profile.as_deref(),
+            Some("siliconflow_enable_thinking")
+        );
+        assert_eq!(converted.use_max_completion_tokens, Some(false));
+        assert_eq!(
+            converted.thinking_param_style.as_deref(),
+            Some("enable_thinking")
+        );
+    }
+
+    #[test]
+    fn convert_request_prefers_sdk_max_tokens_over_model_default() {
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let request = ProviderRequest {
+            model: "deepseek-reasoner",
+            max_tokens: 8192,
+            messages: &messages,
+            system: None,
+            tools: None,
+            thinking: None,
+        };
+
+        let converted = convert_request(request, Some(&param_overrides()));
+
+        assert_eq!(converted.max_tokens, Some(8192));
+    }
+
+    #[test]
+    fn assistant_thinking_block_becomes_reasoning_content() {
+        let message = Message {
+            role: MessageRole::Assistant,
+            content: vec![
+                ContentBlock::Thinking {
+                    thinking: "hidden reasoning".to_string(),
+                    signature: None,
+                },
+                ContentBlock::Text {
+                    text: "final answer".to_string(),
+                },
+                ContentBlock::ToolUse {
+                    id: "call-1".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "README.md"}),
+                },
+            ],
+        };
+
+        let converted = convert_sdk_message_to_chat_messages(&message);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(
+            converted[0].reasoning_content.as_deref(),
+            Some("hidden reasoning")
+        );
+        assert!(converted[0].tool_calls.is_some());
     }
 }

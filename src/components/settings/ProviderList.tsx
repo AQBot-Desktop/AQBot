@@ -195,7 +195,10 @@ export function ProviderList() {
 
   // Auto-select first provider if none selected
   React.useEffect(() => {
-    if (!selectedProviderId && providers.length > 0) {
+    if (
+      providers.length > 0 &&
+      (!selectedProviderId || !providers.some((p) => p.id === selectedProviderId))
+    ) {
       setSelectedProviderId(providers[0].id);
     }
   }, [selectedProviderId, providers, setSelectedProviderId]);

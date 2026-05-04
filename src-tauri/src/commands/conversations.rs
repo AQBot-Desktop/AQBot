@@ -26,6 +26,15 @@ fn provider_type_to_registry_key(pt: &ProviderType) -> &'static str {
     }
 }
 
+async fn resolve_command_provider_id(
+    db: &DatabaseConnection,
+    provider_id: &str,
+) -> Result<String, String> {
+    aqbot_core::repo::provider::resolve_provider_id(db, provider_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Resolve effective system prompt with priority: Conversation → Category → Global Default
 async fn resolve_system_prompt(
     db: &DatabaseConnection,
@@ -459,11 +468,13 @@ pub async fn create_conversation(
     provider_id: String,
     system_prompt: Option<String>,
 ) -> Result<Conversation, String> {
+    let real_provider_id = resolve_command_provider_id(&state.sea_db, &provider_id).await?;
+
     aqbot_core::repo::conversation::create_conversation(
         &state.sea_db,
         &title,
         &model_id,
-        &provider_id,
+        &real_provider_id,
         system_prompt.as_deref(),
     )
     .await
@@ -474,8 +485,13 @@ pub async fn create_conversation(
 pub async fn update_conversation(
     state: State<'_, AppState>,
     id: String,
-    input: UpdateConversationInput,
+    mut input: UpdateConversationInput,
 ) -> Result<Conversation, String> {
+    if let Some(provider_id) = input.provider_id.as_deref() {
+        let real_provider_id = resolve_command_provider_id(&state.sea_db, provider_id).await?;
+        input.provider_id = Some(real_provider_id);
+    }
+
     aqbot_core::repo::conversation::update_conversation(&state.sea_db, &id, input)
         .await
         .map_err(|e| e.to_string())
@@ -3449,6 +3465,22 @@ mod tests {
             reasoning_options: None,
             reasoning_default: None,
         }
+    }
+
+    #[tokio::test]
+    async fn command_provider_resolution_materializes_builtin_provider() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+
+        let real_id = resolve_command_provider_id(&db, "builtin_deepseek")
+            .await
+            .unwrap();
+
+        assert_ne!(real_id, "builtin_deepseek");
+        let provider = aqbot_core::repo::provider::get_provider(&db, &real_id)
+            .await
+            .unwrap();
+        assert_eq!(provider.builtin_id.as_deref(), Some("deepseek"));
+        assert_eq!(provider.provider_type, ProviderType::DeepSeek);
     }
 
     #[test]

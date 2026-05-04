@@ -432,7 +432,8 @@ fn convert_messages(
     messages
         .iter()
         .map(|msg| {
-            let reasoning_content = if include_reasoning_content && msg.role == "assistant" {
+            let include_reasoning = msg.role == "assistant" && include_reasoning_content;
+            let reasoning_content = if include_reasoning {
                 msg.reasoning_content.clone()
             } else {
                 None
@@ -645,12 +646,19 @@ fn build_request(
         (request.max_tokens.filter(|&v| v > 0), None)
     };
 
+    let has_tools = request
+        .tools
+        .as_ref()
+        .is_some_and(|tools| !tools.is_empty());
+    let should_include_deepseek_reasoning_content = kind == OpenAICompatKind::DeepSeek
+        && has_tools
+        && messages
+            .iter()
+            .any(|msg| msg.role == "assistant" && msg.reasoning_content.is_some());
+
     OpenAIRequest {
         model: request.model.clone(),
-        messages: convert_messages(
-            messages,
-            kind == OpenAICompatKind::DeepSeek && suppress_sampling_params,
-        ),
+        messages: convert_messages(messages, should_include_deepseek_reasoning_content),
         temperature: if suppress_sampling_params {
             None
         } else {
@@ -704,6 +712,22 @@ mod tests {
             reasoning_profile: None,
             use_max_completion_tokens: None,
             thinking_param_style: None,
+        }
+    }
+
+    fn dummy_tool() -> ChatTool {
+        ChatTool {
+            r#type: "function".to_string(),
+            function: ChatToolFunction {
+                name: "write_file".to_string(),
+                description: Some("Write a file".to_string()),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    }
+                })),
+            },
         }
     }
 
@@ -816,6 +840,7 @@ mod tests {
         .expect("chat message");
         let mut request = base_chat_request("deepseek-v4");
         request.thinking_level = Some("high".to_string());
+        request.tools = Some(vec![dummy_tool()]);
         request.messages = vec![assistant];
 
         let body = build_request(
@@ -830,6 +855,62 @@ mod tests {
             serialized["messages"][0]["reasoning_content"],
             json!("hidden thinking")
         );
+    }
+
+    #[test]
+    fn deepseek_tool_call_serializes_reasoning_content_without_explicit_thinking_level() {
+        let assistant = ChatMessage {
+            role: "assistant".to_string(),
+            content: ChatContent::Text(String::new()),
+            reasoning_content: Some("hidden thinking".to_string()),
+            tool_calls: Some(vec![aqbot_core::types::ToolCall {
+                id: "call-1".to_string(),
+                call_type: "function".to_string(),
+                function: aqbot_core::types::ToolCallFunction {
+                    name: "write_file".to_string(),
+                    arguments: "{\"path\":\"index.html\"}".to_string(),
+                },
+            }]),
+            tool_call_id: None,
+        };
+        let mut request = base_chat_request("deepseek-v4-flash");
+        request.tools = Some(vec![dummy_tool()]);
+        request.messages = vec![assistant];
+
+        let body = build_request(
+            OpenAICompatKind::DeepSeek,
+            &request,
+            &request.messages,
+            true,
+        );
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert_eq!(
+            serialized["messages"][0]["reasoning_content"],
+            json!("hidden thinking")
+        );
+    }
+
+    #[test]
+    fn deepseek_without_tools_does_not_replay_reasoning_content() {
+        let assistant: ChatMessage = serde_json::from_value(json!({
+            "role": "assistant",
+            "content": "final answer",
+            "reasoning_content": "hidden thinking"
+        }))
+        .expect("chat message");
+        let mut request = base_chat_request("deepseek-v4-flash");
+        request.messages = vec![assistant];
+
+        let body = build_request(
+            OpenAICompatKind::DeepSeek,
+            &request,
+            &request.messages,
+            true,
+        );
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert!(serialized["messages"][0].get("reasoning_content").is_none());
     }
 
     #[test]

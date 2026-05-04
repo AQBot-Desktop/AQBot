@@ -144,6 +144,12 @@ export const useProviderStore = create<ProviderState>((set) => ({
         providerId,
         rawKey,
       });
+      if (providerId.startsWith('builtin_')) {
+        // Virtual provider was materialized — refetch to get real ID
+        const providers = await invoke<ProviderConfig[]>('list_providers');
+        set({ providers, error: null });
+        return;
+      }
       set((s) => ({
         providers: s.providers.map((p) =>
           p.id === providerId ? { ...p, keys: [...p.keys, key] } : p,

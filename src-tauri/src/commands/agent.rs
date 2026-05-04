@@ -347,6 +347,15 @@ fn get_tool_input_summary(tool_name: &str, input: &Value) -> String {
     tool_name.to_string()
 }
 
+async fn resolve_agent_provider_id(
+    db: &sea_orm::DatabaseConnection,
+    provider_id: &str,
+) -> Result<String, String> {
+    provider::resolve_provider_id(db, provider_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -374,6 +383,8 @@ pub async fn agent_query(
             return Err("Agent is already running".to_string());
         }
     }
+
+    let real_provider_id = resolve_agent_provider_id(&state.sea_db, &provider_id).await?;
 
     // 3. Set runtime_status to 'running'
     agent_session::update_agent_session_status(&state.sea_db, &session.id, "running")
@@ -430,14 +441,18 @@ pub async fn agent_query(
     }
 
     // 5. Get provider + key
-    let prov = provider::get_provider(&state.sea_db, &provider_id)
+    let prov = provider::get_provider(&state.sea_db, &real_provider_id)
         .await
         .map_err(|e| e.to_string())?;
-    let key_row = provider::get_active_key(&state.sea_db, &provider_id)
+    let key_row = provider::get_active_key(&state.sea_db, &real_provider_id)
         .await
         .map_err(|e| e.to_string())?;
     let decrypted_key = aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
         .map_err(|e| e.to_string())?;
+    let model_param_overrides = provider::get_model(&state.sea_db, &real_provider_id, &model_id)
+        .await
+        .ok()
+        .and_then(|model| model.param_overrides);
 
     // 6. Build ProviderRequestContext
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
@@ -466,6 +481,7 @@ pub async fn agent_query(
     let provider_type_str = provider_type_to_registry_key(&prov.provider_type);
     let bridge = aqbot_agent::bridge::AQBotProviderBridge::new(adapter, ctx, provider_type_str)
         .map_err(|e| e.to_string())?
+        .with_model_param_overrides(model_param_overrides)
         .with_app(app.clone(), conversation_id.clone());
 
     // 8. Build permission callback (CanUseToolFn)
@@ -1517,4 +1533,23 @@ pub async fn agent_restore_sdk_context_from_backup(
     )
     .await
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn agent_provider_resolution_materializes_builtin_provider() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+
+        let real_id = resolve_agent_provider_id(&db, "builtin_deepseek")
+            .await
+            .unwrap();
+
+        assert_ne!(real_id, "builtin_deepseek");
+        let provider = provider::get_provider(&db, &real_id).await.unwrap();
+        assert_eq!(provider.builtin_id.as_deref(), Some("deepseek"));
+        assert_eq!(provider.provider_type, ProviderType::DeepSeek);
+    }
 }
