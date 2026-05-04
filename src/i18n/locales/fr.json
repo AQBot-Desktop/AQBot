@@ -822,6 +822,7 @@
       "restartLater": "Restart Later"
     },
     "filterProviders": "Rechercher des fournisseurs…",
+    "builtinProviderBadge": "Intégré",
     "initProviders": "Initialiser les fournisseurs",
     "initProvidersDesc": "Initialiser les fournisseurs système à partir des préréglages intégrés. Pour les fournisseurs existants avec des noms correspondants, vous pouvez écraser leur nom, format du point de terminaison, URL de base et chemin API avec les valeurs officielles, ou uniquement ajouter les fournisseurs manquants.",
     "initOverwriteHint": "Mode écrasement : les configurations de fournisseurs existantes seront réinitialisées aux valeurs officielles par défaut (les clés API sont préservées)",

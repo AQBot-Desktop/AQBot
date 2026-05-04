@@ -30,6 +30,7 @@ mod m20260417_000001_add_category_default_templates;
 mod m20260428_000001_add_drawing_history;
 mod m20260430_000001_add_conversation_thinking_level;
 mod m20260501_000001_add_knowledge_base_rerank_settings;
+mod m20260504_000001_split_openai_compatible_provider_types;
 
 pub struct Migrator;
 
@@ -67,6 +68,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260428_000001_add_drawing_history::Migration),
             Box::new(m20260430_000001_add_conversation_thinking_level::Migration),
             Box::new(m20260501_000001_add_knowledge_base_rerank_settings::Migration),
+            Box::new(m20260504_000001_split_openai_compatible_provider_types::Migration),
         ]
     }
 }
@@ -74,7 +76,9 @@ impl MigratorTrait for Migrator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm_migration::sea_orm::{ConnectOptions, Database, DatabaseConnection};
+    use sea_orm_migration::sea_orm::{
+        ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement,
+    };
 
     async fn sqlite_test_db() -> DatabaseConnection {
         let mut opts = ConnectOptions::new("sqlite::memory:");
@@ -166,6 +170,70 @@ mod tests {
                 "missing knowledge_bases.{column}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn split_openai_compatible_provider_types_migration_updates_builtin_rows() {
+        let db = sqlite_test_db().await;
+        let manager = SchemaManager::new(&db);
+
+        m20240101_000001_init::Migration
+            .up(&manager)
+            .await
+            .expect("run init migration");
+        m20250720_000001_add_provider_builtin_id::Migration
+            .up(&manager)
+            .await
+            .expect("add builtin_id column");
+
+        db.execute_unprepared(
+            r#"INSERT INTO providers
+               (id, name, provider_type, api_host, enabled, sort_order, created_at, updated_at, builtin_id)
+               VALUES
+               ('provider-deepseek', 'DeepSeek', 'openai', 'https://api.deepseek.com', 1, 0, 1, 1, 'deepseek'),
+               ('provider-xai', 'xAI', 'openai', 'https://api.x.ai', 1, 0, 1, 1, 'xai'),
+               ('provider-glm', 'GLM', 'openai', 'https://open.bigmodel.cn/api/paas', 1, 0, 1, 1, 'glm'),
+               ('provider-siliconflow', 'SiliconFlow', 'openai', 'https://api.siliconflow.cn', 1, 0, 1, 1, 'siliconflow'),
+               ('provider-custom', 'Custom', 'openai', 'https://api.example.com', 1, 0, 1, 1, NULL)"#,
+        )
+        .await
+        .expect("insert provider rows");
+
+        m20260504_000001_split_openai_compatible_provider_types::Migration
+            .up(&manager)
+            .await
+            .expect("split provider types");
+
+        let rows = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id, provider_type FROM providers ORDER BY id".to_string(),
+            ))
+            .await
+            .expect("query providers");
+        let values: Vec<(String, String)> = rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.try_get("", "id").unwrap(),
+                    row.try_get("", "provider_type").unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            values,
+            vec![
+                ("provider-custom".to_string(), "openai".to_string()),
+                ("provider-deepseek".to_string(), "deepseek".to_string()),
+                ("provider-glm".to_string(), "glm".to_string()),
+                (
+                    "provider-siliconflow".to_string(),
+                    "siliconflow".to_string()
+                ),
+                ("provider-xai".to_string(), "xai".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]

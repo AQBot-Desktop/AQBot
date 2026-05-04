@@ -37,6 +37,10 @@ pub enum ProviderType {
     OpenAI,
     #[serde(rename = "openai_responses")]
     OpenAIResponses,
+    DeepSeek,
+    XAI,
+    GLM,
+    SiliconFlow,
     Anthropic,
     Gemini,
     Jina,

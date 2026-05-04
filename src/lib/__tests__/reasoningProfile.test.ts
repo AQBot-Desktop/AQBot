@@ -81,4 +81,27 @@ describe('reasoning profile resolution', () => {
     expect(profile.apiStyle).toBe('gemini_thinking_level');
     expect(profile.options.map((option) => option.key)).toEqual(['default', 'minimal', 'low', 'medium', 'high']);
   });
+
+  it('uses dedicated OpenAI-compatible provider profiles', () => {
+    expect(optionKeys('deepseek', 'deepseek-v4-flash')).toEqual(['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(optionKeys('xai', 'grok-3-mini')).toEqual(['default']);
+    expect(optionKeys('glm', 'glm-4.6')).toEqual(['default', 'none', 'high']);
+    expect(optionKeys('siliconflow', 'Qwen/Qwen3-235B-A22B')).toEqual(['default', 'none', 'low', 'medium', 'high']);
+
+    const glmProfile = resolveReasoningProfile('glm', model('glm-4.6'));
+    expect(resolveReasoningRequest(glmProfile, 'high')).toEqual({
+      level: 'high',
+      apiStyle: 'glm_thinking',
+      suppressSamplingParams: true,
+    });
+
+    const siliconFlowProfile = resolveReasoningProfile('siliconflow', model('Qwen/Qwen3-235B-A22B'));
+    expect(resolveReasoningRequest(siliconFlowProfile, 'medium')).toMatchObject({
+      level: 'medium',
+      apiStyle: 'siliconflow_enable_thinking',
+      enableThinking: true,
+      budgetTokens: 4096,
+      suppressSamplingParams: true,
+    });
+  });
 });

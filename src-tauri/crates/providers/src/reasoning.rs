@@ -5,6 +5,7 @@ pub enum ReasoningStyle {
     None,
     OpenAIReasoningEffort,
     OpenAIResponsesReasoning,
+    GlmThinking,
     GeminiThinkingLevel,
     GeminiThinkingBudget,
     AnthropicAdaptive,
@@ -61,6 +62,15 @@ pub fn resolve_reasoning(
                 suppress_sampling_params,
             })
         }
+        ReasoningStyle::GlmThinking => Some(ResolvedReasoning {
+            style,
+            level,
+            reasoning_effort: None,
+            thinking_level: None,
+            budget_tokens: None,
+            enable_thinking: None,
+            suppress_sampling_params,
+        }),
         ReasoningStyle::GeminiThinkingLevel => {
             if !matches!(level.as_str(), "minimal" | "low" | "medium" | "high") {
                 return None;
@@ -112,6 +122,7 @@ fn reasoning_style_from_profile(profile: &str) -> ReasoningStyle {
     match profile {
         "openai_reasoning_effort" => ReasoningStyle::OpenAIReasoningEffort,
         "openai_responses_reasoning" => ReasoningStyle::OpenAIResponsesReasoning,
+        "glm_thinking" => ReasoningStyle::GlmThinking,
         "gemini_thinking_level" => ReasoningStyle::GeminiThinkingLevel,
         "gemini_thinking_budget" => ReasoningStyle::GeminiThinkingBudget,
         "anthropic_adaptive" => ReasoningStyle::AnthropicAdaptive,
@@ -209,5 +220,19 @@ mod tests {
         .expect("reasoning config");
 
         assert_eq!(resolved.reasoning_effort.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn glm_thinking_profile_is_resolved_without_openai_reasoning_effort() {
+        let mut req = request(Some("high"), None);
+        req.reasoning_profile = Some("glm_thinking".to_string());
+
+        let resolved = resolve_reasoning(&req, ReasoningStyle::OpenAIReasoningEffort)
+            .expect("reasoning config");
+
+        assert_eq!(resolved.style, ReasoningStyle::GlmThinking);
+        assert_eq!(resolved.level, "high");
+        assert_eq!(resolved.reasoning_effort, None);
+        assert!(resolved.suppress_sampling_params);
     }
 }

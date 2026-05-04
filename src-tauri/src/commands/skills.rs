@@ -173,15 +173,8 @@ fn parse_github_source(source: &str) -> Result<(String, String), String> {
     }
 }
 
-async fn install_from_github(
-    owner: &str,
-    repo: &str,
-    target_dir: &Path,
-) -> Result<String, String> {
-    let url = format!(
-        "https://api.github.com/repos/{}/{}/zipball",
-        owner, repo
-    );
+async fn install_from_github(owner: &str, repo: &str, target_dir: &Path) -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{}/{}/zipball", owner, repo);
 
     let client = reqwest::Client::new();
     let response = client
@@ -343,7 +336,9 @@ pub async fn open_skill_dir(path: String) -> Result<(), String> {
     let dir = if p.is_dir() {
         p.to_path_buf()
     } else {
-        p.parent().map(|d| d.to_path_buf()).unwrap_or_else(|| p.to_path_buf())
+        p.parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| p.to_path_buf())
     };
     if dir.exists() {
         open::that(&dir).map_err(|e| format!("Failed to open directory: {}", e))
@@ -433,26 +428,19 @@ pub async fn search_marketplace(
                 return Err(format!("GitHub API error: {}", response.status()));
             }
 
-            let body: serde_json::Value =
-                response.json().await.map_err(|e| e.to_string())?;
+            let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
             let items = body["items"].as_array().cloned().unwrap_or_default();
 
             let results: Vec<MarketplaceSkill> = items
                 .into_iter()
                 .map(|item| {
                     let skill_name = item["name"].as_str().unwrap_or("").to_string();
-                    let repo = item["full_name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-                    let installed = installed_refs
-                        .contains(&repo.trim().trim_end_matches('/').to_lowercase());
+                    let repo = item["full_name"].as_str().unwrap_or("").to_string();
+                    let installed =
+                        installed_refs.contains(&repo.trim().trim_end_matches('/').to_lowercase());
                     MarketplaceSkill {
                         name: skill_name,
-                        description: item["description"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string(),
+                        description: item["description"].as_str().unwrap_or("").to_string(),
                         repo,
                         stars: item["stargazers_count"].as_i64().unwrap_or(0),
                         installs: 0,
@@ -481,8 +469,7 @@ pub async fn search_marketplace(
                 return Err(format!("skills.sh API error: {}", response.status()));
             }
 
-            let body: serde_json::Value =
-                response.json().await.map_err(|e| e.to_string())?;
+            let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
             let items = body["skills"].as_array().cloned().unwrap_or_default();
 
             let results: Vec<MarketplaceSkill> = items
@@ -490,8 +477,8 @@ pub async fn search_marketplace(
                 .map(|item| {
                     let skill_name = item["name"].as_str().unwrap_or("").to_string();
                     let repo = item["source"].as_str().unwrap_or("").to_string();
-                    let installed = installed_refs
-                        .contains(&repo.trim().trim_end_matches('/').to_lowercase());
+                    let installed =
+                        installed_refs.contains(&repo.trim().trim_end_matches('/').to_lowercase());
                     MarketplaceSkill {
                         name: skill_name,
                         description: String::new(),
@@ -567,18 +554,14 @@ pub async fn check_skill_updates() -> Result<Vec<SkillUpdateInfo>, String> {
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
                     if let Some(commits) = body.as_array() {
                         if let Some(latest) = commits.first() {
-                            let latest_sha =
-                                latest["sha"].as_str().unwrap_or("").to_string();
+                            let latest_sha = latest["sha"].as_str().unwrap_or("").to_string();
                             let short_latest = &latest_sha[..7.min(latest_sha.len())];
                             if !current_commit.is_empty()
                                 && !latest_sha.starts_with(&current_commit)
                                 && current_commit != short_latest
                             {
                                 updates.push(SkillUpdateInfo {
-                                    name: entry
-                                        .file_name()
-                                        .to_string_lossy()
-                                        .to_string(),
+                                    name: entry.file_name().to_string_lossy().to_string(),
                                     current_commit: current_commit.clone(),
                                     latest_commit: short_latest.to_string(),
                                     source_ref: source_ref.clone(),

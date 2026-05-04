@@ -822,6 +822,7 @@
       "restartLater": "Restart Later"
     },
     "filterProviders": "Buscar proveedores...",
+    "builtinProviderBadge": "Integrado",
     "initProviders": "Inicializar proveedores",
     "initProvidersDesc": "Inicializar los proveedores del sistema desde los ajustes preestablecidos incorporados. Para los proveedores existentes con nombres coincidentes, puede sobrescribir su nombre, formato de endpoint, URL base y ruta de API con los valores oficiales, o solo añadir los proveedores faltantes.",
     "initOverwriteHint": "Modo de sobrescritura: las configuraciones de proveedores existentes se restablecerán a los valores predeterminados oficiales (se conservan las claves de API)",

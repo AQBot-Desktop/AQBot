@@ -15,6 +15,7 @@ export type ReasoningApiStyle =
   | 'none'
   | 'openai_reasoning_effort'
   | 'openai_responses_reasoning'
+  | 'glm_thinking'
   | 'gemini_thinking_level'
   | 'gemini_thinking_budget'
   | 'anthropic_adaptive'
@@ -146,6 +147,7 @@ function overrideProfile(model: Pick<Model, 'param_overrides'> | null | undefine
     'none',
     'openai_reasoning_effort',
     'openai_responses_reasoning',
+    'glm_thinking',
     'gemini_thinking_level',
     'gemini_thinking_budget',
     'anthropic_adaptive',
@@ -209,7 +211,36 @@ function anthropicProfile(modelId: string): ReasoningProfile {
   };
 }
 
+function deepSeekProfile(): ReasoningProfile {
+  return {
+    apiStyle: 'openai_reasoning_effort',
+    defaultOptionKey: 'default',
+    options: options(['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']),
+  };
+}
+
+function xaiProfile(): ReasoningProfile {
+  return { apiStyle: 'none', defaultOptionKey: 'default', options: options(['default']) };
+}
+
+function glmProfile(): ReasoningProfile {
+  return {
+    apiStyle: 'glm_thinking',
+    defaultOptionKey: 'default',
+    options: options(['default', 'none', 'high']),
+  };
+}
+
+function siliconFlowProfile(): ReasoningProfile {
+  return {
+    apiStyle: 'siliconflow_enable_thinking',
+    defaultOptionKey: 'default',
+    options: options(['default', 'none', 'low', 'medium', 'high']),
+  };
+}
+
 function overriddenProfile(apiStyle: ReasoningApiStyle, modelId: string): ReasoningProfile {
+  if (apiStyle === 'glm_thinking') return glmProfile();
   if (apiStyle === 'anthropic_budget_tokens') {
     return {
       apiStyle,
@@ -245,6 +276,10 @@ export function resolveReasoningProfile(
 
   if (providerType === 'gemini') return geminiProfile(modelId);
   if (providerType === 'anthropic') return anthropicProfile(modelId);
+  if (providerType === 'deepseek') return deepSeekProfile();
+  if (providerType === 'xai') return xaiProfile();
+  if (providerType === 'glm') return glmProfile();
+  if (providerType === 'siliconflow') return siliconFlowProfile();
   if (providerType === 'openai' || providerType === 'openai_responses') return openAiProfile(providerType, modelId);
 
   if (modelId.includes('claude')) return anthropicProfile(modelId);
@@ -292,6 +327,14 @@ export function resolveReasoningRequest(
       apiStyle: profile.apiStyle,
       thinkingLevel: option.thinkingLevel,
       suppressSamplingParams: false,
+    };
+  }
+
+  if (profile.apiStyle === 'glm_thinking') {
+    return {
+      level: optionKey,
+      apiStyle: profile.apiStyle,
+      suppressSamplingParams,
     };
   }
 

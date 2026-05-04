@@ -66,7 +66,13 @@ pub async fn add_memory_item(
 
     if let Some(ref embedding_provider) = ns.embedding_provider {
         // Set status to indexing
-        let _ = aqbot_core::repo::memory::update_item_index_status(&state.sea_db, &item.id, "indexing", None).await;
+        let _ = aqbot_core::repo::memory::update_item_index_status(
+            &state.sea_db,
+            &item.id,
+            "indexing",
+            None,
+        )
+        .await;
 
         let db = state.sea_db.clone();
         let master_key = state.master_key;
@@ -97,7 +103,13 @@ pub async fn add_memory_item(
                     ("failed", Some(e.to_string()))
                 }
             };
-            let _ = aqbot_core::repo::memory::update_item_index_status(&db, &item_id, status, err_msg.as_deref()).await;
+            let _ = aqbot_core::repo::memory::update_item_index_status(
+                &db,
+                &item_id,
+                status,
+                err_msg.as_deref(),
+            )
+            .await;
 
             let _ = app.emit(
                 "memory-item-indexed",
@@ -111,11 +123,23 @@ pub async fn add_memory_item(
         });
 
         // Return item with "indexing" status
-        return Ok(MemoryItem { index_status: "indexing".to_string(), ..item });
+        return Ok(MemoryItem {
+            index_status: "indexing".to_string(),
+            ..item
+        });
     } else {
         // No embedding provider — mark as skipped
-        let _ = aqbot_core::repo::memory::update_item_index_status(&state.sea_db, &item.id, "skipped", None).await;
-        return Ok(MemoryItem { index_status: "skipped".to_string(), ..item });
+        let _ = aqbot_core::repo::memory::update_item_index_status(
+            &state.sea_db,
+            &item.id,
+            "skipped",
+            None,
+        )
+        .await;
+        return Ok(MemoryItem {
+            index_status: "skipped".to_string(),
+            ..item
+        });
     }
 }
 
@@ -158,7 +182,13 @@ pub async fn update_memory_item(
 
         if let Some(ref embedding_provider) = ns.embedding_provider {
             // Set status to indexing
-            let _ = aqbot_core::repo::memory::update_item_index_status(&state.sea_db, &id, "indexing", None).await;
+            let _ = aqbot_core::repo::memory::update_item_index_status(
+                &state.sea_db,
+                &id,
+                "indexing",
+                None,
+            )
+            .await;
 
             let db = state.sea_db.clone();
             let master_key = state.master_key;
@@ -195,7 +225,13 @@ pub async fn update_memory_item(
                         ("failed", Some(e.to_string()))
                     }
                 };
-                let _ = aqbot_core::repo::memory::update_item_index_status(&db, &item_id, status, err_msg.as_deref()).await;
+                let _ = aqbot_core::repo::memory::update_item_index_status(
+                    &db,
+                    &item_id,
+                    status,
+                    err_msg.as_deref(),
+                )
+                .await;
 
                 let _ = app.emit(
                     "memory-item-indexed",
@@ -208,7 +244,10 @@ pub async fn update_memory_item(
                 );
             });
 
-            return Ok(MemoryItem { index_status: "indexing".to_string(), ..item });
+            return Ok(MemoryItem {
+                index_status: "indexing".to_string(),
+                ..item
+            });
         }
     }
 
@@ -259,7 +298,13 @@ pub async fn rebuild_memory_index(
 
     // Set all items to indexing status
     for item in &items {
-        let _ = aqbot_core::repo::memory::update_item_index_status(&state.sea_db, &item.id, "indexing", None).await;
+        let _ = aqbot_core::repo::memory::update_item_index_status(
+            &state.sea_db,
+            &item.id,
+            "indexing",
+            None,
+        )
+        .await;
     }
 
     let db = state.sea_db.clone();
@@ -289,7 +334,13 @@ pub async fn rebuild_memory_index(
                     ("failed", Some(e.to_string()))
                 }
             };
-            let _ = aqbot_core::repo::memory::update_item_index_status(&db, &item.id, status, err_msg.as_deref()).await;
+            let _ = aqbot_core::repo::memory::update_item_index_status(
+                &db,
+                &item.id,
+                status,
+                err_msg.as_deref(),
+            )
+            .await;
 
             // Emit per-item event for real-time progress
             let _ = app.emit(
@@ -367,7 +418,13 @@ pub async fn reindex_memory_item(
         .find(|i| i.id == item_id)
         .ok_or("Item not found")?;
 
-    let _ = aqbot_core::repo::memory::update_item_index_status(&state.sea_db, &item_id, "indexing", None).await;
+    let _ = aqbot_core::repo::memory::update_item_index_status(
+        &state.sea_db,
+        &item_id,
+        "indexing",
+        None,
+    )
+    .await;
 
     let db = state.sea_db.clone();
     let master_key = state.master_key;
@@ -403,7 +460,13 @@ pub async fn reindex_memory_item(
                 ("failed", Some(e.to_string()))
             }
         };
-        let _ = aqbot_core::repo::memory::update_item_index_status(&db, &iid, status, err_msg.as_deref()).await;
+        let _ = aqbot_core::repo::memory::update_item_index_status(
+            &db,
+            &iid,
+            status,
+            err_msg.as_deref(),
+        )
+        .await;
 
         let _ = app.emit(
             "memory-item-indexed",

@@ -822,6 +822,7 @@
       "restartLater": "Restart Later"
     },
     "filterProviders": "Anbieter suchen…",
+    "builtinProviderBadge": "Integriert",
     "initProviders": "Anbieter initialisieren",
     "initProvidersDesc": "Systemanbieter aus integrierten Voreinstellungen initialisieren. Bei vorhandenen Anbietern mit übereinstimmenden Namen können Sie deren Namen, Endpunktformat, Basis-URL und API-Pfad auf offizielle Werte überschreiben oder nur fehlende Anbieter hinzufügen.",
     "initOverwriteHint": "Überschreibmodus: vorhandene Anbieterkonfigurationen werden auf offizielle Standards zurückgesetzt (API-Schlüssel bleiben erhalten)",

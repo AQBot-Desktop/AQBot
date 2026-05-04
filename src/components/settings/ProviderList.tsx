@@ -1,5 +1,5 @@
 import { Button, Input, Modal, Form, Select, Switch, App, theme, Divider } from 'antd';
-import { Plus, Search, GripVertical } from 'lucide-react';
+import { Plus, Search, GripVertical, BadgeCheck } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +24,10 @@ import type { ProviderConfig, ProviderType } from '@/types';
 const PROVIDER_TYPE_OPTIONS: { label: string; value: ProviderType }[] = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'OpenAI Responses', value: 'openai_responses' },
+  { label: 'DeepSeek', value: 'deepseek' },
+  { label: 'xAI', value: 'xai' },
+  { label: 'GLM', value: 'glm' },
+  { label: 'SiliconFlow', value: 'siliconflow' },
   { label: 'Anthropic', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
   { label: 'Jina', value: 'jina' },
@@ -34,6 +38,10 @@ const PROVIDER_TYPE_OPTIONS: { label: string; value: ProviderType }[] = [
 const DEFAULT_HOSTS: Record<ProviderType, string> = {
   openai: 'https://api.openai.com',
   openai_responses: 'https://api.openai.com',
+  deepseek: 'https://api.deepseek.com',
+  xai: 'https://api.x.ai',
+  glm: 'https://open.bigmodel.cn/api/paas',
+  siliconflow: 'https://api.siliconflow.cn',
   anthropic: 'https://api.anthropic.com',
   gemini: 'https://generativelanguage.googleapis.com',
   jina: 'https://api.jina.ai',
@@ -41,6 +49,58 @@ const DEFAULT_HOSTS: Record<ProviderType, string> = {
   voyage: 'https://api.voyageai.com',
   custom: '',
 };
+
+function BuiltinProviderIcon({
+  provider,
+  token,
+  label,
+}: {
+  provider: ProviderConfig;
+  token: any;
+  label: string;
+}) {
+  if (!provider.builtin_id) {
+    return <SmartProviderIcon provider={provider} size={22} type="avatar" />;
+  }
+
+  return (
+    <span
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        flexShrink: 0,
+        width: 26,
+        height: 22,
+      }}
+    >
+      <SmartProviderIcon provider={provider} size={22} type="avatar" />
+      <span
+        role="img"
+        aria-label={label}
+        title={label}
+        style={{
+          position: 'absolute',
+          top: -4,
+          right: -4,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxSizing: 'border-box',
+          width: 12,
+          height: 12,
+          borderRadius: '50%',
+          color: token.colorPrimary,
+          background: token.colorPrimaryBg,
+          border: `1px solid ${token.colorBgContainer}`,
+          pointerEvents: 'none',
+        }}
+      >
+        <BadgeCheck size={8} strokeWidth={3} aria-hidden />
+      </span>
+    </span>
+  );
+}
 
 function SortableProviderItem({
   provider,
@@ -63,6 +123,7 @@ function SortableProviderItem({
     transition,
     isDragging,
   } = useSortable({ id: provider.id });
+  const { t } = useTranslation();
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -104,7 +165,7 @@ function SortableProviderItem({
         className="min-w-0 flex-1 flex items-center gap-2"
         style={{ opacity: disabled ? 0.4 : 1 }}
       >
-        <SmartProviderIcon provider={provider} size={22} type="avatar" />
+        <BuiltinProviderIcon provider={provider} token={token} label={t('settings.builtinProviderBadge', '内置')} />
         <span style={{ color: isSelected ? token.colorPrimary : undefined }}>{provider.name}</span>
       </div>
       <Switch

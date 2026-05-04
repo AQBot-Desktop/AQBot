@@ -39,6 +39,10 @@ impl AQBotProviderBridge {
             "gemini" => ApiType::OpenAICompletions,
             "custom" => ApiType::OpenAICompletions,
             "openai_responses" => ApiType::OpenAICompletions,
+            "deepseek" => ApiType::OpenAICompletions,
+            "xai" => ApiType::OpenAICompletions,
+            "glm" => ApiType::OpenAICompletions,
+            "siliconflow" => ApiType::OpenAICompletions,
             other => {
                 tracing::warn!(
                     "Unknown provider type '{}', defaulting to OpenAI compat",

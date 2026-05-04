@@ -827,6 +827,7 @@
       "restartLater": "稍后重启"
     },
     "filterProviders": "搜索服务商...",
+    "builtinProviderBadge": "内置",
     "initProviders": "初始化服务商",
     "initProvidersDesc": "将根据内置预设初始化系统服务商。对于已存在的同名服务商，可选择覆盖其名称、端点格式、Base URL 和 API 路径为官方值，或仅添加缺失的服务商。",
     "initOverwriteHint": "覆盖模式：已有服务商的配置将被重置为官方默认值（API 密钥不受影响）",

@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 
-use crate::ProviderAdapter;
 use crate::anthropic::AnthropicAdapter;
 use crate::cohere::CohereAdapter;
+use crate::custom_openai::CustomOpenAIAdapter;
+use crate::deepseek::DeepSeekAdapter;
 use crate::gemini::GeminiAdapter;
+use crate::glm::GLMAdapter;
 use crate::jina::JinaAdapter;
 use crate::openai::OpenAIAdapter;
 use crate::openai_responses::OpenAIResponsesAdapter;
+use crate::siliconflow::SiliconFlowAdapter;
 use crate::voyage::VoyageAdapter;
+use crate::xai::XAIAdapter;
+use crate::ProviderAdapter;
 
 pub struct ProviderRegistry {
     adapters: HashMap<String, Box<dyn ProviderAdapter>>,
@@ -32,7 +37,12 @@ impl ProviderRegistry {
     pub fn create_default() -> Self {
         let mut registry = Self::new();
         registry.register("openai", Box::new(OpenAIAdapter::new()));
+        registry.register("custom", Box::new(CustomOpenAIAdapter::new()));
         registry.register("openai_responses", Box::new(OpenAIResponsesAdapter::new()));
+        registry.register("deepseek", Box::new(DeepSeekAdapter::new()));
+        registry.register("xai", Box::new(XAIAdapter::new()));
+        registry.register("glm", Box::new(GLMAdapter::new()));
+        registry.register("siliconflow", Box::new(SiliconFlowAdapter::new()));
         registry.register("anthropic", Box::new(AnthropicAdapter::new()));
         registry.register("gemini", Box::new(GeminiAdapter::new()));
         registry.register("jina", Box::new(JinaAdapter::new()));

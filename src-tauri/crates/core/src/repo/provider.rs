@@ -1,5 +1,6 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
+use std::collections::HashSet;
 
 use crate::crypto::{decrypt_key, encrypt_key};
 use crate::entity::{models, provider_keys, providers};
@@ -11,6 +12,10 @@ fn parse_provider_type(s: &str) -> ProviderType {
     match s {
         "openai" => ProviderType::OpenAI,
         "openai_responses" => ProviderType::OpenAIResponses,
+        "deepseek" => ProviderType::DeepSeek,
+        "xai" => ProviderType::XAI,
+        "glm" => ProviderType::GLM,
+        "siliconflow" => ProviderType::SiliconFlow,
         "anthropic" => ProviderType::Anthropic,
         "gemini" => ProviderType::Gemini,
         "jina" => ProviderType::Jina,
@@ -24,6 +29,10 @@ fn provider_type_str(pt: &ProviderType) -> &'static str {
     match pt {
         ProviderType::OpenAI => "openai",
         ProviderType::OpenAIResponses => "openai_responses",
+        ProviderType::DeepSeek => "deepseek",
+        ProviderType::XAI => "xai",
+        ProviderType::GLM => "glm",
+        ProviderType::SiliconFlow => "siliconflow",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
         ProviderType::Jina => "jina",
@@ -197,6 +206,10 @@ fn parse_deep_link_provider_type(value: &str) -> Result<ProviderType> {
     match value.trim() {
         "openai" => Ok(ProviderType::OpenAI),
         "openai_responses" => Ok(ProviderType::OpenAIResponses),
+        "deepseek" => Ok(ProviderType::DeepSeek),
+        "xai" => Ok(ProviderType::XAI),
+        "glm" => Ok(ProviderType::GLM),
+        "siliconflow" => Ok(ProviderType::SiliconFlow),
         "anthropic" => Ok(ProviderType::Anthropic),
         "gemini" => Ok(ProviderType::Gemini),
         "jina" => Ok(ProviderType::Jina),
@@ -663,13 +676,67 @@ pub async fn update_model_params(
 
 // --- Built-in Provider Merge ---
 
+async fn sync_missing_builtin_models(
+    db: &DatabaseConnection,
+    builtins: &[crate::db::BuiltinProvider],
+    providers: &[ProviderConfig],
+) -> Result<bool> {
+    let mut changed = false;
+
+    for bp in builtins {
+        let Some(provider) = providers
+            .iter()
+            .find(|provider| provider.builtin_id.as_deref() == Some(bp.builtin_id))
+        else {
+            continue;
+        };
+
+        let existing_ids: HashSet<&str> = provider
+            .models
+            .iter()
+            .map(|model| model.model_id.as_str())
+            .collect();
+        let missing_models: Vec<Model> = bp
+            .models
+            .iter()
+            .filter(|model| !existing_ids.contains(model.model_id))
+            .map(|model| model.to_model(&provider.id))
+            .collect();
+
+        if !missing_models.is_empty() {
+            let mut models = provider.models.clone();
+            models.extend(missing_models);
+            save_models(db, &provider.id, &models).await?;
+            changed = true;
+        }
+
+        if bp.builtin_id == "minimax" && provider.api_host == "https://api.minimaxi.com" {
+            update_provider(
+                db,
+                &provider.id,
+                UpdateProviderInput {
+                    api_host: Some(bp.api_host.to_string()),
+                    ..Default::default()
+                },
+            )
+            .await?;
+            changed = true;
+        }
+    }
+
+    Ok(changed)
+}
+
 /// Merge built-in provider definitions with database records.
 /// Built-in providers without a DB row appear as virtual providers (enabled=false, no keys/models).
 /// Built-in providers with a DB row use the DB values (user overrides).
 /// Custom providers (builtin_id=NULL) are appended after built-ins.
 pub async fn list_providers_merged(db: &DatabaseConnection) -> Result<Vec<ProviderConfig>> {
-    let db_providers = list_providers(db).await?;
+    let mut db_providers = list_providers(db).await?;
     let builtins = crate::db::get_builtin_providers();
+    if sync_missing_builtin_models(db, &builtins, &db_providers).await? {
+        db_providers = list_providers(db).await?;
+    }
 
     let mut result = Vec::new();
 
@@ -684,17 +751,7 @@ pub async fn list_providers_merged(db: &DatabaseConnection) -> Result<Vec<Provid
             let default_models: Vec<Model> = bp
                 .models
                 .iter()
-                .map(|(model_id, name, caps, max_tokens)| Model {
-                    provider_id: format!("builtin_{}", bp.builtin_id),
-                    model_id: String::from(*model_id),
-                    name: String::from(*name),
-                    group_name: None,
-                    model_type: ModelType::detect(model_id),
-                    capabilities: caps.clone(),
-                    max_tokens: *max_tokens,
-                    enabled: true,
-                    param_overrides: None,
-                })
+                .map(|model| model.to_model(&format!("builtin_{}", bp.builtin_id)))
                 .collect();
 
             result.push(ProviderConfig {
@@ -769,17 +826,7 @@ pub async fn ensure_builtin_provider(db: &DatabaseConnection, builtin_id: &str) 
     let models: Vec<Model> = bp
         .models
         .iter()
-        .map(|(model_id, name, caps, max_tokens)| Model {
-            provider_id: prov.id.clone(),
-            model_id: String::from(*model_id),
-            name: String::from(*name),
-            group_name: None,
-            model_type: ModelType::detect(model_id),
-            capabilities: caps.clone(),
-            max_tokens: *max_tokens,
-            enabled: true,
-            param_overrides: None,
-        })
+        .map(|model| model.to_model(&prov.id))
         .collect();
 
     save_models(db, &prov.id, &models).await?;
@@ -845,6 +892,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn merged_builtins_restore_missing_current_models() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+
+        let provider = create_provider(
+            db,
+            CreateProviderInput {
+                name: "MiniMax".into(),
+                provider_type: ProviderType::OpenAI,
+                api_host: "https://api.minimaxi.com".into(),
+                api_path: None,
+                enabled: true,
+                builtin_id: Some("minimax".into()),
+            },
+        )
+        .await
+        .unwrap();
+        save_models(
+            db,
+            &provider.id,
+            &[Model {
+                provider_id: provider.id.clone(),
+                model_id: "MiniMax-M1".into(),
+                name: "MiniMax-M1".into(),
+                group_name: None,
+                model_type: ModelType::Chat,
+                capabilities: vec![ModelCapability::TextChat],
+                max_tokens: Some(1_000_000),
+                enabled: true,
+                param_overrides: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let providers = list_providers_merged(db).await.unwrap();
+        let minimax = providers
+            .iter()
+            .find(|provider| provider.builtin_id.as_deref() == Some("minimax"))
+            .expect("minimax provider");
+
+        assert_eq!(minimax.api_host, "https://api.minimax.io");
+        assert!(minimax
+            .models
+            .iter()
+            .any(|model| model.model_id == "MiniMax-M2.7"));
+
+        let m2 = get_model(db, &provider.id, "MiniMax-M2.7")
+            .await
+            .expect("persisted MiniMax-M2.7");
+        assert_eq!(
+            m2.param_overrides
+                .as_ref()
+                .and_then(|params| params.use_max_completion_tokens),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
     async fn provider_deep_link_import_creates_provider_and_key() {
         let h = create_test_pool().await.unwrap();
         let db = &h.conn;
@@ -878,6 +984,36 @@ mod tests {
             decrypt_key(&provider.keys[0].key_encrypted, &master_key).unwrap(),
             "sk-example"
         );
+    }
+
+    #[tokio::test]
+    async fn provider_deep_link_import_accepts_builtin_openai_compatible_types() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let master_key = [11u8; 32];
+
+        for (provider_type, expected) in [
+            ("deepseek", ProviderType::DeepSeek),
+            ("xai", ProviderType::XAI),
+            ("glm", ProviderType::GLM),
+            ("siliconflow", ProviderType::SiliconFlow),
+        ] {
+            let result = import_provider_from_deep_link(
+                db,
+                &master_key,
+                DeepLinkProviderImportInput {
+                    name: format!("{provider_type} provider"),
+                    baseurl: format!("https://{provider_type}.example.com"),
+                    apikey: format!("sk-{provider_type}"),
+                    provider_type: provider_type.into(),
+                },
+            )
+            .await
+            .unwrap();
+
+            let provider = get_provider(db, &result.provider_id).await.unwrap();
+            assert_eq!(provider.provider_type, expected);
+        }
     }
 
     #[tokio::test]

@@ -132,7 +132,10 @@ pub async fn fetch_remote_image(url: String) -> Result<RemoteImageResponse, Stri
         .map_err(|e| format!("Failed to download image: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("Failed to download image: HTTP {}", response.status()));
+        return Err(format!(
+            "Failed to download image: HTTP {}",
+            response.status()
+        ));
     }
 
     if let Some(len) = response.content_length() {

@@ -1,14 +1,20 @@
 pub mod adapter;
 pub mod anthropic;
 pub mod cohere;
+pub mod custom_openai;
+pub mod deepseek;
 pub mod gemini;
+pub mod glm;
 pub mod jina;
 pub mod openai;
+pub mod openai_compat;
 pub mod openai_images;
 pub mod openai_responses;
 pub mod reasoning;
 pub mod registry;
+pub mod siliconflow;
 pub mod voyage;
+pub mod xai;
 
 use aqbot_core::error::{AQBotError, Result};
 use aqbot_core::types::*;
@@ -71,6 +77,7 @@ pub fn default_version_for_type(provider_type: &ProviderType) -> &'static str {
     match provider_type {
         ProviderType::Gemini => "/v1beta",
         ProviderType::Cohere => "/v2",
+        ProviderType::GLM => "/v4",
         _ => "/v1",
     }
 }

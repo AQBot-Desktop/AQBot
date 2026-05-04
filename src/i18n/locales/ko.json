@@ -822,6 +822,7 @@
       "restartLater": "나중에 재시작"
     },
     "filterProviders": "공급자 검색...",
+    "builtinProviderBadge": "기본 제공",
     "initProviders": "공급자 초기화",
     "initProvidersDesc": "내장 프리셋에서 시스템 공급자를 초기화합니다. 이름이 일치하는 기존 공급자는 덮어쓰거나 누락된 항목만 추가할 수 있습니다.",
     "initOverwriteHint": "덮어쓰기 모드: 기존 공급자 설정이 공식 기본값으로 재설정됩니다(API 키는 유지)",

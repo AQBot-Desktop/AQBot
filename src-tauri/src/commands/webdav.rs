@@ -3,10 +3,10 @@ use aqbot_core::crypto::{decrypt_key, encrypt_key};
 use aqbot_core::repo::{backup, settings as settings_repo};
 use aqbot_core::webdav::{self, WebDavClient, WebDavConfig, WebDavFileInfo};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait, Statement};
-use std::path::Path;
-use std::path::PathBuf;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+use std::path::PathBuf;
 use tauri::State;
 
 #[derive(Default)]
@@ -116,8 +116,7 @@ pub async fn webdav_restore(
         .map_err(|e| e.to_string())?;
 
     let decoded_backup_dir = aqbot_core::path_vars::decode_path_opt(&settings.backup_dir);
-    let backup_dir =
-        backup::resolve_backup_dir(decoded_backup_dir.as_deref(), &state.app_data_dir);
+    let backup_dir = backup::resolve_backup_dir(decoded_backup_dir.as_deref(), &state.app_data_dir);
     backup::ensure_backup_dir(&backup_dir).map_err(|e| e.to_string())?;
 
     let mut cleanup = RestoreCleanup::default();
@@ -267,7 +266,13 @@ pub async fn restart_webdav_sync(state: State<'_, AppState>) -> Result<(), Strin
     let master_key = state.master_key;
     let app_data_dir = state.app_data_dir.clone();
     let interval_minutes = settings.webdav_sync_interval_minutes;
-    let task = spawn_webdav_sync_task(db, master_key, app_data_dir, interval_minutes, interval_minutes as u64 * 60);
+    let task = spawn_webdav_sync_task(
+        db,
+        master_key,
+        app_data_dir,
+        interval_minutes,
+        interval_minutes as u64 * 60,
+    );
 
     *guard = Some(task);
     Ok(())
@@ -534,7 +539,10 @@ mod tests {
             .mode()
             & 0o777;
 
-        assert_eq!(mode, 0o600, "safety key backups must be owner-readable only");
+        assert_eq!(
+            mode, 0o600,
+            "safety key backups must be owner-readable only"
+        );
         let _ = std::fs::remove_dir_all(&temp_root);
     }
 }

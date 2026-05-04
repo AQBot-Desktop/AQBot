@@ -52,9 +52,10 @@ pub async fn clear_conversation_messages(
     state: State<'_, AppState>,
     conversation_id: String,
 ) -> Result<u64, String> {
-    let rows = aqbot_core::repo::message::clear_conversation_messages(&state.sea_db, &conversation_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let rows =
+        aqbot_core::repo::message::clear_conversation_messages(&state.sea_db, &conversation_id)
+            .await
+            .map_err(|e| e.to_string())?;
 
     // Also clear the agent session's SDK context so the agent doesn't retain old history
     let _ = aqbot_core::repo::agent_session::clear_sdk_context_by_conversation_id(

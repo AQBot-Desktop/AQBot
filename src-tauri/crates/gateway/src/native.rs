@@ -566,7 +566,10 @@ async fn resolve_native_context(
             api_key,
             key_id: provider_key.id.clone(),
             provider_id: provider.id.clone(),
-            base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+            base_url: Some(resolve_base_url_for_type(
+                &provider.api_host,
+                &provider.provider_type,
+            )),
             api_path: provider.api_path.clone(),
             proxy_config: resolved_proxy,
             custom_headers: provider
@@ -1177,6 +1180,7 @@ mod tests {
                 api_host: api_host.into(),
                 api_path: None,
                 enabled: true,
+                builtin_id: None,
             },
         )
         .await
@@ -1238,6 +1242,7 @@ mod tests {
                 api_host: api_host.into(),
                 api_path: None,
                 enabled: true,
+                builtin_id: None,
             },
         )
         .await

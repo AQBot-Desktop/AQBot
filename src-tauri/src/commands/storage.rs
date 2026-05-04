@@ -1,6 +1,6 @@
+use crate::AppState;
 use aqbot_core::storage_inventory::{self, StorageInventory};
 use aqbot_core::storage_paths;
-use crate::AppState;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
@@ -119,7 +119,10 @@ pub async fn change_documents_root(
                 for entry in entries.flatten() {
                     let meta = match entry.metadata() {
                         Ok(m) => m,
-                        Err(_) => { result.files_failed += 1; continue; }
+                        Err(_) => {
+                            result.files_failed += 1;
+                            continue;
+                        }
                     };
                     if !meta.is_file() {
                         continue;
@@ -176,9 +179,7 @@ pub async fn change_documents_root(
 
 /// Reset documents root back to the platform default.
 #[tauri::command]
-pub async fn reset_documents_root(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn reset_documents_root(state: State<'_, AppState>) -> Result<(), String> {
     let db = &state.sea_db;
     let mut settings = aqbot_core::repo::settings::get_settings(db)
         .await

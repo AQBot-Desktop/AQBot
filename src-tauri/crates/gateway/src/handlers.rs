@@ -97,7 +97,17 @@ pub async fn chat_completions(
         match aqbot_core::repo::provider::list_providers(&state.db).await {
             Ok(p) => p
                 .into_iter()
-                .filter(|p| matches!(p.provider_type, ProviderType::OpenAI | ProviderType::Custom))
+                .filter(|p| {
+                    matches!(
+                        p.provider_type,
+                        ProviderType::OpenAI
+                            | ProviderType::DeepSeek
+                            | ProviderType::XAI
+                            | ProviderType::GLM
+                            | ProviderType::SiliconFlow
+                            | ProviderType::Custom
+                    )
+                })
                 .collect(),
             Err(e) => {
                 return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
@@ -148,7 +158,10 @@ pub async fn chat_completions(
         api_key,
         key_id: provider_key.id.clone(),
         provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(&provider.api_host, &provider.provider_type)),
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
         api_path: provider.api_path.clone(),
         proxy_config: resolved_proxy,
         custom_headers: provider
@@ -642,12 +655,16 @@ pub(crate) fn provider_type_to_str(pt: &ProviderType) -> &'static str {
     match pt {
         ProviderType::OpenAI => "openai",
         ProviderType::OpenAIResponses => "openai_responses",
+        ProviderType::DeepSeek => "deepseek",
+        ProviderType::XAI => "xai",
+        ProviderType::GLM => "glm",
+        ProviderType::SiliconFlow => "siliconflow",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
         ProviderType::Jina => "jina",
         ProviderType::Cohere => "cohere",
         ProviderType::Voyage => "voyage",
-        ProviderType::Custom => "openai", // custom providers use OpenAI-compatible API
+        ProviderType::Custom => "custom",
     }
 }
 
@@ -802,6 +819,9 @@ mod tests {
                 .collect(),
             keys: vec![],
             proxy_config: None,
+            custom_headers: None,
+            icon: None,
+            builtin_id: None,
             sort_order: 0,
             created_at: 0,
             updated_at: 0,

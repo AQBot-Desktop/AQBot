@@ -822,6 +822,7 @@
       "restartLater": "稍後重啟"
     },
     "filterProviders": "搜尋供應商...",
+    "builtinProviderBadge": "內建",
     "initProviders": "初始化供應商",
     "initProvidersDesc": "將根據內建預設初始化系統供應商。對於已存在的同名供應商，可選擇覆寫其名稱、端點格式、Base URL 和 API 路徑為官方值，或僅新增缺失的供應商。",
     "initOverwriteHint": "覆寫模式：已有供應商的設定將被重置為官方預設值（API 金鑰不受影響）",

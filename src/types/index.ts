@@ -2,6 +2,10 @@
 export type ProviderType =
   | 'openai'
   | 'openai_responses'
+  | 'deepseek'
+  | 'xai'
+  | 'glm'
+  | 'siliconflow'
   | 'anthropic'
   | 'gemini'
   | 'jina'

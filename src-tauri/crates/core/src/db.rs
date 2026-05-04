@@ -50,12 +50,126 @@ pub struct BuiltinProvider {
     pub name: &'static str,
     pub provider_type: ProviderType,
     pub api_host: &'static str,
-    pub models: Vec<(
-        &'static str,
-        &'static str,
-        Vec<ModelCapability>,
-        Option<u32>,
-    )>,
+    pub models: Vec<BuiltinModel>,
+}
+
+pub struct BuiltinModel {
+    pub model_id: &'static str,
+    pub name: &'static str,
+    pub group_name: Option<&'static str>,
+    pub model_type: Option<ModelType>,
+    pub capabilities: Vec<ModelCapability>,
+    pub max_tokens: Option<u32>,
+    pub enabled: bool,
+    pub param_overrides: Option<ModelParamOverrides>,
+}
+
+impl BuiltinModel {
+    fn chat(
+        model_id: &'static str,
+        name: &'static str,
+        capabilities: Vec<ModelCapability>,
+        max_tokens: Option<u32>,
+    ) -> Self {
+        Self {
+            model_id,
+            name,
+            group_name: None,
+            model_type: Some(ModelType::Chat),
+            capabilities,
+            max_tokens,
+            enabled: true,
+            param_overrides: None,
+        }
+    }
+
+    fn image(model_id: &'static str, name: &'static str) -> Self {
+        Self {
+            model_id,
+            name,
+            group_name: Some("gpt-image"),
+            model_type: Some(ModelType::Image),
+            capabilities: vec![],
+            max_tokens: None,
+            enabled: true,
+            param_overrides: None,
+        }
+    }
+
+    fn rerank(model_id: &'static str, name: &'static str) -> Self {
+        Self {
+            model_id,
+            name,
+            group_name: None,
+            model_type: Some(ModelType::Rerank),
+            capabilities: vec![],
+            max_tokens: None,
+            enabled: true,
+            param_overrides: None,
+        }
+    }
+
+    fn disabled(mut self) -> Self {
+        self.enabled = false;
+        self
+    }
+
+    fn with_param_overrides(mut self, param_overrides: ModelParamOverrides) -> Self {
+        self.param_overrides = Some(param_overrides);
+        self
+    }
+
+    pub(crate) fn to_model(&self, provider_id: &str) -> Model {
+        Model {
+            provider_id: provider_id.to_string(),
+            model_id: self.model_id.to_string(),
+            name: self.name.to_string(),
+            group_name: self.group_name.map(str::to_string),
+            model_type: self
+                .model_type
+                .clone()
+                .unwrap_or_else(|| ModelType::detect(self.model_id)),
+            capabilities: self.capabilities.clone(),
+            max_tokens: self.max_tokens,
+            enabled: self.enabled,
+            param_overrides: self.param_overrides.clone(),
+        }
+    }
+}
+
+fn empty_param_overrides() -> ModelParamOverrides {
+    ModelParamOverrides {
+        temperature: None,
+        max_tokens: None,
+        top_p: None,
+        frequency_penalty: None,
+        use_max_completion_tokens: None,
+        no_system_role: None,
+        force_max_tokens: None,
+        thinking_param_style: None,
+        reasoning_profile: None,
+        reasoning_options: None,
+        reasoning_default: None,
+    }
+}
+
+fn reasoning_profile(profile: &'static str) -> ModelParamOverrides {
+    let mut overrides = empty_param_overrides();
+    overrides.reasoning_profile = Some(profile.to_string());
+    overrides
+}
+
+fn openai_reasoning_profile() -> ModelParamOverrides {
+    let mut overrides = reasoning_profile("openai_reasoning_effort");
+    overrides.use_max_completion_tokens = Some(true);
+    overrides
+}
+
+fn minimax_m2_profile() -> ModelParamOverrides {
+    let mut overrides = empty_param_overrides();
+    overrides.max_tokens = Some(2048);
+    overrides.use_max_completion_tokens = Some(true);
+    overrides
 }
 
 pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
@@ -68,34 +182,86 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::OpenAI,
             api_host: "https://api.openai.com",
             models: vec![
-                (
-                    "gpt-4o",
-                    "GPT-4o",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(128000),
-                ),
-                (
-                    "gpt-4o-mini",
-                    "GPT-4o Mini",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(128000),
-                ),
-                (
-                    "o3-mini",
-                    "o3-mini",
-                    vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200000),
-                ),
-                (
+                BuiltinModel::chat(
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::chat(
+                    "gpt-5.4",
+                    "GPT-5.4",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::chat(
+                    "gpt-5.4-mini",
+                    "GPT-5.4 Mini",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(400_000),
+                )
+                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::chat(
+                    "gpt-5.4-nano",
+                    "GPT-5.4 Nano",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(400_000),
+                )
+                .with_param_overrides(openai_reasoning_profile())
+                .disabled(),
+                BuiltinModel::chat(
                     "gpt-4.1",
                     "GPT-4.1",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1047576),
+                    Some(1_047_576),
                 ),
-                ("gpt-image-2", "gpt-image-2", vec![], None),
-                ("gpt-image-1.5", "gpt-image-1.5", vec![], None),
-                ("gpt-image-1", "gpt-image-1", vec![], None),
-                ("gpt-image-1-mini", "gpt-image-1-mini", vec![], None),
+                BuiltinModel::chat(
+                    "gpt-4.1-mini",
+                    "GPT-4.1 Mini",
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(1_047_576),
+                ),
+                BuiltinModel::chat(
+                    "gpt-4.1-nano",
+                    "GPT-4.1 Nano",
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(1_047_576),
+                )
+                .disabled(),
+                BuiltinModel::chat(
+                    "gpt-4o",
+                    "GPT-4o",
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(128_000),
+                )
+                .disabled(),
+                BuiltinModel::chat(
+                    "gpt-4o-mini",
+                    "GPT-4o Mini",
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(128_000),
+                )
+                .disabled(),
+                BuiltinModel::chat(
+                    "o3",
+                    "o3",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(200_000),
+                )
+                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::chat(
+                    "o4-mini",
+                    "o4-mini",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(200_000),
+                )
+                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::image("gpt-image-2", "gpt-image-2"),
+                BuiltinModel::image("gpt-image-1.5", "gpt-image-1.5"),
+                BuiltinModel::image("gpt-image-1", "gpt-image-1").disabled(),
+                BuiltinModel::image("gpt-image-1-mini", "gpt-image-1-mini").disabled(),
             ],
         },
         BuiltinProvider {
@@ -104,24 +270,61 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::OpenAIResponses,
             api_host: "https://api.openai.com",
             models: vec![
-                (
+                BuiltinModel::chat(
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
+                BuiltinModel::chat(
+                    "gpt-5.4",
+                    "GPT-5.4",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
+                BuiltinModel::chat(
+                    "gpt-5.4-mini",
+                    "GPT-5.4 Mini",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(400_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
+                BuiltinModel::chat(
+                    "gpt-4.1",
+                    "GPT-4.1",
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(1_047_576),
+                ),
+                BuiltinModel::chat(
                     "gpt-4o",
                     "GPT-4o",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(128000),
-                ),
-                (
+                    Some(128_000),
+                )
+                .disabled(),
+                BuiltinModel::chat(
                     "gpt-4o-mini",
                     "GPT-4o Mini",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(128000),
-                ),
-                (
-                    "o3-mini",
-                    "o3-mini",
+                    Some(128_000),
+                )
+                .disabled(),
+                BuiltinModel::chat(
+                    "o3",
+                    "o3",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200000),
-                ),
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
+                BuiltinModel::chat(
+                    "o4-mini",
+                    "o4-mini",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
             ],
         },
         BuiltinProvider {
@@ -130,24 +333,48 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::Gemini,
             api_host: "https://generativelanguage.googleapis.com",
             models: vec![
-                (
-                    "gemini-2.5-flash",
-                    "Gemini 2.5 Flash",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(1048576),
-                ),
-                (
+                BuiltinModel::chat(
+                    "gemini-3.1-pro-preview",
+                    "Gemini 3.1 Pro Preview",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_048_576),
+                )
+                .with_param_overrides(reasoning_profile("gemini_thinking_level")),
+                BuiltinModel::chat(
+                    "gemini-3.1-flash-lite-preview",
+                    "Gemini 3.1 Flash-Lite Preview",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_048_576),
+                )
+                .with_param_overrides(reasoning_profile("gemini_thinking_level")),
+                BuiltinModel::chat(
                     "gemini-2.5-pro",
                     "Gemini 2.5 Pro",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1048576),
-                ),
-                (
+                    Some(1_048_576),
+                )
+                .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
+                BuiltinModel::chat(
+                    "gemini-2.5-flash",
+                    "Gemini 2.5 Flash",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_048_576),
+                )
+                .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
+                BuiltinModel::chat(
+                    "gemini-2.5-flash-lite",
+                    "Gemini 2.5 Flash-Lite",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(1_048_576),
+                )
+                .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
+                BuiltinModel::chat(
                     "gemini-2.0-flash",
                     "Gemini 2.0 Flash",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1048576),
-                ),
+                    Some(1_048_576),
+                )
+                .disabled(),
             ],
         },
         BuiltinProvider {
@@ -156,83 +383,157 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::Anthropic,
             api_host: "https://api.anthropic.com",
             models: vec![
-                (
-                    "claude-sonnet-4-20250514",
-                    "Claude Sonnet 4",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(200000),
-                ),
-                (
-                    "claude-3-5-haiku-20241022",
-                    "Claude 3.5 Haiku",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(200000),
-                ),
-                (
-                    "claude-opus-4-20250514",
-                    "Claude Opus 4",
+                BuiltinModel::chat(
+                    "claude-opus-4-7-20260127",
+                    "Claude Opus 4.7",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(200000),
-                ),
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("anthropic_adaptive")),
+                BuiltinModel::chat(
+                    "claude-sonnet-4-6-20251117",
+                    "Claude Sonnet 4.6",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("anthropic_adaptive")),
+                BuiltinModel::chat(
+                    "claude-haiku-4-5-20251001",
+                    "Claude Haiku 4.5",
+                    vec![TextChat, Vision, FunctionCalling, Reasoning],
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("anthropic_budget_tokens")),
             ],
         },
         BuiltinProvider {
             builtin_id: "deepseek",
             name: "DeepSeek",
-            provider_type: ProviderType::OpenAI,
+            provider_type: ProviderType::DeepSeek,
             api_host: "https://api.deepseek.com",
             models: vec![
-                (
+                BuiltinModel::chat(
+                    "deepseek-v4-flash",
+                    "DeepSeek v4 Flash",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
+                BuiltinModel::chat(
+                    "deepseek-v4-pro",
+                    "DeepSeek v4 Pro",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(1_000_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
+                BuiltinModel::chat(
                     "deepseek-chat",
                     "DeepSeek Chat",
                     vec![TextChat, FunctionCalling],
-                    Some(65536),
-                ),
-                (
+                    Some(64_000),
+                )
+                .disabled(),
+                BuiltinModel::chat(
                     "deepseek-reasoner",
                     "DeepSeek Reasoner",
                     vec![TextChat, Reasoning],
-                    Some(65536),
-                ),
+                    Some(64_000),
+                )
+                .with_param_overrides(reasoning_profile("openai_reasoning_effort"))
+                .disabled(),
             ],
         },
         BuiltinProvider {
             builtin_id: "xai",
             name: "xAI",
-            provider_type: ProviderType::OpenAI,
+            provider_type: ProviderType::XAI,
             api_host: "https://api.x.ai",
             models: vec![
-                (
+                BuiltinModel::chat(
+                    "grok-4.3",
+                    "Grok 4.3",
+                    vec![TextChat, Vision, Reasoning, FunctionCalling],
+                    None,
+                )
+                .with_param_overrides(reasoning_profile("none")),
+                BuiltinModel::chat(
                     "grok-3",
                     "Grok 3",
-                    vec![TextChat, FunctionCalling],
-                    Some(131072),
-                ),
-                (
+                    vec![TextChat, Vision, FunctionCalling],
+                    Some(131_072),
+                )
+                .disabled(),
+                BuiltinModel::chat(
                     "grok-3-mini",
                     "Grok 3 Mini",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(131072),
-                ),
+                    Some(131_072),
+                )
+                .with_param_overrides(reasoning_profile("none"))
+                .disabled(),
             ],
         },
         BuiltinProvider {
             builtin_id: "glm",
             name: "GLM",
-            provider_type: ProviderType::OpenAI,
+            provider_type: ProviderType::GLM,
             api_host: "https://open.bigmodel.cn/api/paas",
             models: vec![
-                (
-                    "glm-4-plus",
-                    "GLM-4 Plus",
+                BuiltinModel::chat(
+                    "glm-5.1",
+                    "GLM-5.1",
+                    vec![TextChat, Vision, Reasoning, FunctionCalling],
+                    Some(200_000),
+                )
+                .with_param_overrides(reasoning_profile("glm_thinking")),
+                BuiltinModel::chat(
+                    "glm-5",
+                    "GLM-5",
+                    vec![TextChat, Vision, Reasoning, FunctionCalling],
+                    Some(128_000),
+                )
+                .with_param_overrides(reasoning_profile("glm_thinking")),
+                BuiltinModel::chat(
+                    "glm-4.6",
+                    "GLM-4.6",
+                    vec![TextChat, Vision, Reasoning, FunctionCalling],
+                    Some(128_000),
+                )
+                .with_param_overrides(reasoning_profile("glm_thinking"))
+                .disabled(),
+            ],
+        },
+        BuiltinProvider {
+            builtin_id: "siliconflow",
+            name: "SiliconFlow",
+            provider_type: ProviderType::SiliconFlow,
+            api_host: "https://api.siliconflow.cn",
+            models: vec![
+                BuiltinModel::chat(
+                    "deepseek-ai/DeepSeek-V3.2-Exp",
+                    "DeepSeek-V3.2-Exp",
                     vec![TextChat, FunctionCalling],
-                    Some(128000),
+                    Some(64_000),
                 ),
-                (
-                    "glm-4-flash",
-                    "GLM-4 Flash",
+                BuiltinModel::chat(
+                    "deepseek-ai/DeepSeek-R1",
+                    "DeepSeek-R1",
+                    vec![TextChat, Reasoning],
+                    Some(64_000),
+                )
+                .with_param_overrides(reasoning_profile("siliconflow_enable_thinking")),
+                BuiltinModel::chat(
+                    "Qwen/Qwen3-235B-A22B",
+                    "Qwen3-235B-A22B",
+                    vec![TextChat, Reasoning, FunctionCalling],
+                    Some(262_144),
+                )
+                .with_param_overrides(reasoning_profile("siliconflow_enable_thinking")),
+                BuiltinModel::chat(
+                    "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+                    "Qwen3-Coder-480B-A35B-Instruct",
                     vec![TextChat, FunctionCalling],
-                    Some(128000),
+                    Some(262_144),
                 ),
             ],
         },
@@ -240,20 +541,29 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             builtin_id: "minimax",
             name: "MiniMax",
             provider_type: ProviderType::OpenAI,
-            api_host: "https://api.minimaxi.com",
+            api_host: "https://api.minimax.io",
             models: vec![
-                (
+                BuiltinModel::chat(
+                    "MiniMax-M2.7",
+                    "MiniMax-M2.7",
+                    vec![TextChat, FunctionCalling],
+                    Some(250_000),
+                )
+                .with_param_overrides(minimax_m2_profile()),
+                BuiltinModel::chat(
+                    "MiniMax-M2.5",
+                    "MiniMax-M2.5",
+                    vec![TextChat, FunctionCalling],
+                    Some(250_000),
+                )
+                .with_param_overrides(minimax_m2_profile()),
+                BuiltinModel::chat(
                     "MiniMax-M1",
                     "MiniMax-M1",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(1000000),
-                ),
-                (
-                    "MiniMax-S1",
-                    "MiniMax-S1",
-                    vec![TextChat, FunctionCalling],
-                    Some(1000000),
-                ),
+                    Some(1_000_000),
+                )
+                .disabled(),
             ],
         },
         BuiltinProvider {
@@ -262,14 +572,13 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::Jina,
             api_host: "https://api.jina.ai",
             models: vec![
-                ("jina-reranker-v3", "Jina Reranker v3", vec![], None),
-                (
+                BuiltinModel::rerank("jina-reranker-v3", "Jina Reranker v3"),
+                BuiltinModel::rerank(
                     "jina-reranker-v2-base-multilingual",
                     "Jina Reranker v2 Base Multilingual",
-                    vec![],
-                    None,
-                ),
-                ("jina-colbert-v2", "Jina ColBERT v2", vec![], None),
+                )
+                .disabled(),
+                BuiltinModel::rerank("jina-colbert-v2", "Jina ColBERT v2").disabled(),
             ],
         },
         BuiltinProvider {
@@ -278,9 +587,10 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::Cohere,
             api_host: "https://api.cohere.com",
             models: vec![
-                ("rerank-v4.0-pro", "Rerank v4.0 Pro", vec![], None),
-                ("rerank-v4.0-fast", "Rerank v4.0 Fast", vec![], None),
-                ("rerank-v3.5", "Rerank v3.5", vec![], None),
+                BuiltinModel::rerank("rerank-v4.0", "Rerank v4.0"),
+                BuiltinModel::rerank("rerank-v4.0-pro", "Rerank v4.0 Pro"),
+                BuiltinModel::rerank("rerank-v4.0-fast", "Rerank v4.0 Fast"),
+                BuiltinModel::rerank("rerank-v3.5", "Rerank v3.5").disabled(),
             ],
         },
         BuiltinProvider {
@@ -289,10 +599,10 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             provider_type: ProviderType::Voyage,
             api_host: "https://api.voyageai.com",
             models: vec![
-                ("rerank-2.5", "Rerank 2.5", vec![], None),
-                ("rerank-2.5-lite", "Rerank 2.5 Lite", vec![], None),
-                ("rerank-2", "Rerank 2", vec![], None),
-                ("rerank-2-lite", "Rerank 2 Lite", vec![], None),
+                BuiltinModel::rerank("rerank-2.5", "Rerank 2.5"),
+                BuiltinModel::rerank("rerank-2.5-lite", "Rerank 2.5 Lite"),
+                BuiltinModel::rerank("rerank-2", "Rerank 2").disabled(),
+                BuiltinModel::rerank("rerank-2-lite", "Rerank 2 Lite").disabled(),
             ],
         },
     ]
@@ -325,17 +635,7 @@ async fn seed_builtin_providers(db: &DatabaseConnection) -> Result<()> {
         let models: Vec<Model> = bp
             .models
             .into_iter()
-            .map(|(model_id, name, caps, max_tokens)| Model {
-                provider_id: prov.id.clone(),
-                model_id: model_id.to_string(),
-                name: name.to_string(),
-                group_name: None,
-                model_type: ModelType::detect(model_id),
-                capabilities: caps,
-                max_tokens,
-                enabled: true,
-                param_overrides: None,
-            })
+            .map(|model| model.to_model(&prov.id))
             .collect();
 
         provider::save_models(db, &prov.id, &models).await?;
@@ -379,10 +679,75 @@ mod tests {
                 provider
                     .models
                     .iter()
-                    .any(|(id, _, _, _)| *id == model_id
-                        && ModelType::detect(id) == ModelType::Rerank)
+                    .any(|model| model.model_id == model_id
+                        && model.model_type.as_ref() == Some(&ModelType::Rerank))
             );
         }
+    }
+
+    #[test]
+    fn builtin_openai_compatible_providers_use_dedicated_types() {
+        let providers = get_builtin_providers();
+
+        for (builtin_id, provider_type) in [
+            ("deepseek", ProviderType::DeepSeek),
+            ("xai", ProviderType::XAI),
+            ("glm", ProviderType::GLM),
+            ("siliconflow", ProviderType::SiliconFlow),
+        ] {
+            let provider = providers
+                .iter()
+                .find(|provider| provider.builtin_id == builtin_id)
+                .expect("missing builtin provider");
+
+            assert_eq!(provider.provider_type, provider_type);
+        }
+    }
+
+    #[test]
+    fn builtin_models_include_current_reasoning_params() {
+        let providers = get_builtin_providers();
+        let provider = providers
+            .iter()
+            .find(|provider| provider.builtin_id == "deepseek")
+            .expect("missing DeepSeek builtin provider");
+        let model = provider
+            .models
+            .iter()
+            .find(|model| model.model_id == "deepseek-v4-flash")
+            .expect("missing DeepSeek v4 Flash model");
+
+        assert!(model.capabilities.contains(&ModelCapability::Reasoning));
+        assert_eq!(model.max_tokens, Some(1_000_000));
+        assert_eq!(
+            model
+                .param_overrides
+                .as_ref()
+                .and_then(|params| params.reasoning_profile.as_deref()),
+            Some("openai_reasoning_effort")
+        );
+
+        let minimax = providers
+            .iter()
+            .find(|provider| provider.builtin_id == "minimax")
+            .expect("missing MiniMax builtin provider");
+        let m2 = minimax
+            .models
+            .iter()
+            .find(|model| model.model_id == "MiniMax-M2.7")
+            .expect("missing MiniMax-M2.7 model");
+        assert_eq!(
+            m2.param_overrides
+                .as_ref()
+                .and_then(|params| params.use_max_completion_tokens),
+            Some(true)
+        );
+        assert_eq!(
+            m2.param_overrides
+                .as_ref()
+                .and_then(|params| params.max_tokens),
+            Some(2048)
+        );
     }
 }
 

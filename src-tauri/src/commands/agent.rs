@@ -263,12 +263,16 @@ fn provider_type_to_registry_key(pt: &ProviderType) -> &'static str {
     match pt {
         ProviderType::OpenAI => "openai",
         ProviderType::OpenAIResponses => "openai_responses",
+        ProviderType::DeepSeek => "deepseek",
+        ProviderType::XAI => "xai",
+        ProviderType::GLM => "glm",
+        ProviderType::SiliconFlow => "siliconflow",
         ProviderType::Anthropic => "anthropic",
         ProviderType::Gemini => "gemini",
         ProviderType::Jina => "jina",
         ProviderType::Cohere => "cohere",
         ProviderType::Voyage => "voyage",
-        ProviderType::Custom => "openai",
+        ProviderType::Custom => "custom",
     }
 }
 
@@ -276,9 +280,16 @@ fn provider_type_to_registry_key(pt: &ProviderType) -> &'static str {
 /// with the registry returning `&dyn ProviderAdapter`).
 fn create_adapter_arc(pt: &ProviderType) -> Result<Arc<dyn ProviderAdapter>, String> {
     match pt {
-        ProviderType::OpenAI | ProviderType::Custom => {
-            Ok(Arc::new(aqbot_providers::openai::OpenAIAdapter::new()))
-        }
+        ProviderType::OpenAI => Ok(Arc::new(aqbot_providers::openai::OpenAIAdapter::new())),
+        ProviderType::Custom => Ok(Arc::new(
+            aqbot_providers::custom_openai::CustomOpenAIAdapter::new(),
+        )),
+        ProviderType::DeepSeek => Ok(Arc::new(aqbot_providers::deepseek::DeepSeekAdapter::new())),
+        ProviderType::XAI => Ok(Arc::new(aqbot_providers::xai::XAIAdapter::new())),
+        ProviderType::GLM => Ok(Arc::new(aqbot_providers::glm::GLMAdapter::new())),
+        ProviderType::SiliconFlow => Ok(Arc::new(
+            aqbot_providers::siliconflow::SiliconFlowAdapter::new(),
+        )),
         ProviderType::Anthropic => {
             Ok(Arc::new(aqbot_providers::anthropic::AnthropicAdapter::new()))
         }
@@ -286,9 +297,9 @@ fn create_adapter_arc(pt: &ProviderType) -> Result<Arc<dyn ProviderAdapter>, Str
         ProviderType::OpenAIResponses => Ok(Arc::new(
             aqbot_providers::openai_responses::OpenAIResponsesAdapter::new(),
         )),
-        ProviderType::Jina | ProviderType::Cohere | ProviderType::Voyage => Err(
-            "Rerank-only providers cannot be used as agent chat providers".to_string(),
-        ),
+        ProviderType::Jina | ProviderType::Cohere | ProviderType::Voyage => {
+            Err("Rerank-only providers cannot be used as agent chat providers".to_string())
+        }
     }
 }
 

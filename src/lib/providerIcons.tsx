@@ -6,6 +6,10 @@ import { DynamicLobeIcon } from '@/components/shared/DynamicLobeIcon';
 const TYPE_TO_PROVIDER: Record<string, string> = {
   openai: 'openai',
   openai_responses: 'openai',
+  deepseek: 'deepseek',
+  xai: 'xai',
+  glm: 'zhipu',
+  siliconflow: 'siliconcloud',
   anthropic: 'anthropic',
   gemini: 'google',
   jina: 'jina',

@@ -24,8 +24,7 @@ pub async fn create_backup(
         .await
         .map_err(|e| e.to_string())?;
     let decoded_backup_dir = aqbot_core::path_vars::decode_path_opt(&settings.backup_dir);
-    let backup_dir =
-        backup::resolve_backup_dir(decoded_backup_dir.as_deref(), &state.app_data_dir);
+    let backup_dir = backup::resolve_backup_dir(decoded_backup_dir.as_deref(), &state.app_data_dir);
     backup::create_backup(&state.sea_db, &format, &backup_dir)
         .await
         .map_err(|e| e.to_string())
@@ -93,8 +92,7 @@ pub async fn get_backup_settings(state: State<'_, AppState>) -> Result<AutoBacku
         interval_hours: settings.auto_backup_interval_hours,
         max_count: settings.auto_backup_max_count,
         backup_dir: Some(
-            decoded_backup_dir
-                .unwrap_or_else(|| default_dir.to_string_lossy().to_string()),
+            decoded_backup_dir.unwrap_or_else(|| default_dir.to_string_lossy().to_string()),
         ),
     })
 }
@@ -156,13 +154,19 @@ async fn restart_auto_backup(
     let initial_delay_secs = match backup::list_backups(&db).await {
         Ok(backups) if !backups.is_empty() => {
             let last_ts = &backups[0].created_at;
-            if let Ok(last_time) = chrono::NaiveDateTime::parse_from_str(last_ts, "%Y-%m-%d %H:%M:%S") {
+            if let Ok(last_time) =
+                chrono::NaiveDateTime::parse_from_str(last_ts, "%Y-%m-%d %H:%M:%S")
+            {
                 let elapsed = chrono::Utc::now()
                     .naive_utc()
                     .signed_duration_since(last_time)
                     .num_seconds()
                     .max(0) as u64;
-                if elapsed >= interval_secs { 0 } else { interval_secs - elapsed }
+                if elapsed >= interval_secs {
+                    0
+                } else {
+                    interval_secs - elapsed
+                }
             } else {
                 interval_secs
             }

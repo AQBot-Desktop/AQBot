@@ -28,6 +28,16 @@ describe('parseProviderDeepLink', () => {
     });
   });
 
+  it('accepts dedicated OpenAI-compatible provider types', () => {
+    for (const type of ['deepseek', 'xai', 'glm', 'siliconflow'] as const) {
+      const payload = parseProviderDeepLink(
+        `aqbot://providers?name=${type}&baseurl=https%3A%2F%2Fapi.example.com&apikey=sk-test&type=${type}`,
+      );
+
+      expect(payload?.type).toBe(type);
+    }
+  });
+
   it('ignores links that are not provider imports', () => {
     expect(parseProviderDeepLink('aqbot://chat?name=Example')).toBeNull();
     expect(parseProviderDeepLink('https://example.com')).toBeNull();

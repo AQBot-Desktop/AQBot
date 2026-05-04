@@ -7,20 +7,20 @@ use std::pin::Pin;
 use crate::openai_compat::{OpenAICompatAdapter, OpenAICompatKind};
 use crate::{ProviderAdapter, ProviderRequestContext};
 
-pub struct OpenAIAdapter {
+pub struct DeepSeekAdapter {
     inner: OpenAICompatAdapter,
 }
 
-impl OpenAIAdapter {
+impl DeepSeekAdapter {
     pub fn new() -> Self {
         Self {
-            inner: OpenAICompatAdapter::new(OpenAICompatKind::OpenAI),
+            inner: OpenAICompatAdapter::new(OpenAICompatKind::DeepSeek),
         }
     }
 }
 
 #[async_trait]
-impl ProviderAdapter for OpenAIAdapter {
+impl ProviderAdapter for DeepSeekAdapter {
     async fn chat(
         &self,
         ctx: &ProviderRequestContext,

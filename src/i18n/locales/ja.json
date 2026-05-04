@@ -822,6 +822,7 @@
       "restartLater": "後で再起動"
     },
     "filterProviders": "プロバイダーを検索...",
+    "builtinProviderBadge": "組み込み",
     "initProviders": "プロバイダーを初期化",
     "initProvidersDesc": "組み込みプリセットからシステムプロバイダーを初期化します。名前が一致する既存のプロバイダーは、上書きするか、不足分のみ追加できます。",
     "initOverwriteHint": "上書きモード: 既存のプロバイダー設定が公式デフォルトにリセットされます（APIキーは保持）",

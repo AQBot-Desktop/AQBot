@@ -827,6 +827,7 @@
       "restartLater": "Restart Later"
     },
     "filterProviders": "Search providers...",
+    "builtinProviderBadge": "Built-in",
     "initProviders": "Initialize Providers",
     "initProvidersDesc": "Initialize system providers from built-in presets. For existing providers with matching names, you can overwrite their name, endpoint format, Base URL and API path to official values, or only add missing providers.",
     "initOverwriteHint": "Overwrite mode: existing provider configs will be reset to official defaults (API keys are preserved)",
