@@ -37,8 +37,8 @@ function savePinnedModels(ids: string[]) {
   localStorage.setItem(PINNED_MODELS_KEY, JSON.stringify(ids));
 }
 
-function isChatModel(model: Pick<Model, 'model_type'>) {
-  return model.model_type === 'Chat';
+function isSelectableConversationModel(model: Pick<Model, 'model_type'>, includeImageModels: boolean) {
+  return model.model_type === 'Chat' || (includeImageModels && model.model_type === 'Image');
 }
 
 interface ModelSelectorProps {
@@ -71,6 +71,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     useConversationStore();
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
+  const showImageModels = settings.show_image_models_in_model_selector ?? false;
 
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -119,7 +120,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     } else {
       for (const p of providers) {
         if (!p.enabled) continue;
-        const m = p.models.find((m) => m.enabled && isChatModel(m));
+        const m = p.models.find((m) => m.enabled && isSelectableConversationModel(m, showImageModels));
         if (m) { pid = p.id; mid = m.model_id; break; }
       }
     }
@@ -127,7 +128,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     const provider = providers.find((p) => p.id === pid);
     const model = provider?.models.find((m) => m.model_id === mid);
     return { pid, mid, name: model?.name ?? mid, providerName: provider?.name ?? '' };
-  }, [activeConversation, settings.default_provider_id, settings.default_model_id, providers]);
+  }, [activeConversation, settings.default_provider_id, settings.default_model_id, providers, showImageModels]);
 
   const currentValue = overrideCurrentModel
     ? `${overrideCurrentModel.providerId}::${overrideCurrentModel.modelId}`
@@ -140,14 +141,14 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
       if (!p.enabled) continue;
       for (const m of p.models) {
         if (!m.enabled) continue;
-        if (!isChatModel(m)) continue;
+        if (!isSelectableConversationModel(m, showImageModels)) continue;
         const key = `${p.id}::${m.model_id}`;
         if (excludeModelKeys?.includes(key)) continue;
         result.push({ pid: p.id, mid: m.model_id, name: m.name, providerName: p.name, model: m });
       }
     }
     return result;
-  }, [providers, excludeModelKeys]);
+  }, [providers, excludeModelKeys, showImageModels]);
 
   // Pinned models resolved with search filter
   const pinnedItems = useMemo(() => {
@@ -172,7 +173,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         models: p.models.filter(
           (m) => {
             if (!m.enabled) return false;
-            if (!isChatModel(m)) return false;
+            if (!isSelectableConversationModel(m, showImageModels)) return false;
             if (excludeModelKeys?.includes(`${p.id}::${m.model_id}`)) return false;
             if (!q) return true;
             return m.name.toLowerCase().includes(q) || m.model_id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
@@ -180,7 +181,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         ),
       }))
       .filter((p) => p.models.length > 0);
-  }, [providers, search, excludeModelKeys]);
+  }, [providers, search, excludeModelKeys, showImageModels]);
 
   const handleSelect = useCallback(
     (providerId: string, modelId: string) => {

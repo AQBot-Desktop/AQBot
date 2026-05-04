@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 let providers: ProviderConfig[] = [];
 let conversations: Conversation[] = [];
+let settings: Record<string, unknown> = {};
 
 function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
@@ -156,10 +157,7 @@ vi.mock('@/stores', () => ({
   },
   useSettingsStore: (selector: (state: { settings: Record<string, unknown>; saveSettings: typeof mocks.saveSettings }) => unknown) =>
     selector({
-      settings: {
-        default_provider_id: null,
-        default_model_id: null,
-      },
+      settings,
       saveSettings: mocks.saveSettings,
     }),
   useUIStore: (selector: (state: {
@@ -229,6 +227,11 @@ describe('ModelSelector', () => {
       }),
     ];
     conversations = [makeConversation()];
+    settings = {
+      default_provider_id: null,
+      default_model_id: null,
+      show_image_models_in_model_selector: false,
+    };
   });
 
   it('shows only enabled chat models in the conversation model selector', () => {
@@ -253,5 +256,38 @@ describe('ModelSelector', () => {
 
     expect(screen.queryByText('chat.pinnedModels')).not.toBeInTheDocument();
     expect(screen.queryByText('GPT Image 2')).not.toBeInTheDocument();
+  });
+
+  it('shows enabled image models when the setting is enabled', () => {
+    settings = {
+      ...settings,
+      show_image_models_in_model_selector: true,
+    };
+
+    render(<ModelSelector open onOpenChange={vi.fn()} />);
+
+    expect(screen.getAllByText('GPT 5.4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('GPT Image 2').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Text Embedding 3 Large')).not.toBeInTheDocument();
+    expect(screen.queryByText('Jina Reranker v3')).not.toBeInTheDocument();
+  });
+
+  it('shows pinned image models when the setting is enabled', () => {
+    settings = {
+      ...settings,
+      show_image_models_in_model_selector: true,
+    };
+    localStorage.setItem('aqbot_pinned_models', JSON.stringify(['provider-1::gpt-image-2']));
+
+    render(
+      <ModelSelector
+        open
+        onOpenChange={vi.fn()}
+        excludeModelKeys={['provider-1::gpt-5.4']}
+      />,
+    );
+
+    expect(screen.getByText('chat.pinnedModels')).toBeInTheDocument();
+    expect(screen.getAllByText('GPT Image 2').length).toBeGreaterThan(0);
   });
 });

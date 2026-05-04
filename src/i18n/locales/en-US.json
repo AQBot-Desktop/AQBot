@@ -406,6 +406,8 @@
     "chatMinimapStyle": "Navigation Style",
     "chatMinimapFaq": "Question Index",
     "chatMinimapSticky": "Sticky Indicator",
+    "additionalFeatures": "Additional Features",
+    "showImageModelsInModelSelector": "Show image models in model selector",
     "multiModelDisplayMode": "Multi-Model Display",
     "multiModelDisplayModeDesc": "Choose how multi-model responses are displayed",
     "multiModelDisplayModeTabs": "Tabs",

@@ -99,6 +99,16 @@ export function ConversationSettings() {
           </>
         )}
       </SettingsGroup>
+
+      <SettingsGroup title={t('settings.additionalFeatures')}>
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <span>{t('settings.showImageModelsInModelSelector')}</span>
+          <Switch
+            checked={settings.show_image_models_in_model_selector ?? false}
+            onChange={(checked) => saveSettings({ show_image_models_in_model_selector: checked })}
+          />
+        </div>
+      </SettingsGroup>
     </div>
   );
 }

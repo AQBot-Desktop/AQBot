@@ -699,6 +699,8 @@ pub struct AppSettings {
     /// Chat minimap / navigation overlay.
     pub chat_minimap_enabled: bool,
     pub chat_minimap_style: String,
+    /// Include image models in the conversation model selector.
+    pub show_image_models_in_model_selector: bool,
     /// Multi-model response display mode: "tabs" | "side-by-side" | "stacked".
     pub multi_model_display_mode: String,
     /// Render user messages as Markdown (like AI messages). Default: false.
@@ -799,6 +801,7 @@ impl Default for AppSettings {
             default_system_prompt: None,
             chat_minimap_enabled: false,
             chat_minimap_style: "faq".to_string(),
+            show_image_models_in_model_selector: false,
             multi_model_display_mode: "tabs".to_string(),
             render_user_markdown: false,
         }

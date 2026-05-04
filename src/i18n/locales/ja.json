@@ -406,6 +406,8 @@
     "chatMinimapStyle": "ナビゲーションスタイル",
     "chatMinimapFaq": "質問インデックス",
     "chatMinimapSticky": "フローティングインジケーター",
+    "additionalFeatures": "追加機能",
+    "showImageModelsInModelSelector": "モデルセレクターに画像モデルを表示",
     "multiModelDisplayMode": "マルチモデル表示モード",
     "multiModelDisplayModeDesc": "マルチモデル回答時のレイアウトを設定",
     "multiModelDisplayModeTabs": "タブ切替",

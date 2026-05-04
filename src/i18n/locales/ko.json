@@ -406,6 +406,8 @@
     "chatMinimapStyle": "내비게이션 스타일",
     "chatMinimapFaq": "질문 색인",
     "chatMinimapSticky": "플로팅 표시기",
+    "additionalFeatures": "추가 기능",
+    "showImageModelsInModelSelector": "모델 선택기에 이미지 모델 표시",
     "multiModelDisplayMode": "다중 모델 표시 모드",
     "multiModelDisplayModeDesc": "다중 모델 응답 시 레이아웃 설정",
     "multiModelDisplayModeTabs": "탭 전환",

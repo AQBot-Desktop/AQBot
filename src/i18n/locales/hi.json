@@ -406,6 +406,8 @@
     "chatMinimapStyle": "नेविगेशन शैली",
     "chatMinimapFaq": "प्रश्न सूचकांक",
     "chatMinimapSticky": "फ़्लोटिंग संकेतक",
+    "additionalFeatures": "अतिरिक्त सुविधाएँ",
+    "showImageModelsInModelSelector": "मॉडल चयनकर्ता में छवि मॉडल दिखाएँ",
     "multiModelDisplayMode": "मल्टी-मॉडल प्रदर्शन मोड",
     "multiModelDisplayModeDesc": "मल्टी-मॉडल प्रतिक्रियाओं का लेआउट सेट करें",
     "multiModelDisplayModeTabs": "टैब",

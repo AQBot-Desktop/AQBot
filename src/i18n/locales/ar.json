@@ -406,6 +406,8 @@
     "chatMinimapStyle": "نمط التنقل",
     "chatMinimapFaq": "فهرس الأسئلة",
     "chatMinimapSticky": "مؤشر عائم",
+    "additionalFeatures": "ميزات إضافية",
+    "showImageModelsInModelSelector": "إظهار نماذج الصور في محدد النماذج",
     "multiModelDisplayMode": "وضع عرض النماذج المتعددة",
     "multiModelDisplayModeDesc": "تعيين تخطيط الاستجابات متعددة النماذج",
     "multiModelDisplayModeTabs": "علامات التبويب",

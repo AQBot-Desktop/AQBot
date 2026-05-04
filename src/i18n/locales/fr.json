@@ -406,6 +406,8 @@
     "chatMinimapStyle": "Style de navigation",
     "chatMinimapFaq": "Index des questions",
     "chatMinimapSticky": "Indicateur flottant",
+    "additionalFeatures": "Fonctionnalités supplémentaires",
+    "showImageModelsInModelSelector": "Afficher les modèles d'image dans le sélecteur de modèles",
     "multiModelDisplayMode": "Affichage multi-modèle",
     "multiModelDisplayModeDesc": "Définir la disposition pour les réponses multi-modèle",
     "multiModelDisplayModeTabs": "Onglets",

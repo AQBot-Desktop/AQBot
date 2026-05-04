@@ -406,6 +406,8 @@
     "chatMinimapStyle": "Стиль навигации",
     "chatMinimapFaq": "Индекс вопросов",
     "chatMinimapSticky": "Плавающий индикатор",
+    "additionalFeatures": "Дополнительные функции",
+    "showImageModelsInModelSelector": "Показывать модели изображений в выборе модели",
     "multiModelDisplayMode": "Режим отображения мультимодели",
     "multiModelDisplayModeDesc": "Настроить макет для мультимодельных ответов",
     "multiModelDisplayModeTabs": "Вкладки",

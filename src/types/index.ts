@@ -456,6 +456,8 @@ export interface AppSettings {
   /** Chat minimap / navigation overlay */
   chat_minimap_enabled?: boolean;
   chat_minimap_style?: 'faq' | 'sticky';
+  /** Include Image models in the conversation model selector. Default: false */
+  show_image_models_in_model_selector?: boolean;
   /** Multi-model response display mode */
   multi_model_display_mode?: 'tabs' | 'side-by-side' | 'stacked';
   /** Render user messages as Markdown (like AI messages). Default: false */

@@ -406,6 +406,8 @@
     "chatMinimapStyle": "导航样式",
     "chatMinimapFaq": "问题索引",
     "chatMinimapSticky": "浮动指示器",
+    "additionalFeatures": "附加功能",
+    "showImageModelsInModelSelector": "模型选择器中显示绘画模型",
     "multiModelDisplayMode": "多模型显示模式",
     "multiModelDisplayModeDesc": "设置多模型同时回答时的布局方式",
     "multiModelDisplayModeTabs": "标签切换",
