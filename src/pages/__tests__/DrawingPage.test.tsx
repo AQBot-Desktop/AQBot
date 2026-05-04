@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContentArea } from '@/components/layout/ContentArea';
+import { useDrawingSettingsStore } from '@/stores/drawingSettingsStore';
 import { useDrawingStore } from '@/stores/drawingStore';
+import { useProviderStore } from '@/stores/providerStore';
 import type { DrawingGeneration, DrawingImage } from '@/types';
 
 vi.mock('@/pages/ChatPage', () => ({ ChatPage: () => <div>chat</div> }));
@@ -98,6 +100,13 @@ describe('DrawingPage routing', () => {
       editMaskFile: null,
       editPreviewUrl: null,
     });
+    useDrawingSettingsStore.getState().resetSettings();
+    useProviderStore.setState({
+      providers: [],
+      loading: false,
+      error: null,
+      fetchProviders: vi.fn(async () => {}),
+    });
   });
 
   it('renders the drawing page from ContentArea', () => {
@@ -161,6 +170,38 @@ describe('DrawingPage routing', () => {
     fireEvent.click(screen.getByRole('button', { name: '使用提示词' }));
 
     expect(screen.getByPlaceholderText('输入你想生成的画面')).toHaveValue('历史提示词');
+  });
+
+  it('keeps drawing settings when switching away from the drawing page and back', () => {
+    const { rerender } = render(<ContentArea activePage="drawing" />);
+
+    act(() => {
+      useDrawingSettingsStore.getState().patchSettings({
+        size: '2048x2048',
+        quality: 'high',
+        n: 4,
+      });
+    });
+
+    rerender(<ContentArea activePage="chat" />);
+    rerender(<ContentArea activePage="drawing" />);
+
+    expect(screen.getByText('2048x2048')).toBeDefined();
+    expect(screen.getByText('High')).toBeDefined();
+    expect(screen.getByRole('spinbutton')).toHaveValue('4');
+  });
+
+  it('does not clear a saved provider while providers are still loading', async () => {
+    const fetchProviders = vi.fn(() => new Promise<void>(() => {}));
+    useProviderStore.setState({ providers: [], fetchProviders });
+    useDrawingSettingsStore.getState().patchSettings({ providerId: 'provider-1' });
+
+    render(<ContentArea activePage="drawing" />);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(useDrawingSettingsStore.getState().settings.providerId).toBe('provider-1');
   });
 
   it('resizes the composer textarea by dragging the top handle upward', async () => {

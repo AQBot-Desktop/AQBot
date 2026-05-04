@@ -1,10 +1,10 @@
 import { Alert, App, theme } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDrawingStore, useProviderStore } from '@/stores';
+import { useDrawingSettingsStore, useDrawingStore, useProviderStore } from '@/stores';
 import type { DrawingImage } from '@/types';
 import { DrawingGenerationList } from '@/components/drawing/DrawingGenerationList';
-import { DrawingSettingsPanel, type DrawingSettings } from '@/components/drawing/DrawingSettingsPanel';
+import { DrawingSettingsPanel } from '@/components/drawing/DrawingSettingsPanel';
 import { DrawingComposer } from '@/components/drawing/DrawingComposer';
 import { DrawingMaskEditor } from '@/components/drawing/DrawingMaskEditor';
 import { getDrawingModelOptions, getDrawingProvidersForModel } from '@/lib/drawingModels';
@@ -23,20 +23,11 @@ export function DrawingPage() {
   const [prompt, setPrompt] = useState('');
   const [maskImage, setMaskImage] = useState<DrawingImage | null>(null);
   const [composerHeight, setComposerHeight] = useState(176);
+  const settings = useDrawingSettingsStore((s) => s.settings);
+  const setSettings = useDrawingSettingsStore((s) => s.setSettings);
   const latestGenerationId = generations[generations.length - 1]?.id;
 
   const drawingModelOptions = useMemo(() => getDrawingModelOptions(), []);
-
-  const [settings, setSettings] = useState<DrawingSettings>({
-    providerId: '',
-    modelId: 'gpt-image-2',
-    size: 'auto',
-    quality: 'auto',
-    outputFormat: 'png',
-    background: 'auto',
-    outputCompression: undefined,
-    n: 1,
-  });
 
   useEffect(() => {
     if (providers.length === 0) fetchProviders();
@@ -63,9 +54,11 @@ export function DrawingPage() {
         ? current.modelId
         : drawingModelOptions[0]?.value ?? current.modelId;
       const nextProviders = getDrawingProvidersForModel(providers, nextModelId);
-      const nextProviderId = nextProviders.some((provider) => provider.id === current.providerId)
+      const nextProviderId = providers.length === 0
         ? current.providerId
-        : nextProviders[0]?.id ?? '';
+        : nextProviders.some((provider) => provider.id === current.providerId)
+          ? current.providerId
+          : nextProviders[0]?.id ?? '';
 
       if (nextModelId === current.modelId && nextProviderId === current.providerId) {
         return current;
@@ -77,7 +70,7 @@ export function DrawingPage() {
         providerId: nextProviderId,
       };
     });
-  }, [drawingModelOptions, providers]);
+  }, [drawingModelOptions, providers, setSettings]);
 
   const handleMaskEdit = (image: DrawingImage) => {
     setMaskImage(image);

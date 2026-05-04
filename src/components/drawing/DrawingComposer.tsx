@@ -5,8 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@/lib/invoke';
 import { useDrawingStore } from '@/stores/drawingStore';
-import type { DrawingImage } from '@/types';
-import type { DrawingSettings } from './DrawingSettingsPanel';
+import type { DrawingImage, DrawingSettings } from '@/types';
 
 interface Props {
   settings: DrawingSettings;

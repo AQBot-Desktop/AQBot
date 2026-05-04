@@ -1,6 +1,6 @@
 import { Form, InputNumber, Select, Slider, Switch, Typography, theme } from 'antd';
 import { useTranslation } from 'react-i18next';
-import type { DrawingBackground, DrawingModelId, DrawingOutputFormat, DrawingQuality, ProviderConfig } from '@/types';
+import type { DrawingSettings, ProviderConfig } from '@/types';
 import {
   getDrawingBackgroundOptions,
   getDrawingModelOptions,
@@ -14,16 +14,7 @@ import {
 import { SmartProviderIcon } from '@/lib/providerIcons';
 import { DrawingReferenceUploader } from './DrawingReferenceUploader';
 
-export interface DrawingSettings {
-  providerId: string;
-  modelId: DrawingModelId;
-  size: string;
-  quality: DrawingQuality;
-  outputFormat: DrawingOutputFormat;
-  background: DrawingBackground;
-  outputCompression?: number;
-  n: number;
-}
+export type { DrawingSettings };
 
 interface Props {
   settings: DrawingSettings;

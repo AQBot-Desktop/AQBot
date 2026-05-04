@@ -524,6 +524,17 @@ export type DrawingQuality = 'low' | 'medium' | 'high' | 'auto';
 export type DrawingOutputFormat = 'png' | 'jpeg' | 'webp';
 export type DrawingBackground = 'auto' | 'opaque' | 'transparent';
 
+export interface DrawingSettings {
+  providerId: string;
+  modelId: DrawingModelId;
+  size: string;
+  quality: DrawingQuality;
+  outputFormat: DrawingOutputFormat;
+  background: DrawingBackground;
+  outputCompression?: number;
+  n: number;
+}
+
 export interface DrawingStoredFile {
   id: string;
   original_name: string;
