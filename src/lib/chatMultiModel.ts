@@ -22,6 +22,37 @@ export function getLatestVersionsByModel(versions: Message[]): Message[] {
   return Array.from(modelMap.values());
 }
 
+export function selectDisplayVersionsByModel(
+  versions: Message[],
+  activeMessageId?: string | null,
+): Message[] {
+  const modelMap = new Map<string, { latest: Message; active: Message | null }>();
+  for (const version of versions) {
+    const key = getVersionGroupKey(version);
+    const existing = modelMap.get(key);
+    const isActiveVersion = activeMessageId
+      ? version.id === activeMessageId
+      : version.is_active;
+
+    if (!existing) {
+      modelMap.set(key, {
+        latest: version,
+        active: isActiveVersion ? version : null,
+      });
+      continue;
+    }
+
+    if (compareVersionDesc(version, existing.latest) < 0) {
+      existing.latest = version;
+    }
+    if (isActiveVersion) {
+      existing.active = version;
+    }
+  }
+
+  return Array.from(modelMap.values()).map((group) => group.active ?? group.latest);
+}
+
 export function hasMultipleModelVersions(versions: Message[]): boolean {
   return getLatestVersionsByModel(versions).length > 1;
 }

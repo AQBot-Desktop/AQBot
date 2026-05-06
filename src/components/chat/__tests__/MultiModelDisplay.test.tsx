@@ -44,13 +44,17 @@ function makeMessage(overrides: Partial<Message> & Pick<Message, 'id' | 'model_i
   };
 }
 
-function renderDisplay(versions: Message[]) {
+function renderDisplay(
+  versions: Message[],
+  activeMessageId = versions[0]?.id ?? '',
+  mode: 'side-by-side' | 'stacked' = 'side-by-side',
+) {
   return (
     <App>
       <MultiModelDisplay
         versions={versions}
-        activeMessageId={versions[0]?.id ?? ''}
-        mode="side-by-side"
+        activeMessageId={activeMessageId}
+        mode={mode}
         conversationId="conv-1"
         onSwitchVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
@@ -128,6 +132,72 @@ describe('MultiModelDisplay', () => {
     });
 
     expect(screen.getByText('streamed token')).toBeInTheDocument();
+  });
+
+  it('shows the active same-model version in side-by-side mode', () => {
+    const modelAOld = makeMessage({
+      id: 'assistant-a-old',
+      model_id: 'model-a',
+      content: 'old same-model answer',
+      is_active: true,
+      version_index: 0,
+      created_at: 1,
+    });
+    const modelALatest = makeMessage({
+      id: 'assistant-a-latest',
+      model_id: 'model-a',
+      content: 'latest same-model answer',
+      is_active: false,
+      version_index: 1,
+      created_at: 2,
+    });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'other model answer',
+      is_active: false,
+      version_index: 0,
+      created_at: 3,
+    });
+
+    render(renderDisplay([modelAOld, modelALatest, modelB], modelAOld.id, 'side-by-side'));
+
+    expect(screen.getByText('old same-model answer')).toBeInTheDocument();
+    expect(screen.queryByText('latest same-model answer')).not.toBeInTheDocument();
+    expect(screen.getByText('other model answer')).toBeInTheDocument();
+  });
+
+  it('shows the active same-model version in stacked mode', () => {
+    const modelAOld = makeMessage({
+      id: 'assistant-a-old',
+      model_id: 'model-a',
+      content: 'old stacked answer',
+      is_active: true,
+      version_index: 0,
+      created_at: 1,
+    });
+    const modelALatest = makeMessage({
+      id: 'assistant-a-latest',
+      model_id: 'model-a',
+      content: 'latest stacked answer',
+      is_active: false,
+      version_index: 1,
+      created_at: 2,
+    });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'stacked other model answer',
+      is_active: false,
+      version_index: 0,
+      created_at: 3,
+    });
+
+    render(renderDisplay([modelAOld, modelALatest, modelB], modelAOld.id, 'stacked'));
+
+    expect(screen.getByText('old stacked answer')).toBeInTheDocument();
+    expect(screen.queryByText('latest stacked answer')).not.toBeInTheDocument();
+    expect(screen.getByText('stacked other model answer')).toBeInTheDocument();
   });
 
   it('treats partial cards as streaming while their conversation is streaming even without a matching streamingMessageId', () => {

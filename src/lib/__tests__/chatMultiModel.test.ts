@@ -8,6 +8,7 @@ import {
   insertModelVersionPlaceholder,
   mergeAssistantVersionGroup,
   mergeAssistantVersionsAfterSwitch,
+  selectDisplayVersionsByModel,
   selectRenderableVersionSet,
   selectNextAssistantVersion,
   shouldRenderStandaloneAssistantError,
@@ -93,6 +94,74 @@ describe('chatMultiModel helpers', () => {
     expect(hasMultipleModelVersions([
       makeMessage({ id: 'single', model_id: 'model-a' }),
     ])).toBe(false);
+  });
+
+  it('uses the active same-model version instead of the latest version for display', () => {
+    const oldVersion = makeMessage({
+      id: 'model-a-old',
+      model_id: 'model-a',
+      content: 'old answer',
+      is_active: true,
+      version_index: 0,
+      created_at: 1,
+    });
+    const latestVersion = makeMessage({
+      id: 'model-a-latest',
+      model_id: 'model-a',
+      content: 'latest answer',
+      is_active: false,
+      version_index: 1,
+      created_at: 2,
+    });
+    const otherModel = makeMessage({
+      id: 'model-b',
+      model_id: 'model-b',
+      content: 'other answer',
+      is_active: false,
+      version_index: 0,
+      created_at: 3,
+    });
+
+    const displayVersions = selectDisplayVersionsByModel(
+      [oldVersion, latestVersion, otherModel],
+      oldVersion.id,
+    );
+
+    expect(displayVersions.map((message) => message.id)).toEqual(['model-a-old', 'model-b']);
+  });
+
+  it('keeps latest versions for models that are not currently active', () => {
+    const oldVersion = makeMessage({
+      id: 'model-a-old',
+      model_id: 'model-a',
+      content: 'old answer',
+      is_active: false,
+      version_index: 0,
+      created_at: 1,
+    });
+    const latestVersion = makeMessage({
+      id: 'model-a-latest',
+      model_id: 'model-a',
+      content: 'latest answer',
+      is_active: false,
+      version_index: 1,
+      created_at: 2,
+    });
+    const activeOtherModel = makeMessage({
+      id: 'model-b',
+      model_id: 'model-b',
+      content: 'other answer',
+      is_active: true,
+      version_index: 0,
+      created_at: 3,
+    });
+
+    const displayVersions = selectDisplayVersionsByModel(
+      [oldVersion, latestVersion, activeOtherModel],
+      activeOtherModel.id,
+    );
+
+    expect(displayVersions.map((message) => message.id)).toEqual(['model-a-latest', 'model-b']);
   });
 
   it('picks a remaining fallback version after deleting the active one', () => {

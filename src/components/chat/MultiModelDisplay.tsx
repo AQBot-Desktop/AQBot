@@ -7,7 +7,7 @@ import { OverlayScrollbars } from 'overlayscrollbars';
 import type { Message } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { stripAqbotTags } from '@/lib/chatMarkdown';
-import { getLatestVersionsByModel } from '@/lib/chatMultiModel';
+import { selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
 import { useConversationStore } from '@/stores';
 
 export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
@@ -119,7 +119,10 @@ function MultiModelDisplayInner({
     );
   }, [parentMessageId, storeMessages]);
   const renderVersions = liveVersions.length > 0 ? liveVersions : versions;
-  const latestByModel = useMemo(() => getLatestVersionsByModel(renderVersions), [renderVersions]);
+  const displayVersions = useMemo(
+    () => selectDisplayVersionsByModel(renderVersions, activeMessageId),
+    [activeMessageId, renderVersions],
+  );
   const isDisplayStreaming = storeStreaming && streamingConversationId === conversationId;
 
   // For side-by-side mode, force the .ant-bubble ancestor to take full width
@@ -176,8 +179,8 @@ function MultiModelDisplayInner({
     return () => inst.destroy();
   }, [mode]);
 
-  if (latestByModel.length <= 1) {
-    const msg = latestByModel[0];
+  if (displayVersions.length <= 1) {
+    const msg = displayVersions[0];
     if (!msg) return null;
     return <>{renderContent(msg, isDisplayStreaming && (msg.id === streamingMessageId || msg.status === 'partial'))}</>;
   }
@@ -203,7 +206,7 @@ function MultiModelDisplayInner({
       ? {
           minWidth: 300,
           flex: '0 0 auto',
-          width: `calc((100% - ${(latestByModel.length - 1) * 12}px) / ${latestByModel.length})`,
+          width: `calc((100% - ${(displayVersions.length - 1) * 12}px) / ${displayVersions.length})`,
           border: `1px solid ${token.colorBorderSecondary}`,
           borderRadius: token.borderRadiusLG,
           overflow: 'hidden',
@@ -216,7 +219,7 @@ function MultiModelDisplayInner({
 
   return (
     <div ref={scrollRef} style={containerStyle} className={mode === 'side-by-side' ? 'aqbot-multi-model-scroll' : undefined}>
-      {latestByModel.map((vMsg) => {
+      {displayVersions.map((vMsg) => {
         const isActive = vMsg.id === activeMessageId;
         const isVersionStreaming = isDisplayStreaming && (
           vMsg.id === streamingMessageId || vMsg.status === 'partial'
@@ -277,7 +280,7 @@ function MultiModelDisplayInner({
                   timeout={3000}
                 />
                 {/* Delete button with confirmation */}
-                {onDeleteVersion && latestByModel.length > 1 && (
+                {onDeleteVersion && displayVersions.length > 1 && (
                   <Popconfirm
                     title={t('chat.deleteConfirm')}
                     onConfirm={() => onDeleteVersion(vMsg.id)}
