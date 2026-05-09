@@ -83,10 +83,21 @@ describe('reasoning profile resolution', () => {
   });
 
   it('uses dedicated OpenAI-compatible provider profiles', () => {
-    expect(optionKeys('deepseek', 'deepseek-v4-flash')).toEqual(['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(optionKeys('deepseek', 'deepseek-v4-flash')).toEqual(['default', 'none', 'high', 'max']);
     expect(optionKeys('xai', 'grok-3-mini')).toEqual(['default']);
     expect(optionKeys('glm', 'glm-4.6')).toEqual(['default', 'none', 'high']);
     expect(optionKeys('siliconflow', 'Qwen/Qwen3-235B-A22B')).toEqual(['default', 'none', 'low', 'medium', 'high']);
+
+    const deepSeekProfile = resolveReasoningProfile('deepseek', model('deepseek-v4-flash'));
+    expect(deepSeekProfile.options.map((option) => option.key)).not.toContain('low');
+    expect(deepSeekProfile.options.map((option) => option.key)).not.toContain('medium');
+    expect(deepSeekProfile.options.map((option) => option.key)).not.toContain('xhigh');
+    expect(resolveReasoningRequest(deepSeekProfile, 'max')).toMatchObject({
+      level: 'max',
+      apiStyle: 'openai_reasoning_effort',
+      reasoningEffort: 'max',
+      suppressSamplingParams: true,
+    });
 
     const glmProfile = resolveReasoningProfile('glm', model('glm-4.6'));
     expect(resolveReasoningRequest(glmProfile, 'high')).toEqual({

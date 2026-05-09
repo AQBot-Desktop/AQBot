@@ -77,7 +77,8 @@
       "low": "منخفض",
       "medium": "متوسط",
       "high": "عالٍ",
-      "xhigh": "عالٍ جداً"
+      "xhigh": "عالٍ جداً",
+      "max": "الحد الأقصى"
     },
     "typingIndicator": "يكتب...",
     "thinkingIntensity": "كثافة التفكير",

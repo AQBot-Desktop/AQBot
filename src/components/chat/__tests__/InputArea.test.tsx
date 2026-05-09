@@ -231,6 +231,28 @@ describe('InputArea', () => {
     expect(screen.queryByText('XHigh')).not.toBeInTheDocument();
   });
 
+  it('renders DeepSeek V4 reasoning options from the provider profile', async () => {
+    providerState.providers[0].provider_type = 'deepseek';
+    providerState.providers[0].models[0].model_id = 'deepseek-v4-flash';
+    providerState.providers[0].models[0].name = 'DeepSeek v4 Flash';
+    providerState.providers[0].models[0].capabilities = ['Reasoning'];
+    conversationState.conversations[0].model_id = 'deepseek-v4-flash';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.thinkingIntensity'));
+
+    expect(await screen.findByText('High')).toBeInTheDocument();
+    expect(screen.getByText('Max')).toBeInTheDocument();
+    expect(screen.queryByText('Low')).not.toBeInTheDocument();
+    expect(screen.queryByText('Medium')).not.toBeInTheDocument();
+    expect(screen.queryByText('XHigh')).not.toBeInTheDocument();
+  });
+
   it('shows document attachment controls for non-vision models when document reading is enabled', () => {
     settingsState.settings.document_attachment_reading_enabled = true;
 

@@ -215,7 +215,7 @@ function deepSeekProfile(): ReasoningProfile {
   return {
     apiStyle: 'openai_reasoning_effort',
     defaultOptionKey: 'default',
-    options: options(['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']),
+    options: options(['default', 'none', 'high', 'max']),
   };
 }
 

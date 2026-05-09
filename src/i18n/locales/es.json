@@ -77,7 +77,8 @@
       "low": "Bajo",
       "medium": "Medio",
       "high": "Alto",
-      "xhigh": "Muy alto"
+      "xhigh": "Muy alto",
+      "max": "Máximo"
     },
     "typingIndicator": "Escribiendo...",
     "thinkingIntensity": "Intensidad de razonamiento",

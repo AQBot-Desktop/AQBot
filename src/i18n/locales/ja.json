@@ -77,7 +77,8 @@
       "low": "低",
       "medium": "中",
       "high": "高",
-      "xhigh": "超高"
+      "xhigh": "超高",
+      "max": "最大"
     },
     "typingIndicator": "入力中...",
     "thinkingIntensity": "推論の強度",

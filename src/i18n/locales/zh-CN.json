@@ -77,7 +77,8 @@
       "low": "低强度",
       "medium": "中强度",
       "high": "高强度",
-      "xhigh": "超高强度"
+      "xhigh": "超高强度",
+      "max": "最大强度"
     },
     "typingIndicator": "正在输入...",
     "thinkingIntensity": "思维强度",

@@ -77,7 +77,8 @@
       "low": "निम्न",
       "medium": "मध्यम",
       "high": "उच्च",
-      "xhigh": "अत्यधिक उच्च"
+      "xhigh": "अत्यधिक उच्च",
+      "max": "अधिकतम"
     },
     "typingIndicator": "टाइप हो रहा है...",
     "thinkingIntensity": "तर्क तीव्रता",

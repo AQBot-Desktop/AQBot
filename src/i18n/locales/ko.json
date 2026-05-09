@@ -77,7 +77,8 @@
       "low": "낮음",
       "medium": "중간",
       "high": "높음",
-      "xhigh": "매우 높음"
+      "xhigh": "매우 높음",
+      "max": "최대"
     },
     "typingIndicator": "입력 중...",
     "thinkingIntensity": "추론 강도",

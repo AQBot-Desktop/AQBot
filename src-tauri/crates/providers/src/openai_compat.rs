@@ -739,6 +739,31 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_normalizes_reasoning_effort_to_supported_levels() {
+        let cases = [
+            ("low", Some("high")),
+            ("medium", Some("high")),
+            ("high", Some("high")),
+            ("xhigh", Some("max")),
+            ("max", Some("max")),
+            ("none", None),
+        ];
+
+        for (level, expected) in cases {
+            let mut request = base_chat_request("deepseek-v4-flash");
+            request.thinking_level = Some(level.to_string());
+
+            let body = build_request(&DeepSeekPolicy, &request, &request.messages, true);
+
+            assert_eq!(
+                body.reasoning_effort.as_deref(),
+                expected,
+                "thinking_level={level}"
+            );
+        }
+    }
+
+    #[test]
     fn deepseek_none_omits_reasoning_effort_and_keeps_sampling_params() {
         let mut request = base_chat_request("deepseek-v4-flash");
         request.thinking_level = Some("none".to_string());
@@ -747,6 +772,7 @@ mod tests {
         let serialized = serde_json::to_value(body).expect("request json");
 
         assert!(serialized.get("reasoning_effort").is_none());
+        assert_eq!(serialized["thinking"], json!({ "type": "disabled" }));
         assert_eq!(serialized["max_tokens"], json!(300_000));
         assert!(serialized.get("max_completion_tokens").is_none());
         assert_eq!(serialized["temperature"], json!(0.7));
