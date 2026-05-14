@@ -41,7 +41,11 @@ const settingsFixture: DrawingSettings = {
   background: 'auto',
   outputCompression: undefined,
   referenceImageMode: 'base64',
+  referenceImageFormat: 'object',
+  referenceImageParamName: 'image',
   n: 1,
+  generationApiPath: '/images/generations',
+  editApiPath: '/images/edits',
 };
 
 describe('DrawingComposer', () => {
@@ -104,6 +108,7 @@ describe('DrawingComposer', () => {
         mask_file_id: 'mask-1',
         prompt: '替换涂抹区域',
         reference_image_mode: 'base64',
+        reference_image_format: 'object',
       }));
     });
     expect(editImage).not.toHaveBeenCalled();

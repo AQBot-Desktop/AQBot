@@ -155,8 +155,12 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
         background: settings.background,
         output_compression: settings.outputCompression,
         reference_image_mode: settings.referenceImageMode,
+        reference_image_format: settings.referenceImageFormat,
+        reference_image_param_name: settings.referenceImageParamName,
         n: settings.n,
         reference_file_ids: references.map((item) => item.id),
+        generation_api_path: settings.generationApiPath,
+        edit_api_path: settings.editApiPath,
       };
       onPromptChange('');
       if (editSourceImage && editMaskFileId) {

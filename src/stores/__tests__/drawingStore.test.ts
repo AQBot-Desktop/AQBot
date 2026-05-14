@@ -62,6 +62,7 @@ describe('drawingStore', () => {
       background: 'auto',
       n: 10,
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: [],
     });
 
@@ -139,6 +140,7 @@ describe('drawingStore', () => {
       background: 'auto',
       n: 4,
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: [],
     });
 
@@ -181,6 +183,7 @@ describe('drawingStore', () => {
       background: 'auto',
       n: 1,
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: [],
     });
 
@@ -259,6 +262,7 @@ describe('drawingStore', () => {
       source_image_id: 'source-image-1',
       mask_file_id: 'mask-1',
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: ['ref-1'],
     });
 
@@ -301,6 +305,7 @@ describe('drawingStore', () => {
       background: 'auto',
       n: 1,
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: [],
     });
 
@@ -336,6 +341,7 @@ describe('drawingStore', () => {
       source_image_id: 'image-1',
       mask_file_id: 'mask-1',
       reference_image_mode: 'multipart',
+      reference_image_format: 'object',
       reference_file_ids: [],
     });
 
@@ -370,6 +376,7 @@ describe('drawingStore', () => {
         background: 'auto',
         n: 1,
         reference_image_mode: 'multipart',
+      reference_image_format: 'object',
         reference_file_ids: ['ref-1'],
       }),
       reference_file_ids_json: '["ref-1"]',
@@ -387,6 +394,7 @@ describe('drawingStore', () => {
     expect(invokeMock).toHaveBeenCalledWith('generate_drawing_images', {
       input: expect.objectContaining({
         reference_image_mode: 'base64',
+        reference_image_format: 'object',
         reference_file_ids: ['ref-1'],
       }),
     });

@@ -534,6 +534,7 @@ export type DrawingQuality = 'low' | 'medium' | 'high' | 'auto';
 export type DrawingOutputFormat = 'png' | 'jpeg' | 'webp';
 export type DrawingBackground = 'auto' | 'opaque' | 'transparent';
 export type DrawingReferenceImageMode = 'multipart' | 'base64';
+export type DrawingReferenceImageFormat = 'object' | 'string';
 
 export interface DrawingSettings {
   providerId: string;
@@ -544,7 +545,11 @@ export interface DrawingSettings {
   background: DrawingBackground;
   outputCompression?: number;
   referenceImageMode: DrawingReferenceImageMode;
+  referenceImageFormat: DrawingReferenceImageFormat;
+  referenceImageParamName: string;
   n: number;
+  generationApiPath: string;
+  editApiPath: string;
 }
 
 export interface DrawingStoredFile {
@@ -603,6 +608,9 @@ export interface DrawingGenerateInput {
   output_compression?: number;
   n: number;
   reference_image_mode: DrawingReferenceImageMode;
+  reference_image_format: DrawingReferenceImageFormat;
+  generation_api_path?: string;
+  edit_api_path?: string;
   reference_file_ids: string[];
 }
 

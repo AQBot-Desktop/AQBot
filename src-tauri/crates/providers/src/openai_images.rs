@@ -33,6 +33,8 @@ pub struct ImageEditRequest {
     pub background: Option<String>,
     pub output_compression: Option<u8>,
     pub transfer_mode: ImageEditTransferMode,
+    pub image_format: ImageEditImageFormat,
+    pub image_param_name: String,
     pub images: Vec<ImageUpload>,
     pub mask: Option<ImageUpload>,
 }
@@ -43,36 +45,17 @@ pub enum ImageEditTransferMode {
     Base64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageEditImageFormat {
+    Object,
+    String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImageUpload {
     pub bytes: Vec<u8>,
     pub file_name: String,
     pub mime_type: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ImageEditJsonRequest {
-    model: String,
-    prompt: String,
-    n: u8,
-    size: String,
-    quality: String,
-    output_format: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    background: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output_compression: Option<u8>,
-    images: Vec<ImageInputReference>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mask: Option<ImageInputReference>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ImageInputReference {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,12 +107,14 @@ impl OpenAIImagesClient {
         format!("{}{}", Self::base_url(ctx).trim_end_matches('/'), suffix)
     }
 
-    fn generate_url(ctx: &ProviderRequestContext) -> String {
-        Self::image_url(ctx, "/images/generations")
+    fn generate_url(ctx: &ProviderRequestContext, path: Option<&str>) -> String {
+        let default_path = "/images/generations";
+        Self::image_url(ctx, path.unwrap_or(default_path))
     }
 
-    fn edit_url(ctx: &ProviderRequestContext) -> String {
-        Self::image_url(ctx, "/images/edits")
+    fn edit_url(ctx: &ProviderRequestContext, path: Option<&str>) -> String {
+        let default_path = "/images/edits";
+        Self::image_url(ctx, path.unwrap_or(default_path))
     }
 
     fn get_client(&self, ctx: &ProviderRequestContext) -> Result<reqwest::Client> {
@@ -143,10 +128,11 @@ impl OpenAIImagesClient {
         &self,
         ctx: &ProviderRequestContext,
         request: ImageGenerateRequest,
+        path: Option<&str>,
     ) -> Result<ImageApiOutput> {
         let client = self.get_client(ctx)?;
         let builder = client
-            .post(Self::generate_url(ctx))
+            .post(Self::generate_url(ctx, path))
             .bearer_auth(&ctx.api_key)
             .json(&request);
         let response = apply_request_headers(builder, ctx)
@@ -160,16 +146,20 @@ impl OpenAIImagesClient {
         &self,
         ctx: &ProviderRequestContext,
         request: ImageEditRequest,
+        path: Option<&str>,
     ) -> Result<ImageApiOutput> {
         let client = self.get_client(ctx)?;
         let builder = client
-            .post(Self::edit_url(ctx))
+            .post(Self::edit_url(ctx, path))
             .bearer_auth(&ctx.api_key);
         let builder = match request.transfer_mode {
             ImageEditTransferMode::Multipart => {
                 builder.multipart(build_edit_multipart_form(request)?)
             }
-            ImageEditTransferMode::Base64 => builder.json(&build_edit_json_request(request)),
+            ImageEditTransferMode::Base64 => {
+                let body = build_edit_json_request(request)?;
+                builder.body(body).header("Content-Type", "application/json")
+            }
         };
         let response = apply_request_headers(builder, ctx)
             .send()
@@ -212,31 +202,86 @@ fn build_edit_multipart_form(request: ImageEditRequest) -> Result<reqwest::multi
     Ok(form)
 }
 
-fn image_upload_to_reference(upload: ImageUpload) -> ImageInputReference {
+fn image_upload_to_string(upload: ImageUpload) -> String {
     let data = base64::engine::general_purpose::STANDARD.encode(upload.bytes);
-    ImageInputReference {
-        file_id: None,
-        image_url: Some(format!("data:{};base64,{}", upload.mime_type, data)),
-    }
+    format!("data:{};base64,{}", upload.mime_type, data)
 }
 
-fn build_edit_json_request(request: ImageEditRequest) -> ImageEditJsonRequest {
-    ImageEditJsonRequest {
-        model: request.model,
-        prompt: request.prompt,
-        n: request.n,
-        size: request.size,
-        quality: request.quality,
-        output_format: request.output_format,
-        background: request.background,
-        output_compression: request.output_compression,
-        images: request
-            .images
-            .into_iter()
-            .map(image_upload_to_reference)
-            .collect(),
-        mask: request.mask.map(image_upload_to_reference),
+fn build_edit_json_request(request: ImageEditRequest) -> Result<Vec<u8>> {
+    let mut map = serde_json::Map::new();
+    map.insert("model".to_string(), serde_json::Value::String(request.model));
+    map.insert("prompt".to_string(), serde_json::Value::String(request.prompt));
+    map.insert("n".to_string(), serde_json::Value::Number(request.n.into()));
+    map.insert("size".to_string(), serde_json::Value::String(request.size));
+    map.insert("quality".to_string(), serde_json::Value::String(request.quality));
+    map.insert(
+        "output_format".to_string(),
+        serde_json::Value::String(request.output_format),
+    );
+
+    if let Some(background) = request.background {
+        map.insert(
+            "background".to_string(),
+            serde_json::Value::String(background),
+        );
     }
+    if let Some(output_compression) = request.output_compression {
+        map.insert(
+            "output_compression".to_string(),
+            serde_json::Value::Number(output_compression.into()),
+        );
+    }
+
+    if request.images.is_empty() {
+        return Err(AQBotError::Provider(
+            "No image provided for edit request".into(),
+        ));
+    }
+
+    match request.image_format {
+
+        ImageEditImageFormat::Object => {
+            let images: Vec<serde_json::Value> = request
+                .images
+                .into_iter()
+                .map(|upload| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "url".to_string(),
+                        serde_json::Value::String(image_upload_to_string(upload)),
+                    );
+                    serde_json::Value::Object(obj)
+                })
+                .collect();
+            map.insert(
+                request.image_param_name,
+                serde_json::Value::Array(images),
+            );
+        }
+        ImageEditImageFormat::String => {
+            let images: Vec<serde_json::Value> = request
+                .images
+                .into_iter()
+                .map(|upload| serde_json::Value::String(image_upload_to_string(upload)))
+                .collect();
+            map.insert(
+                request.image_param_name,
+                serde_json::Value::Array(images),
+            );
+        }
+    }
+
+    if let Some(mask) = request.mask {
+        map.insert(
+            "mask".to_string(),
+            serde_json::Value::String(image_upload_to_string(mask)),
+        );
+    }
+
+    let value = serde_json::Value::Object(map);
+    serde_json::to_vec(&value).map_err(|e| {
+        AQBotError::Provider(format!("Failed to serialize edit request: {}", e))
+    })
 }
 
 async fn parse_response(response: reqwest::Response) -> Result<ImageApiOutput> {
@@ -309,17 +354,17 @@ mod tests {
         let ctx = context_with_chat_path();
 
         assert_eq!(
-            OpenAIImagesClient::generate_url(&ctx),
+            OpenAIImagesClient::generate_url(&ctx, None),
             "https://api.openai.com/v1/images/generations"
         );
         assert_eq!(
-            OpenAIImagesClient::edit_url(&ctx),
+            OpenAIImagesClient::edit_url(&ctx, None),
             "https://api.openai.com/v1/images/edits"
         );
     }
 
     #[test]
-    fn edit_request_body_serializes_images_as_base64_data_urls() {
+    fn edit_request_body_serializes_images_as_object_array_format() {
         let body = build_edit_json_request(ImageEditRequest {
             model: "gpt-image-2".to_string(),
             prompt: "换成马斯克".to_string(),
@@ -330,18 +375,58 @@ mod tests {
             background: Some("auto".to_string()),
             output_compression: None,
             transfer_mode: ImageEditTransferMode::Base64,
+            image_format: ImageEditImageFormat::Object,
+            image_param_name: "images".to_string(),
             images: vec![ImageUpload {
                 bytes: b"abc".to_vec(),
                 file_name: "reference.jpg".to_string(),
                 mime_type: "image/jpeg".to_string(),
             }],
             mask: None,
-        });
+        })
+        .expect("build edit json request");
 
-        let value = serde_json::to_value(body).expect("edit JSON body");
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse json body");
         assert_eq!(value["model"], "gpt-image-2");
         assert_eq!(value["prompt"], "换成马斯克");
-        assert_eq!(value["images"][0]["image_url"], "data:image/jpeg;base64,YWJj");
+        assert_eq!(value["images"][0]["url"], "data:image/jpeg;base64,YWJj");
+        assert!(value.get("mask").is_none());
+
+        let serialized = value.to_string();
+        assert!(!serialized.contains("image[]"));
+        assert!(!serialized.contains("reference.jpg"));
+        assert!(!serialized.contains("bytes"));
+    }
+
+    #[test]
+    fn edit_request_body_serializes_images_as_string_array() {
+        let body = build_edit_json_request(ImageEditRequest {
+            model: "gpt-image-2".to_string(),
+            prompt: "换成马斯克".to_string(),
+            n: 1,
+            size: "1024x1024".to_string(),
+            quality: "high".to_string(),
+            output_format: "png".to_string(),
+            background: Some("auto".to_string()),
+            output_compression: None,
+            transfer_mode: ImageEditTransferMode::Base64,
+            image_format: ImageEditImageFormat::String,
+            image_param_name: "images".to_string(),
+            images: vec![ImageUpload {
+                bytes: b"abc".to_vec(),
+                file_name: "reference.jpg".to_string(),
+                mime_type: "image/jpeg".to_string(),
+            }],
+            mask: None,
+        })
+        .expect("build edit json request");
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse json body");
+        assert_eq!(value["model"], "gpt-image-2");
+        assert_eq!(value["prompt"], "换成马斯克");
+        assert_eq!(value["images"][0], "data:image/jpeg;base64,YWJj");
         assert!(value.get("mask").is_none());
 
         let serialized = value.to_string();
@@ -362,6 +447,8 @@ mod tests {
             background: None,
             output_compression: Some(80),
             transfer_mode: ImageEditTransferMode::Base64,
+            image_format: ImageEditImageFormat::String,
+            image_param_name: "images".to_string(),
             images: vec![
                 ImageUpload {
                     bytes: b"source".to_vec(),
@@ -379,13 +466,18 @@ mod tests {
                 file_name: "mask.png".to_string(),
                 mime_type: "image/png".to_string(),
             }),
-        });
+        })
+        .expect("build edit json request");
 
-        let value = serde_json::to_value(body).expect("edit JSON body");
-        assert_eq!(value["images"].as_array().expect("images array").len(), 2);
-        assert_eq!(value["images"][0]["image_url"], "data:image/png;base64,c291cmNl");
-        assert_eq!(value["images"][1]["image_url"], "data:image/webp;base64,cmVm");
-        assert_eq!(value["mask"]["image_url"], "data:image/png;base64,bWFzaw==");
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse json body");
+        assert_eq!(
+            value["images"].as_array().expect("images array").len(),
+            2
+        );
+        assert_eq!(value["images"][0], "data:image/png;base64,c291cmNl");
+        assert_eq!(value["images"][1], "data:image/webp;base64,cmVm");
+        assert_eq!(value["mask"], "data:image/png;base64,bWFzaw==");
         assert_eq!(value["output_compression"], 80);
         assert!(value.get("background").is_none());
 
@@ -393,6 +485,36 @@ mod tests {
         assert!(!serialized.contains("image[]"));
         assert!(!serialized.contains("file_name"));
         assert!(!serialized.contains("mime_type"));
+    }
+
+    #[test]
+    fn edit_request_with_custom_image_param_name() {
+        let body = build_edit_json_request(ImageEditRequest {
+            model: "gpt-image-2".to_string(),
+            prompt: "生成图片".to_string(),
+            n: 1,
+            size: "1024x1024".to_string(),
+            quality: "high".to_string(),
+            output_format: "png".to_string(),
+            background: None,
+            output_compression: None,
+            transfer_mode: ImageEditTransferMode::Base64,
+            image_format: ImageEditImageFormat::String,
+            image_param_name: "image_urls".to_string(),
+            images: vec![ImageUpload {
+                bytes: b"test".to_vec(),
+                file_name: "test.jpg".to_string(),
+                mime_type: "image/jpeg".to_string(),
+            }],
+            mask: None,
+        })
+        .expect("build edit json request");
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse json body");
+        assert!(value.get("image_urls").is_some());
+        assert!(value.get("images").is_none());
+        assert_eq!(value["image_urls"][0], "data:image/jpeg;base64,dGVzdA==");
     }
 
     #[tokio::test]
@@ -476,6 +598,8 @@ mod tests {
                     background: None,
                     output_compression: None,
                     transfer_mode: ImageEditTransferMode::Multipart,
+                    image_format: ImageEditImageFormat::String,
+                    image_param_name: "images".to_string(),
                     images: vec![ImageUpload {
                         bytes: b"abc".to_vec(),
                         file_name: "reference.jpg".to_string(),
@@ -483,6 +607,7 @@ mod tests {
                     }],
                     mask: None,
                 },
+                None,
             )
             .await
             .expect("edit response");

@@ -12,6 +12,7 @@ import type {
   DrawingModelId,
   DrawingOutputFormat,
   DrawingQuality,
+  DrawingReferenceImageFormat,
   DrawingReferenceImageMode,
   DrawingSettings,
 } from '@/types';
@@ -27,6 +28,7 @@ const DRAWING_QUALITIES = new Set<DrawingQuality>(['auto', 'low', 'medium', 'hig
 const DRAWING_OUTPUT_FORMATS = new Set<DrawingOutputFormat>(['png', 'jpeg', 'webp']);
 const DRAWING_BACKGROUNDS = new Set<DrawingBackground>(['auto', 'opaque', 'transparent']);
 const DRAWING_REFERENCE_MODES = new Set<DrawingReferenceImageMode>(DRAWING_REFERENCE_IMAGE_MODES);
+const DRAWING_REFERENCE_FORMATS = new Set<DrawingReferenceImageFormat>(['object', 'string']);
 
 export const DEFAULT_DRAWING_SETTINGS: DrawingSettings = {
   providerId: '',
@@ -37,7 +39,11 @@ export const DEFAULT_DRAWING_SETTINGS: DrawingSettings = {
   background: 'auto',
   outputCompression: undefined,
   referenceImageMode: 'multipart',
+  referenceImageFormat: 'object',
+  referenceImageParamName: 'image',
   n: 1,
+  generationApiPath: '/images/generations',
+  editApiPath: '/images/edits',
 };
 
 interface DrawingSettingsState {
@@ -65,6 +71,10 @@ function isDrawingBackground(value: unknown): value is DrawingBackground {
 
 function isDrawingReferenceImageMode(value: unknown): value is DrawingReferenceImageMode {
   return typeof value === 'string' && DRAWING_REFERENCE_MODES.has(value as DrawingReferenceImageMode);
+}
+
+function isDrawingReferenceImageFormat(value: unknown): value is DrawingReferenceImageFormat {
+  return typeof value === 'string' && DRAWING_REFERENCE_FORMATS.has(value as DrawingReferenceImageFormat);
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -107,9 +117,21 @@ export function normalizeDrawingSettings(settings: Partial<DrawingSettings> = {}
     referenceImageMode: isDrawingReferenceImageMode(settings.referenceImageMode)
       ? settings.referenceImageMode
       : DEFAULT_DRAWING_SETTINGS.referenceImageMode,
+    referenceImageFormat: isDrawingReferenceImageFormat(settings.referenceImageFormat)
+      ? settings.referenceImageFormat
+      : DEFAULT_DRAWING_SETTINGS.referenceImageFormat,
+    referenceImageParamName: typeof settings.referenceImageParamName === 'string' && settings.referenceImageParamName.trim() !== ''
+      ? settings.referenceImageParamName.trim()
+      : DEFAULT_DRAWING_SETTINGS.referenceImageParamName,
     n: typeof settings.n === 'number'
       ? clampNumber(Math.round(settings.n), MIN_BATCH_COUNT, MAX_BATCH_COUNT)
       : DEFAULT_DRAWING_SETTINGS.n,
+    generationApiPath: typeof settings.generationApiPath === 'string'
+      ? settings.generationApiPath
+      : DEFAULT_DRAWING_SETTINGS.generationApiPath,
+    editApiPath: typeof settings.editApiPath === 'string'
+      ? settings.editApiPath
+      : DEFAULT_DRAWING_SETTINGS.editApiPath,
   };
 }
 
