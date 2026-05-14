@@ -99,6 +99,7 @@ struct ImageApiResponse {
 #[derive(Deserialize)]
 struct ImageData {
     b64_json: Option<String>,
+    url: Option<String>,
     revised_prompt: Option<String>,
 }
 
@@ -252,14 +253,28 @@ async fn parse_response(response: reqwest::Response) -> Result<ImageApiOutput> {
         .await
         .map_err(|e| AQBotError::Provider(format!("Invalid image API response: {}", e)))?;
 
+    let client = reqwest::Client::new();
     let mut images = Vec::with_capacity(body.data.len());
     for item in body.data {
-        let encoded = item
-            .b64_json
-            .ok_or_else(|| AQBotError::Provider("Image API response missing b64_json".into()))?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| AQBotError::Provider(format!("Invalid image b64_json: {}", e)))?;
+        let bytes = if let Some(encoded) = item.b64_json {
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| AQBotError::Provider(format!("Invalid image b64_json: {}", e)))?
+        } else if let Some(url) = item.url {
+            client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| AQBotError::Provider(format!("Failed to fetch image from URL: {}", e)))?
+                .bytes()
+                .await
+                .map_err(|e| AQBotError::Provider(format!("Failed to read image bytes: {}", e)))?
+                .to_vec()
+        } else {
+            return Err(AQBotError::Provider(
+                "Image API response missing both b64_json and url".into(),
+            ));
+        };
         images.push(ImageApiImage {
             bytes,
             revised_prompt: item.revised_prompt,
