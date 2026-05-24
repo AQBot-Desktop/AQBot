@@ -244,6 +244,9 @@ pub enum ModelCapability {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelParamOverrides {
     pub temperature: Option<f32>,
+    /// Model-specific output token limit. This is only applied to normal chat
+    /// requests when `force_max_tokens` is true, or when the model contract uses
+    /// `max_completion_tokens`.
     pub max_tokens: Option<u32>,
     pub top_p: Option<f32>,
     pub frequency_penalty: Option<f32>,
@@ -253,8 +256,8 @@ pub struct ModelParamOverrides {
     /// When true, system messages are converted to user messages
     /// (for models that don't support the system role).
     pub no_system_role: Option<bool>,
-    /// When true, always include max_tokens in the request
-    /// (falls back to 4096 if conversation.max_tokens is not set).
+    /// When true, include the model-specific max_tokens in chat requests
+    /// (falls back to 4096 if neither conversation nor model defaults are set).
     pub force_max_tokens: Option<bool>,
     /// Thinking parameter format for the provider API.
     /// "reasoning_effort" (default/OpenAI) or "enable_thinking" (SiliconFlow).

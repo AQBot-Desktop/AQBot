@@ -205,6 +205,7 @@ fn resolve_chat_model_params(
     conversation: &Conversation,
     model_param_overrides: Option<&ModelParamOverrides>,
     settings: &AppSettings,
+    use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
 ) -> EffectiveChatModelParams {
     let temperature = conversation
@@ -217,9 +218,16 @@ fn resolve_chat_model_params(
         .or_else(|| model_param_overrides.and_then(|p| p.top_p))
         .or(settings.default_top_p)
         .map(|v| v as f64);
+    let model_max_tokens = model_param_overrides.and_then(|p| p.max_tokens);
+    let should_use_model_max_tokens =
+        force_max_tokens == Some(true) || use_max_completion_tokens == Some(true);
     let max_tokens = conversation
         .max_tokens
-        .or_else(|| model_param_overrides.and_then(|p| p.max_tokens))
+        .or_else(|| {
+            should_use_model_max_tokens
+                .then_some(model_max_tokens)
+                .flatten()
+        })
         .or(settings.default_max_tokens)
         .or_else(|| (force_max_tokens == Some(true)).then_some(4096));
 
@@ -2604,6 +2612,7 @@ fn spawn_stream_task(
             &conversation,
             model_param_overrides.as_ref(),
             &settings,
+            use_max_completion_tokens,
             force_max_tokens,
         );
         let stream_timeouts = stream_timeout_config_from_settings(&settings);
@@ -5314,7 +5323,7 @@ mod tests {
     }
 
     #[test]
-    fn model_params_override_global_defaults_when_conversation_params_are_unset() {
+    fn model_sampling_params_override_global_defaults_when_conversation_params_are_unset() {
         let mut settings = AppSettings::default();
         settings.default_temperature = Some(0.875);
         settings.default_top_p = Some(0.9375);
@@ -5325,11 +5334,12 @@ mod tests {
             Some(&test_param_overrides(Some(0.25), Some(4096), Some(0.75))),
             &settings,
             None,
+            None,
         );
 
         assert_eq!(params.temperature, Some(0.25));
         assert_eq!(params.top_p, Some(0.75));
-        assert_eq!(params.max_tokens, Some(4096));
+        assert_eq!(params.max_tokens, Some(32768));
     }
 
     #[test]
@@ -5344,11 +5354,43 @@ mod tests {
             Some(&test_param_overrides(Some(0.25), Some(4096), Some(0.75))),
             &settings,
             None,
+            None,
         );
 
         assert_eq!(params.temperature, Some(0.5));
         assert_eq!(params.top_p, Some(0.625));
         assert_eq!(params.max_tokens, Some(8192));
+    }
+
+    #[test]
+    fn model_max_tokens_is_not_sent_when_force_max_tokens_is_disabled() {
+        let settings = AppSettings::default();
+
+        let params = resolve_chat_model_params(
+            &test_conversation(None, None, None),
+            Some(&test_param_overrides(None, Some(1_048_576), None)),
+            &settings,
+            None,
+            Some(false),
+        );
+
+        assert_eq!(params.max_tokens, None);
+    }
+
+    #[test]
+    fn model_max_tokens_still_applies_for_max_completion_tokens_models() {
+        let mut settings = AppSettings::default();
+        settings.default_max_tokens = Some(32768);
+
+        let params = resolve_chat_model_params(
+            &test_conversation(None, None, None),
+            Some(&test_param_overrides(None, Some(2048), None)),
+            &settings,
+            Some(true),
+            None,
+        );
+
+        assert_eq!(params.max_tokens, Some(2048));
     }
 
     #[test]
@@ -5360,6 +5402,7 @@ mod tests {
             &test_conversation(None, None, None),
             Some(&test_param_overrides(None, Some(4096), None)),
             &settings,
+            None,
             Some(true),
         );
         assert_eq!(model_params.max_tokens, Some(4096));
@@ -5369,6 +5412,7 @@ mod tests {
             &test_conversation(None, None, None),
             None,
             &settings,
+            None,
             Some(true),
         );
         assert_eq!(fallback_params.max_tokens, Some(4096));
