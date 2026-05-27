@@ -4,8 +4,62 @@ import { buildSearchQueryTag, buildSearchTag, parseSearchContent } from '@/lib/s
 import { splitLeadingAqbotDisplayContent } from './chatStreaming';
 import { splitStreamErrorContent } from '@/lib/streamStatus';
 
+const MCP_RENDER_BLOCK_CHAR_LIMIT = 20_000;
+const MCP_RENDER_TRUNCATED_NOTICE = 'MCP output truncated for rendering';
+
 function hasPersistedDisplayTag(content: string): boolean {
   return /<(?:web-search-query|web-search|knowledge-retrieval|memory-retrieval)\b[^>]*data-aqbot=["']1["'][^>]*>/i.test(content);
+}
+
+function sliceCodePoints(content: string, limit: number): string {
+  let count = 0;
+  let end = 0;
+  for (const char of content) {
+    if (count >= limit) break;
+    end += char.length;
+    count += 1;
+  }
+  return content.slice(0, end);
+}
+
+function truncatePersistedMcpBlocks(content: string): string {
+  let result = '';
+  let offset = 0;
+
+  while (offset < content.length) {
+    const opener = content.indexOf(':::mcp', offset);
+    if (opener === -1) {
+      result += content.slice(offset);
+      break;
+    }
+
+    const headerEnd = content.indexOf('\n', opener);
+    if (headerEnd === -1) {
+      result += content.slice(offset);
+      break;
+    }
+
+    const closer = content.indexOf('\n:::', headerEnd + 1);
+    if (closer === -1) {
+      result += content.slice(offset);
+      break;
+    }
+
+    const bodyStart = headerEnd + 1;
+    const body = content.slice(bodyStart, closer);
+    result += content.slice(offset, bodyStart);
+
+    if (Array.from(body).length > MCP_RENDER_BLOCK_CHAR_LIMIT) {
+      result += sliceCodePoints(body, MCP_RENDER_BLOCK_CHAR_LIMIT);
+      result += `\n\n[${MCP_RENDER_TRUNCATED_NOTICE}: showing first ${MCP_RENDER_BLOCK_CHAR_LIMIT} characters]`;
+    } else {
+      result += body;
+    }
+
+    offset = closer;
+  }
+
+  return result;
 }
 
 export function buildAssistantDisplayContent(message: Message, messages: Message[]): string {
@@ -13,7 +67,7 @@ export function buildAssistantDisplayContent(message: Message, messages: Message
     return message.content;
   }
 
-  let content = message.content;
+  let content = truncatePersistedMcpBlocks(message.content);
   if (message.status === 'error' || hasPersistedDisplayTag(content)) {
     return content;
   }

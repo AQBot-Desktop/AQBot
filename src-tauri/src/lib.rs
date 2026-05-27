@@ -652,6 +652,21 @@ pub fn run() {
             {
                 let sea_db = app.state::<AppState>().sea_db.clone();
                 let _ = rt.block_on(aqbot_core::repo::agent_session::reset_running_sessions(&sea_db));
+                match rt.block_on(aqbot_core::repo::message::mark_stale_partial_assistant_messages_failed(&sea_db)) {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(
+                            count,
+                            "Marked stale partial assistant messages as failed"
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::warn!(
+                            error = %err,
+                            "Failed to recover stale partial assistant messages"
+                        );
+                    }
+                }
             }
 
             if let Err(err) = window_lifecycle::ensure_main_window_for_setup(app.handle()) {

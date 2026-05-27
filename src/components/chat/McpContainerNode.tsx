@@ -4,6 +4,9 @@ import { CheckCircle, Loader, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { NodeComponentProps } from 'markstream-react';
 
+const MCP_NODE_TEXT_CHAR_LIMIT = 20_000;
+const MCP_NODE_TRUNCATED_NOTICE = 'MCP output truncated for rendering';
+
 function safeGetAttr(attrs: any, key: string): string | undefined {
   if (!attrs) return undefined;
 
@@ -37,19 +40,53 @@ function safeGetAttr(attrs: any, key: string): string | undefined {
   return undefined;
 }
 
-function extractText(children: any[] | undefined): string {
-  if (!children || children.length === 0) return '';
-  const parts: string[] = [];
+function appendBoundedText(current: string, next: string, limit: number): { text: string; truncated: boolean } {
+  if (!next) return { text: current, truncated: false };
+
+  let text = current;
+  let remaining = limit - Array.from(current).length;
+  if (remaining <= 0) {
+    return { text, truncated: true };
+  }
+
+  for (const char of next) {
+    if (remaining <= 0) {
+      return { text, truncated: true };
+    }
+    text += char;
+    remaining -= 1;
+  }
+
+  return { text, truncated: false };
+}
+
+function extractText(children: any[] | undefined, limit = MCP_NODE_TEXT_CHAR_LIMIT): { text: string; truncated: boolean } {
+  if (!children || children.length === 0) return { text: '', truncated: false };
+
+  let text = '';
   for (const child of children) {
+    let next = '';
     if (typeof child === 'string') {
-      parts.push(child);
+      next = child;
     } else if (child?.content != null) {
-      parts.push(typeof child.content === 'object' ? JSON.stringify(child.content) : String(child.content));
+      next = typeof child.content === 'object' ? JSON.stringify(child.content) : String(child.content);
     } else if (child?.children) {
-      parts.push(extractText(child.children));
+      const nested = extractText(child.children, limit - Array.from(text).length);
+      text += nested.text;
+      if (nested.truncated) {
+        return { text, truncated: true };
+      }
+      continue;
+    }
+
+    const appended = appendBoundedText(text, next, limit);
+    text = appended.text;
+    if (appended.truncated) {
+      return { text, truncated: true };
     }
   }
-  return parts.join('');
+
+  return { text, truncated: false };
 }
 
 export function McpContainerNode(props: NodeComponentProps<any>) {
@@ -102,7 +139,9 @@ function McpToolCard({ node }: { node: any }) {
 
   const resultText = useMemo(() => {
     if (isLoading) return '';
-    return extractText(node.children);
+    const result = extractText(node.children);
+    if (!result.truncated) return result.text;
+    return `${result.text}\n\n[${MCP_NODE_TRUNCATED_NOTICE}]`;
   }, [isLoading, node.children]);
 
   const isError = useMemo(() => {

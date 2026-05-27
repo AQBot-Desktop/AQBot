@@ -36,6 +36,8 @@ fn stringify_attachment_list(attachments: &[Attachment]) -> Result<String> {
     })
 }
 
+const STALE_PARTIAL_ASSISTANT_ERROR: &str = "AQBot was closed while this response was running. This stale response has been marked as failed.";
+
 fn message_from_entity(m: messages::Model) -> Result<Message> {
     Ok(Message {
         id: m.id,
@@ -93,6 +95,33 @@ pub async fn list_messages_for_model_context(
         .await?;
 
     rows.into_iter().map(message_from_entity).collect()
+}
+
+pub async fn mark_stale_partial_assistant_messages_failed(db: &DatabaseConnection) -> Result<u64> {
+    let rows = messages::Entity::find()
+        .filter(messages::Column::Role.eq("assistant"))
+        .filter(messages::Column::Status.eq("partial"))
+        .filter(messages::Column::IsActive.eq(1))
+        .all(db)
+        .await?;
+
+    let mut changed = 0;
+    for row in rows {
+        let mut am: messages::ActiveModel = row.clone().into();
+        am.status = Set("error".to_string());
+        am.content = Set(if row.content.contains(STALE_PARTIAL_ASSISTANT_ERROR) {
+            row.content
+        } else {
+            format!(
+                "{}\n\n<!-- aqbot-stream-error -->\n{}",
+                row.content, STALE_PARTIAL_ASSISTANT_ERROR
+            )
+        });
+        am.update(db).await?;
+        changed += 1;
+    }
+
+    Ok(changed)
 }
 
 pub async fn list_messages_page(
@@ -737,5 +766,90 @@ mod tests {
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].id, version_b.id);
         assert!(versions[0].is_active);
+    }
+
+    #[tokio::test]
+    async fn stale_partial_assistant_messages_are_marked_error_on_startup() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+
+        let conv = conversation::create_conversation(db, "Crash Chat", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user_msg = create_message(db, &conv.id, MessageRole::User, "Call MCP", &[], None, 0)
+            .await
+            .unwrap();
+        let active_partial = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            ":::mcp {\"name\":\"server\",\"tool\":\"fetch\"}\n",
+            &[],
+            Some(&user_msg.id),
+            0,
+        )
+        .await
+        .unwrap();
+        let complete = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "Done",
+            &[],
+            Some(&user_msg.id),
+            1,
+        )
+        .await
+        .unwrap();
+        let inactive_partial = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "Old partial",
+            &[],
+            Some(&user_msg.id),
+            2,
+        )
+        .await
+        .unwrap();
+
+        for (id, status, is_active) in [
+            (&active_partial.id, "partial", 1),
+            (&complete.id, "complete", 1),
+            (&inactive_partial.id, "partial", 0),
+        ] {
+            let row = messages::Entity::find_by_id(id).one(db).await.unwrap().unwrap();
+            let mut am: messages::ActiveModel = row.into();
+            am.status = Set(status.to_string());
+            am.is_active = Set(is_active);
+            am.update(db).await.unwrap();
+        }
+
+        let changed = mark_stale_partial_assistant_messages_failed(db).await.unwrap();
+
+        assert_eq!(changed, 1);
+        let active = messages::Entity::find_by_id(&active_partial.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.status, "error");
+        assert!(active.content.contains("AQBot was closed while this response was running"));
+
+        let still_complete = messages::Entity::find_by_id(&complete.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still_complete.status, "complete");
+        assert_eq!(still_complete.content, "Done");
+
+        let still_inactive_partial = messages::Entity::find_by_id(&inactive_partial.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still_inactive_partial.status, "partial");
+        assert_eq!(still_inactive_partial.content, "Old partial");
     }
 }

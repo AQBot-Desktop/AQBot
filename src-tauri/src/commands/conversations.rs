@@ -20,6 +20,8 @@ const SEARCH_QUERY_MESSAGE_CHAR_LIMIT: usize = 500;
 const SEARCH_QUERY_CURRENT_CHAR_LIMIT: usize = 500;
 const SEARCH_QUERY_MAX_TOKENS: u32 = 96;
 const SEARCH_QUERY_RETRY_MAX_TOKENS: u32 = 1024;
+const MCP_TOOL_RESULT_MAX_BYTES: usize = 50_000;
+const MCP_TOOL_LOOP_EXCEEDED_ERROR: &str = "MCP tool loop exceeded 10 iterations";
 
 fn system_prompt_log_excerpt(prompt: &str) -> &str {
     let end = prompt.floor_char_boundary(prompt.len().min(SYSTEM_PROMPT_LOG_EXCERPT_BYTES));
@@ -1490,10 +1492,57 @@ fn fixup_think_tags(content: &str, durations: &[u64]) -> String {
     result
 }
 
+fn truncate_mcp_tool_result_content(content: &str, max_bytes: usize) -> String {
+    if content.len() <= max_bytes {
+        return content.to_string();
+    }
+
+    let end = content.floor_char_boundary(max_bytes);
+    format!(
+        "{}\n\n[MCP tool output truncated: showing first {} bytes of {} bytes]",
+        &content[..end],
+        end,
+        content.len()
+    )
+}
+
+async fn execute_tool_future<F>(
+    future: F,
+    timeout_secs: u64,
+    timeout_duration: Duration,
+    cancel_flag: &AtomicBool,
+) -> (String, bool)
+where
+    F: Future<Output = aqbot_core::error::Result<aqbot_core::mcp_client::McpToolResult>>,
+{
+    if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+        return ("Error: Tool execution cancelled".to_string(), true);
+    }
+
+    tokio::select! {
+        result = future => match result {
+            Ok(result) => (
+                truncate_mcp_tool_result_content(&result.content, MCP_TOOL_RESULT_MAX_BYTES),
+                result.is_error,
+            ),
+            Err(e) => (format!("Error executing tool: {}", e), true),
+        },
+        _ = tokio::time::sleep(timeout_duration) => (
+            format!("Error: Tool execution timed out after {}s", timeout_secs),
+            true,
+        ),
+        _ = wait_for_cancel(cancel_flag) => (
+            "Error: Tool execution cancelled".to_string(),
+            true,
+        ),
+    }
+}
+
 async fn execute_tool_call(
     db: &sea_orm::DatabaseConnection,
     tool_call: &ToolCall,
     mcp_server_ids: &[String],
+    cancel_flag: &AtomicBool,
 ) -> (String, bool) {
     let server_and_tool = aqbot_core::repo::mcp_server::find_server_for_tool(
         db,
@@ -1521,26 +1570,19 @@ async fn execute_tool_call(
     let timeout_secs = server.execute_timeout_secs.unwrap_or(30) as u64;
     let timeout_duration = std::time::Duration::from_secs(timeout_secs);
 
-    let result = match server.transport.as_str() {
+    match server.transport.as_str() {
         "builtin" => {
-            match tokio::time::timeout(
-                timeout_duration,
+            execute_tool_future(
                 aqbot_core::builtin_tools::dispatch(
                     &server.name,
                     &tool_call.function.name,
                     arguments,
                 ),
+                timeout_secs,
+                timeout_duration,
+                cancel_flag,
             )
             .await
-            {
-                Ok(r) => r,
-                Err(_) => {
-                    return (
-                        format!("Error: Tool execution timed out after {}s", timeout_secs),
-                        true,
-                    )
-                }
-            }
         }
         "stdio" => {
             let command = match &server.command {
@@ -1557,8 +1599,7 @@ async fn execute_tool_call(
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok())
                 .unwrap_or_default();
-            match tokio::time::timeout(
-                timeout_duration,
+            execute_tool_future(
                 aqbot_core::mcp_client::call_tool_stdio(
                     &command,
                     &args,
@@ -1566,72 +1607,47 @@ async fn execute_tool_call(
                     &tool_call.function.name,
                     arguments,
                 ),
+                timeout_secs,
+                timeout_duration,
+                cancel_flag,
             )
             .await
-            {
-                Ok(r) => r,
-                Err(_) => {
-                    return (
-                        format!("Error: Tool execution timed out after {}s", timeout_secs),
-                        true,
-                    )
-                }
-            }
         }
         "http" => {
             let endpoint = match &server.endpoint {
                 Some(ep) => ep.clone(),
                 None => return ("Error: HTTP server has no endpoint configured".into(), true),
             };
-            match tokio::time::timeout(
-                timeout_duration,
+            execute_tool_future(
                 aqbot_core::mcp_client::call_tool_http(
                     &endpoint,
                     &tool_call.function.name,
                     arguments,
                 ),
+                timeout_secs,
+                timeout_duration,
+                cancel_flag,
             )
             .await
-            {
-                Ok(r) => r,
-                Err(_) => {
-                    return (
-                        format!("Error: Tool execution timed out after {}s", timeout_secs),
-                        true,
-                    )
-                }
-            }
         }
         "sse" => {
             let endpoint = match &server.endpoint {
                 Some(ep) => ep.clone(),
                 None => return ("Error: SSE server has no endpoint configured".into(), true),
             };
-            match tokio::time::timeout(
-                timeout_duration,
+            execute_tool_future(
                 aqbot_core::mcp_client::call_tool_sse(
                     &endpoint,
                     &tool_call.function.name,
                     arguments,
                 ),
+                timeout_secs,
+                timeout_duration,
+                cancel_flag,
             )
             .await
-            {
-                Ok(r) => r,
-                Err(_) => {
-                    return (
-                        format!("Error: Tool execution timed out after {}s", timeout_secs),
-                        true,
-                    )
-                }
-            }
         }
         other => return (format!("Error: Unsupported transport '{}'", other), true),
-    };
-
-    match result {
-        Ok(r) => (r.content, r.is_error),
-        Err(e) => (format!("Error executing tool: {}", e), true),
     }
 }
 
@@ -2635,6 +2651,7 @@ fn spawn_stream_task(
                         None,
                     ),
                 );
+                cancel_flags.lock().await.remove(&conversation_id);
                 return;
             }
         };
@@ -2689,6 +2706,20 @@ fn spawn_stream_task(
                 tracing::warn!(
                     "Tool call loop exceeded max iterations ({})",
                     MAX_TOOL_ITERATIONS
+                );
+                had_stream_error = true;
+                last_stream_error = Some(MCP_TOOL_LOOP_EXCEEDED_ERROR.to_string());
+                let _ = app.emit(
+                    "chat-stream-error",
+                    build_stream_error_event(
+                        &conversation_id,
+                        &assistant_message_id,
+                        &model_id,
+                        &provider.id,
+                        MCP_TOOL_LOOP_EXCEEDED_ERROR.to_string(),
+                        "tool_loop_exceeded",
+                        None,
+                    ),
                 );
                 break;
             }
@@ -2798,6 +2829,10 @@ fn spawn_stream_task(
 
             // Execute each tool call
             for tc in &tool_calls {
+                if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+
                 // Look up server name for events
                 let server_name = match aqbot_core::repo::mcp_server::find_server_for_tool(
                     &db,
@@ -2861,7 +2896,8 @@ fn spawn_stream_task(
 
                 // Execute the tool
                 let start = std::time::Instant::now();
-                let (result_content, is_error) = execute_tool_call(&db, tc, &mcp_server_ids).await;
+                let (result_content, is_error) =
+                    execute_tool_call(&db, tc, &mcp_server_ids, &cancel_flag).await;
                 let _duration_ms = start.elapsed().as_millis() as i64;
 
                 // Update execution record
@@ -2947,6 +2983,9 @@ fn spawn_stream_task(
         } else if had_stream_error {
             let err = last_stream_error.as_deref().unwrap_or("Unknown error");
             total_content = append_stream_error_to_content(&total_content, err);
+        }
+        if had_stream_error || was_cancelled {
+            final_tool_calls_json = None;
         }
         let token_count = total_usage.as_ref().map(|u| u.completion_tokens);
         let prompt_tokens = total_usage.as_ref().map(|u| u.prompt_tokens);
@@ -4720,6 +4759,43 @@ mod tests {
         assert!(content.contains("已生成的前半段"));
         assert!(content.contains("<!-- aqbot-stream-error -->"));
         assert!(content.contains("模型响应空闲超时"));
+    }
+
+    #[test]
+    fn truncate_mcp_tool_result_keeps_small_outputs() {
+        let content = "short MCP result";
+
+        assert_eq!(truncate_mcp_tool_result_content(content, 50), content);
+    }
+
+    #[test]
+    fn truncate_mcp_tool_result_marks_large_outputs_without_splitting_utf8() {
+        let content = format!("{}终", "好".repeat(20));
+
+        let truncated = truncate_mcp_tool_result_content(&content, 25);
+
+        assert!(truncated.starts_with("好好好"));
+        assert!(truncated.contains("MCP tool output truncated"));
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert!(!truncated.contains("终"));
+    }
+
+    #[tokio::test]
+    async fn execute_tool_future_returns_cancelled_without_waiting_for_timeout() {
+        let cancel_flag = AtomicBool::new(true);
+        let started = std::time::Instant::now();
+
+        let (content, is_error) = execute_tool_future(
+            pending::<aqbot_core::error::Result<aqbot_core::mcp_client::McpToolResult>>(),
+            60,
+            Duration::from_secs(60),
+            &cancel_flag,
+        )
+        .await;
+
+        assert_eq!(content, "Error: Tool execution cancelled");
+        assert!(is_error);
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

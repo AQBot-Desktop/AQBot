@@ -126,4 +126,19 @@ describe('ChatView assistant display policy', () => {
     expect(display.prefix).toBe('已生成的前半段');
     expect(display.message).toBe('模型响应空闲超时');
   });
+
+  it('truncates persisted MCP blocks before markdown rendering', () => {
+    const longOutput = 'x'.repeat(25_000);
+    const assistant = makeMessage({
+      id: 'assistant-1',
+      content: `before\n\n:::mcp {"name":"server","tool":"fetch_url"}\n${longOutput}\n:::\n\nafter`,
+    });
+
+    const content = buildAssistantDisplayContent(assistant, [assistant]);
+
+    expect(content).toContain('before');
+    expect(content).toContain('after');
+    expect(content).toContain('MCP output truncated for rendering');
+    expect(content.length).toBeLessThan(longOutput.length);
+  });
 });
