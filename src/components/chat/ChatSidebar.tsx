@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { Button, Input, App, theme, Tooltip, Avatar, Checkbox, Dropdown, Empty } from 'antd'
 import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical, ChevronRight, MessageSquareText, Sparkles } from 'lucide-react'
-import { ModelIcon } from '@lobehub/icons'
 import { getConvIcon } from '@/lib/convIcon'
 import { exportAsMarkdown, exportAsText, exportAsPNG, exportAsJSON } from '@/lib/exportChat'
 import { invoke } from '@/lib/invoke'
@@ -15,6 +14,7 @@ import type { Conversation, Message, ConversationCategory } from '@/types'
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc'
 import type { AvatarType } from '@/stores/userProfileStore'
 import { CategoryEditModal, type CategoryEditFormData } from './CategoryEditModal'
+import { ConversationModelIcon } from './ConversationModelIcon'
 import {
   DndContext,
   closestCenter,
@@ -543,7 +543,7 @@ export function ChatSidebar() {
         icon = <Avatar size={20} src={customIcon.value} />
       }
     } else if (conv.model_id) {
-      icon = <ModelIcon model={conv.model_id} size={20} type="avatar" />
+      icon = <ConversationModelIcon model={conv.model_id} size={20} />
     } else {
       icon = <Avatar size={20} style={{ fontSize: 12, backgroundColor: token.colorPrimaryBg, color: token.colorPrimary }}>{(conv.title || '对')[0]}</Avatar>
     }

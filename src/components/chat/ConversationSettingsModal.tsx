@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Input, Slider, Button, Tooltip, Card, theme } from 'antd';
-import { ModelIcon } from '@lobehub/icons';
 import { Info, Undo2, Bot } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore } from '@/stores';
@@ -9,6 +8,7 @@ import { IconEditor } from '@/components/shared/IconEditor';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { findModelByIds } from '@/lib/modelCapabilities';
 import { resolveModelParamDefaults } from '@/lib/modelParams';
+import { ConversationModelIcon } from './ConversationModelIcon';
 import type { MenuProps } from 'antd';
 
 interface ConversationSettingsModalProps {
@@ -170,7 +170,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
               }
             }}
             size={64}
-            defaultIcon={<ModelIcon model={conversation.model_id} size={64} type="avatar" />}
+            defaultIcon={<ConversationModelIcon model={conversation.model_id} size={64} />}
             prependMenuItems={useModelIconMenuItem}
             showClear={iconType !== 'model'}
           />

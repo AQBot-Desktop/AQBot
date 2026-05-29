@@ -81,6 +81,7 @@ import { resolveAssistantMessageForBubbleKey } from './chatMessageLookup';
 import { ChatScrollIndicator } from './ChatScrollIndicator';
 import { ChatMinimap, MinimapScrollProvider } from './ChatMinimap';
 import { MultiModelDisplay, LayoutSwitcher, type MultiModelDisplayMode } from './MultiModelDisplay';
+import { ConversationModelIcon } from './ConversationModelIcon';
 import PermissionCard from './PermissionCard';
 import AskUserCard from './AskUserCard';
 import { ChatImageNode } from './ChatImageNode';
@@ -2084,7 +2085,7 @@ export function ChatView() {
     }
     const mid = modelId ?? activeConversation.model_id;
     if (mid) {
-      return <ModelIcon model={mid} size={size} type="avatar" />;
+      return <ConversationModelIcon model={mid} size={size} />;
     }
     return <Avatar icon={<Bot size={16} />} style={{ background: token.colorPrimary }} size={size} />;
   }, [activeConversation, token.colorPrimary, token.colorPrimaryBg]);
