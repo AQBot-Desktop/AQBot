@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { theme } from 'antd';
 import { useUIStore } from '@/stores';
 import {
@@ -38,6 +39,15 @@ export function SettingsPage() {
   const { token } = theme.useToken();
   const settingsSection = useUIStore((s) => s.settingsSection);
   const ContentComponent = SECTION_COMPONENTS[settingsSection];
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const contentScroller = contentScrollRef.current;
+    if (!contentScroller) return;
+
+    contentScroller.scrollTop = 0;
+    contentScroller.scrollLeft = 0;
+  }, [settingsSection]);
 
   return (
     <div className="flex h-full">
@@ -47,7 +57,11 @@ export function SettingsPage() {
       >
         <SettingsSidebar />
       </div>
-      <div className="min-w-0 flex-1 overflow-y-auto" style={{ backgroundColor: token.colorBgElevated }}>
+      <div
+        ref={contentScrollRef}
+        className="min-w-0 flex-1 overflow-y-auto"
+        style={{ backgroundColor: token.colorBgElevated }}
+      >
         <ContentComponent />
       </div>
     </div>
