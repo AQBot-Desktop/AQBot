@@ -12,6 +12,7 @@ import type {
 } from '@/types';
 
 const DRAWING_STOPPED_MESSAGE = '主动停止';
+const OFFICIAL_IMAGE_PARAM_NAME = 'images';
 
 interface DrawingState {
   generations: DrawingGeneration[];
@@ -167,6 +168,20 @@ function referenceFromDrawingImage(image: DrawingImage): DrawingStoredFile {
   };
 }
 
+type DrawingRequestInput = DrawingGenerateInput | DrawingEditInput | DrawingMaskEditInput;
+
+function normalizeReferenceImageParamName(value: string): string {
+  const trimmed = value.trim();
+  return !trimmed || trimmed === 'image' ? OFFICIAL_IMAGE_PARAM_NAME : trimmed;
+}
+
+function normalizeDrawingRequestInput<T extends DrawingRequestInput>(input: T): T {
+  return {
+    ...input,
+    reference_image_param_name: normalizeReferenceImageParamName(input.reference_image_param_name),
+  };
+}
+
 export const useDrawingStore = create<DrawingState>((set, get) => ({
   generations: [],
   references: [],
@@ -220,10 +235,11 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   },
 
   generateImages: async (input) => {
-    const referenceFiles = get().references.filter((item) => input.reference_file_ids.includes(item.id));
+    const request = normalizeDrawingRequestInput(input);
+    const referenceFiles = get().references.filter((item) => request.reference_file_ids.includes(item.id));
     const optimistic = createOptimisticGeneration(
-      input,
-      input.reference_file_ids.length > 0 ? 'reference_generate' : 'generate',
+      request,
+      request.reference_file_ids.length > 0 ? 'reference_generate' : 'generate',
       { referenceFiles },
     );
     set((s) => ({
@@ -232,7 +248,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('generate_drawing_images', { input });
+      const generation = await invoke<DrawingGeneration>('generate_drawing_images', { input: request });
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -257,9 +273,10 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   },
 
   editImage: async (input) => {
+    const request = normalizeDrawingRequestInput(input);
     const state = get();
-    const optimistic = createOptimisticGeneration(input, 'edit', {
-      referenceFiles: state.references.filter((item) => input.reference_file_ids.includes(item.id)),
+    const optimistic = createOptimisticGeneration(request, 'edit', {
+      referenceFiles: state.references.filter((item) => request.reference_file_ids.includes(item.id)),
       sourceImages: state.editSourceImage ? [state.editSourceImage] : [],
     });
     set((s) => ({
@@ -268,7 +285,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('edit_drawing_image', { input });
+      const generation = await invoke<DrawingGeneration>('edit_drawing_image', { input: request });
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -293,9 +310,10 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   },
 
   editImageWithMask: async (input) => {
+    const request = normalizeDrawingRequestInput(input);
     const state = get();
-    const optimistic = createOptimisticGeneration(input, 'mask_edit', {
-      referenceFiles: state.references.filter((item) => input.reference_file_ids.includes(item.id)),
+    const optimistic = createOptimisticGeneration(request, 'mask_edit', {
+      referenceFiles: state.references.filter((item) => request.reference_file_ids.includes(item.id)),
       sourceImages: state.editSourceImage ? [state.editSourceImage] : [],
       maskFile: state.editMaskFile,
     });
@@ -305,7 +323,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('edit_drawing_image_with_mask', { input });
+      const generation = await invoke<DrawingGeneration>('edit_drawing_image_with_mask', { input: request });
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({

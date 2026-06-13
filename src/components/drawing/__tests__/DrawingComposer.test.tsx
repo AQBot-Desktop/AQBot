@@ -42,7 +42,7 @@ const settingsFixture: DrawingSettings = {
   outputCompression: undefined,
   referenceImageMode: 'base64',
   referenceImageFormat: 'object',
-  referenceImageParamName: 'image',
+  referenceImageParamName: 'images',
   n: 1,
   generationApiPath: '/images/generations',
   editApiPath: '/images/edits',
@@ -109,7 +109,7 @@ describe('DrawingComposer', () => {
         prompt: '替换涂抹区域',
         reference_image_mode: 'base64',
         reference_image_format: 'object',
-        reference_image_param_name: 'image',
+        reference_image_param_name: 'images',
       }));
     });
     expect(editImage).not.toHaveBeenCalled();

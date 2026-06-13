@@ -15,7 +15,8 @@ describe('drawingSettingsStore', () => {
       quality: 'high',
       outputFormat: 'webp',
       outputCompression: 88,
-      referenceImageMode: 'base64',
+      referenceImageMode: 'multipart',
+      referenceImageParamName: 'image',
       n: 4,
     });
 
@@ -29,7 +30,8 @@ describe('drawingSettingsStore', () => {
       quality: 'high',
       outputFormat: 'webp',
       outputCompression: undefined,
-      referenceImageMode: 'base64',
+      referenceImageMode: 'multipart',
+      referenceImageParamName: 'images',
       n: 4,
     });
   });
@@ -45,6 +47,7 @@ describe('drawingSettingsStore', () => {
           background: 'transparent',
           outputCompression: 150,
           referenceImageMode: 'invalid-mode',
+          referenceImageParamName: 'image',
           n: 30,
         },
       },
@@ -60,8 +63,19 @@ describe('drawingSettingsStore', () => {
       outputFormat: 'jpeg',
       background: 'auto',
       outputCompression: undefined,
-      referenceImageMode: 'multipart',
+      referenceImageMode: 'base64',
+      referenceImageParamName: 'images',
       n: 10,
+    });
+  });
+
+  it('defaults official OpenAI reference edits to canonical JSON images', async () => {
+    const { useDrawingSettingsStore } = await import('../drawingSettingsStore');
+
+    expect(useDrawingSettingsStore.getState().settings).toMatchObject({
+      referenceImageMode: 'base64',
+      referenceImageFormat: 'object',
+      referenceImageParamName: 'images',
     });
   });
 });

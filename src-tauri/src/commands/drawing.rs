@@ -18,6 +18,9 @@ use tauri::State;
 const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_REFERENCE_IMAGES: usize = 16;
 const MAX_BATCH_IMAGES: u8 = 10;
+const OPENAI_IMAGE_EDIT_PATH: &str = "/images/edits";
+const OPENAI_JSON_IMAGE_PARAM_NAME: &str = "images";
+const OPENAI_MULTIPART_IMAGE_PARAM_NAME: &str = "image[]";
 const IMAGE_MODELS: &[&str] = &[
     "gpt-image-2",
     "gpt-image-1.5",
@@ -112,7 +115,7 @@ pub enum DrawingReferenceImageMode {
 
 impl Default for DrawingReferenceImageMode {
     fn default() -> Self {
-        Self::Multipart
+        Self::Base64
     }
 }
 
@@ -216,6 +219,11 @@ pub async fn generate_drawing_images(
         &input.size,
     )?;
     let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
+    let edit_path = if input.reference_file_ids.is_empty() {
+        None
+    } else {
+        resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?
+    };
     let action = if input.reference_file_ids.is_empty() {
         "generate"
     } else {
@@ -241,12 +249,6 @@ pub async fn generate_drawing_images(
     } else {
         Some(input.generation_api_path.as_str())
     };
-    let edit_path = if input.edit_api_path.is_empty() {
-        None
-    } else {
-        Some(input.edit_api_path.as_str())
-    };
-
     let result = if input.reference_file_ids.is_empty() {
         OpenAIImagesClient::new()
             .generate(
@@ -266,6 +268,12 @@ pub async fn generate_drawing_images(
             .await
     } else {
         let uploads = load_reference_uploads(&state, &input.reference_file_ids).await?;
+        let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
+            &provider,
+            input.reference_image_mode,
+            input.reference_image_format,
+            &input.reference_image_param_name,
+        );
         OpenAIImagesClient::new()
             .edit(
                 &ctx,
@@ -278,13 +286,13 @@ pub async fn generate_drawing_images(
                     output_format: input.output_format.clone(),
                     background: input.background.clone(),
                     output_compression: input.output_compression,
-                    transfer_mode: input.reference_image_mode.into(),
-                    image_format: input.reference_image_format.into(),
-                    image_param_name: input.reference_image_param_name.clone(),
+                    transfer_mode,
+                    image_format,
+                    image_param_name,
                     images: uploads,
                     mask: None,
                 },
-                edit_path,
+                edit_path.as_deref(),
             )
             .await
     };
@@ -308,6 +316,7 @@ pub async fn edit_drawing_image(
         &input.size,
     )?;
     let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
+    let edit_path = resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?;
     let source = aqbot_core::repo::drawing::get_image(&state.sea_db, &input.source_image_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -325,13 +334,14 @@ pub async fn edit_drawing_image(
         None,
     )
     .await?;
-    let edit_path = if input.edit_api_path.is_empty() {
-        None
-    } else {
-        Some(input.edit_api_path.as_str())
-    };
     let mut uploads = vec![load_drawing_image_upload(&state, &source).await?];
     uploads.extend(load_reference_uploads(&state, &input.reference_file_ids).await?);
+    let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
+        &provider,
+        input.reference_image_mode,
+        input.reference_image_format,
+        &input.reference_image_param_name,
+    );
     let result = OpenAIImagesClient::new()
         .edit(
             &ctx,
@@ -344,13 +354,13 @@ pub async fn edit_drawing_image(
                 output_format: input.output_format.clone(),
                 background: input.background.clone(),
                 output_compression: input.output_compression,
-                transfer_mode: input.reference_image_mode.into(),
-                image_format: input.reference_image_format.into(),
-                image_param_name: input.reference_image_param_name.clone(),
+                transfer_mode,
+                image_format,
+                image_param_name,
                 images: uploads,
                 mask: None,
             },
-            edit_path,
+            edit_path.as_deref(),
         )
         .await;
 
@@ -373,6 +383,7 @@ pub async fn edit_drawing_image_with_mask(
         &input.size,
     )?;
     let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
+    let edit_path = resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?;
     let source = aqbot_core::repo::drawing::get_image(&state.sea_db, &input.source_image_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -400,14 +411,15 @@ pub async fn edit_drawing_image_with_mask(
         Some(input.mask_file_id.clone()),
     )
     .await?;
-    let edit_path = if input.edit_api_path.is_empty() {
-        None
-    } else {
-        Some(input.edit_api_path.as_str())
-    };
     let mut uploads = vec![load_drawing_image_upload(&state, &source).await?];
     uploads.extend(load_reference_uploads(&state, &input.reference_file_ids).await?);
     let mask = Some(load_stored_file_upload(&state, &mask_file).await?);
+    let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
+        &provider,
+        input.reference_image_mode,
+        input.reference_image_format,
+        &input.reference_image_param_name,
+    );
     let result = OpenAIImagesClient::new()
         .edit(
             &ctx,
@@ -420,13 +432,13 @@ pub async fn edit_drawing_image_with_mask(
                 output_format: input.output_format.clone(),
                 background: input.background.clone(),
                 output_compression: input.output_compression,
-                transfer_mode: input.reference_image_mode.into(),
-                image_format: input.reference_image_format.into(),
-                image_param_name: input.reference_image_param_name.clone(),
+                transfer_mode,
+                image_format,
+                image_param_name,
                 images: uploads,
                 mask,
             },
-            edit_path,
+            edit_path.as_deref(),
         )
         .await;
 
@@ -504,6 +516,51 @@ async fn build_image_context(
             .and_then(|s| serde_json::from_str(s).ok()),
     };
     Ok((ctx, provider, key.id))
+}
+
+fn resolve_edit_api_path(
+    provider_type: ProviderType,
+    edit_api_path: &str,
+) -> Result<Option<String>, String> {
+    let trimmed = edit_api_path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if provider_type == ProviderType::OpenAI && trimmed != OPENAI_IMAGE_EDIT_PATH {
+        return Err(format!(
+            "OpenAI image edits must use {}; {} is not supported for the Image API",
+            OPENAI_IMAGE_EDIT_PATH, trimmed
+        ));
+    }
+
+    Ok(Some(trimmed.to_string()))
+}
+
+fn resolve_image_edit_wire_options(
+    provider: &ProviderConfig,
+    reference_image_mode: DrawingReferenceImageMode,
+    reference_image_format: DrawingReferenceImageFormat,
+    reference_image_param_name: &str,
+) -> (ImageEditTransferMode, ImageEditImageFormat, String) {
+    let transfer_mode = ImageEditTransferMode::from(reference_image_mode);
+    if provider.provider_type == ProviderType::OpenAI {
+        let image_param_name = match transfer_mode {
+            ImageEditTransferMode::Multipart => OPENAI_MULTIPART_IMAGE_PARAM_NAME,
+            ImageEditTransferMode::Base64 => OPENAI_JSON_IMAGE_PARAM_NAME,
+        };
+        return (
+            transfer_mode,
+            ImageEditImageFormat::Object,
+            image_param_name.to_string(),
+        );
+    }
+
+    (
+        transfer_mode,
+        ImageEditImageFormat::from(reference_image_format),
+        reference_image_param_name.to_string(),
+    )
 }
 
 async fn create_running_generation<T: Serialize>(
@@ -912,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_image_mode_defaults_to_multipart_for_older_payloads() {
+    fn reference_image_mode_defaults_to_base64_for_older_payloads() {
         let input: DrawingGenerateInput = serde_json::from_value(serde_json::json!({
             "provider_id": "provider-1",
             "model_id": "gpt-image-2",
@@ -929,7 +986,7 @@ mod tests {
 
         assert_eq!(
             input.reference_image_mode,
-            DrawingReferenceImageMode::Multipart
+            DrawingReferenceImageMode::Base64
         );
     }
 
@@ -953,6 +1010,24 @@ mod tests {
         assert_eq!(
             input.reference_image_mode,
             DrawingReferenceImageMode::Base64
+        );
+    }
+
+    #[test]
+    fn rejects_openai_responses_edit_api_path_for_image_edits() {
+        let err = resolve_edit_api_path(ProviderType::OpenAI, "/responses")
+            .expect_err("OpenAI image edits must not use Responses API paths");
+
+        assert!(err.contains("/images/edits"));
+        assert!(err.contains("/responses"));
+    }
+
+    #[test]
+    fn custom_provider_can_keep_custom_edit_api_path() {
+        assert_eq!(
+            resolve_edit_api_path(ProviderType::Custom, "/v1/images/edits")
+                .expect("custom providers may use custom image edit paths"),
+            Some("/v1/images/edits".to_string())
         );
     }
 }

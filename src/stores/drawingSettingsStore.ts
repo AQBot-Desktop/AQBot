@@ -37,9 +37,9 @@ export const DEFAULT_DRAWING_SETTINGS: DrawingSettings = {
   outputFormat: 'png',
   background: 'auto',
   outputCompression: undefined,
-  referenceImageMode: 'multipart',
+  referenceImageMode: 'base64',
   referenceImageFormat: 'object',
-  referenceImageParamName: 'image',
+  referenceImageParamName: 'images',
   n: 1,
   generationApiPath: '/images/generations',
   editApiPath: '/images/edits',
@@ -80,6 +80,13 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeReferenceImageParamName(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_DRAWING_SETTINGS.referenceImageParamName;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'image') return DEFAULT_DRAWING_SETTINGS.referenceImageParamName;
+  return trimmed;
+}
+
 export function normalizeDrawingSettings(settings: Partial<DrawingSettings> = {}): DrawingSettings {
   const modelId = isDrawingModelId(settings.modelId)
     ? settings.modelId
@@ -113,9 +120,7 @@ export function normalizeDrawingSettings(settings: Partial<DrawingSettings> = {}
     referenceImageFormat: isDrawingReferenceImageFormat(settings.referenceImageFormat)
       ? settings.referenceImageFormat
       : DEFAULT_DRAWING_SETTINGS.referenceImageFormat,
-    referenceImageParamName: typeof settings.referenceImageParamName === 'string' && settings.referenceImageParamName.trim() !== ''
-      ? settings.referenceImageParamName.trim()
-      : DEFAULT_DRAWING_SETTINGS.referenceImageParamName,
+    referenceImageParamName: normalizeReferenceImageParamName(settings.referenceImageParamName),
     n: typeof settings.n === 'number'
       ? clampNumber(Math.round(settings.n), MIN_BATCH_COUNT, MAX_BATCH_COUNT)
       : DEFAULT_DRAWING_SETTINGS.n,

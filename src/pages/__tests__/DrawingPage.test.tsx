@@ -191,15 +191,16 @@ describe('DrawingPage routing', () => {
     expect(screen.getByRole('spinbutton')).toHaveValue('4');
   });
 
-  it('renders reference image transport as its own option under batch count', () => {
+  it('renders reference image transport in advanced settings with the official default', () => {
     render(<ContentArea activePage="drawing" />);
 
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/ }));
+
     expect(screen.getByText('参考图发送方式')).toBeDefined();
-    expect(screen.getByText('Multipart')).toBeDefined();
+    expect(screen.getByText('Base64')).toBeDefined();
 
     const text = document.body.textContent ?? '';
-    expect(text.indexOf('批量张数')).toBeLessThan(text.indexOf('参考图发送方式'));
-    expect(text.indexOf('参考图发送方式')).toBeLessThan(text.indexOf('上传参考图'));
+    expect(text.indexOf('高级设置')).toBeLessThan(text.indexOf('参考图发送方式'));
   });
 
   it('does not clear a saved provider while providers are still loading', async () => {

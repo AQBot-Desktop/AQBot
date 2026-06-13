@@ -212,10 +212,19 @@ fn image_upload_to_string(upload: ImageUpload) -> String {
     format!("data:{};base64,{}", upload.mime_type, data)
 }
 
+fn image_upload_to_image_url_object(upload: ImageUpload) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "image_url".to_string(),
+        serde_json::Value::String(image_upload_to_string(upload)),
+    );
+    serde_json::Value::Object(obj)
+}
+
 fn multipart_image_param_name(value: &str) -> &str {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        "image"
+        "image[]"
     } else {
         trimmed
     }
@@ -276,14 +285,7 @@ fn build_edit_json_request(request: ImageEditRequest) -> Result<Vec<u8>> {
             let images: Vec<serde_json::Value> = request
                 .images
                 .into_iter()
-                .map(|upload| {
-                    let mut obj = serde_json::Map::new();
-                    obj.insert(
-                        "url".to_string(),
-                        serde_json::Value::String(image_upload_to_string(upload)),
-                    );
-                    serde_json::Value::Object(obj)
-                })
+                .map(image_upload_to_image_url_object)
                 .collect();
             map.insert(image_param_name, serde_json::Value::Array(images));
         }
@@ -298,10 +300,13 @@ fn build_edit_json_request(request: ImageEditRequest) -> Result<Vec<u8>> {
     }
 
     if let Some(mask) = request.mask {
-        map.insert(
-            "mask".to_string(),
-            serde_json::Value::String(image_upload_to_string(mask)),
-        );
+        let mask_value = match request.image_format {
+            ImageEditImageFormat::Object => image_upload_to_image_url_object(mask),
+            ImageEditImageFormat::String => {
+                serde_json::Value::String(image_upload_to_string(mask))
+            }
+        };
+        map.insert("mask".to_string(), mask_value);
     }
 
     let value = serde_json::Value::Object(map);
@@ -493,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn edit_request_body_serializes_images_as_object_array_format() {
+    fn edit_request_body_serializes_images_as_official_image_url_objects() {
         let body = build_edit_json_request(ImageEditRequest {
             model: "gpt-image-2".to_string(),
             prompt: "换成马斯克".to_string(),
@@ -518,8 +523,13 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).expect("parse json body");
         assert_eq!(value["model"], "gpt-image-2");
         assert_eq!(value["prompt"], "换成马斯克");
-        assert_eq!(value["images"][0]["url"], "data:image/jpeg;base64,YWJj");
+        assert_eq!(
+            value["images"][0]["image_url"],
+            "data:image/jpeg;base64,YWJj"
+        );
+        assert!(value["images"][0].get("url").is_none());
         assert!(value.get("mask").is_none());
+        assert!(value.get("tools").is_none());
 
         let serialized = value.to_string();
         assert!(!serialized.contains("image[]"));
@@ -563,18 +573,18 @@ mod tests {
     }
 
     #[test]
-    fn edit_request_body_serializes_multiple_images_and_mask_as_data_urls() {
+    fn edit_request_body_serializes_multiple_images_and_mask_as_image_url_objects() {
         let body = build_edit_json_request(ImageEditRequest {
             model: "gpt-image-2".to_string(),
             prompt: "只替换遮罩区域".to_string(),
-            n: 1,
+            n: 4,
             size: "auto".to_string(),
             quality: "auto".to_string(),
             output_format: "webp".to_string(),
             background: None,
             output_compression: Some(80),
             transfer_mode: ImageEditTransferMode::Base64,
-            image_format: ImageEditImageFormat::String,
+            image_format: ImageEditImageFormat::Object,
             image_param_name: "images".to_string(),
             images: vec![
                 ImageUpload {
@@ -597,12 +607,20 @@ mod tests {
         .expect("build edit json request");
 
         let value: serde_json::Value = serde_json::from_slice(&body).expect("parse json body");
+        assert_eq!(value["n"], 4);
         assert_eq!(value["images"].as_array().expect("images array").len(), 2);
-        assert_eq!(value["images"][0], "data:image/png;base64,c291cmNl");
-        assert_eq!(value["images"][1], "data:image/webp;base64,cmVm");
-        assert_eq!(value["mask"], "data:image/png;base64,bWFzaw==");
+        assert_eq!(
+            value["images"][0]["image_url"],
+            "data:image/png;base64,c291cmNl"
+        );
+        assert_eq!(
+            value["images"][1]["image_url"],
+            "data:image/webp;base64,cmVm"
+        );
+        assert_eq!(value["mask"]["image_url"], "data:image/png;base64,bWFzaw==");
         assert_eq!(value["output_compression"], 80);
         assert!(value.get("background").is_none());
+        assert!(value.get("tools").is_none());
 
         let serialized = value.to_string();
         assert!(!serialized.contains("image[]"));
@@ -640,7 +658,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn edit_sends_multipart_body_when_requested() {
+    async fn edit_sends_multipart_body_with_official_image_array_field_when_requested() {
         let body = r#"{"data":[{"b64_json":"aW1n"}]}"#;
         let (addr, server) =
             spawn_http_response(http_response("200 OK", "application/json", body)).await;
@@ -669,7 +687,7 @@ mod tests {
                     output_compression: None,
                     transfer_mode: ImageEditTransferMode::Multipart,
                     image_format: ImageEditImageFormat::String,
-                    image_param_name: "reference_images".to_string(),
+                    image_param_name: "".to_string(),
                     images: vec![ImageUpload {
                         bytes: b"abc".to_vec(),
                         file_name: "reference.jpg".to_string(),
@@ -688,8 +706,9 @@ mod tests {
         assert!(request
             .to_ascii_lowercase()
             .contains("content-type: multipart/form-data; boundary="));
-        assert!(request.contains("name=\"reference_images\""));
-        assert!(!request.contains("name=\"image[]\""));
+        assert!(request.contains("name=\"image[]\""));
+        assert!(!request.contains("name=\"image\""));
+        assert!(!request.contains("name=\"reference_images\""));
         assert!(request.contains("filename=\"reference.jpg\""));
         assert!(!request.contains("data:image/jpeg;base64"));
     }

@@ -241,10 +241,10 @@ const advancedFields: DrawingParamField[] = [
     key: 'referenceImageParamName',
     type: 'text',
     labelKey: 'drawing.referenceImageParamName',
-    fallbackLabel: '图片参数名',
+    fallbackLabel: '第三方图片参数名',
     placeholder: 'images',
     hintKey: 'drawing.referenceImageParamName.hint',
-    fallbackHint: '常用值: image, images, image_url, image_urls',
+    fallbackHint: '仅用于第三方兼容接口；官方 OpenAI 会自动使用 images/image[]',
   },
   {
     id: 'compression',

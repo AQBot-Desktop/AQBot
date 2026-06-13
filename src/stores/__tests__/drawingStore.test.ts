@@ -402,6 +402,7 @@ describe('drawingStore', () => {
       input: expect.objectContaining({
         reference_image_mode: 'base64',
         reference_image_format: 'object',
+        reference_image_param_name: 'images',
         reference_file_ids: ['ref-1'],
       }),
     });
