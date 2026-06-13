@@ -68,6 +68,7 @@ const _pendingConversationRefresh = new Set<string>();
 const STREAM_UI_FLUSH_INTERVAL_MS = 32;
 const STREAM_FIRST_UI_FLUSH_DELAY_MS = 0;
 const AGENT_STREAM_UI_FLUSH_INTERVAL_MS = 16;
+const ACTIVE_STREAM_EXISTS_ERROR_FRAGMENT = '当前会话已有回复正在生成';
 interface PendingUiChunk {
   messageId: string;
   conversationId: string;
@@ -199,6 +200,10 @@ function materializeLiveStreamContent(
 
 function createStreamId(): string {
   return `stream-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+}
+
+function isActiveStreamExistsError(error: string): boolean {
+  return error.includes(ACTIVE_STREAM_EXISTS_ERROR_FRAGMENT);
 }
 
 function isCurrentStreamEvent(get: () => ConversationState, streamId?: string | null): boolean {
@@ -2184,12 +2189,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     } catch (e) {
       console.error('[sendMessage] error:', e);
       const errMsg = String(e);
+      const staleBackendStream = isActiveStreamExistsError(errMsg) && !previousStreamState.streaming;
       set((s) => ({
-        streaming: previousStreamState.streaming,
-        streamingMessageId: previousStreamState.streamingMessageId,
-        streamingConversationId: previousStreamState.streamingConversationId,
-        activeStreamId: previousStreamState.activeStreamId,
-        thinkingActiveMessageIds: previousStreamState.thinkingActiveMessageIds,
+        streaming: staleBackendStream ? false : previousStreamState.streaming,
+        streamingMessageId: staleBackendStream ? null : previousStreamState.streamingMessageId,
+        streamingConversationId: staleBackendStream ? null : previousStreamState.streamingConversationId,
+        activeStreamId: staleBackendStream ? null : previousStreamState.activeStreamId,
+        thinkingActiveMessageIds: staleBackendStream
+          ? new Set<string>()
+          : previousStreamState.thinkingActiveMessageIds,
         streamActivityByMessageId: removeStreamActivities(
           s.streamActivityByMessageId,
           [tempAssistantId],
@@ -2205,6 +2213,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         )),
         error: errMsg,
       }));
+      if (staleBackendStream) {
+        _pendingUiChunk = null;
+        _streamBuffer = null;
+        _streamPrefix = '';
+        if (isTauri()) {
+          invoke('cancel_stream', {
+            conversationId,
+            streamId: null,
+          }).catch(() => {});
+        }
+        void get().fetchMessages(conversationId);
+      }
       _multiModelStreamIds.delete(streamId);
     }
   },

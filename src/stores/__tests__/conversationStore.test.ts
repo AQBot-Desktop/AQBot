@@ -4,11 +4,12 @@ import { parseSearchContent } from '@/lib/searchUtils';
 
 const invokeMock = vi.fn();
 const listenMock = vi.fn();
+let tauriAvailable = false;
 
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
   listen: listenMock,
-  isTauri: () => false,
+  isTauri: () => tauriAvailable,
 }));
 
 function makeMessage(index: number, conversationId = 'conv-1'): Message {
@@ -88,6 +89,7 @@ describe('conversationStore pagination', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
+    tauriAvailable = false;
     listenMock.mockResolvedValue(() => {});
     const { useConversationStore } = await import('../conversationStore');
     useConversationStore.setState({
@@ -1097,6 +1099,52 @@ describe('conversationStore pagination', () => {
     expect(state.messages.map((message) => message.id)).toEqual(['user-active', 'assistant-active']);
     expect(state.messages[1]?.content).toBe('still streaming');
     vi.useRealTimers();
+  });
+
+  it('cancels stale backend stream state when an overlapping stream rejection happens while locally idle', async () => {
+    tauriAvailable = true;
+    listenMock.mockResolvedValue(() => {});
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'send_message') {
+        return Promise.reject(new Error('当前会话已有回复正在生成，请等待完成或停止后再发送'));
+      }
+      if (cmd === 'cancel_stream') {
+        return Promise.resolve(undefined);
+      }
+      if (cmd === 'list_messages_page') {
+        return Promise.resolve(makePage([makeMessage(1), makeMessage(2)], false));
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      streaming: false,
+      streamingMessageId: null,
+      streamingConversationId: null,
+      activeStreamId: null,
+      messages: [makeMessage(1), makeMessage(2)],
+    } as never);
+
+    await useConversationStore.getState().sendMessage('second');
+    await flushPromises();
+
+    const state = useConversationStore.getState();
+    expect(state.streaming).toBe(false);
+    expect(state.streamingMessageId).toBeNull();
+    expect(state.activeStreamId).toBeNull();
+    expect(state.messages.map((message) => message.id)).toEqual(['msg-1', 'msg-2']);
+    expect(invokeMock).toHaveBeenCalledWith('cancel_stream', {
+      conversationId: 'conv-1',
+      streamId: null,
+    });
+    expect(invokeMock).toHaveBeenCalledWith('list_messages_page', {
+      conversationId: 'conv-1',
+      limit: 10,
+      beforeMessageId: null,
+    });
   });
 
   it('keeps rendered search tags in local assistant content when model thinking starts streaming', async () => {

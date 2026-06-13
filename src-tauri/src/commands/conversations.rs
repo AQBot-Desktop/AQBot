@@ -200,6 +200,65 @@ async fn register_stream_cancel_flag(
     Ok(())
 }
 
+struct RegisteredStreamGuard {
+    cancel_flags:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<String, crate::StreamCancelEntry>>>,
+    stream_id: String,
+    cancel_flag: Arc<AtomicBool>,
+    released: bool,
+}
+
+impl RegisteredStreamGuard {
+    async fn register(
+        cancel_flags: Arc<
+            tokio::sync::Mutex<std::collections::HashMap<String, crate::StreamCancelEntry>>,
+        >,
+        conversation_id: &str,
+        stream_id: &str,
+        cancel_flag: Arc<AtomicBool>,
+        allow_parallel: bool,
+    ) -> Result<Self, String> {
+        register_stream_cancel_flag(
+            cancel_flags.clone(),
+            conversation_id,
+            stream_id,
+            cancel_flag.clone(),
+            allow_parallel,
+        )
+        .await?;
+
+        Ok(Self {
+            cancel_flags,
+            stream_id: stream_id.to_string(),
+            cancel_flag,
+            released: false,
+        })
+    }
+
+    async fn release(mut self) {
+        self.released = true;
+        self.cancel_flags.lock().await.remove(&self.stream_id);
+    }
+}
+
+impl Drop for RegisteredStreamGuard {
+    fn drop(&mut self) {
+        if self.released {
+            return;
+        }
+
+        self.cancel_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let cancel_flags = self.cancel_flags.clone();
+        let stream_id = self.stream_id.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                cancel_flags.lock().await.remove(&stream_id);
+            });
+        }
+    }
+}
+
 fn build_stream_error_event(
     conversation_id: &str,
     message_id: &str,
@@ -274,6 +333,56 @@ fn build_stream_timeout_error_event(
         kind,
         Some(timeout_secs),
     )
+}
+
+fn build_stream_done_event(
+    conversation_id: &str,
+    message_id: &str,
+    stream_id: &str,
+    model_id: &str,
+    provider_id: &str,
+    usage: Option<TokenUsage>,
+) -> ChatStreamEvent {
+    ChatStreamEvent {
+        conversation_id: conversation_id.to_string(),
+        message_id: message_id.to_string(),
+        stream_id: Some(stream_id.to_string()),
+        model_id: Some(model_id.to_string()),
+        provider_id: Some(provider_id.to_string()),
+        chunk: ChatStreamChunk {
+            content: None,
+            thinking: None,
+            done: true,
+            is_final: Some(true),
+            usage,
+            tool_calls: None,
+        },
+    }
+}
+
+fn pre_persist_stream_chunk(chunk: &ChatStreamChunk) -> Option<ChatStreamChunk> {
+    if !chunk.done {
+        return Some(chunk.clone());
+    }
+
+    let has_tool_calls = chunk
+        .tool_calls
+        .as_ref()
+        .is_some_and(|tool_calls| !tool_calls.is_empty());
+    if has_tool_calls {
+        let mut non_final = chunk.clone();
+        non_final.is_final = Some(false);
+        return Some(non_final);
+    }
+
+    if chunk.content.is_none() && chunk.thinking.is_none() && chunk.usage.is_none() {
+        return None;
+    }
+
+    let mut delta = chunk.clone();
+    delta.done = false;
+    delta.is_final = None;
+    Some(delta)
 }
 
 const STREAM_ERROR_CONTENT_MARKER: &str = "<!-- aqbot-stream-error -->";
@@ -1435,15 +1544,15 @@ async fn consume_stream(
     String, // full_content (includes <think> blocks)
     Option<TokenUsage>,
     Option<Vec<ToolCall>>,
-    Option<String>, // stream_error
-    Option<f64>,    // tokens_per_second
-    Option<i64>,    // first_token_latency_ms
+    Option<ChatStreamErrorEvent>,
+    Option<f64>, // tokens_per_second
+    Option<i64>, // first_token_latency_ms
 ) {
     use futures::StreamExt;
     let mut full_content = String::new();
     let mut final_usage: Option<TokenUsage> = None;
     let mut final_tool_calls: Option<Vec<ToolCall>> = None;
-    let mut stream_error: Option<String> = None;
+    let mut stream_error: Option<ChatStreamErrorEvent> = None;
 
     let stream_start = std::time::Instant::now();
     let mut first_token_time: Option<std::time::Instant> = None;
@@ -1475,9 +1584,8 @@ async fn consume_stream(
                         timeout,
                     );
                     let err_msg = error_event.error.clone();
-                    let _ = app.emit("chat-stream-error", error_event);
                     tracing::error!("[consume_stream] {}", err_msg);
-                    stream_error = Some(err_msg);
+                    stream_error = Some(error_event);
                     break;
                 }
             },
@@ -1580,21 +1688,18 @@ async fn consume_stream(
                     && final_tool_calls.as_ref().is_none_or(|tc| tc.is_empty())
                 {
                     let err_msg = "Provider returned empty response".to_string();
-                    let _ = app.emit(
-                        "chat-stream-error",
-                        build_stream_error_event(
-                            conversation_id,
-                            message_id,
-                            stream_id,
-                            model_id,
-                            provider_id,
-                            err_msg.clone(),
-                            "empty_response",
-                            None,
-                        ),
+                    let error_event = build_stream_error_event(
+                        conversation_id,
+                        message_id,
+                        stream_id,
+                        model_id,
+                        provider_id,
+                        err_msg.clone(),
+                        "empty_response",
+                        None,
                     );
                     tracing::warn!("[consume_stream] Empty response from provider");
-                    stream_error = Some(err_msg);
+                    stream_error = Some(error_event);
                     break;
                 }
 
@@ -1619,17 +1724,19 @@ async fn consume_stream(
                     );
                 }
 
-                let _ = app.emit(
-                    "chat-stream-chunk",
-                    ChatStreamEvent {
-                        conversation_id: conversation_id.to_string(),
-                        message_id: message_id.to_string(),
-                        stream_id: Some(stream_id.to_string()),
-                        model_id: Some(model_id.to_string()),
-                        provider_id: Some(provider_id.to_string()),
-                        chunk: emitted_chunk,
-                    },
-                );
+                if let Some(pre_persist_chunk) = pre_persist_stream_chunk(&emitted_chunk) {
+                    let _ = app.emit(
+                        "chat-stream-chunk",
+                        ChatStreamEvent {
+                            conversation_id: conversation_id.to_string(),
+                            message_id: message_id.to_string(),
+                            stream_id: Some(stream_id.to_string()),
+                            model_id: Some(model_id.to_string()),
+                            provider_id: Some(provider_id.to_string()),
+                            chunk: pre_persist_chunk,
+                        },
+                    );
+                }
 
                 if is_done {
                     break;
@@ -1637,21 +1744,18 @@ async fn consume_stream(
             }
             Err(e) => {
                 let err_msg = format!("{}", e);
-                let _ = app.emit(
-                    "chat-stream-error",
-                    build_stream_error_event(
-                        conversation_id,
-                        message_id,
-                        stream_id,
-                        model_id,
-                        provider_id,
-                        err_msg.clone(),
-                        "provider_error",
-                        None,
-                    ),
+                let error_event = build_stream_error_event(
+                    conversation_id,
+                    message_id,
+                    stream_id,
+                    model_id,
+                    provider_id,
+                    err_msg.clone(),
+                    "provider_error",
+                    None,
                 );
                 tracing::error!("Stream error: {}", e);
-                stream_error = Some(err_msg);
+                stream_error = Some(error_event);
                 break;
             }
         }
@@ -2874,9 +2978,7 @@ fn spawn_stream_task(
     settings: AppSettings,
     master_key: [u8; 32],
     cancel_flag: Arc<AtomicBool>,
-    cancel_flags: Arc<
-        tokio::sync::Mutex<std::collections::HashMap<String, crate::StreamCancelEntry>>,
-    >,
+    stream_guard: RegisteredStreamGuard,
     content_prefix: String,
     create_inactive: bool,
     skip_placeholder_create: bool,
@@ -2910,7 +3012,7 @@ fn spawn_stream_task(
                         None,
                     ),
                 );
-                cancel_flags.lock().await.remove(&stream_id);
+                stream_guard.release().await;
                 return;
             }
         };
@@ -2922,7 +3024,7 @@ fn spawn_stream_task(
         let mut total_usage: Option<TokenUsage> = None;
         let mut final_tool_calls_json: Option<String> = None;
         let mut had_stream_error = false;
-        let mut last_stream_error: Option<String> = None;
+        let mut last_stream_error: Option<ChatStreamErrorEvent> = None;
         let mut final_tokens_per_second: Option<f64> = None;
         let mut final_first_token_latency_ms: Option<i64> = None;
 
@@ -2975,8 +3077,7 @@ fn spawn_stream_task(
                     &provider.id,
                     max_tool_iterations,
                 );
-                last_stream_error = Some(error_event.error.clone());
-                let _ = app.emit("chat-stream-error", error_event);
+                last_stream_error = Some(error_event);
                 break;
             }
 
@@ -3035,8 +3136,8 @@ fn spawn_stream_task(
             }
 
             // If stream errored, save what we have and break
-            if stream_error.is_some() {
-                last_stream_error = stream_error;
+            if let Some(error_event) = stream_error {
+                last_stream_error = Some(error_event);
                 had_stream_error = true;
                 break;
             }
@@ -3233,7 +3334,10 @@ fn spawn_stream_task(
         // details (URL, model, provider) so the user sees diagnostic info
         // even after a page refresh.
         if had_stream_error && total_content.is_empty() {
-            let err = last_stream_error.as_deref().unwrap_or("Unknown error");
+            let err = last_stream_error
+                .as_ref()
+                .map(|event| event.error.as_str())
+                .unwrap_or("Unknown error");
             let base_url = ctx.base_url.as_deref().unwrap_or("(not set)");
             let api_path_display = ctx.api_path.as_deref().unwrap_or("(default)");
             total_content = format!(
@@ -3241,7 +3345,10 @@ fn spawn_stream_task(
                 err, base_url, api_path_display, model_id, provider.name, provider.provider_type,
             );
         } else if had_stream_error {
-            let err = last_stream_error.as_deref().unwrap_or("Unknown error");
+            let err = last_stream_error
+                .as_ref()
+                .map(|event| event.error.as_str())
+                .unwrap_or("Unknown error");
             total_content = append_stream_error_to_content(&total_content, err);
         }
         if had_stream_error || was_cancelled {
@@ -3282,6 +3389,41 @@ fn spawn_stream_task(
             aqbot_core::repo::conversation::increment_message_count(&db, &conversation_id).await
         {
             tracing::error!("Failed to increment message count: {}", e);
+        }
+
+        let terminal_error_event = if had_stream_error {
+            Some(last_stream_error.unwrap_or_else(|| {
+                build_stream_error_event(
+                    &conversation_id,
+                    &assistant_message_id,
+                    &stream_id,
+                    &model_id,
+                    &provider.id,
+                    "Unknown stream error".to_string(),
+                    "provider_error",
+                    None,
+                )
+            }))
+        } else {
+            None
+        };
+
+        stream_guard.release().await;
+
+        if let Some(error_event) = terminal_error_event {
+            let _ = app.emit("chat-stream-error", error_event);
+        } else if !was_cancelled {
+            let _ = app.emit(
+                "chat-stream-chunk",
+                build_stream_done_event(
+                    &conversation_id,
+                    &assistant_message_id,
+                    &stream_id,
+                    &model_id,
+                    &provider.id,
+                    total_usage.clone(),
+                ),
+            );
         }
 
         // Auto-title: if this is the first user message, set conversation title
@@ -3379,9 +3521,6 @@ fn spawn_stream_task(
                 }
             }
         }
-
-        // Clean up cancel flag
-        cancel_flags.lock().await.remove(&stream_id);
     });
 }
 
@@ -3522,7 +3661,7 @@ pub async fn send_message(
     // 5. Generate assistant message ID upfront so early RAG events can target
     // the same assistant row that the stream will later update.
     let assistant_message_id = aqbot_core::utils::gen_id();
-    register_stream_cancel_flag(
+    let stream_guard = RegisteredStreamGuard::register(
         state.stream_cancel_flags.clone(),
         &conversation_id,
         &stream_id,
@@ -3557,7 +3696,7 @@ pub async fn send_message(
     let assistant_content_prefix = format!("{}{}", content_prefix.unwrap_or_default(), memory_tag);
 
     if rag_cancelled {
-        state.stream_cancel_flags.lock().await.remove(&stream_id);
+        stream_guard.release().await;
         return Ok(user_message);
     }
 
@@ -3783,7 +3922,7 @@ pub async fn send_message(
         global_settings,
         state.master_key,
         cancel_flag,
-        state.stream_cancel_flags.clone(),
+        stream_guard,
         assistant_content_prefix,
         false,
         false,
@@ -3924,7 +4063,7 @@ pub async fn regenerate_message(
     // 7. Spawn streaming with new version
     let assistant_message_id = aqbot_core::utils::gen_id();
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    register_stream_cancel_flag(
+    let stream_guard = RegisteredStreamGuard::register(
         state.stream_cancel_flags.clone(),
         &conversation_id,
         &stream_id,
@@ -3969,7 +4108,7 @@ pub async fn regenerate_message(
             });
         }
         if rag_cancelled {
-            state.stream_cancel_flags.lock().await.remove(&stream_id);
+            stream_guard.release().await;
             return Ok(());
         }
         tag
@@ -4106,7 +4245,7 @@ pub async fn regenerate_message(
         global_settings,
         state.master_key,
         cancel_flag,
-        state.stream_cancel_flags.clone(),
+        stream_guard,
         memory_tag,
         false,
         false,
@@ -4238,7 +4377,7 @@ pub async fn regenerate_with_model(
 
     let assistant_message_id = aqbot_core::utils::gen_id();
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    register_stream_cancel_flag(
+    let stream_guard = RegisteredStreamGuard::register(
         state.stream_cancel_flags.clone(),
         &conversation_id,
         &stream_id,
@@ -4283,7 +4422,7 @@ pub async fn regenerate_with_model(
             });
         }
         if rag_cancelled {
-            state.stream_cancel_flags.lock().await.remove(&stream_id);
+            stream_guard.release().await;
             return Ok(());
         }
         tag
@@ -4460,7 +4599,7 @@ pub async fn regenerate_with_model(
         global_settings,
         state.master_key,
         cancel_flag,
-        state.stream_cancel_flags.clone(),
+        stream_guard,
         memory_tag,
         companion,
         true,
@@ -5288,6 +5427,48 @@ mod tests {
         let guard = flags.lock().await;
         assert!(guard.contains_key("stream-a"));
         assert!(guard.contains_key("stream-b"));
+    }
+
+    #[tokio::test]
+    async fn registered_stream_guard_releases_active_stream_when_dropped_before_spawn() {
+        let flags = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+
+        let guard = RegisteredStreamGuard::register(
+            flags.clone(),
+            "conv-1",
+            "stream-a",
+            cancel_flag.clone(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(has_active_stream_for_conversation(flags.clone(), "conv-1").await);
+
+        drop(guard);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert!(cancel_flag.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(!has_active_stream_for_conversation(flags, "conv-1").await);
+    }
+
+    #[test]
+    fn terminal_provider_done_chunk_is_emitted_as_delta_until_persisted() {
+        let provider_chunk = ChatStreamChunk {
+            content: Some("final text".to_string()),
+            thinking: None,
+            done: true,
+            is_final: None,
+            usage: None,
+            tool_calls: None,
+        };
+
+        let emitted = pre_persist_stream_chunk(&provider_chunk).expect("chunk emitted");
+
+        assert_eq!(emitted.content.as_deref(), Some("final text"));
+        assert!(!emitted.done);
+        assert_eq!(emitted.is_final, None);
     }
 
     #[test]
