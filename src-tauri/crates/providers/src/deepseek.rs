@@ -39,7 +39,12 @@ impl OpenAICompatPolicy for DeepSeekPolicy {
         ReasoningStyle::OpenAIReasoningEffort
     }
 
-    fn normalize_reasoning_effort(&self, level: &str, effort: String) -> Option<String> {
+    fn normalize_reasoning_effort(
+        &self,
+        _request: &ChatRequest,
+        level: &str,
+        effort: String,
+    ) -> Option<String> {
         if matches!(level, "off" | "none") {
             return None;
         }

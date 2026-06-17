@@ -23,7 +23,7 @@ export function resolveModelParamDefaults(
   return {
     temperature: model?.param_overrides?.temperature ?? settings?.default_temperature ?? 0.7,
     topP: model?.param_overrides?.top_p ?? settings?.default_top_p ?? 1,
-    maxTokens: model?.param_overrides?.max_tokens ?? settings?.default_max_tokens ?? 4096,
+    maxTokens: settings?.default_max_tokens ?? 4096,
     frequencyPenalty: model?.param_overrides?.frequency_penalty ?? settings?.default_frequency_penalty ?? 0,
   };
 }

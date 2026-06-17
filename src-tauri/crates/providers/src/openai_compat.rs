@@ -26,7 +26,12 @@ pub(crate) trait OpenAICompatPolicy: Clone + Send + Sync + 'static {
         ReasoningStyle::OpenAIReasoningEffort
     }
 
-    fn normalize_reasoning_effort(&self, level: &str, effort: String) -> Option<String> {
+    fn normalize_reasoning_effort(
+        &self,
+        _request: &ChatRequest,
+        level: &str,
+        effort: String,
+    ) -> Option<String> {
         active_reasoning_level(level).then_some(effort)
     }
 
@@ -767,7 +772,7 @@ fn build_request<P: OpenAICompatPolicy>(
     let suppress_sampling_params = policy.suppress_sampling_params(reasoning.as_ref());
     let reasoning_effort = reasoning.as_ref().and_then(|r| {
         let effort = r.reasoning_effort.clone()?;
-        policy.normalize_reasoning_effort(&r.level, effort)
+        policy.normalize_reasoning_effort(request, &r.level, effort)
     });
     let mut extra = policy.extra_body_fields(reasoning.as_ref());
     merge_model_extra_body(&mut extra, request.extra_body.as_ref());
@@ -1353,8 +1358,8 @@ mod tests {
         assert!(serialized.get("reasoning_effort").is_none());
         assert!(serialized.get("enable_thinking").is_none());
         assert!(serialized.get("thinking_budget").is_none());
-        assert!(serialized.get("max_completion_tokens").is_none());
-        assert_eq!(serialized["max_tokens"], json!(300_000));
+        assert!(serialized.get("max_tokens").is_none());
+        assert_eq!(serialized["max_completion_tokens"], json!(300_000));
         assert_eq!(serialized["temperature"], json!(0.7));
         assert_eq!(serialized["top_p"], json!(1.0));
     }
@@ -1371,6 +1376,17 @@ mod tests {
         assert!(serialized.get("reasoning_effort").is_none());
         assert_eq!(serialized["temperature"], json!(0.7));
         assert_eq!(serialized["top_p"], json!(1.0));
+    }
+
+    #[test]
+    fn xai_grok_43_sends_supported_reasoning_effort() {
+        let mut request = base_chat_request("grok-4.3");
+        request.thinking_level = Some("medium".to_string());
+
+        let body = build_request(&XAIPolicy, &request, &request.messages, true);
+        let serialized = serde_json::to_value(body).expect("request json");
+
+        assert_eq!(serialized["reasoning_effort"], json!("medium"));
     }
 
     #[test]

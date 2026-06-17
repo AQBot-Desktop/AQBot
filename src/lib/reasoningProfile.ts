@@ -219,7 +219,14 @@ function deepSeekProfile(): ReasoningProfile {
   };
 }
 
-function xaiProfile(): ReasoningProfile {
+function xaiProfile(modelId: string): ReasoningProfile {
+  if (modelId.startsWith('grok-4.3')) {
+    return {
+      apiStyle: 'openai_reasoning_effort',
+      defaultOptionKey: 'default',
+      options: options(['default', 'none', 'low', 'medium', 'high']),
+    };
+  }
   return { apiStyle: 'none', defaultOptionKey: 'default', options: options(['default']) };
 }
 
@@ -277,7 +284,7 @@ export function resolveReasoningProfile(
   if (providerType === 'gemini') return geminiProfile(modelId);
   if (providerType === 'anthropic') return anthropicProfile(modelId);
   if (providerType === 'deepseek') return deepSeekProfile();
-  if (providerType === 'xai') return xaiProfile();
+  if (providerType === 'xai') return xaiProfile(modelId);
   if (providerType === 'glm') return glmProfile();
   if (providerType === 'siliconflow') return siliconFlowProfile();
   if (providerType === 'openai' || providerType === 'openai_responses') return openAiProfile(providerType, modelId);

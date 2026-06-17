@@ -31,7 +31,12 @@ impl OpenAICompatPolicy for SiliconFlowPolicy {
         ReasoningStyle::SiliconFlowEnableThinking
     }
 
-    fn normalize_reasoning_effort(&self, _level: &str, _effort: String) -> Option<String> {
+    fn normalize_reasoning_effort(
+        &self,
+        _request: &ChatRequest,
+        _level: &str,
+        _effort: String,
+    ) -> Option<String> {
         None
     }
 

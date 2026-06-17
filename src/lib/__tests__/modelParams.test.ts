@@ -23,7 +23,7 @@ const globalDefaults: SettingsForDefaults = {
 };
 
 describe('resolveModelParamDefaults', () => {
-  it('prefers the selected model params over global default model params', () => {
+  it('prefers selected model sampling params but not model max token presets', () => {
     const defaults = resolveModelParamDefaults(
       modelWithOverrides({
         temperature: 0.2,
@@ -37,7 +37,7 @@ describe('resolveModelParamDefaults', () => {
     expect(defaults).toEqual({
       temperature: 0.2,
       topP: 0.8,
-      maxTokens: 4096,
+      maxTokens: 32768,
       frequencyPenalty: 0.4,
     });
   });

@@ -29,7 +29,12 @@ impl OpenAICompatPolicy for GLMPolicy {
         ReasoningStyle::GlmThinking
     }
 
-    fn normalize_reasoning_effort(&self, _level: &str, _effort: String) -> Option<String> {
+    fn normalize_reasoning_effort(
+        &self,
+        _request: &ChatRequest,
+        _level: &str,
+        _effort: String,
+    ) -> Option<String> {
         None
     }
 

@@ -455,7 +455,7 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     vec![TextChat, Vision, Reasoning, FunctionCalling],
                     None,
                 )
-                .with_param_overrides(reasoning_profile("none")),
+                .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
                 BuiltinModel::chat(
                     "grok-3",
                     "Grok 3",

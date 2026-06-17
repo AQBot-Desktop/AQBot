@@ -15,6 +15,10 @@ pub struct XAIAdapter {
 #[derive(Clone, Copy)]
 pub(crate) struct XAIPolicy;
 
+fn supports_reasoning_effort(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("grok-4.3")
+}
+
 impl OpenAICompatPolicy for XAIPolicy {
     fn default_base_url(&self) -> &'static str {
         "https://api.x.ai/v1"
@@ -24,16 +28,28 @@ impl OpenAICompatPolicy for XAIPolicy {
         "xAI API"
     }
 
-    fn default_reasoning_style(&self, _request: &ChatRequest) -> ReasoningStyle {
-        ReasoningStyle::None
+    fn default_reasoning_style(&self, request: &ChatRequest) -> ReasoningStyle {
+        if supports_reasoning_effort(&request.model) {
+            ReasoningStyle::OpenAIReasoningEffort
+        } else {
+            ReasoningStyle::None
+        }
     }
 
-    fn normalize_reasoning_effort(&self, _level: &str, _effort: String) -> Option<String> {
-        None
+    fn normalize_reasoning_effort(
+        &self,
+        request: &ChatRequest,
+        _level: &str,
+        effort: String,
+    ) -> Option<String> {
+        if !supports_reasoning_effort(&request.model) {
+            return None;
+        }
+        matches!(effort.as_str(), "none" | "low" | "medium" | "high").then_some(effort)
     }
 
     fn use_max_completion_tokens(&self, _request: &ChatRequest) -> bool {
-        false
+        true
     }
 
     fn suppress_sampling_params(&self, _reasoning: Option<&ResolvedReasoning>) -> bool {

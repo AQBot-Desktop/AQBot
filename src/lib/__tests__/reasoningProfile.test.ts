@@ -84,6 +84,7 @@ describe('reasoning profile resolution', () => {
 
   it('uses dedicated OpenAI-compatible provider profiles', () => {
     expect(optionKeys('deepseek', 'deepseek-v4-flash')).toEqual(['default', 'none', 'high', 'max']);
+    expect(optionKeys('xai', 'grok-4.3')).toEqual(['default', 'none', 'low', 'medium', 'high']);
     expect(optionKeys('xai', 'grok-3-mini')).toEqual(['default']);
     expect(optionKeys('glm', 'glm-4.6')).toEqual(['default', 'none', 'high']);
     expect(optionKeys('siliconflow', 'Qwen/Qwen3-235B-A22B')).toEqual(['default', 'none', 'low', 'medium', 'high']);
