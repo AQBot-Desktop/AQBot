@@ -222,6 +222,7 @@ vi.mock('@dnd-kit/core', () => ({
 
 vi.mock('@lobehub/icons', () => ({
   ModelIcon: () => null,
+  modelMappings: [],
 }));
 
 vi.mock('@/stores', () => ({
@@ -315,6 +316,22 @@ describe('ChatSidebar direct delete shortcut', () => {
 
     expect(mocks.confirm).toHaveBeenCalledTimes(1);
     expect(mocks.deleteConversation).not.toHaveBeenCalled();
+  });
+
+  it('renders long conversation titles inside a constrained truncation element', () => {
+    const longTitle = '这是一个非常长的用户首条消息标题，用来模拟标题总结模型失败时回退到用户输入导致侧边栏被撑高的问题';
+    conversationState.conversations[0].title = longTitle;
+
+    render(<ChatSidebar />);
+
+    const title = screen.getByText(longTitle);
+    expect(title).toHaveClass('aqbot-chat-conversation-title');
+    expect(title).toHaveAttribute('title', longTitle);
+    expect(title).toHaveStyle({
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    });
   });
 
   it('turns the more trigger into direct delete while Ctrl is held', async () => {

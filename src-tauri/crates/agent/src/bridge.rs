@@ -212,17 +212,17 @@ fn convert_request(
     }
     final_messages.extend(messages);
 
+    let force_model_max_tokens = model_param_overrides
+        .and_then(|overrides| overrides.force_max_tokens)
+        == Some(true);
     let max_tokens = if request.max_tokens > 0 {
         Some(request.max_tokens as u32)
+    } else if force_model_max_tokens {
+        model_param_overrides
+            .and_then(|overrides| overrides.max_tokens)
+            .or(Some(4096))
     } else {
-        model_param_overrides.and_then(|overrides| {
-            overrides.max_tokens.or_else(|| {
-                overrides
-                    .force_max_tokens
-                    .filter(|force| *force)
-                    .map(|_| 4096)
-            })
-        })
+        None
     };
 
     ChatRequest {
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn convert_request_applies_model_param_overrides() {
+    fn convert_request_applies_non_token_model_param_overrides() {
         let messages = vec![Message {
             role: MessageRole::User,
             content: vec![ContentBlock::Text {
@@ -519,7 +519,7 @@ mod tests {
 
         let converted = convert_request(request, Some(&param_overrides()));
 
-        assert_eq!(converted.max_tokens, Some(2048));
+        assert_eq!(converted.max_tokens, None);
         assert_eq!(
             converted.reasoning_profile.as_deref(),
             Some("siliconflow_enable_thinking")
@@ -529,6 +529,30 @@ mod tests {
             converted.thinking_param_style.as_deref(),
             Some("enable_thinking")
         );
+    }
+
+    #[test]
+    fn convert_request_uses_model_max_tokens_only_when_forced() {
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let request = ProviderRequest {
+            model: "deepseek-reasoner",
+            max_tokens: 0,
+            messages: &messages,
+            system: None,
+            tools: None,
+            thinking: None,
+        };
+        let mut overrides = param_overrides();
+        overrides.force_max_tokens = Some(true);
+
+        let converted = convert_request(request, Some(&overrides));
+
+        assert_eq!(converted.max_tokens, Some(2048));
     }
 
     #[test]

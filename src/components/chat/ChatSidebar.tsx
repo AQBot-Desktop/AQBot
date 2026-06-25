@@ -47,7 +47,17 @@ function getDirectDeleteShortcutLabel(): string {
 function ConversationTitleText({ title, className = '' }: { title: string; className?: string }) {
   const mergedClassName = ['aqbot-chat-conversation-title', className].filter(Boolean).join(' ')
   return (
-    <span className={mergedClassName} title={title}>
+    <span
+      className={mergedClassName}
+      title={title}
+      style={{
+        display: 'block',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
       {title}
     </span>
   )
@@ -1496,6 +1506,15 @@ export function ChatSidebar() {
                 }
                 .ant-conversations .ant-conversations-item-active .ant-conversations-label {
                   color: ${token.colorPrimary} !important;
+                }
+                .ant-conversations .ant-conversations-label {
+                  min-width: 0;
+                  overflow: hidden;
+                }
+                .aqbot-chat-conversation-title-row {
+                  min-width: 0;
+                  width: 100%;
+                  overflow: hidden;
                 }
                 .aqbot-chat-conversation-menu-delete {
                   width: 22px;

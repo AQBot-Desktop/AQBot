@@ -413,7 +413,7 @@ fn resolve_chat_model_params(
     conversation: &Conversation,
     model_param_overrides: Option<&ModelParamOverrides>,
     settings: &AppSettings,
-    use_max_completion_tokens: Option<bool>,
+    _use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
 ) -> EffectiveChatModelParams {
     let temperature = conversation
@@ -426,18 +426,14 @@ fn resolve_chat_model_params(
         .or_else(|| model_param_overrides.and_then(|p| p.top_p))
         .or(settings.default_top_p)
         .map(|v| v as f64);
-    let model_max_tokens = model_param_overrides.and_then(|p| p.max_tokens);
-    let should_use_model_max_tokens =
-        force_max_tokens == Some(true) || use_max_completion_tokens == Some(true);
-    let max_tokens = conversation
-        .max_tokens
-        .or_else(|| {
-            should_use_model_max_tokens
-                .then_some(model_max_tokens)
-                .flatten()
-        })
-        .or(settings.default_max_tokens)
-        .or_else(|| (force_max_tokens == Some(true)).then_some(4096));
+    let max_tokens = match conversation.max_tokens {
+        Some(max_tokens) => Some(max_tokens),
+        None if force_max_tokens == Some(true) => model_param_overrides
+            .and_then(|p| p.max_tokens)
+            .or(settings.default_max_tokens)
+            .or(Some(4096)),
+        None => settings.default_max_tokens,
+    };
 
     EffectiveChatModelParams {
         temperature,
@@ -6315,7 +6311,7 @@ mod tests {
     }
 
     #[test]
-    fn model_max_tokens_still_applies_for_max_completion_tokens_models() {
+    fn model_max_tokens_does_not_apply_just_because_max_completion_tokens_is_enabled() {
         let mut settings = AppSettings::default();
         settings.default_max_tokens = Some(32768);
 
@@ -6327,7 +6323,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(params.max_tokens, Some(2048));
+        assert_eq!(params.max_tokens, Some(32768));
     }
 
     #[test]
