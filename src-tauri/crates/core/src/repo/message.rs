@@ -4,7 +4,9 @@ use std::collections::HashSet;
 
 use crate::entity::messages;
 use crate::error::{AQBotError, Result};
-use crate::types::{Attachment, ConversationStats, Message, MessagePage, MessageRole};
+use crate::types::{
+    Attachment, ConversationStats, Message, MessagePage, MessageRole, MessageSummary, MessageWindow,
+};
 use crate::utils::{gen_id, now_ts};
 
 fn parse_role(s: &str) -> MessageRole {
@@ -182,6 +184,203 @@ pub async fn list_messages_page(
         oldest_message_id,
         total_active_count,
     })
+}
+
+pub async fn list_messages_window(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    anchor_message_id: &str,
+    before_limit: u64,
+    after_limit: u64,
+) -> Result<MessageWindow> {
+    let total_active_count = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .count(db)
+        .await?;
+
+    let anchor = messages::Entity::find_by_id(anchor_message_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", anchor_message_id)))?;
+    if anchor.conversation_id != conversation_id || anchor.is_active != 1 {
+        return Err(AQBotError::NotFound(format!("Message {}", anchor_message_id)));
+    }
+
+    let mut older_rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .filter(
+            Condition::any()
+                .add(messages::Column::CreatedAt.lt(anchor.created_at))
+                .add(
+                    Condition::all()
+                        .add(messages::Column::CreatedAt.eq(anchor.created_at))
+                        .add(messages::Column::Id.lt(anchor.id.clone())),
+                ),
+        )
+        .order_by_desc(messages::Column::CreatedAt)
+        .order_by_desc(messages::Column::Id)
+        .limit(before_limit + 1)
+        .all(db)
+        .await?;
+    let has_older = older_rows.len() > before_limit as usize;
+    if has_older {
+        older_rows.truncate(before_limit as usize);
+    }
+    older_rows.reverse();
+
+    let mut anchor_and_newer_rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .filter(
+            Condition::any()
+                .add(messages::Column::CreatedAt.gt(anchor.created_at))
+                .add(
+                    Condition::all()
+                        .add(messages::Column::CreatedAt.eq(anchor.created_at))
+                        .add(messages::Column::Id.gte(anchor.id.clone())),
+                ),
+        )
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
+        .limit(after_limit + 2)
+        .all(db)
+        .await?;
+    let newer_window_len = after_limit as usize + 1;
+    let has_newer = anchor_and_newer_rows.len() > newer_window_len;
+    if has_newer {
+        anchor_and_newer_rows.truncate(newer_window_len);
+    }
+
+    let rows = older_rows
+        .into_iter()
+        .chain(anchor_and_newer_rows.into_iter())
+        .collect::<Vec<_>>();
+    let messages = rows
+        .into_iter()
+        .map(message_from_entity)
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(MessageWindow {
+        oldest_message_id: messages.first().map(|message| message.id.clone()),
+        newest_message_id: messages.last().map(|message| message.id.clone()),
+        messages,
+        has_older,
+        has_newer,
+        total_active_count,
+    })
+}
+
+pub async fn list_messages_after(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    after_message_id: &str,
+    limit: u64,
+) -> Result<MessageWindow> {
+    let total_active_count = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .count(db)
+        .await?;
+
+    let cursor = messages::Entity::find_by_id(after_message_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", after_message_id)))?;
+    if cursor.conversation_id != conversation_id || cursor.is_active != 1 {
+        return Err(AQBotError::NotFound(format!("Message {}", after_message_id)));
+    }
+
+    let mut rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .filter(
+            Condition::any()
+                .add(messages::Column::CreatedAt.gt(cursor.created_at))
+                .add(
+                    Condition::all()
+                        .add(messages::Column::CreatedAt.eq(cursor.created_at))
+                        .add(messages::Column::Id.gt(cursor.id.clone())),
+                ),
+        )
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
+        .limit(limit + 1)
+        .all(db)
+        .await?;
+    let has_newer = rows.len() > limit as usize;
+    if has_newer {
+        rows.truncate(limit as usize);
+    }
+    let messages = rows
+        .into_iter()
+        .map(message_from_entity)
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(MessageWindow {
+        oldest_message_id: messages.first().map(|message| message.id.clone()),
+        newest_message_id: messages.last().map(|message| message.id.clone()),
+        messages,
+        has_older: true,
+        has_newer,
+        total_active_count,
+    })
+}
+
+pub async fn list_message_summaries(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+) -> Result<Vec<MessageSummary>> {
+    use sea_orm::{FromQueryResult, Statement};
+
+    #[derive(Debug, FromQueryResult)]
+    struct SummaryRow {
+        id: String,
+        role: String,
+        content_preview: String,
+        provider_id: Option<String>,
+        model_id: Option<String>,
+        created_at: i64,
+        parent_message_id: Option<String>,
+    }
+
+    let sql = r#"
+        SELECT
+            id,
+            role,
+            substr(content, 1, 500) AS content_preview,
+            provider_id,
+            model_id,
+            created_at,
+            parent_message_id
+        FROM messages
+        WHERE conversation_id = ?
+          AND is_active = 1
+          AND role IN ('user', 'assistant')
+        ORDER BY created_at ASC, id ASC
+    "#;
+
+    let rows = SummaryRow::find_by_statement(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        sql,
+        vec![conversation_id.into()],
+    ))
+    .all(db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| MessageSummary {
+            id: row.id,
+            role: parse_role(&row.role),
+            content_preview: row.content_preview,
+            provider_id: row.provider_id,
+            model_id: row.model_id,
+            created_at: row.created_at,
+            parent_message_id: row.parent_message_id,
+        })
+        .collect())
 }
 
 pub async fn create_message(

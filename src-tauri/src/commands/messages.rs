@@ -30,6 +30,52 @@ pub async fn list_messages_page(
 }
 
 #[tauri::command]
+pub async fn list_message_summaries(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<Vec<MessageSummary>, String> {
+    aqbot_core::repo::message::list_message_summaries(&state.sea_db, &conversation_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_messages_window(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    anchor_message_id: String,
+    before_limit: Option<u64>,
+    after_limit: Option<u64>,
+) -> Result<MessageWindow, String> {
+    aqbot_core::repo::message::list_messages_window(
+        &state.sea_db,
+        &conversation_id,
+        &anchor_message_id,
+        before_limit.unwrap_or(4),
+        after_limit.unwrap_or(8),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_messages_after(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    after_message_id: String,
+    limit: Option<u64>,
+) -> Result<MessageWindow, String> {
+    aqbot_core::repo::message::list_messages_after(
+        &state.sea_db,
+        &conversation_id,
+        &after_message_id,
+        limit.unwrap_or(10),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_message(state: State<'_, AppState>, id: String) -> Result<(), String> {
     aqbot_core::repo::message::delete_message(&state.sea_db, &id)
         .await

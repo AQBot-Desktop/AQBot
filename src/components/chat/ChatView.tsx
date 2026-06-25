@@ -129,6 +129,8 @@ const CHAT_RENDER_BATCH_PROPS = {
   maxLiveNodes: 480,
   liveNodeBuffer: 96,
 } as const;
+const MINIMAP_JUMP_BEFORE_LIMIT = 4;
+const MINIMAP_JUMP_AFTER_LIMIT = 8;
 const USER_SCROLL_INTENT_GRACE_MS = 250;
 
 function useLiveStreamContent(messageId: string | null | undefined, enabled: boolean): string | undefined {
@@ -434,6 +436,14 @@ function containsDeferredHeavyNode(nodes?: ChatMarkdownNode[]) {
   }
 
   return false;
+}
+
+function isStandaloneD2Fence(content: string) {
+  return /^\s*```[ \t]*d2[^\n]*\n[\s\S]*\n```[ \t]*\s*$/i.test(content);
+}
+
+function shouldDeferAssistantMarkdownParse(content: string) {
+  return content.includes('```') && !isStandaloneD2Fence(content);
 }
 
 function sanitizeD2Url(url: string) {
@@ -1669,8 +1679,6 @@ function AssistantFooter({
   const [branchTitle, setBranchTitle] = useState('');
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
-  // Track message count to re-fetch versions when companion messages appear
-  const messagesLength = useConversationStore((s) => s.messages.length);
   const storeMessages = useConversationStore((s) => s.messages);
 
   useEffect(() => {
@@ -1684,7 +1692,7 @@ function AssistantFooter({
         }
       });
     }
-  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, hydrateMessageVersions, messagesLength]);
+  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, hydrateMessageVersions]);
 
   // Merge DB-fetched versions with in-store companion messages for real-time visibility
   const mergedVersions = useMemo(() => {
@@ -2080,7 +2088,9 @@ export function ChatView() {
   const searchDisplayByMessageId = useConversationStore((s) => s.searchDisplayByMessageId);
   const loading = useConversationStore((s) => s.loading);
   const loadingOlder = useConversationStore((s) => s.loadingOlder);
+  const loadingNewer = useConversationStore((s) => s.loadingNewer);
   const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
+  const hasNewerMessages = useConversationStore((s) => s.hasNewerMessages);
   const streaming = useConversationStore((s) => s.streaming);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const streamingMessageId = useConversationStore((s) => s.streamingMessageId);
@@ -2093,6 +2103,8 @@ export function ChatView() {
   const titleGeneratingConversationId = useConversationStore((s) => s.titleGeneratingConversationId);
   const regenerateTitle = useConversationStore((s) => s.regenerateTitle);
   const loadOlderMessages = useConversationStore((s) => s.loadOlderMessages);
+  const loadNewerMessages = useConversationStore((s) => s.loadNewerMessages);
+  const loadMessagesAround = useConversationStore((s) => s.loadMessagesAround);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessage = useConversationStore((s) => s.deleteMessage);
@@ -2375,26 +2387,36 @@ export function ChatView() {
 
   // Scroll callback for ChatMinimap — finds bubble DOM element by message ID
   const minimapScrollTo = useCallback((messageId: string) => {
-    // scrollBoxRef may not be populated yet on first load; fall back to DOM query
-    let scrollBox = scrollBoxRef.current;
-    if (!scrollBox) {
-      scrollBox = (bubbleListRef.current?.scrollBoxNativeElement as HTMLElement)
-        ?? document.querySelector<HTMLElement>('.ant-bubble-list-scroll-box');
-      if (scrollBox) scrollBoxRef.current = scrollBox;
-    }
-    if (!scrollBox) return;
-    const marker = scrollBox.querySelector(`[data-aqbot-msg="${messageId}"]`);
-    if (!marker) return;
-    // Walk up from marker to find the bubble wrapper (near-child of scrollBox)
-    let el: Element = marker;
-    for (;;) {
-      const parent = el.parentElement;
-      if (!parent || parent === scrollBox) break;
-      if (parent.parentElement === scrollBox) break;
-      el = parent;
-    }
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+    const scrollToMountedMessage = () => {
+      // scrollBoxRef may not be populated yet on first load; fall back to DOM query
+      let scrollBox = scrollBoxRef.current;
+      if (!scrollBox) {
+        scrollBox = (bubbleListRef.current?.scrollBoxNativeElement as HTMLElement)
+          ?? document.querySelector<HTMLElement>('.ant-bubble-list-scroll-box');
+        if (scrollBox) scrollBoxRef.current = scrollBox;
+      }
+      if (!scrollBox) return false;
+      const marker = scrollBox.querySelector(`[data-aqbot-msg="${messageId}"]`);
+      if (!marker) return false;
+      // Walk up from marker to find the bubble wrapper (near-child of scrollBox)
+      let el: Element = marker;
+      for (;;) {
+        const parent = el.parentElement;
+        if (!parent || parent === scrollBox) break;
+        if (parent.parentElement === scrollBox) break;
+        el = parent;
+      }
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return true;
+    };
+
+    if (scrollToMountedMessage()) return;
+
+    void (async () => {
+      await loadMessagesAround(messageId, MINIMAP_JUMP_BEFORE_LIMIT, MINIMAP_JUMP_AFTER_LIMIT);
+      window.requestAnimationFrame(scrollToMountedMessage);
+    })();
+  }, [loadMessagesAround]);
 
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
@@ -2510,6 +2532,10 @@ export function ChatView() {
     });
   }, [loadOlderMessages]);
 
+  const handleLoadNewerMessages = useCallback(async () => {
+    await loadNewerMessages();
+  }, [loadNewerMessages]);
+
   const handleBubbleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
     const currentMetrics = {
@@ -2550,7 +2576,17 @@ export function ChatView() {
     if (keepAutoScroll !== stickToBottomRef.current) {
       setStickToBottomState(keepAutoScroll);
     }
-    if (!hasOlderMessages || loading || loadingOlder) return;
+    if (loading || loadingOlder || loadingNewer) return;
+    if (hasNewerMessages && hadRecentUserScrollIntent) {
+      const distanceToHistoryBottom = CHAT_SCROLL_IS_REVERSED
+        ? Math.abs(target.scrollTop)
+        : target.scrollHeight - target.clientHeight - target.scrollTop;
+      if (distanceToHistoryBottom <= 24) {
+        void handleLoadNewerMessages();
+        return;
+      }
+    }
+    if (!hasOlderMessages || !hadRecentUserScrollIntent) return;
     const distanceToHistoryTop = getDistanceToHistoryTop(
       target.scrollHeight,
       target.scrollTop,
@@ -2559,7 +2595,16 @@ export function ChatView() {
     );
     if (distanceToHistoryTop > 24) return;
     void handleLoadOlderMessages();
-  }, [handleLoadOlderMessages, hasOlderMessages, loading, loadingOlder, setStickToBottomState]);
+  }, [
+    handleLoadNewerMessages,
+    handleLoadOlderMessages,
+    hasNewerMessages,
+    hasOlderMessages,
+    loading,
+    loadingNewer,
+    loadingOlder,
+    setStickToBottomState,
+  ]);
 
   const handleScrollToBottom = useCallback(() => {
     bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' });
@@ -3244,6 +3289,11 @@ export function ChatView() {
       }
 
       const messageId = String(item.key);
+      if (shouldDeferAssistantMarkdownParse(item.content)) {
+        cache.delete(messageId);
+        continue;
+      }
+
       const cached = cache.get(messageId);
       if (cached && cached.content === item.content) {
         next.set(messageId, cached.nodes);

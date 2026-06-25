@@ -810,6 +810,69 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         oldest_message_id: pageMessages[0]?.id ?? null,
       } as T;
     }
+    case 'list_message_summaries': {
+      const { conversationId } = args as any;
+      const summaries = getStore<any[]>('messages', [])
+        .filter((m: any) => m.conversation_id === conversationId && m.is_active !== false && (m.role === 'user' || m.role === 'assistant'))
+        .sort((a: any, b: any) => a.created_at - b.created_at || String(a.id).localeCompare(String(b.id)))
+        .map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content_preview: String(m.content ?? '').slice(0, 500),
+          provider_id: m.provider_id ?? null,
+          model_id: m.model_id ?? null,
+          created_at: m.created_at,
+          parent_message_id: m.parent_message_id ?? null,
+        }));
+      return summaries as T;
+    }
+    case 'list_messages_window': {
+      const { conversationId, anchorMessageId, beforeLimit = 4, afterLimit = 8 } = args as any;
+      const allMessages = getStore<any[]>('messages', [])
+        .filter((m: any) => m.conversation_id === conversationId && m.is_active !== false)
+        .sort((a: any, b: any) => a.created_at - b.created_at || String(a.id).localeCompare(String(b.id)));
+      const anchorIndex = allMessages.findIndex((m: any) => m.id === anchorMessageId);
+      if (anchorIndex === -1) throw new Error('Message not found');
+      const startIndex = Math.max(0, anchorIndex - beforeLimit);
+      const endIndex = Math.min(allMessages.length, anchorIndex + afterLimit + 1);
+      const pageMessages = allMessages.slice(startIndex, endIndex);
+      return {
+        messages: pageMessages,
+        has_older: startIndex > 0,
+        has_newer: endIndex < allMessages.length,
+        oldest_message_id: pageMessages[0]?.id ?? null,
+        newest_message_id: pageMessages[pageMessages.length - 1]?.id ?? null,
+        total_active_count: allMessages.length,
+      } as T;
+    }
+    case 'list_messages_after': {
+      const { conversationId, afterMessageId, limit = 10 } = args as any;
+      const allMessages = getStore<any[]>('messages', [])
+        .filter((m: any) => m.conversation_id === conversationId && m.is_active !== false)
+        .sort((a: any, b: any) => a.created_at - b.created_at || String(a.id).localeCompare(String(b.id)));
+      const cursorIndex = allMessages.findIndex((m: any) => m.id === afterMessageId);
+      if (cursorIndex === -1) throw new Error('Message not found');
+      const startIndex = cursorIndex + 1;
+      const endIndex = Math.min(allMessages.length, startIndex + limit);
+      const pageMessages = allMessages.slice(startIndex, endIndex);
+      return {
+        messages: pageMessages,
+        has_older: cursorIndex >= 0,
+        has_newer: endIndex < allMessages.length,
+        oldest_message_id: pageMessages[0]?.id ?? null,
+        newest_message_id: pageMessages[pageMessages.length - 1]?.id ?? null,
+        total_active_count: allMessages.length,
+      } as T;
+    }
+    case 'get_context_usage':
+      return {
+        used_tokens: 0,
+        max_tokens: null,
+        threshold_tokens: null,
+        has_summary: false,
+        compressed_until_message_id: null,
+        messages_after_boundary: 0,
+      } as T;
     case 'search_conversations': {
       const { query } = args as any;
       const convs = getStore<any[]>('conversations', []);

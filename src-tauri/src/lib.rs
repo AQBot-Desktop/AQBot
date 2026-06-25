@@ -313,6 +313,9 @@ pub fn run() {
         // messages
         commands::messages::list_messages,
         commands::messages::list_messages_page,
+        commands::messages::list_message_summaries,
+        commands::messages::list_messages_window,
+        commands::messages::list_messages_after,
         commands::messages::delete_message,
         commands::messages::update_message_content,
         commands::messages::clear_conversation_messages,

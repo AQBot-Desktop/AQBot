@@ -7,7 +7,8 @@ import { useConversationStore, useProviderStore, useSettingsStore } from '@/stor
 import { useUserProfileStore } from '@/stores/userProfileStore';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import { stripAqbotTags } from '@/lib/chatMarkdown';
-import type { Message } from '@/types';
+import { invoke } from '@/lib/invoke';
+import type { Message, MessageSummary } from '@/types';
 
 // ── Scroll context — provided by ChatView ──
 
@@ -52,7 +53,7 @@ function useMinimapContext(): MinimapContextValue {
 
 interface MinimapEntry {
   index: number;
-  msg: Message;
+  msg: MessageSummary;
   role: 'user' | 'assistant';
   summary: string;
   modelId?: string | null;
@@ -60,6 +61,12 @@ interface MinimapEntry {
 }
 
 // ── Helpers ──
+
+const MINIMAP_VIRTUAL_OVERSCAN = 4;
+const FAQ_ITEM_HEIGHT = 18;
+const FAQ_DEFAULT_HEIGHT = 480;
+const STICKY_ITEM_HEIGHT = 34;
+const STICKY_DROPDOWN_HEIGHT = 300;
 
 function summarize(content: string, maxLen: number, role: 'user' | 'assistant'): string {
   const stripped = stripAqbotTags(content, { stripThink: role === 'assistant' })
@@ -69,55 +76,141 @@ function summarize(content: string, maxLen: number, role: 'user' | 'assistant'):
   return stripped.length > maxLen ? stripped.slice(0, maxLen) + '…' : stripped;
 }
 
-function useEntries(): MinimapEntry[] {
-  const messages = useConversationStore((s) => s.messages);
-  const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
-  const loadingOlder = useConversationStore((s) => s.loadingOlder);
+function summaryFromMessage(message: Message): MessageSummary | null {
+  if (message.is_active === false) return null;
+  if (message.role !== 'user' && message.role !== 'assistant') return null;
+  return {
+    id: message.id,
+    role: message.role,
+    content_preview: message.content.slice(0, 500),
+    provider_id: message.provider_id,
+    model_id: message.model_id,
+    created_at: message.created_at,
+    parent_message_id: message.parent_message_id,
+  };
+}
 
-  // Eagerly load all older messages so the minimap shows the full conversation
-  useEffect(() => {
-    if (hasOlderMessages && !loadingOlder) {
-      useConversationStore.getState().loadOlderMessages();
+function buildEntries(summaries: MessageSummary[]): MinimapEntry[] {
+  const entries: MinimapEntry[] = [];
+  const parentToIdx = new Map<string, number>();
+  let idx = 0;
+
+  for (const msg of summaries) {
+    if (msg.role === 'user') {
+      entries.push({
+        index: idx++,
+        msg,
+        role: 'user',
+        summary: summarize(msg.content_preview, 30, 'user'),
+      });
+      continue;
     }
-  }, [hasOlderMessages, loadingOlder, messages]);
+
+    const parentKey = msg.parent_message_id || msg.id;
+    const existing = parentToIdx.get(parentKey);
+    const entry: MinimapEntry = {
+      index: existing !== undefined ? entries[existing].index : idx++,
+      msg,
+      role: 'assistant',
+      summary: summarize(msg.content_preview, 30, 'assistant'),
+      modelId: msg.model_id,
+      providerId: msg.provider_id,
+    };
+    if (existing !== undefined) {
+      entries[existing] = entry;
+    } else {
+      parentToIdx.set(parentKey, entries.length);
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+function useEntries(enabled: boolean, conversationId: string | null): MinimapEntry[] {
+  const messages = useConversationStore((s) => s.messages);
+  const [summaries, setSummaries] = useState<MessageSummary[]>([]);
+
+  useEffect(() => {
+    if (!enabled || !conversationId) {
+      setSummaries([]);
+      return;
+    }
+
+    let cancelled = false;
+    invoke<MessageSummary[]>('list_message_summaries', { conversationId })
+      .then((items) => {
+        if (!cancelled) setSummaries(items);
+      })
+      .catch((error) => {
+        console.warn('[ChatMinimap] failed to load message summaries:', error);
+        if (!cancelled) setSummaries([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, enabled]);
 
   return useMemo(() => {
-    const active = messages.filter((m) => m.is_active !== false);
-    const entries: MinimapEntry[] = [];
-    // Track assistant dedup: parentKey → index in entries array
-    // Keep the LAST assistant per parent (matches ChatView's assistantByParentId behavior)
-    const parentToIdx = new Map<string, number>();
-    let idx = 0;
-
-    for (const msg of active) {
-      if (msg.role === 'user') {
-        entries.push({
-          index: idx++,
-          msg,
-          role: 'user',
-          summary: summarize(msg.content, 30, 'user'),
-        });
-      } else if (msg.role === 'assistant') {
-        const parentKey = msg.parent_message_id || msg.id;
-        const existing = parentToIdx.get(parentKey);
-        const entry: MinimapEntry = {
-          index: existing !== undefined ? entries[existing].index : idx++,
-          msg,
-          role: 'assistant',
-          summary: summarize(msg.content, 30, 'assistant'),
-          modelId: msg.model_id,
-          providerId: msg.provider_id,
-        };
-        if (existing !== undefined) {
-          entries[existing] = entry;
-        } else {
-          parentToIdx.set(parentKey, entries.length);
-          entries.push(entry);
-        }
-      }
+    if (!enabled) return [];
+    const byId = new Map(summaries.map((item) => [item.id, item]));
+    for (const message of messages) {
+      const summary = summaryFromMessage(message);
+      if (summary) byId.set(summary.id, summary);
     }
-    return entries;
-  }, [messages]);
+    const merged = Array.from(byId.values())
+      .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
+    return buildEntries(merged);
+  }, [enabled, messages, summaries]);
+}
+
+function useVirtualEntries<T>(items: T[], itemHeight: number, defaultHeight: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [height, setHeight] = useState(defaultHeight);
+
+  useEffect(() => {
+    setScrollTop(0);
+  }, [items]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const updateHeight = () => setHeight(el.clientHeight || defaultHeight);
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [defaultHeight]);
+
+  const range = useMemo(() => {
+    const start = Math.max(0, Math.floor(scrollTop / itemHeight) - MINIMAP_VIRTUAL_OVERSCAN);
+    const end = Math.min(
+      items.length,
+      Math.ceil((scrollTop + height) / itemHeight) + MINIMAP_VIRTUAL_OVERSCAN,
+    );
+    return { start, end };
+  }, [height, itemHeight, items.length, scrollTop]);
+
+  const visible = useMemo(() => (
+    items.slice(range.start, range.end).map((item, offset) => {
+      const index = range.start + offset;
+      return { item, index, top: index * itemHeight };
+    })
+  ), [itemHeight, items, range.end, range.start]);
+
+  const onScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
+
+  return {
+    ref,
+    onScroll,
+    totalHeight: items.length * itemHeight,
+    visible,
+  };
 }
 
 /** Find the bubble wrapper element for a data-aqbot-msg marker */
@@ -136,13 +229,17 @@ function findBubbleEl(marker: Element, scrollBox: HTMLElement): Element {
 function useActiveMessageId(entries: MinimapEntry[]): string | null {
   const { scrollBoxRef, scrollLockRef, forcedActiveRef } = useMinimapContext();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const entryById = useMemo(() => new Map(entries.map((entry) => [entry.msg.id, entry])), [entries]);
 
-  // Set default to last entry initially
   useEffect(() => {
-    if (entries.length > 0 && !activeId) {
+    if (entries.length === 0) {
+      setActiveId(null);
+      return;
+    }
+    if (!activeId || !entryById.has(activeId)) {
       setActiveId(entries[entries.length - 1].msg.id);
     }
-  }, [entries, activeId]);
+  }, [activeId, entries, entryById]);
 
   useEffect(() => {
     if (entries.length === 0) return;
@@ -160,44 +257,42 @@ function useActiveMessageId(entries: MinimapEntry[]): string | null {
       const scrollBox = scrollBoxRef.current;
       if (!scrollBox) return;
       const boxRect = scrollBox.getBoundingClientRect();
+      const loaded = Array.from(scrollBox.querySelectorAll('[data-aqbot-msg]'))
+        .map((marker) => {
+          const id = marker.getAttribute('data-aqbot-msg');
+          const entry = id ? entryById.get(id) : undefined;
+          if (!id || !entry) return null;
+          const el = findBubbleEl(marker, scrollBox);
+          return { id, index: entry.index, rect: el.getBoundingClientRect() };
+        })
+        .filter((item): item is { id: string; index: number; rect: DOMRect } => Boolean(item));
+      if (loaded.length === 0) return;
 
-      // Collect rects for first and last entries to detect scroll extremes
-      const firstMarker = scrollBox.querySelector(`[data-aqbot-msg="${entries[0].msg.id}"]`);
-      const lastMarker = scrollBox.querySelector(`[data-aqbot-msg="${entries[entries.length - 1].msg.id}"]`);
+      const firstLoaded = loaded.reduce((best, item) => (item.index < best.index ? item : best), loaded[0]);
+      const lastLoaded = loaded.reduce((best, item) => (item.index > best.index ? item : best), loaded[0]);
 
       // Edge case: scrolled to top — first entry's top is at or below viewport top
-      if (firstMarker) {
-        const firstEl = findBubbleEl(firstMarker, scrollBox);
-        const firstRect = firstEl.getBoundingClientRect();
-        if (firstRect.top >= boxRect.top - 5) {
-          setActiveId(entries[0].msg.id);
-          return;
-        }
+      if (firstLoaded.rect.top >= boxRect.top - 5) {
+        setActiveId(firstLoaded.id);
+        return;
       }
 
       // Edge case: scrolled to bottom — last entry's bottom is at or above viewport bottom
-      if (lastMarker) {
-        const lastEl = findBubbleEl(lastMarker, scrollBox);
-        const lastRect = lastEl.getBoundingClientRect();
-        if (lastRect.bottom <= boxRect.bottom + 5) {
-          setActiveId(entries[entries.length - 1].msg.id);
-          return;
-        }
+      if (lastLoaded.rect.bottom <= boxRect.bottom + 5) {
+        setActiveId(lastLoaded.id);
+        return;
       }
 
       // Normal: find entry whose bubble is closest to detection line (25% from top)
       const detectY = boxRect.top + boxRect.height * 0.25;
       let best: { id: string; dist: number } | null = null;
 
-      for (const entry of entries) {
-        const marker = scrollBox.querySelector(`[data-aqbot-msg="${entry.msg.id}"]`);
-        if (!marker) continue;
-        const el = findBubbleEl(marker, scrollBox);
-        const rect = el.getBoundingClientRect();
+      for (const item of loaded) {
+        const rect = item.rect;
         if (rect.bottom < boxRect.top || rect.top > boxRect.bottom) continue;
         const dist = Math.abs(rect.top - detectY);
         if (!best || dist < best.dist) {
-          best = { id: entry.msg.id, dist };
+          best = { id: item.id, dist };
         }
       }
       if (best) setActiveId(best.id);
@@ -223,7 +318,7 @@ function useActiveMessageId(entries: MinimapEntry[]): string | null {
       clearTimeout(retryTimer);
       scrollBox?.removeEventListener('scroll', updateActive);
     };
-  }, [scrollBoxRef, entries]);
+  }, [scrollBoxRef, entries, entryById]);
 
   return activeId;
 }
@@ -284,6 +379,7 @@ function UserAvatarIcon({ size }: { size: number }) {
 function FaqIndex({ entries }: { entries: MinimapEntry[] }) {
   const { token } = theme.useToken();
   const activeId = useActiveMessageId(entries);
+  const virtual = useVirtualEntries(entries, FAQ_ITEM_HEIGHT, FAQ_DEFAULT_HEIGHT);
 
   if (entries.length === 0) return null;
 
@@ -304,20 +400,34 @@ function FaqIndex({ entries }: { entries: MinimapEntry[] }) {
     >
       {/* Scrollable dots column */}
       <div
+        ref={virtual.ref}
+        onScroll={virtual.onScroll}
         style={{
           width: 28,
           maxHeight: '100%',
           overflowY: 'auto',
           scrollbarWidth: 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 2,
           pointerEvents: 'auto',
         }}
       >
-        {entries.map((entry) => (
-          <FaqItem key={entry.msg.id} entry={entry} isActive={activeId === entry.msg.id} token={token} />
-        ))}
+        <div style={{ height: virtual.totalHeight, position: 'relative', width: '100%' }}>
+          {virtual.visible.map(({ item: entry, top }) => (
+            <div
+              key={entry.msg.id}
+              style={{
+                position: 'absolute',
+                top,
+                left: 0,
+                right: 0,
+                height: FAQ_ITEM_HEIGHT,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <FaqItem entry={entry} isActive={activeId === entry.msg.id} token={token} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -432,6 +542,7 @@ function StickyHeader({ entries }: { entries: MinimapEntry[] }) {
   const [expanded, setExpanded] = useState(false);
   const activeId = useActiveMessageId(entries);
   const containerRef = useRef<HTMLDivElement>(null);
+  const virtual = useVirtualEntries(entries, STICKY_ITEM_HEIGHT, STICKY_DROPDOWN_HEIGHT);
 
   if (entries.length === 0) return null;
 
@@ -498,20 +609,34 @@ function StickyHeader({ entries }: { entries: MinimapEntry[] }) {
 
       {expanded && (
         <div
+          ref={virtual.ref}
+          onScroll={virtual.onScroll}
           style={{
             maxHeight: 300,
             overflowY: 'auto',
             borderTop: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          {entries.map((entry) => (
-            <StickyDropdownItem
-              key={entry.msg.id}
-              entry={entry}
-              isActive={entry.msg.id === activeId}
-              token={token}
-            />
-          ))}
+          <div style={{ height: virtual.totalHeight, position: 'relative' }}>
+            {virtual.visible.map(({ item: entry, top }) => (
+              <div
+                key={entry.msg.id}
+                style={{
+                  position: 'absolute',
+                  top,
+                  left: 0,
+                  right: 0,
+                  height: STICKY_ITEM_HEIGHT,
+                }}
+              >
+                <StickyDropdownItem
+                  entry={entry}
+                  isActive={entry.msg.id === activeId}
+                  token={token}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -535,6 +660,8 @@ function StickyDropdownItem({ entry, isActive, token }: {
     <div
       onClick={() => scrollTo(entry.msg.id)}
       style={{
+        height: '100%',
+        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         gap: 10,
@@ -573,9 +700,10 @@ function StickyDropdownItem({ entry, isActive, token }: {
 // ── Main Component ──
 
 export function ChatMinimap() {
-  const enabled = useSettingsStore((s) => s.settings.chat_minimap_enabled);
+  const enabled = useSettingsStore((s) => Boolean(s.settings.chat_minimap_enabled));
   const style = useSettingsStore((s) => s.settings.chat_minimap_style ?? 'faq');
-  const entries = useEntries();
+  const activeConversationId = useConversationStore((s) => s.activeConversationId);
+  const entries = useEntries(enabled, activeConversationId);
 
   if (!enabled || entries.length < 2) return null;
 

@@ -241,6 +241,7 @@
       "selectedCount": "已選 {{count}} 個模型"
     },
     "multiModelUseAsContext": "用作上下文",
+    "multiModelCurrentContext": "當前上下文",
     "pinnedModels": "置頂模型",
     "scrollToBottom": "回到底部",
     "searchModelOrProvider": "搜尋模型或服務商",

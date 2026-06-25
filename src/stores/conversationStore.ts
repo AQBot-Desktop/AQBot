@@ -25,6 +25,7 @@ import type {
   ConversationCategory,
   Message,
   MessagePage,
+  MessageWindow,
   AttachmentInput,
   ConversationSearchResult,
   ConversationSummary,
@@ -964,9 +965,12 @@ interface ConversationState {
   searchDisplayByMessageId: Record<string, string>;
   loading: boolean;
   loadingOlder: boolean;
+  loadingNewer: boolean;
   hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
   totalActiveCount: number;
   oldestLoadedMessageId: string | null;
+  newestLoadedMessageId: string | null;
   streaming: boolean;
   compressingConversationId: string | null;
   streamingMessageId: string | null;
@@ -1043,7 +1047,9 @@ interface ConversationState {
   ) => Promise<Message>;
   deleteMessage: (messageId: string) => Promise<void>;
   fetchMessages: (conversationId: string, preserveMessageIds?: string[]) => Promise<void>;
-  loadOlderMessages: () => Promise<void>;
+  loadOlderMessages: (limit?: number) => Promise<void>;
+  loadNewerMessages: (limit?: number) => Promise<void>;
+  loadMessagesAround: (messageId: string, beforeLimit?: number, afterLimit?: number) => Promise<void>;
   searchConversations: (query: string) => Promise<ConversationSearchResult[]>;
   startStreamListening: () => Promise<void>;
   stopStreamListening: () => void;
@@ -1316,9 +1322,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   searchDisplayByMessageId: {},
   loading: false,
   loadingOlder: false,
+  loadingNewer: false,
   hasOlderMessages: false,
+  hasNewerMessages: false,
   totalActiveCount: 0,
   oldestLoadedMessageId: null,
+  newestLoadedMessageId: null,
   streaming: false,
   compressingConversationId: null,
   streamingMessageId: null,
@@ -1551,7 +1560,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     if (!conversationId) return;
     try {
       await invoke('clear_conversation_messages', { conversationId });
-      set({ messages: [], hasOlderMessages: false, totalActiveCount: 0, oldestLoadedMessageId: null, loadingOlder: false });
+      set({
+        messages: [],
+        hasOlderMessages: false,
+        hasNewerMessages: false,
+        totalActiveCount: 0,
+        oldestLoadedMessageId: null,
+        newestLoadedMessageId: null,
+        loadingOlder: false,
+        loadingNewer: false,
+      });
     } catch (e) {
       console.error('Failed to clear messages:', e);
     }
@@ -1574,8 +1592,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           ? {
             messages: page.messages,
             hasOlderMessages: page.has_older,
+            hasNewerMessages: false,
             totalActiveCount: page.total_active_count,
             oldestLoadedMessageId: page.messages.length > 0 ? page.messages[0].id : null,
+            newestLoadedMessageId: page.messages.length > 0 ? page.messages[page.messages.length - 1].id : null,
           }
           : {}),
         compressingConversationId: null,
@@ -1619,8 +1639,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set({
         messages: page.messages,
         hasOlderMessages: page.has_older,
+        hasNewerMessages: false,
         totalActiveCount: page.total_active_count,
         oldestLoadedMessageId: page.messages.length > 0 ? page.messages[0].id : null,
+        newestLoadedMessageId: page.messages.length > 0 ? page.messages[page.messages.length - 1].id : null,
       });
     } catch (e) {
       console.error('Failed to delete compression:', e);
@@ -1646,9 +1668,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         messages: [],
         loading: false,
         loadingOlder: false,
+        loadingNewer: false,
         hasOlderMessages: false,
+        hasNewerMessages: false,
         totalActiveCount: 0,
         oldestLoadedMessageId: null,
+        newestLoadedMessageId: null,
       });
       return;
     }
@@ -1668,9 +1693,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messages: [],
       loading: true,
       loadingOlder: false,
+      loadingNewer: false,
       hasOlderMessages: false,
+      hasNewerMessages: false,
       totalActiveCount: 0,
       oldestLoadedMessageId: null,
+      newestLoadedMessageId: null,
       error: null,
       ...conversationPreferenceStateFromConversation(conversation),
     });
@@ -3222,9 +3250,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           messages,
           loading: false,
           loadingOlder: false,
+          loadingNewer: false,
           hasOlderMessages: page.has_older,
+          hasNewerMessages: false,
           totalActiveCount: page.total_active_count,
           oldestLoadedMessageId: messages[0]?.id ?? page.oldest_message_id,
+          newestLoadedMessageId: messages[messages.length - 1]?.id ?? null,
           error: null,
         };
       });
@@ -3232,13 +3263,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== conversationId) {
         return;
       }
-      set({ error: String(e), loading: false, loadingOlder: false });
+      set({ error: String(e), loading: false, loadingOlder: false, loadingNewer: false });
     }
   },
 
-  loadOlderMessages: async () => {
-    const { activeConversationId, oldestLoadedMessageId, hasOlderMessages, loading, loadingOlder } = get();
-    if (!activeConversationId || !oldestLoadedMessageId || !hasOlderMessages || loading || loadingOlder) {
+  loadOlderMessages: async (limit = MESSAGE_PAGE_SIZE) => {
+    const { activeConversationId, oldestLoadedMessageId, hasOlderMessages, loading, loadingOlder, loadingNewer } = get();
+    if (!activeConversationId || !oldestLoadedMessageId || !hasOlderMessages || loading || loadingOlder || loadingNewer) {
       return;
     }
 
@@ -3247,7 +3278,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     try {
       const page = await invoke<MessagePage>('list_messages_page', {
         conversationId: activeConversationId,
-        limit: MESSAGE_PAGE_SIZE,
+        limit,
         beforeMessageId: oldestLoadedMessageId,
       });
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
@@ -3260,8 +3291,79 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         hasOlderMessages: page.has_older,
         totalActiveCount: page.total_active_count,
         oldestLoadedMessageId: page.oldest_message_id ?? s.oldestLoadedMessageId,
+        newestLoadedMessageId: s.newestLoadedMessageId,
         error: null,
       }));
+    } catch (e) {
+      if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
+        return;
+      }
+      set({ error: String(e), loadingOlder: false });
+    }
+  },
+
+  loadNewerMessages: async (limit = MESSAGE_PAGE_SIZE) => {
+    const { activeConversationId, newestLoadedMessageId, hasNewerMessages, loading, loadingOlder, loadingNewer } = get();
+    if (!activeConversationId || !newestLoadedMessageId || !hasNewerMessages || loading || loadingOlder || loadingNewer) {
+      return;
+    }
+
+    const requestSeq = _activeMessageLoadSeq;
+    set({ loadingNewer: true, error: null });
+    try {
+      const page = await invoke<MessageWindow>('list_messages_after', {
+        conversationId: activeConversationId,
+        afterMessageId: newestLoadedMessageId,
+        limit,
+      });
+      if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
+        return;
+      }
+
+      set((s) => ({
+        messages: mergeOlderPages(page.messages, s.messages),
+        loadingNewer: false,
+        hasNewerMessages: page.has_newer,
+        totalActiveCount: page.total_active_count,
+        newestLoadedMessageId: page.newest_message_id ?? s.newestLoadedMessageId,
+        error: null,
+      }));
+    } catch (e) {
+      if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
+        return;
+      }
+      set({ error: String(e), loadingNewer: false });
+    }
+  },
+
+  loadMessagesAround: async (messageId, beforeLimit = 4, afterLimit = 8) => {
+    const { activeConversationId, loading, loadingOlder, loadingNewer } = get();
+    if (!activeConversationId || loading || loadingOlder || loadingNewer) return;
+
+    const requestSeq = _activeMessageLoadSeq;
+    set({ loadingOlder: true, error: null });
+    try {
+      const page = await invoke<MessageWindow>('list_messages_window', {
+        conversationId: activeConversationId,
+        anchorMessageId: messageId,
+        beforeLimit,
+        afterLimit,
+      });
+      if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
+        return;
+      }
+
+      set({
+        messages: page.messages,
+        loadingOlder: false,
+        loadingNewer: false,
+        hasOlderMessages: page.has_older,
+        hasNewerMessages: page.has_newer,
+        totalActiveCount: page.total_active_count,
+        oldestLoadedMessageId: page.oldest_message_id,
+        newestLoadedMessageId: page.newest_message_id,
+        error: null,
+      });
     } catch (e) {
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
         return;

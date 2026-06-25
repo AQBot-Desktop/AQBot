@@ -241,6 +241,7 @@
       "selectedCount": "{{count}} Modell(e) ausgewählt"
     },
     "multiModelUseAsContext": "Als Kontext verwenden",
+    "multiModelCurrentContext": "Aktueller Kontext",
     "pinnedModels": "Angeheftete Modelle",
     "scrollToBottom": "Nach unten scrollen",
     "searchModelOrProvider": "Modell oder Anbieter suchen",

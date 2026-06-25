@@ -241,6 +241,7 @@
       "selectedCount": "{{count}} मॉडल चुने गए"
     },
     "multiModelUseAsContext": "संदर्भ के रूप में उपयोग करें",
+    "multiModelCurrentContext": "वर्तमान संदर्भ",
     "pinnedModels": "पिन किए गए मॉडल",
     "scrollToBottom": "नीचे स्क्रॉल करें",
     "searchModelOrProvider": "मॉडल या प्रदाता खोजें",

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Message, MessagePage } from '@/types';
+import type { Message, MessagePage, MessageWindow } from '@/types';
 import { parseSearchContent } from '@/lib/searchUtils';
 
 const invokeMock = vi.fn();
@@ -38,6 +38,17 @@ function makePage(messages: Message[], hasOlder: boolean): MessagePage {
     messages,
     has_older: hasOlder,
     oldest_message_id: messages[0]?.id ?? null,
+    total_active_count: messages.length,
+  };
+}
+
+function makeWindow(messages: Message[], hasOlder: boolean, hasNewer: boolean): MessageWindow {
+  return {
+    messages,
+    has_older: hasOlder,
+    has_newer: hasNewer,
+    oldest_message_id: messages[0]?.id ?? null,
+    newest_message_id: messages[messages.length - 1]?.id ?? null,
     total_active_count: messages.length,
   };
 }
@@ -100,8 +111,12 @@ describe('conversationStore pagination', () => {
       searchDisplayByMessageId: {},
       loading: false,
       loadingOlder: false,
+      loadingNewer: false,
       hasOlderMessages: false,
+      hasNewerMessages: false,
+      totalActiveCount: 0,
       oldestLoadedMessageId: null,
+      newestLoadedMessageId: null,
       streaming: false,
       streamingMessageId: null,
       streamingConversationId: null,
@@ -1769,6 +1784,69 @@ describe('conversationStore pagination', () => {
     ]);
     expect(useConversationStore.getState().hasOlderMessages).toBe(false);
     expect(useConversationStore.getState().loadingOlder).toBe(false);
+  });
+
+  it('loads a bounded window around a minimap target', async () => {
+    invokeMock.mockResolvedValue(makeWindow([makeMessage(40), makeMessage(41), makeMessage(42)], true, true));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [makeMessage(98), makeMessage(99)],
+      hasOlderMessages: true,
+      hasNewerMessages: false,
+      oldestLoadedMessageId: 'msg-98',
+      newestLoadedMessageId: 'msg-99',
+    });
+
+    await useConversationStore.getState().loadMessagesAround('msg-41', 20, 30);
+
+    expect(invokeMock).toHaveBeenCalledWith('list_messages_window', {
+      conversationId: 'conv-1',
+      anchorMessageId: 'msg-41',
+      beforeLimit: 20,
+      afterLimit: 30,
+    });
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([
+      'msg-40',
+      'msg-41',
+      'msg-42',
+    ]);
+    expect(useConversationStore.getState().hasOlderMessages).toBe(true);
+    expect(useConversationStore.getState().hasNewerMessages).toBe(true);
+    expect(useConversationStore.getState().oldestLoadedMessageId).toBe('msg-40');
+    expect(useConversationStore.getState().newestLoadedMessageId).toBe('msg-42');
+  });
+
+  it('appends newer pages after jumping into an older message window', async () => {
+    invokeMock.mockResolvedValue(makeWindow([makeMessage(43), makeMessage(44)], true, false));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [makeMessage(40), makeMessage(41), makeMessage(42)],
+      hasOlderMessages: true,
+      hasNewerMessages: true,
+      oldestLoadedMessageId: 'msg-40',
+      newestLoadedMessageId: 'msg-42',
+    });
+
+    await useConversationStore.getState().loadNewerMessages();
+
+    expect(invokeMock).toHaveBeenCalledWith('list_messages_after', {
+      conversationId: 'conv-1',
+      afterMessageId: 'msg-42',
+      limit: 10,
+    });
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([
+      'msg-40',
+      'msg-41',
+      'msg-42',
+      'msg-43',
+      'msg-44',
+    ]);
+    expect(useConversationStore.getState().hasNewerMessages).toBe(false);
+    expect(useConversationStore.getState().newestLoadedMessageId).toBe('msg-44');
   });
 
   it('hydrates persisted conversation preferences when switching active conversations', async () => {

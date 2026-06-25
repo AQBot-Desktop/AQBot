@@ -1,6 +1,8 @@
 import { App } from 'antd';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type React from 'react';
 import type { Message } from '@/types';
 import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
@@ -284,6 +286,19 @@ describe('MultiModelDisplay', () => {
     expect(screen.getByTestId('multi-model-set-context-assistant-b').closest('.multi-model-card-header-actions')).not.toBeNull();
     expect(screen.getByTestId('multi-model-set-context-assistant-b').closest('.multi-model-card-footer-actions')).toBeNull();
     expect(screen.getByTestId('multi-model-regenerate-assistant-b').closest('.multi-model-card-footer-actions')).not.toBeNull();
+  });
+
+  it('uses localized context tooltip keys', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/MultiModelDisplay.tsx'), 'utf8');
+    const zh = JSON.parse(readFileSync(resolve(process.cwd(), 'src/i18n/locales/zh-CN.json'), 'utf8'));
+    const en = JSON.parse(readFileSync(resolve(process.cwd(), 'src/i18n/locales/en-US.json'), 'utf8'));
+
+    expect(source).toContain("t('chat.multiModelCurrentContext')");
+    expect(source).toContain("t('chat.multiModelUseAsContext')");
+    expect(source).not.toContain('Current context');
+    expect(source).not.toContain('Use as context');
+    expect(zh.chat.multiModelCurrentContext).toBe('当前上下文');
+    expect(en.chat.multiModelCurrentContext).toBe('Current Context');
   });
 
   it('stretches card content so footer actions stay pinned to the bottom', () => {

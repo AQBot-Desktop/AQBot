@@ -241,6 +241,7 @@
       "selectedCount": "{{count}} 件のモデルを選択済み"
     },
     "multiModelUseAsContext": "コンテキストとして使用",
+    "multiModelCurrentContext": "現在のコンテキスト",
     "pinnedModels": "ピン留めモデル",
     "scrollToBottom": "最下部へスクロール",
     "searchModelOrProvider": "モデルまたはプロバイダーを検索",

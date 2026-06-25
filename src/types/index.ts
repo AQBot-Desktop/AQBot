@@ -281,6 +281,25 @@ export interface MessagePage {
   total_active_count: number;
 }
 
+export interface MessageWindow {
+  messages: Message[];
+  has_older: boolean;
+  has_newer: boolean;
+  oldest_message_id: string | null;
+  newest_message_id: string | null;
+  total_active_count: number;
+}
+
+export interface MessageSummary {
+  id: string;
+  role: Extract<MessageRole, 'user' | 'assistant'>;
+  content_preview: string;
+  provider_id: string | null;
+  model_id: string | null;
+  created_at: number;
+  parent_message_id: string | null;
+}
+
 export interface ConversationStats {
   total_messages: number;
   total_user_messages: number;

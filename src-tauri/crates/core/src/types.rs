@@ -351,6 +351,27 @@ pub struct MessagePage {
     pub total_active_count: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageWindow {
+    pub messages: Vec<Message>,
+    pub has_older: bool,
+    pub has_newer: bool,
+    pub oldest_message_id: Option<String>,
+    pub newest_message_id: Option<String>,
+    pub total_active_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageSummary {
+    pub id: String,
+    pub role: MessageRole,
+    pub content_preview: String,
+    pub provider_id: Option<String>,
+    pub model_id: Option<String>,
+    pub created_at: i64,
+    pub parent_message_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {

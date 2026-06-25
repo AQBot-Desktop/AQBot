@@ -241,6 +241,7 @@
       "selectedCount": "تم اختيار {{count}} نموذج"
     },
     "multiModelUseAsContext": "استخدام كسياق",
+    "multiModelCurrentContext": "السياق الحالي",
     "pinnedModels": "النماذج المثبّتة",
     "scrollToBottom": "التمرير إلى الأسفل",
     "searchModelOrProvider": "البحث عن نموذج أو مزوّد",

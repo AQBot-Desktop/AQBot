@@ -241,6 +241,7 @@
       "selectedCount": "Выбрано моделей: {{count}}"
     },
     "multiModelUseAsContext": "Использовать как контекст",
+    "multiModelCurrentContext": "Текущий контекст",
     "pinnedModels": "Закреплённые модели",
     "scrollToBottom": "Прокрутить вниз",
     "searchModelOrProvider": "Поиск модели или провайдера",

@@ -96,6 +96,43 @@ describe('ChatView assistant display policy', () => {
     )).toBe(assistant);
   });
 
+  it('loads a message window when minimap targets a message that is not mounted yet', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    const minimapScrollTo = source.match(/const minimapScrollTo = useCallback\(\(messageId: string\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0] ?? '';
+
+    expect(minimapScrollTo).toContain('loadMessagesAround');
+    expect(minimapScrollTo).toContain('MINIMAP_JUMP_BEFORE_LIMIT');
+    expect(minimapScrollTo).toContain('MINIMAP_JUMP_AFTER_LIMIT');
+    expect(minimapScrollTo).toContain('data-aqbot-msg="${messageId}"');
+    expect(minimapScrollTo).toContain('requestAnimationFrame');
+  });
+
+  it('only loads older pages after a user scroll intent reaches history top', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    const scrollHandler = source.match(/const handleBubbleListScroll = useCallback\(\(event: React\.UIEvent<HTMLDivElement>\) => \{[\s\S]*?\n  \}, \[[\s\S]*?\]\);/)?.[0] ?? '';
+
+    expect(scrollHandler).toContain('hadRecentUserScrollIntent');
+    expect(scrollHandler).toMatch(/if \(!hasOlderMessages \|\| !hadRecentUserScrollIntent\) return;/);
+    expect(scrollHandler).toContain('void handleLoadOlderMessages();');
+  });
+
+  it('defers parsing assistant code blocks until the message becomes visible', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    const nodesMemo = source.match(/const aiContentNodesById = useMemo\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0] ?? '';
+
+    expect(nodesMemo).toContain('shouldDeferAssistantMarkdownParse(item.content)');
+    expect(nodesMemo.indexOf('shouldDeferAssistantMarkdownParse(item.content)')).toBeLessThan(
+      nodesMemo.indexOf('safeParseChatMarkdown(item.content)'),
+    );
+  });
+
+  it('does not refetch every assistant version when unrelated pages change message count', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+
+    expect(source).not.toContain('const messagesLength = useConversationStore((s) => s.messages.length);');
+    expect(source).not.toMatch(/listMessageVersions\([\s\S]*?\], \[[^\]]*messagesLength[^\]]*\]\);/);
+  });
+
   it('injects a web-search display card for normal assistant replies with searched parent messages', () => {
     const user = makeMessage({
       id: 'user-1',

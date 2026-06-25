@@ -241,6 +241,7 @@
       "selectedCount": "{{count}}개 모델 선택됨"
     },
     "multiModelUseAsContext": "컨텍스트로 사용",
+    "multiModelCurrentContext": "현재 컨텍스트",
     "pinnedModels": "고정 모델",
     "scrollToBottom": "맨 아래로 스크롤",
     "searchModelOrProvider": "모델 또는 공급자 검색",

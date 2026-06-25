@@ -425,7 +425,7 @@ function MultiModelContextButton({
   };
 
   return (
-    <Tooltip title={isActive ? t('chat.currentContext', 'Current context') : t('chat.useAsContext', 'Use as context')}>
+    <Tooltip title={isActive ? t('chat.multiModelCurrentContext') : t('chat.multiModelUseAsContext')}>
       <button
         type="button"
         data-testid={`multi-model-set-context-${message.id}`}
