@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import 'markstream-react/index.css';
 @import 'overlayscrollbars/overlayscrollbars.css';
+@import 'katex/dist/katex.min.css';
 
 /* Global theme tokens — synced with Ant Design ConfigProvider via JS */
 :root {
@@ -547,6 +548,15 @@ html[data-theme="dark"] .markstream-react .table-node td,
 html[data-theme="dark"] .markstream-react .table-node tr,
 html[data-theme="dark"] .markstream-react .table-node thead {
   border-color: var(--table-border, var(--border-color));
+}
+
+/* ── KaTeX math dark mode overrides ────────────────────────────────── */
+html[data-theme="dark"] .katex {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+html[data-theme="dark"] .katex-display {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 /* Multi-model side-by-side: constrain bubble ancestors so overflow works */
