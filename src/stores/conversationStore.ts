@@ -1009,6 +1009,8 @@ interface ConversationState {
   removeContextClear: (messageId: string) => Promise<void>;
   /** Clear all messages in the active conversation */
   clearAllMessages: () => Promise<void>;
+  /** Clear the first N user-rooted rounds in the active conversation */
+  clearFirstRounds: (rounds: number) => Promise<void>;
   /** Manually compress the current conversation context */
   compressContext: () => Promise<void>;
   /** Get the compression summary for a conversation */
@@ -1572,6 +1574,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       });
     } catch (e) {
       console.error('Failed to clear messages:', e);
+    }
+  },
+
+  clearFirstRounds: async (rounds) => {
+    const conversationId = get().activeConversationId;
+    const safeRounds = Math.trunc(rounds);
+    if (!conversationId || !Number.isFinite(safeRounds) || safeRounds <= 0) return;
+    try {
+      await invoke('clear_conversation_first_rounds', { conversationId, rounds: safeRounds });
+      await get().fetchMessages(conversationId);
+    } catch (e) {
+      set({ error: String(e) });
     }
   },
 

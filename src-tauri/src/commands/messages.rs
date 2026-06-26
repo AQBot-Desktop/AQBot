@@ -114,6 +114,29 @@ pub async fn clear_conversation_messages(
 }
 
 #[tauri::command]
+pub async fn clear_conversation_first_rounds(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    rounds: u64,
+) -> Result<u64, String> {
+    let rows = aqbot_core::repo::message::clear_conversation_first_rounds(
+        &state.sea_db,
+        &conversation_id,
+        rounds,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = aqbot_core::repo::agent_session::clear_sdk_context_by_conversation_id(
+        &state.sea_db,
+        &conversation_id,
+    )
+    .await;
+
+    Ok(rows)
+}
+
+#[tauri::command]
 pub async fn export_conversation(
     state: State<'_, AppState>,
     conversation_id: String,

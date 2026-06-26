@@ -319,6 +319,7 @@ pub fn run() {
         commands::messages::delete_message,
         commands::messages::update_message_content,
         commands::messages::clear_conversation_messages,
+        commands::messages::clear_conversation_first_rounds,
         commands::messages::export_conversation,
         commands::messages::get_conversation_stats,
         // artifacts

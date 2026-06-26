@@ -153,6 +153,51 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().oldestLoadedMessageId).toBe('msg-11');
   });
 
+  it('clears the first conversation rounds then reloads the newest page', async () => {
+    invokeMock
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(makePage([makeMessage(7), makeMessage(8)], false));
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [makeMessage(1), makeMessage(2), makeMessage(3), makeMessage(4)],
+      hasOlderMessages: true,
+      totalActiveCount: 8,
+      oldestLoadedMessageId: 'msg-1',
+      newestLoadedMessageId: 'msg-4',
+    });
+
+    await useConversationStore.getState().clearFirstRounds(3);
+
+    expect(invokeMock).toHaveBeenCalledWith('clear_conversation_first_rounds', {
+      conversationId: 'conv-1',
+      rounds: 3,
+    });
+    expect(invokeMock).toHaveBeenCalledWith('list_messages_page', {
+      conversationId: 'conv-1',
+      limit: 10,
+      beforeMessageId: null,
+    });
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual(['msg-7', 'msg-8']);
+    expect(useConversationStore.getState().hasOlderMessages).toBe(false);
+  });
+
+  it('keeps local messages when clearing first rounds fails', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('delete failed'));
+    const { useConversationStore } = await import('../conversationStore');
+    const messages = [makeMessage(1), makeMessage(2)];
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages,
+      error: null,
+    });
+
+    await useConversationStore.getState().clearFirstRounds(1);
+
+    expect(useConversationStore.getState().messages).toEqual(messages);
+    expect(useConversationStore.getState().error).toContain('delete failed');
+  });
+
   it('restores persisted RAG tags when preserving just-streamed local content', async () => {
     const { useConversationStore } = await import('../conversationStore');
     const localMessage = {

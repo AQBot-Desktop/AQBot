@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatMinimap } from '../ChatMinimap';
@@ -124,6 +124,45 @@ describe('ChatMinimap', () => {
     expect(screen.getByText('question 1')).toBeInTheDocument();
     expect(invokeMock).toHaveBeenCalledWith('list_message_summaries', { conversationId: 'conv-1' });
     expect(useConversationStore.getState().loadOlderMessages).not.toHaveBeenCalled();
+  });
+
+  it('reloads lightweight summaries when the message list count changes', async () => {
+    invokeMock
+      .mockResolvedValueOnce([
+        makeSummary(1, 'user'),
+        makeSummary(2, 'assistant'),
+        makeSummary(3, 'user'),
+        makeSummary(4, 'assistant'),
+      ])
+      .mockResolvedValueOnce([
+        makeSummary(3, 'user'),
+        makeSummary(4, 'assistant'),
+      ]);
+    useConversationStore.setState({
+      messages: [makeMessage(3, 'user'), makeMessage(4, 'assistant')],
+      totalActiveCount: 4,
+    });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        chat_minimap_enabled: true,
+        chat_minimap_style: 'sticky',
+      },
+    }));
+
+    render(<ChatMinimap />);
+
+    await waitFor(() => expect(screen.getByText('4 / 4')).toBeInTheDocument());
+
+    act(() => {
+      useConversationStore.setState({
+        messages: [makeMessage(3, 'user'), makeMessage(4, 'assistant')],
+        totalActiveCount: 2,
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('2 / 2')).toBeInTheDocument());
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_message_summaries').length).toBeGreaterThan(1);
   });
 
   it('renders navigation from the currently loaded messages', () => {

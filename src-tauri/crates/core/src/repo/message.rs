@@ -2,7 +2,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 use std::collections::HashSet;
 
-use crate::entity::messages;
+use crate::entity::{conversation_summaries, conversations, messages};
 use crate::error::{AQBotError, Result};
 use crate::types::{
     Attachment, ConversationStats, Message, MessagePage, MessageRole, MessageSummary, MessageWindow,
@@ -39,6 +39,7 @@ fn stringify_attachment_list(attachments: &[Attachment]) -> Result<String> {
 }
 
 const STALE_PARTIAL_ASSISTANT_ERROR: &str = "AQBot was closed while this response was running. This stale response has been marked as failed.";
+const COMPRESSION_MARKER: &str = "<!-- context-compressed -->";
 
 fn message_from_entity(m: messages::Model) -> Result<Message> {
     Ok(Message {
@@ -539,12 +540,177 @@ pub async fn clear_conversation_messages(
     db: &DatabaseConnection,
     conversation_id: &str,
 ) -> Result<u64> {
+    let txn = db.begin().await?;
     let result = messages::Entity::delete_many()
         .filter(messages::Column::ConversationId.eq(conversation_id))
-        .exec(db)
+        .exec(&txn)
         .await?;
 
+    reset_conversation_history_metadata(&txn, conversation_id).await?;
+    set_conversation_active_message_count(&txn, conversation_id, 0).await?;
+    txn.commit().await?;
     Ok(result.rows_affected)
+}
+
+/// Delete the first `rounds` user-rooted rounds in a conversation.
+pub async fn clear_conversation_first_rounds(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    rounds: u64,
+) -> Result<u64> {
+    if rounds == 0 {
+        return Ok(0);
+    }
+
+    let txn = db.begin().await?;
+    let rows = ordered_conversation_rows(&txn, conversation_id).await?;
+    let Some(mut deleted) = delete_first_round_rows(&txn, conversation_id, rounds, &rows).await? else {
+        txn.commit().await?;
+        return Ok(0);
+    };
+
+    deleted += delete_compression_markers(&txn, conversation_id).await?;
+    reset_conversation_history_metadata(&txn, conversation_id).await?;
+    let remaining_active = count_active_messages(&txn, conversation_id).await?;
+    set_conversation_active_message_count(&txn, conversation_id, remaining_active).await?;
+    txn.commit().await?;
+    Ok(deleted)
+}
+
+async fn ordered_conversation_rows<C>(
+    db: &C,
+    conversation_id: &str,
+) -> Result<Vec<messages::Model>>
+where
+    C: ConnectionTrait,
+{
+    Ok(messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
+        .all(db)
+        .await?)
+}
+
+async fn delete_first_round_rows<C>(
+    db: &C,
+    conversation_id: &str,
+    rounds: u64,
+    rows: &[messages::Model],
+) -> Result<Option<u64>>
+where
+    C: ConnectionTrait,
+{
+    let user_roots = rows
+        .iter()
+        .filter(|message| message.role == "user" && message.parent_message_id.is_none())
+        .collect::<Vec<_>>();
+    if user_roots.is_empty() {
+        return Ok(None);
+    }
+
+    if rounds as usize >= user_roots.len() {
+        return Ok(Some(
+            messages::Entity::delete_many()
+                .filter(messages::Column::ConversationId.eq(conversation_id))
+                .exec(db)
+                .await?
+                .rows_affected,
+        ));
+    }
+
+    let delete_ids = collect_first_round_ids(rows, user_roots[rounds as usize]);
+    if delete_ids.is_empty() {
+        return Ok(Some(0));
+    }
+    Ok(Some(
+        messages::Entity::delete_many()
+            .filter(messages::Column::Id.is_in(delete_ids))
+            .exec(db)
+            .await?
+            .rows_affected,
+    ))
+}
+
+fn collect_first_round_ids(
+    rows: &[messages::Model],
+    boundary: &messages::Model,
+) -> HashSet<String> {
+    let mut delete_ids = rows
+        .iter()
+        .filter(|message| {
+            message.created_at < boundary.created_at
+                || (message.created_at == boundary.created_at && message.id < boundary.id)
+        })
+        .map(|message| message.id.clone())
+        .collect::<HashSet<_>>();
+
+    loop {
+        let before = delete_ids.len();
+        for message in rows {
+            if message
+                .parent_message_id
+                .as_ref()
+                .is_some_and(|parent_id| delete_ids.contains(parent_id))
+            {
+                delete_ids.insert(message.id.clone());
+            }
+        }
+        if delete_ids.len() == before {
+            return delete_ids;
+        }
+    }
+}
+
+async fn reset_conversation_history_metadata<C>(db: &C, conversation_id: &str) -> Result<()>
+where
+    C: ConnectionTrait,
+{
+    conversation_summaries::Entity::delete_many()
+        .filter(conversation_summaries::Column::ConversationId.eq(conversation_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+async fn delete_compression_markers<C>(db: &C, conversation_id: &str) -> Result<u64>
+where
+    C: ConnectionTrait,
+{
+    let result = messages::Entity::delete_many()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::Content.eq(COMPRESSION_MARKER))
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected)
+}
+
+async fn count_active_messages<C>(db: &C, conversation_id: &str) -> Result<u64>
+where
+    C: ConnectionTrait,
+{
+    Ok(messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::IsActive.eq(1))
+        .count(db)
+        .await?)
+}
+
+async fn set_conversation_active_message_count<C>(
+    db: &C,
+    conversation_id: &str,
+    count: u64,
+) -> Result<()>
+where
+    C: ConnectionTrait,
+{
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::MessageCount, Expr::value(count as i32))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(now_ts()))
+        .filter(conversations::Column::Id.eq(conversation_id))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// Delete all messages in a conversation created after the given timestamp (inclusive).
@@ -789,6 +955,14 @@ mod tests {
     use super::*;
     use crate::db::create_test_pool;
     use crate::repo::conversation;
+    use crate::entity::conversation_summaries;
+
+    async fn set_created_at(db: &DatabaseConnection, id: &str, created_at: i64) {
+        let row = messages::Entity::find_by_id(id).one(db).await.unwrap().unwrap();
+        let mut am: messages::ActiveModel = row.into();
+        am.created_at = Set(created_at);
+        am.update(db).await.unwrap();
+    }
 
     #[tokio::test]
     async fn create_message_round_trips_attachment_metadata() {
@@ -965,6 +1139,232 @@ mod tests {
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].id, version_b.id);
         assert!(versions[0].is_active);
+    }
+
+    #[tokio::test]
+    async fn clear_conversation_first_rounds_keeps_later_rounds_only() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Long Chat", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+
+        for round in 1..=5 {
+            let user = create_message(
+                db,
+                &conv.id,
+                MessageRole::User,
+                &format!("user {round}"),
+                &[],
+                None,
+                0,
+            )
+            .await
+            .unwrap();
+            set_created_at(db, &user.id, round * 2 - 1).await;
+            let assistant = create_message(
+                db,
+                &conv.id,
+                MessageRole::Assistant,
+                &format!("assistant {round}"),
+                &[],
+                Some(&user.id),
+                0,
+            )
+            .await
+            .unwrap();
+            set_created_at(db, &assistant.id, round * 2).await;
+        }
+
+        let deleted = clear_conversation_first_rounds(db, &conv.id, 3)
+            .await
+            .unwrap();
+
+        assert_eq!(deleted, 6);
+        let remaining = list_messages(db, &conv.id).await.unwrap();
+        assert_eq!(
+            remaining
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["user 4", "assistant 4", "user 5", "assistant 5"]
+        );
+        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 4);
+    }
+
+    #[tokio::test]
+    async fn clear_conversation_first_rounds_removes_descendants_and_compression() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Tool Chat", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+
+        let user = create_message(db, &conv.id, MessageRole::User, "run tool", &[], None, 0)
+            .await
+            .unwrap();
+        set_created_at(db, &user.id, 1).await;
+        let active = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "active",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        set_created_at(db, &active.id, 2).await;
+        let inactive = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "inactive",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await
+        .unwrap();
+        set_created_at(db, &inactive.id, 3).await;
+        let row = messages::Entity::find_by_id(&inactive.id).one(db).await.unwrap().unwrap();
+        let mut am: messages::ActiveModel = row.into();
+        am.is_active = Set(0);
+        am.update(db).await.unwrap();
+        let tool_parent = create_assistant_tool_call_message(
+            db,
+            &conv.id,
+            "tool call",
+            Some(r#"[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{}"}}]"#),
+            "prov-1",
+            "model-1",
+            &user.id,
+        )
+        .await
+        .unwrap();
+        set_created_at(db, &tool_parent, 4).await;
+        create_tool_result_message(db, &conv.id, "call-1", "tool result", &tool_parent)
+            .await
+            .unwrap();
+        let tool_result = messages::Entity::find()
+            .filter(messages::Column::ToolCallId.eq("call-1"))
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        set_created_at(db, &tool_result.id, 5).await;
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::System,
+            "<!-- context-compressed -->",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+        conversation::upsert_summary(db, &conv.id, "old summary", Some(&active.id), Some(12), Some("model-1"))
+            .await
+            .unwrap();
+        let later_user = create_message(db, &conv.id, MessageRole::User, "later", &[], None, 0)
+            .await
+            .unwrap();
+        set_created_at(db, &later_user.id, 7).await;
+        let later_reply = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "later reply",
+            &[],
+            Some(&later_user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        set_created_at(db, &later_reply.id, 8).await;
+
+        clear_conversation_first_rounds(db, &conv.id, 1).await.unwrap();
+
+        let all_rows = messages::Entity::find()
+            .filter(messages::Column::ConversationId.eq(&conv.id))
+            .all(db)
+            .await
+            .unwrap();
+        let ids = all_rows.iter().map(|message| message.id.as_str()).collect::<Vec<_>>();
+        assert!(!ids.contains(&user.id.as_str()));
+        assert!(!ids.contains(&active.id.as_str()));
+        assert!(!ids.contains(&inactive.id.as_str()));
+        assert!(!ids.contains(&tool_parent.as_str()));
+        assert!(ids.contains(&later_user.id.as_str()));
+        assert!(all_rows.iter().all(|message| message.content != "<!-- context-compressed -->"));
+        assert!(conversation_summaries::Entity::find()
+            .filter(conversation_summaries::Column::ConversationId.eq(&conv.id))
+            .one(db)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn clear_conversation_first_rounds_zero_is_noop_and_large_count_clears_all() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Bounds", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user = create_message(db, &conv.id, MessageRole::User, "user", &[], None, 0)
+            .await
+            .unwrap();
+        create_message(db, &conv.id, MessageRole::Assistant, "assistant", &[], Some(&user.id), 0)
+            .await
+            .unwrap();
+
+        assert_eq!(clear_conversation_first_rounds(db, &conv.id, 0).await.unwrap(), 0);
+        assert_eq!(list_messages(db, &conv.id).await.unwrap().len(), 2);
+
+        assert_eq!(clear_conversation_first_rounds(db, &conv.id, 10).await.unwrap(), 2);
+        assert!(list_messages(db, &conv.id).await.unwrap().is_empty());
+        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 0);
+    }
+
+    #[tokio::test]
+    async fn clear_conversation_messages_resets_count_and_summary() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Clear All", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user = create_message(db, &conv.id, MessageRole::User, "user", &[], None, 0)
+            .await
+            .unwrap();
+        let assistant = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "assistant",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        set_conversation_active_message_count(db, &conv.id, 2).await.unwrap();
+        conversation::upsert_summary(db, &conv.id, "summary", Some(&assistant.id), Some(5), Some("model-1"))
+            .await
+            .unwrap();
+
+        assert_eq!(clear_conversation_messages(db, &conv.id).await.unwrap(), 2);
+
+        assert!(list_messages(db, &conv.id).await.unwrap().is_empty());
+        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 0);
+        assert!(conversation_summaries::Entity::find()
+            .filter(conversation_summaries::Column::ConversationId.eq(&conv.id))
+            .one(db)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox, Badge, Popconfirm } from 'antd';
+import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox, Badge, InputNumber } from 'antd';
 import type { MenuProps } from 'antd';
 import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, Atom, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, ZapOff, Shrink, Upload, GitCompareArrows, X, BookOpen, GripHorizontal, CircleOff, SignalLow, SignalMedium, SignalHigh, Signal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -221,6 +221,7 @@ export function InputArea() {
   // Context clear
   const insertContextClear = useConversationStore((s) => s.insertContextClear);
   const clearAllMessages = useConversationStore((s) => s.clearAllMessages);
+  const clearFirstRounds = useConversationStore((s) => s.clearFirstRounds);
   const updateConversation = useConversationStore((s) => s.updateConversation);
   const compressContext = useConversationStore((s) => s.compressContext);
 
@@ -483,6 +484,72 @@ export function InputArea() {
       default: return <Shield size={14} />;
     }
   }, [agentPermissionMode]);
+
+  const clearConversationDisabled = !activeConversationId || streaming || messages.length === 0;
+
+  const confirmClearAllMessages = useCallback(() => {
+    if (clearConversationDisabled) return;
+    modal.confirm({
+      title: t('chat.clearConversationConfirmTitle'),
+      content: t('chat.clearConversationConfirmContent'),
+      okButtonProps: { danger: true },
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        await clearAllMessages();
+      },
+    });
+  }, [clearAllMessages, clearConversationDisabled, modal, t]);
+
+  const confirmClearFirstRounds = useCallback(() => {
+    if (clearConversationDisabled) return;
+    let rounds = 3;
+    modal.confirm({
+      title: t('chat.clearFirstRoundsConfirmTitle'),
+      content: (
+        <div>
+          <div style={{ marginBottom: 8 }}>{t('chat.clearFirstRoundsConfirmContent')}</div>
+          <InputNumber
+            aria-label={t('chat.clearFirstRoundsInputLabel')}
+            min={1}
+            precision={0}
+            defaultValue={rounds}
+            style={{ width: '100%' }}
+            onChange={(value) => {
+              if (typeof value === 'number' && Number.isFinite(value)) {
+                rounds = Math.max(1, Math.trunc(value));
+              }
+            }}
+          />
+        </div>
+      ),
+      okButtonProps: { danger: true },
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        await clearFirstRounds(rounds);
+      },
+    });
+  }, [clearConversationDisabled, clearFirstRounds, modal, t]);
+
+  const clearConversationMenuItems = useMemo<MenuProps['items']>(() => [
+    {
+      key: 'all',
+      label: t('chat.clearConversationAll'),
+    },
+    {
+      key: 'first-rounds',
+      label: t('chat.clearFirstRounds'),
+    },
+  ], [t]);
+
+  const handleClearConversationMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(({ key }) => {
+    if (key === 'first-rounds') {
+      confirmClearFirstRounds();
+      return;
+    }
+    confirmClearAllMessages();
+  }, [confirmClearAllMessages, confirmClearFirstRounds]);
 
   const permissionModeLabel = useMemo(() => {
     switch (agentPermissionMode) {
@@ -1139,16 +1206,7 @@ export function InputArea() {
     };
     const onClearConversation = () => {
       if (!activeConversationId || streaming || messages.length === 0) return;
-      modal.confirm({
-        title: t('chat.clearConversationConfirmTitle'),
-        content: t('chat.clearConversationConfirmContent'),
-        okButtonProps: { danger: true },
-        okText: t('common.confirm'),
-        cancelText: t('common.cancel'),
-        onOk: async () => {
-          await clearAllMessages();
-        },
-      });
+      confirmClearAllMessages();
     };
 
     window.addEventListener('aqbot:fill-last-message', onFillLast);
@@ -1161,13 +1219,11 @@ export function InputArea() {
     };
   }, [
     activeConversationId,
-    clearAllMessages,
+    confirmClearAllMessages,
     handleFillLastMessage,
     insertContextClear,
     messages.length,
-    modal,
     streaming,
-    t,
   ]);
 
   // Listen for "fill input" events from GlobalCopyMenu
@@ -1539,24 +1595,22 @@ export function InputArea() {
                 disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
               />
             </Tooltip>
-            <Popconfirm
-              title={t('chat.clearConversationConfirmTitle')}
-              description={t('chat.clearConversationConfirmContent')}
-              okButtonProps={{ danger: true }}
-              okText={t('common.confirm')}
-              cancelText={t('common.cancel')}
-              onConfirm={() => { void clearAllMessages(); }}
-              disabled={!activeConversationId || streaming || messages.length === 0}
+            <Dropdown
+              menu={{ items: clearConversationMenuItems, onClick: handleClearConversationMenuClick }}
+              trigger={['click']}
+              placement="topLeft"
+              disabled={clearConversationDisabled}
             >
               <Tooltip title={shortcutHint(t('chat.clearConversation'), 'clearConversationMessages')}>
                 <Button
+                  aria-label={t('chat.clearConversation')}
                   type="text"
                   size="small"
                   icon={<Eraser size={14} />}
-                  disabled={!activeConversationId || streaming || messages.length === 0}
+                  disabled={clearConversationDisabled}
                 />
               </Tooltip>
-            </Popconfirm>
+            </Dropdown>
             <Tooltip title={t('chat.conversationSettings')}>
               <Button type="text" size="small" icon={<SlidersHorizontal size={14} />} onClick={() => setSettingsOpen(true)} />
             </Tooltip>

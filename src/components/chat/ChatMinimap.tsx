@@ -129,6 +129,7 @@ function buildEntries(summaries: MessageSummary[]): MinimapEntry[] {
 
 function useEntries(enabled: boolean, conversationId: string | null): MinimapEntry[] {
   const messages = useConversationStore((s) => s.messages);
+  const totalActiveCount = useConversationStore((s) => s.totalActiveCount);
   const [summaries, setSummaries] = useState<MessageSummary[]>([]);
 
   useEffect(() => {
@@ -150,7 +151,7 @@ function useEntries(enabled: boolean, conversationId: string | null): MinimapEnt
     return () => {
       cancelled = true;
     };
-  }, [conversationId, enabled]);
+  }, [conversationId, enabled, totalActiveCount]);
 
   return useMemo(() => {
     if (!enabled) return [];

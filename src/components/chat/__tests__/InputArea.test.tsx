@@ -2,7 +2,7 @@ import { App } from 'antd';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppSettings } from '@/types';
+import type { AppSettings, Message } from '@/types';
 import { InputArea } from '../InputArea';
 
 const sendMessage = vi.fn();
@@ -19,6 +19,8 @@ const toggleMemoryNamespace = vi.fn();
 const setThinkingBudget = vi.fn();
 const setThinkingLevel = vi.fn();
 const insertContextClear = vi.fn();
+const clearAllMessages = vi.fn();
+const clearFirstRounds = vi.fn();
 const getContextUsage = vi.fn();
 const setActivePage = vi.fn();
 const setSettingsSection = vi.fn();
@@ -26,10 +28,10 @@ const setSettingsSection = vi.fn();
 const conversationState = {
   streaming: false,
   compressingConversationId: null as string | null,
-  activeConversationId: 'conv-1',
+  activeConversationId: 'conv-1' as string | null,
   sendMessage,
   createConversation,
-  messages: [],
+  messages: [] as Message[],
   conversations: [
     {
       id: 'conv-1',
@@ -53,6 +55,8 @@ const conversationState = {
   setThinkingBudget,
   setThinkingLevel,
   insertContextClear,
+  clearAllMessages,
+  clearFirstRounds,
   getContextUsage,
 };
 
@@ -158,6 +162,16 @@ vi.mock('@lobehub/icons', () => ({
   ModelIcon: () => null,
 }));
 
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: vi.fn(async () => () => {}),
+  }),
+}));
+
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  readFile: vi.fn(),
+}));
+
 vi.mock('../VoiceCall', () => ({
   VoiceCall: () => null,
 }));
@@ -182,6 +196,9 @@ describe('InputArea', () => {
     conversationState.thinkingBudget = null;
     conversationState.thinkingLevel = null;
     conversationState.compressingConversationId = null;
+    conversationState.messages = [];
+    conversationState.activeConversationId = 'conv-1';
+    conversationState.streaming = false;
     getContextUsage.mockResolvedValue(null);
     settingsState.settings.document_attachment_reading_enabled = false;
   });
@@ -338,5 +355,53 @@ describe('InputArea', () => {
     expect(input?.accept).toContain('.pdf');
     expect(input?.accept).toContain('.doc');
     expect(input?.accept).toContain('.docx');
+  });
+
+  it('keeps the clear-all action in the clear conversation menu', async () => {
+    conversationState.messages = [{ id: 'msg-1', content: 'hello' } as any];
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.clearConversation'));
+    await userEvent.click(await screen.findByText('chat.clearConversationAll'));
+    await userEvent.click(await screen.findByText('common.confirm'));
+
+    expect(clearAllMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the first N rounds from the clear conversation menu', async () => {
+    conversationState.messages = [{ id: 'msg-1', content: 'hello' } as any];
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.clearConversation'));
+    await userEvent.click(await screen.findByText('chat.clearFirstRounds'));
+    const input = await screen.findByRole('spinbutton');
+    await userEvent.clear(input);
+    await userEvent.type(input, '2');
+    await userEvent.click(await screen.findByText('common.confirm'));
+
+    expect(clearFirstRounds).toHaveBeenCalledWith(2);
+  });
+
+  it('disables the clear conversation menu without an active conversation', () => {
+    conversationState.activeConversationId = null;
+    conversationState.messages = [{ id: 'msg-1', content: 'hello' } as any];
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    expect(screen.getByLabelText('chat.clearConversation')).toBeDisabled();
   });
 });

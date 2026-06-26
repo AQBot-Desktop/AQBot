@@ -945,6 +945,45 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       setStore('messages', filtered);
       return undefined as T;
     }
+    case 'clear_conversation_messages': {
+      const { conversationId } = args as any;
+      const msgs = getStore<any[]>('messages', []);
+      setStore('messages', msgs.filter((m: any) => m.conversation_id !== conversationId));
+      return 0 as T;
+    }
+    case 'clear_conversation_first_rounds': {
+      const { conversationId, rounds } = args as any;
+      if (!rounds || rounds <= 0) return 0 as T;
+      const msgs = getStore<any[]>('messages', []);
+      const convMsgs = msgs
+        .filter((m: any) => m.conversation_id === conversationId)
+        .sort((a: any, b: any) => a.created_at - b.created_at || String(a.id).localeCompare(String(b.id)));
+      const roots = convMsgs.filter((m: any) => m.role === 'user' && !m.parent_message_id);
+      if (roots.length === 0) return 0 as T;
+      const deleteIds = new Set<string>();
+      if (rounds >= roots.length) {
+        for (const m of convMsgs) deleteIds.add(m.id);
+      } else {
+        const boundary = roots[rounds];
+        for (const m of convMsgs) {
+          if (m.created_at < boundary.created_at || (m.created_at === boundary.created_at && String(m.id) < String(boundary.id))) {
+            deleteIds.add(m.id);
+          }
+        }
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const m of convMsgs) {
+            if (m.parent_message_id && deleteIds.has(m.parent_message_id) && !deleteIds.has(m.id)) {
+              deleteIds.add(m.id);
+              changed = true;
+            }
+          }
+        }
+      }
+      setStore('messages', msgs.filter((m: any) => !deleteIds.has(m.id) && m.content !== '<!-- context-compressed -->'));
+      return deleteIds.size as T;
+    }
 
     // ── Gateway ───────────────────────────────────────────────────────
     case 'list_gateway_keys':
