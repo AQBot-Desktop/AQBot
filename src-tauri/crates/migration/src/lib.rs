@@ -35,6 +35,7 @@ mod m20260515_000001_add_knowledge_base_index_schedule;
 mod m20260518_000001_add_builtin_model_deletions;
 mod m20260627_000001_add_roles;
 mod m20260628_000001_repair_roles_schema;
+mod m20260701_000001_add_chat_perf_indexes;
 
 pub struct Migrator;
 
@@ -77,6 +78,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260518_000001_add_builtin_model_deletions::Migration),
             Box::new(m20260627_000001_add_roles::Migration),
             Box::new(m20260628_000001_repair_roles_schema::Migration),
+            Box::new(m20260701_000001_add_chat_perf_indexes::Migration),
         ]
     }
 }
@@ -96,6 +98,18 @@ mod tests {
         Database::connect(opts)
             .await
             .expect("connect sqlite test db")
+    }
+
+    async fn sqlite_index_names(db: &DatabaseConnection, table: &str) -> Vec<String> {
+        db.query_all(Statement::from_string(
+            DbBackend::Sqlite,
+            format!("PRAGMA index_list('{table}')"),
+        ))
+        .await
+        .expect("query sqlite index list")
+        .into_iter()
+        .map(|row| row.try_get("", "name").expect("read index name"))
+        .collect()
     }
 
     #[tokio::test]
@@ -180,6 +194,39 @@ mod tests {
                     .await
                     .expect("check roles column"),
                 "missing roles.{column}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_chat_performance_indexes_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let message_indexes = sqlite_index_names(&db, "messages").await;
+        for index_name in [
+            "idx_messages_conv_active_created_id",
+            "idx_messages_conv_parent_role_version",
+            "idx_messages_conv_role_parent",
+            "idx_messages_conv_created_id",
+        ] {
+            assert!(
+                message_indexes.contains(&index_name.to_string()),
+                "missing messages performance index {index_name}"
+            );
+        }
+
+        let conversation_indexes = sqlite_index_names(&db, "conversations").await;
+        for index_name in [
+            "idx_conversations_active_order",
+            "idx_conversations_archived_order",
+        ] {
+            assert!(
+                conversation_indexes.contains(&index_name.to_string()),
+                "missing conversations performance index {index_name}"
             );
         }
     }

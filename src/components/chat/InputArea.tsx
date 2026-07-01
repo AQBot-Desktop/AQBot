@@ -17,6 +17,7 @@ import { NamespaceIcon } from '@/components/shared/NamespaceIcon';
 import { KnowledgeBaseIcon } from '@/components/shared/KnowledgeBaseIcon';
 import { getShortcutBinding, formatShortcutForDisplay, matchesShortcutEvent } from '@/lib/shortcuts';
 import { normalizeAutoConversationTitle } from '@/lib/conversationTitle';
+import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
@@ -115,6 +116,7 @@ export function InputArea() {
 
   const { message: messageApi, modal } = App.useApp();
   const streaming = useConversationStore((s) => s.streaming);
+  const loading = useConversationStore((s) => s.loading);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
@@ -768,29 +770,58 @@ export function InputArea() {
     maxTokens: number;
     percent: number;
   } | null>(null);
+  const contextUsageRevision = `${messages.length}:${messages[messages.length - 1]?.id ?? ''}:${messages[messages.length - 1]?.status ?? ''}`;
+
+  useEffect(() => {
+    setServerContextUsage(null);
+  }, [activeConversationId]);
 
   useEffect(() => {
     if (!activeConversationId) {
       setServerContextUsage(null);
       return;
     }
+    if (loading || streaming) return;
+
     let cancelled = false;
-    getContextUsage(activeConversationId).then((usage) => {
-      if (cancelled) return;
-      if (!usage?.max_tokens) {
-        setServerContextUsage(null);
-        return;
+    let idleId: number | null = null;
+    const win = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const startedAt = perfNow();
+    const timeoutId = window.setTimeout(() => {
+      const run = () => {
+        getContextUsage(activeConversationId).then((usage) => {
+          perfTraceDuration('chat.contextUsage', startedAt, { conversationId: activeConversationId });
+          if (cancelled) return;
+          if (!usage?.max_tokens) {
+            setServerContextUsage(null);
+            return;
+          }
+          setServerContextUsage({
+            usedTokens: usage.used_tokens,
+            maxTokens: usage.max_tokens,
+            percent: Math.min(Math.round((usage.used_tokens / usage.max_tokens) * 100), 100),
+          });
+        });
+      };
+
+      if (typeof win.requestIdleCallback === 'function') {
+        idleId = win.requestIdleCallback(run, { timeout: 1000 });
+      } else {
+        run();
       }
-      setServerContextUsage({
-        usedTokens: usage.used_tokens,
-        maxTokens: usage.max_tokens,
-        percent: Math.min(Math.round((usage.used_tokens / usage.max_tokens) * 100), 100),
-      });
-    });
+    }, 180);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
+      if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
+        win.cancelIdleCallback(idleId);
+      }
     };
-  }, [activeConversationId, getContextUsage, messages]);
+  }, [activeConversationId, contextUsageRevision, getContextUsage, loading, streaming]);
 
   // Fallback only: local estimation sees loaded messages, so it can undercount
   // paginated conversations when the backend usage query is unavailable.

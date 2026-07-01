@@ -4623,6 +4623,21 @@ pub async fn list_message_versions(
 }
 
 #[tauri::command]
+pub async fn list_message_versions_batch(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    parent_message_ids: Vec<String>,
+) -> Result<HashMap<String, Vec<Message>>, String> {
+    aqbot_core::repo::message::list_message_versions_batch(
+        &state.sea_db,
+        &conversation_id,
+        &parent_message_ids,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn switch_message_version(
     state: State<'_, AppState>,
     conversation_id: String,

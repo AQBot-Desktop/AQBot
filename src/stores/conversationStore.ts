@@ -13,6 +13,7 @@ import {
 import { buildContextualSearchQuery, formatSearchContent, buildSearchQueryTag, buildSearchTag } from '@/lib/searchUtils';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
 import { appendStreamErrorToContent, type StreamActivity } from '@/lib/streamStatus';
+import { perfNow, perfTrace, perfTraceDuration } from '@/lib/perfTrace';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { useKnowledgeStore } from '@/stores/knowledgeStore';
@@ -1048,7 +1049,7 @@ interface ConversationState {
     options?: { activate?: boolean },
   ) => Promise<Message>;
   deleteMessage: (messageId: string) => Promise<void>;
-  fetchMessages: (conversationId: string, preserveMessageIds?: string[]) => Promise<void>;
+  fetchMessages: (conversationId: string, preserveMessageIds?: string[], options?: { setLoading?: boolean }) => Promise<void>;
   loadOlderMessages: (limit?: number) => Promise<void>;
   loadNewerMessages: (limit?: number) => Promise<void>;
   loadMessagesAround: (messageId: string, beforeLimit?: number, afterLimit?: number) => Promise<void>;
@@ -1058,6 +1059,7 @@ interface ConversationState {
   cancelCurrentStream: () => void;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
+  listMessageVersionsBatch: (conversationId: string, parentMessageIds: string[]) => Promise<Record<string, Message[]>>;
   hydrateMessageVersions: (parentMessageId: string, versions: Message[], activeMessageId?: string | null) => void;
   updateMessageContent: (messageId: string, content: string) => Promise<void>;
   deleteMessageGroup: (conversationId: string, userMessageId: string) => Promise<void>;
@@ -1675,8 +1677,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   setActiveConversation: (id) => {
-    _activeMessageLoadSeq += 1;
     if (!id) {
+      _activeMessageLoadSeq += 1;
       set({
         activeConversationId: null,
         messages: [],
@@ -1694,18 +1696,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     const conversation = get().conversations.find((item) => item.id === id)
       ?? get().archivedConversations.find((item) => item.id === id);
-    const requestSeq = _activeMessageLoadSeq;
-
     // Check if this conversation had a stream complete while we were away
     const needsRefreshAfterStreamDone = _pendingConversationRefresh.has(id);
+    if (get().activeConversationId === id && !needsRefreshAfterStreamDone) {
+      return;
+    }
     if (needsRefreshAfterStreamDone) {
       _pendingConversationRefresh.delete(id);
     }
 
+    _activeMessageLoadSeq += 1;
+    const requestSeq = _activeMessageLoadSeq;
+    const startedAt = perfNow();
+    const canSkipMessageFetch = conversation?.message_count === 0
+      && !needsRefreshAfterStreamDone
+      && get().streamingConversationId !== id
+      && _streamBuffer?.conversationId !== id;
+
+    perfTrace('chat.switch.start', { conversationId: id, skipMessageFetch: canSkipMessageFetch });
     set({
       activeConversationId: id,
       messages: [],
-      loading: true,
+      loading: !canSkipMessageFetch,
       loadingOlder: false,
       loadingNewer: false,
       hasOlderMessages: false,
@@ -1716,7 +1728,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       error: null,
       ...conversationPreferenceStateFromConversation(conversation),
     });
-    get().fetchMessages(id).then(() => {
+    if (canSkipMessageFetch) {
+      perfTraceDuration('chat.switch.empty', startedAt, { conversationId: id });
+      return;
+    }
+    get().fetchMessages(id, [], { setLoading: false }).then(() => {
+      perfTraceDuration('chat.switch.loaded', startedAt, { conversationId: id });
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== id) {
         return;
       }
@@ -1821,6 +1838,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         conversations: [conversation, ...s.conversations],
         activeConversationId: conversation.id,
         messages: [],
+        loading: false,
+        loadingOlder: false,
+        loadingNewer: false,
+        hasOlderMessages: false,
+        hasNewerMessages: false,
+        totalActiveCount: 0,
+        oldestLoadedMessageId: null,
+        newestLoadedMessageId: null,
         error: null,
         ...conversationPreferenceStateFromConversation(conversation),
       }));
@@ -3227,8 +3252,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
   },
 
-  fetchMessages: async (conversationId, preserveMessageIds = []) => {
+  fetchMessages: async (conversationId, preserveMessageIds = [], options) => {
     const requestSeq = _activeMessageLoadSeq;
+    const startedAt = perfNow();
     const effectivePreserveMessageIds = new Set(preserveMessageIds);
     const collectActiveStreamingPreserveIds = () => {
       for (const messageId of collectActiveStreamingMessageIds(get(), conversationId)) {
@@ -3242,12 +3268,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       collectActiveStreamingPreserveIds();
     }
 
-    set({ loading: true });
+    if (options?.setLoading !== false) {
+      set({ loading: true });
+    }
     try {
       const page = await invoke<MessagePage>('list_messages_page', {
         conversationId,
         limit: MESSAGE_PAGE_SIZE,
         beforeMessageId: null,
+      });
+      perfTraceDuration('chat.messages.page', startedAt, {
+        conversationId,
+        count: page.messages.length,
+        total: page.total_active_count,
       });
       collectActiveStreamingPreserveIds();
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== conversationId) {
@@ -4009,6 +4042,25 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
       return [];
+    }
+  },
+
+  listMessageVersionsBatch: async (conversationId, parentMessageIds) => {
+    if (parentMessageIds.length === 0) return {};
+    const startedAt = perfNow();
+    try {
+      const result = await invoke<Record<string, Message[]>>('list_message_versions_batch', {
+        conversationId,
+        parentMessageIds,
+      });
+      perfTraceDuration('chat.messageVersions.batch', startedAt, {
+        conversationId,
+        parentCount: parentMessageIds.length,
+      });
+      return result;
+    } catch (e) {
+      set({ error: String(e) });
+      return {};
     }
   },
 

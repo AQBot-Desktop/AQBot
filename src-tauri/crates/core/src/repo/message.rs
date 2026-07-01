@@ -1,6 +1,6 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::entity::{conversation_summaries, conversations, messages};
 use crate::error::{AQBotError, Result};
@@ -350,7 +350,7 @@ pub async fn list_message_summaries(
         SELECT
             id,
             role,
-            substr(content, 1, 500) AS content_preview,
+            substr(content, 1, 120) AS content_preview,
             provider_id,
             model_id,
             created_at,
@@ -765,6 +765,60 @@ pub async fn list_message_versions(
         .collect()
 }
 
+pub async fn list_message_versions_batch(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    parent_message_ids: &[String],
+) -> Result<HashMap<String, Vec<Message>>> {
+    let mut result = parent_message_ids
+        .iter()
+        .map(|id| (id.clone(), Vec::new()))
+        .collect::<HashMap<_, _>>();
+    if parent_message_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::ParentMessageId.is_in(parent_message_ids.to_vec()))
+        .filter(messages::Column::Role.eq("assistant"))
+        .filter(messages::Column::VersionIndex.gte(0))
+        .order_by_asc(messages::Column::ParentMessageId)
+        .order_by_asc(messages::Column::VersionIndex)
+        .all(db)
+        .await?;
+
+    if rows.is_empty() {
+        return Ok(result);
+    }
+
+    let candidate_ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let tool_rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::Role.eq("tool"))
+        .filter(messages::Column::ParentMessageId.is_in(candidate_ids))
+        .all(db)
+        .await?;
+    let tool_parent_ids: HashSet<String> = tool_rows
+        .into_iter()
+        .filter_map(|row| row.parent_message_id)
+        .collect();
+
+    for row in rows {
+        if tool_parent_ids.contains(&row.id) {
+            continue;
+        }
+        if let Some(parent_id) = row.parent_message_id.clone() {
+            result
+                .entry(parent_id)
+                .or_default()
+                .push(message_from_entity(row)?);
+        }
+    }
+
+    Ok(result)
+}
+
 pub async fn set_active_version(
     db: &DatabaseConnection,
     conversation_id: &str,
@@ -1000,6 +1054,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_message_summaries_truncates_content_preview() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+
+        let conv = conversation::create_conversation(db, "Summary Chat", "m1", "p1", None)
+            .await
+            .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::User,
+            &"x".repeat(180),
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let summaries = list_message_summaries(db, &conv.id).await.unwrap();
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].content_preview, "x".repeat(120));
+    }
+
+    #[tokio::test]
     async fn list_messages_for_model_context_includes_inactive_tool_scaffolding_only() {
         let h = create_test_pool().await.unwrap();
         let db = &h.conn;
@@ -1139,6 +1219,78 @@ mod tests {
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].id, version_b.id);
         assert!(versions[0].is_active);
+    }
+
+    #[tokio::test]
+    async fn list_message_versions_batch_groups_versions_and_filters_tool_scaffolding() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Batch Versions", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+
+        let user_a = create_message(db, &conv.id, MessageRole::User, "A", &[], None, 0)
+            .await
+            .unwrap();
+        let user_b = create_message(db, &conv.id, MessageRole::User, "B", &[], None, 0)
+            .await
+            .unwrap();
+        let assistant_a = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "A1",
+            &[],
+            Some(&user_a.id),
+            0,
+        )
+        .await
+        .unwrap();
+        let assistant_b = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "B1",
+            &[],
+            Some(&user_b.id),
+            0,
+        )
+        .await
+        .unwrap();
+        let scaffolded = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "B tool scaffold",
+            &[],
+            Some(&user_b.id),
+            1,
+        )
+        .await
+        .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::Tool,
+            "tool output",
+            &[],
+            Some(&scaffolded.id),
+            0,
+        )
+        .await
+        .unwrap();
+
+        let versions = list_message_versions_batch(
+            db,
+            &conv.id,
+            &[user_a.id.clone(), user_b.id.clone()],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(versions[&user_a.id][0].id, assistant_a.id);
+        assert_eq!(versions[&user_b.id].len(), 1);
+        assert_eq!(versions[&user_b.id][0].id, assistant_b.id);
     }
 
     #[tokio::test]

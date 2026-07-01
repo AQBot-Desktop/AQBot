@@ -67,6 +67,31 @@ const FAQ_ITEM_HEIGHT = 18;
 const FAQ_DEFAULT_HEIGHT = 480;
 const STICKY_ITEM_HEIGHT = 34;
 const STICKY_DROPDOWN_HEIGHT = 300;
+const MINIMAP_SUMMARY_PREVIEW_CHARS = 120;
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function scheduleSummaryLoad(callback: () => void): () => void {
+  if (typeof window === 'undefined') {
+    const timeout = setTimeout(callback, 0);
+    return () => clearTimeout(timeout);
+  }
+
+  const win = window as IdleWindow;
+  if (win.requestIdleCallback) {
+    const handle = win.requestIdleCallback(callback, { timeout: 300 });
+    return () => win.cancelIdleCallback?.(handle);
+  }
+  if (win.requestAnimationFrame) {
+    const handle = win.requestAnimationFrame(callback);
+    return () => win.cancelAnimationFrame(handle);
+  }
+  const timeout = win.setTimeout(callback, 0);
+  return () => win.clearTimeout(timeout);
+}
 
 function summarize(content: string, maxLen: number, role: 'user' | 'assistant'): string {
   const stripped = stripAqbotTags(content, { stripThink: role === 'assistant' })
@@ -82,7 +107,7 @@ function summaryFromMessage(message: Message): MessageSummary | null {
   return {
     id: message.id,
     role: message.role,
-    content_preview: message.content.slice(0, 500),
+    content_preview: message.content.slice(0, MINIMAP_SUMMARY_PREVIEW_CHARS),
     provider_id: message.provider_id,
     model_id: message.model_id,
     created_at: message.created_at,
@@ -129,7 +154,6 @@ function buildEntries(summaries: MessageSummary[]): MinimapEntry[] {
 
 function useEntries(enabled: boolean, conversationId: string | null): MinimapEntry[] {
   const messages = useConversationStore((s) => s.messages);
-  const totalActiveCount = useConversationStore((s) => s.totalActiveCount);
   const [summaries, setSummaries] = useState<MessageSummary[]>([]);
 
   useEffect(() => {
@@ -139,19 +163,22 @@ function useEntries(enabled: boolean, conversationId: string | null): MinimapEnt
     }
 
     let cancelled = false;
-    invoke<MessageSummary[]>('list_message_summaries', { conversationId })
-      .then((items) => {
-        if (!cancelled) setSummaries(items);
-      })
-      .catch((error) => {
-        console.warn('[ChatMinimap] failed to load message summaries:', error);
-        if (!cancelled) setSummaries([]);
-      });
+    const cancelScheduled = scheduleSummaryLoad(() => {
+      invoke<MessageSummary[]>('list_message_summaries', { conversationId })
+        .then((items) => {
+          if (!cancelled) setSummaries(items);
+        })
+        .catch((error) => {
+          console.warn('[ChatMinimap] failed to load message summaries:', error);
+          if (!cancelled) setSummaries([]);
+        });
+    });
 
     return () => {
       cancelled = true;
+      cancelScheduled();
     };
-  }, [conversationId, enabled, totalActiveCount]);
+  }, [conversationId, enabled]);
 
   return useMemo(() => {
     if (!enabled) return [];

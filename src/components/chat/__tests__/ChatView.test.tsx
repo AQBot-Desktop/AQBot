@@ -152,6 +152,7 @@ describe('ChatView assistant display policy', () => {
   it('does not refetch every assistant version when unrelated pages change message count', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
 
+    expect(source).toContain('listMessageVersionsBatch(activeConversationId, parentMessageIds)');
     expect(source).not.toContain('const messagesLength = useConversationStore((s) => s.messages.length);');
     expect(source).not.toMatch(/listMessageVersions\([\s\S]*?\], \[[^\]]*messagesLength[^\]]*\]\);/);
   });

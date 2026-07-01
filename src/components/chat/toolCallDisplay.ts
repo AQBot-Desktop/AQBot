@@ -62,7 +62,7 @@ function truncatePersistedMcpBlocks(content: string): string {
   return result;
 }
 
-export function buildAssistantDisplayContent(message: Message, messages: Message[]): string {
+export function buildAssistantDisplayContent(message: Message, messages: Message[] | Map<string, Message>): string {
   if (message.role !== 'assistant') {
     return message.content;
   }
@@ -73,9 +73,11 @@ export function buildAssistantDisplayContent(message: Message, messages: Message
   }
 
   const parent = message.parent_message_id
-    ? messages.find((item) => item.id === message.parent_message_id && item.role === 'user')
+    ? Array.isArray(messages)
+      ? messages.find((item) => item.id === message.parent_message_id && item.role === 'user')
+      : messages.get(message.parent_message_id)
     : undefined;
-  if (!parent) {
+  if (parent?.role !== 'user') {
     return content;
   }
 

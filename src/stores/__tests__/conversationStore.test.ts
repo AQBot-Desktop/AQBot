@@ -153,6 +153,42 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().oldestLoadedMessageId).toBe('msg-11');
   });
 
+  it('does not reload messages when selecting the already active conversation', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const messages = [makeMessage(1), makeMessage(2)];
+    useConversationStore.setState({
+      conversations: [makeConversation('conv-1', { message_count: 2 })] as never[],
+      activeConversationId: 'conv-1',
+      messages,
+      loading: false,
+    });
+
+    useConversationStore.getState().setActiveConversation('conv-1');
+    await flushPromises();
+
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_messages_page')).toHaveLength(0);
+    expect(useConversationStore.getState().messages).toEqual(messages);
+    expect(useConversationStore.getState().loading).toBe(false);
+  });
+
+  it('does not request a message page when selecting an empty conversation', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [makeConversation('empty-conv', { message_count: 0 })] as never[],
+      activeConversationId: null,
+      messages: [makeMessage(1)],
+      loading: false,
+    });
+
+    useConversationStore.getState().setActiveConversation('empty-conv');
+    await flushPromises();
+
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_messages_page')).toHaveLength(0);
+    expect(useConversationStore.getState().activeConversationId).toBe('empty-conv');
+    expect(useConversationStore.getState().messages).toEqual([]);
+    expect(useConversationStore.getState().loading).toBe(false);
+  });
+
   it('clears the first conversation rounds then reloads the newest page', async () => {
     invokeMock
       .mockResolvedValueOnce(6)

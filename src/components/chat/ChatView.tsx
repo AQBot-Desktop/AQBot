@@ -102,6 +102,7 @@ import { ChatImageNode } from './ChatImageNode';
 import { HtmlRenderNode } from './HtmlRenderNode';
 import { formatChatTime } from './chatTime';
 import { ChatMessageRenderBoundary } from './ChatMessageRenderBoundary';
+import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 
 import { invoke } from '@/lib/invoke';
 import { registerHighlight } from 'stream-markdown';
@@ -112,6 +113,7 @@ import type { Message, Attachment, ConversationStats, ConversationSummary } from
 
 const DEFAULT_LIGHT_CODE_BLOCK_THEME = 'github-light';
 const DEFAULT_DARK_CODE_BLOCK_THEME = 'poimandres';
+const HEAVY_MARKDOWN_CHAR_LIMIT = 20_000;
 const DANGEROUS_D2_STYLE_PATTERNS = [
   /javascript:/i,
   /expression\s*\(/i,
@@ -444,7 +446,7 @@ function isStandaloneD2Fence(content: string) {
 }
 
 function shouldDeferAssistantMarkdownParse(content: string) {
-  return content.includes('```') && !isStandaloneD2Fence(content);
+  return content.length > HEAVY_MARKDOWN_CHAR_LIMIT || (content.includes('```') && !isStandaloneD2Fence(content));
 }
 
 function sanitizeD2Url(url: string) {
@@ -1178,7 +1180,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
   );
   const singleD2Node = useMemo(() => getSingleD2CodeBlockNode(nodes), [nodes]);
   const hasDeferredHeavyNodes = useMemo(
-    () => !isStreaming && (containsDeferredHeavyNode(nodes) || content.includes('```')),
+    () => !isStreaming && (containsDeferredHeavyNode(nodes) || shouldDeferAssistantMarkdownParse(content)),
     [content, nodes, isStreaming],
   );
   const [readyToRenderHeavyNodes, setReadyToRenderHeavyNodes] = useState(!hasDeferredHeavyNodes);
@@ -1642,6 +1644,7 @@ function DeleteLastVersionPopover({
 function AssistantFooter({
   msg,
   conversationId,
+  versions,
   assistantCopyText,
   getModelDisplayInfo,
   onEditMessage,
@@ -1653,6 +1656,7 @@ function AssistantFooter({
 }: {
   msg: Message;
   conversationId: string;
+  versions?: Message[];
   assistantCopyText: string;
   getModelDisplayInfo: (modelId?: string | null, providerId?: string | null) => { modelName: string; providerName: string };
   onEditMessage: (messageId: string, content: string, role: 'user' | 'assistant') => void;
@@ -1665,9 +1669,6 @@ function AssistantFooter({
   const { token } = theme.useToken();
   const { t } = useTranslation();
   const { message: messageApi } = App.useApp();
-  const [allVersions, setAllVersions] = useState<Message[]>([]);
-  const listMessageVersions = useConversationStore((s) => s.listMessageVersions);
-  const hydrateMessageVersions = useConversationStore((s) => s.hydrateMessageVersions);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
@@ -1681,19 +1682,7 @@ function AssistantFooter({
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
   const storeMessages = useConversationStore((s) => s.messages);
-
-  useEffect(() => {
-    if (msg.parent_message_id && conversationId) {
-      listMessageVersions(conversationId, msg.parent_message_id).then((v) => {
-        if (v) {
-          setAllVersions(v);
-          if (v.length > 0) {
-            hydrateMessageVersions(msg.parent_message_id!, v);
-          }
-        }
-      });
-    }
-  }, [msg.parent_message_id, msg.id, conversationId, listMessageVersions, hydrateMessageVersions]);
+  const allVersions = versions ?? [];
 
   // Merge DB-fetched versions with in-store companion messages for real-time visibility
   const mergedVersions = useMemo(() => {
@@ -1711,10 +1700,10 @@ function AssistantFooter({
   // Report the latest version snapshot to parent so cached multi-model state
   // can be updated or cleared after deletes/switches.
   useEffect(() => {
-    if (msg.parent_message_id && onMultiModelDetected) {
+    if (versions !== undefined && msg.parent_message_id && onMultiModelDetected) {
       onMultiModelDetected(msg.parent_message_id, mergedVersions);
     }
-  }, [msg.parent_message_id, mergedVersions, onMultiModelDetected]);
+  }, [msg.parent_message_id, mergedVersions, onMultiModelDetected, versions]);
 
   // Current message's model for ModelSelector highlight
   const currentModelOverride = useMemo(() => {
@@ -2116,6 +2105,8 @@ export function ChatView() {
   const removeContextClear = useConversationStore((s) => s.removeContextClear);
   const getCompressionSummary = useConversationStore((s) => s.getCompressionSummary);
   const deleteCompression = useConversationStore((s) => s.deleteCompression);
+  const listMessageVersionsBatch = useConversationStore((s) => s.listMessageVersionsBatch);
+  const hydrateMessageVersions = useConversationStore((s) => s.hydrateMessageVersions);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [summaryModalText, setSummaryModalText] = useState('');
   const [summaryModalSummary, setSummaryModalSummary] = useState<ConversationSummary | null>(null);
@@ -2951,10 +2942,68 @@ export function ChatView() {
     () => messages.filter((msg) => msg.is_active !== false),
     [messages],
   );
+  const assistantVersionParentIdsKey = useMemo(() => {
+    const ids = new Set<string>();
+    for (const msg of activeMessages) {
+      if (msg.role === 'assistant' && msg.parent_message_id) {
+        ids.add(msg.parent_message_id);
+      }
+    }
+    return Array.from(ids).join('\n');
+  }, [activeMessages]);
+  const [messageVersionsByParentId, setMessageVersionsByParentId] = useState<Record<string, Message[]>>({});
   const messageById = useMemo(
     () => new Map(messages.map((msg) => [msg.id, msg])),
     [messages],
   );
+
+  useEffect(() => {
+    if (!activeConversationId || !assistantVersionParentIdsKey) {
+      setMessageVersionsByParentId((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      return;
+    }
+
+    let cancelled = false;
+    let frameId = 0;
+    let idleId: number | null = null;
+    const win = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const parentMessageIds = assistantVersionParentIdsKey.split('\n').filter(Boolean);
+    const startedAt = perfNow();
+    const load = () => {
+      listMessageVersionsBatch(activeConversationId, parentMessageIds).then((result) => {
+        perfTraceDuration('chat.messageVersions.ready', startedAt, {
+          conversationId: activeConversationId,
+          parentCount: parentMessageIds.length,
+        });
+        if (cancelled) return;
+        setMessageVersionsByParentId(result);
+        for (const [parentId, versions] of Object.entries(result)) {
+          if (versions.length > 0) {
+            hydrateMessageVersions(parentId, versions);
+          }
+        }
+      });
+    };
+
+    frameId = window.requestAnimationFrame(() => {
+      if (typeof win.requestIdleCallback === 'function') {
+        idleId = win.requestIdleCallback(load, { timeout: 500 });
+      } else {
+        load();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+      if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
+        win.cancelIdleCallback(idleId);
+      }
+    };
+  }, [activeConversationId, assistantVersionParentIdsKey, hydrateMessageVersions, listMessageVersionsBatch]);
   // Separate lookup: parent message id → active assistant message (for stable bubble keys)
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();
@@ -3236,7 +3285,7 @@ export function ChatView() {
       }
 
       let aiContent = msg.role === 'assistant'
-        ? buildAssistantDisplayContent(msg, activeMessages)
+        ? buildAssistantDisplayContent(msg, messageById)
         : msg.content;
       if (shouldHideAssistantBubble(msg, aiContent)) continue;
       if (msg.role === 'assistant') {
@@ -3269,7 +3318,7 @@ export function ChatView() {
 
     bubbleItemCacheRef.current = nextCache;
     return nextItems;
-  }, [activeMessages, searchDisplayByMessageId, streaming, streamingMessageId, thinkingActiveMessageIds, userSearchContentById]);
+  }, [activeMessages, messageById, searchDisplayByMessageId, streaming, streamingMessageId, thinkingActiveMessageIds, userSearchContentById]);
 
   // Append compressing placeholder when compression is in progress
   const finalBubbleItems = useMemo(() => {
@@ -3652,7 +3701,7 @@ export function ChatView() {
         status: versionMessage.status,
       });
       const buildVersionContent = (content: string) => closeStreamingThinkBlock(
-        buildAssistantDisplayContent({ ...versionMessage, content }, activeMessages),
+        buildAssistantDisplayContent({ ...versionMessage, content }, messageById),
         versionIsStreaming,
       );
       const renderVersionNode = (versionContent: string) => {
@@ -3948,6 +3997,7 @@ export function ChatView() {
             <AssistantFooter
               msg={msg}
               conversationId={activeConversationId}
+              versions={msg.parent_message_id ? messageVersionsByParentId[msg.parent_message_id] : undefined}
               assistantCopyText={assistantCopyText}
               getModelDisplayInfo={getModelDisplayInfo}
               onEditMessage={handleEditMessage}
@@ -3971,7 +4021,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, settings, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messageVersionsByParentId, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, settings, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

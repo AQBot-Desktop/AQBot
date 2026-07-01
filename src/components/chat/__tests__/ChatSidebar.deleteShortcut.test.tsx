@@ -392,6 +392,10 @@ describe('ChatSidebar direct delete shortcut', () => {
     expect(source).not.toContain('PanelLeftClose');
     expect(source).not.toContain('onCollapse');
     expect(source).not.toContain('chat.collapseSidebar');
+    expect(source).not.toContain('@tanstack/react-virtual');
+    expect(source).not.toContain('useVirtualizer');
+    expect(source).not.toContain('aqbot-chat-conversation-virtual');
+    expect(source).toContain('<Conversations');
     expect(source).toContain('.ant-conversations .ant-conversations-item-active .aqbot-chat-conversation-menu-delete');
     expect(source).toContain('opacity: 0;');
   });
@@ -430,6 +434,7 @@ describe('ChatSidebar direct delete shortcut', () => {
         { categoryId: 'cat-work' },
       );
     });
+    expect(mocks.setActiveConversation).not.toHaveBeenCalled();
   });
 
   it('lets users create a standalone conversation from a categorized conversation', async () => {

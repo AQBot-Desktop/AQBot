@@ -1,5 +1,5 @@
 import { App } from 'antd';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings, Message } from '@/types';
@@ -29,6 +29,7 @@ const conversationState = {
   streaming: false,
   compressingConversationId: null as string | null,
   activeConversationId: 'conv-1' as string | null,
+  loading: false,
   sendMessage,
   createConversation,
   messages: [] as Message[],
@@ -198,6 +199,7 @@ describe('InputArea', () => {
     conversationState.compressingConversationId = null;
     conversationState.messages = [];
     conversationState.activeConversationId = 'conv-1';
+    conversationState.loading = false;
     conversationState.streaming = false;
     getContextUsage.mockResolvedValue(null);
     settingsState.settings.document_attachment_reading_enabled = false;
@@ -338,6 +340,71 @@ describe('InputArea', () => {
     await userEvent.hover(screen.getByLabelText('上下文 tokens'));
 
     expect(await screen.findByText('720,000 / 1,000,000 tokens (72%)')).toBeInTheDocument();
+  });
+
+  it('does not refetch context usage while a conversation switch is still loading messages', async () => {
+    vi.useFakeTimers();
+    try {
+      conversationState.loading = true;
+      conversationState.messages = [];
+      getContextUsage.mockResolvedValue({
+        used_tokens: 12,
+        max_tokens: 100,
+        threshold_tokens: 70,
+        has_summary: false,
+        compressed_until_message_id: null,
+        messages_after_boundary: 1,
+      });
+
+      const { rerender } = render(
+        <App>
+          <InputArea />
+        </App>,
+      );
+
+      conversationState.messages = [{
+        id: 'msg-1',
+        conversation_id: 'conv-1',
+        role: 'user',
+        content: 'hello',
+        provider_id: null,
+        model_id: null,
+        token_count: null,
+        attachments: [],
+        thinking: null,
+        tool_calls_json: null,
+        tool_call_id: null,
+        created_at: 1,
+        parent_message_id: null,
+        version_index: 0,
+        is_active: true,
+        status: 'complete',
+      }];
+      rerender(
+        <App>
+          <InputArea />
+        </App>,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(220);
+      });
+      expect(getContextUsage).not.toHaveBeenCalled();
+
+      conversationState.loading = false;
+      rerender(
+        <App>
+          <InputArea />
+        </App>,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(220);
+      });
+
+      expect(getContextUsage).toHaveBeenCalledTimes(1);
+      expect(getContextUsage).toHaveBeenCalledWith('conv-1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows document attachment controls for non-vision models when document reading is enabled', () => {

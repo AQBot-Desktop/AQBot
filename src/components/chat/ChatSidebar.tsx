@@ -398,7 +398,27 @@ export function ChatSidebar() {
   // Persist last selected conversation
   useEffect(() => {
     if (activeConversationId && activeConversationId !== settings.last_selected_conversation_id) {
-      void useSettingsStore.getState().saveSettings({ last_selected_conversation_id: activeConversationId })
+      let idleId: number | null = null
+      const win = window as Window & {
+        requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
+        cancelIdleCallback?: (handle: number) => void
+      }
+      const timeoutId = window.setTimeout(() => {
+        const persist = () => {
+          void useSettingsStore.getState().saveSettings({ last_selected_conversation_id: activeConversationId })
+        }
+        if (typeof win.requestIdleCallback === 'function') {
+          idleId = win.requestIdleCallback(persist, { timeout: 1000 })
+        } else {
+          persist()
+        }
+      }, 250)
+      return () => {
+        window.clearTimeout(timeoutId)
+        if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
+          win.cancelIdleCallback(idleId)
+        }
+      }
     }
   }, [activeConversationId, settings.last_selected_conversation_id])
 
@@ -441,14 +461,13 @@ export function ChatSidebar() {
     }
 
     const templateCategoryId = categoryId ?? null
-    const conv = await createConversation(
+    await createConversation(
       t('chat.newConversation'),
       model.model_id,
       provider.id,
       { categoryId: templateCategoryId },
     )
-    setActiveConversation(conv.id)
-  }, [providers, settings, activeConversation, createConversation, setActiveConversation, messageApi, t])
+  }, [providers, settings, activeConversation, createConversation, messageApi, t])
 
   const newConversationMenuItems = useMemo(() => {
     if (!activeConversationCategory) return []
@@ -947,6 +966,16 @@ export function ChatSidebar() {
       return groupLabels[group] ?? group
     },
     [categories, groupLabels, t, handleDeleteCategory, handleNewConversation],
+  )
+
+  const groupableConfig = useMemo(
+    () => ({
+      label: (group: string) => renderGroupLabel(group),
+      collapsible: (group: string) => group.startsWith('cat:'),
+      expandedKeys,
+      onExpand: handleGroupExpand,
+    }),
+    [expandedKeys, handleGroupExpand, renderGroupLabel],
   )
 
   const handleCreateCategory = useCallback(
@@ -1592,12 +1621,7 @@ export function ChatSidebar() {
                     items={conversationItems}
                     activeKey={multiSelectMode ? undefined : (activeConversationId ?? undefined)}
                     onActiveChange={handleConversationClick}
-                    groupable={{
-                      label: (group: string) => renderGroupLabel(group),
-                      collapsible: (group: string) => group.startsWith('cat:'),
-                      expandedKeys: expandedKeys,
-                      onExpand: handleGroupExpand,
-                    }}
+                    groupable={groupableConfig}
                     menu={menuConfig}
                   />
                   <DragOverlay>

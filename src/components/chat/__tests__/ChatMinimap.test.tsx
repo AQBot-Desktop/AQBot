@@ -68,6 +68,7 @@ function makeSummaries(count: number, role: MessageSummary['role'] = 'user'): Me
 
 describe('ChatMinimap', () => {
   beforeEach(() => {
+    invokeMock.mockReset();
     invokeMock.mockResolvedValue([]);
     useConversationStore.setState({
       activeConversationId: 'conv-1',
@@ -126,18 +127,13 @@ describe('ChatMinimap', () => {
     expect(useConversationStore.getState().loadOlderMessages).not.toHaveBeenCalled();
   });
 
-  it('reloads lightweight summaries when the message list count changes', async () => {
-    invokeMock
-      .mockResolvedValueOnce([
-        makeSummary(1, 'user'),
-        makeSummary(2, 'assistant'),
-        makeSummary(3, 'user'),
-        makeSummary(4, 'assistant'),
-      ])
-      .mockResolvedValueOnce([
-        makeSummary(3, 'user'),
-        makeSummary(4, 'assistant'),
-      ]);
+  it('does not reload lightweight summaries when only the loaded message count changes', async () => {
+    invokeMock.mockResolvedValueOnce([
+      makeSummary(1, 'user'),
+      makeSummary(2, 'assistant'),
+      makeSummary(3, 'user'),
+      makeSummary(4, 'assistant'),
+    ]);
     useConversationStore.setState({
       messages: [makeMessage(3, 'user'), makeMessage(4, 'assistant')],
       totalActiveCount: 4,
@@ -156,13 +152,57 @@ describe('ChatMinimap', () => {
 
     act(() => {
       useConversationStore.setState({
-        messages: [makeMessage(3, 'user'), makeMessage(4, 'assistant')],
+        messages: [makeMessage(3, 'user'), makeMessage(4, 'assistant'), makeMessage(5, 'user')],
+        totalActiveCount: 5,
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('4 / 5')).toBeInTheDocument());
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_message_summaries')).toHaveLength(1);
+  });
+
+  it('loads lightweight summaries once per active conversation', async () => {
+    invokeMock.mockImplementation((_command: string, args: { conversationId: string }) => {
+      if (args.conversationId === 'conv-2') {
+        return Promise.resolve([makeSummary(1, 'user'), makeSummary(2, 'assistant')]);
+      }
+      return Promise.resolve([
+        makeSummary(1, 'user'),
+        makeSummary(2, 'assistant'),
+        makeSummary(3, 'user'),
+      ]);
+    });
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [],
+      totalActiveCount: 3,
+    });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        chat_minimap_enabled: true,
+        chat_minimap_style: 'sticky',
+      },
+    }));
+
+    render(<ChatMinimap />);
+
+    await waitFor(() => expect(screen.getByText('3 / 3')).toBeInTheDocument());
+
+    act(() => {
+      useConversationStore.setState({
+        activeConversationId: 'conv-2',
+        messages: [],
         totalActiveCount: 2,
       });
     });
 
     await waitFor(() => expect(screen.getByText('2 / 2')).toBeInTheDocument());
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_message_summaries').length).toBeGreaterThan(1);
+    expect(
+      invokeMock.mock.calls
+        .filter(([command]) => command === 'list_message_summaries')
+        .map(([, args]) => args.conversationId),
+    ).toEqual(['conv-1', 'conv-2']);
   });
 
   it('renders navigation from the currently loaded messages', () => {

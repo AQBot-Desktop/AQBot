@@ -264,6 +264,7 @@ pub fn run() {
         commands::conversations::regenerate_with_model,
         commands::conversations::cancel_stream,
         commands::conversations::list_message_versions,
+        commands::conversations::list_message_versions_batch,
         commands::conversations::switch_message_version,
         commands::conversations::delete_message_group,
         commands::conversations::send_system_message,
