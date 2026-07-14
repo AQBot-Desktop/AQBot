@@ -865,6 +865,8 @@ pub struct AppSettings {
     pub agent_workspace_name_strategy: String,
     /// Agent workspace datetime naming format.
     pub agent_workspace_datetime_format: Option<String>,
+    /// Agent bash/sh executable path. None uses PATH auto-detection.
+    pub agent_bash_path: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -997,6 +999,7 @@ impl Default for AppSettings {
             agent_workspace_root: None,
             agent_workspace_name_strategy: "uuid".to_string(),
             agent_workspace_datetime_format: Some("YYYY-MM-DD-HH-mm-ss".to_string()),
+            agent_bash_path: None,
         }
     }
 }
