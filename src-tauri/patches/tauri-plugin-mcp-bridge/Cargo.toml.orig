@@ -1,0 +1,82 @@
+[package]
+name = "tauri-plugin-mcp-bridge"
+version = "0.2.2"
+description = "MCP Bridge plugin for Tauri - enables IPC monitoring and backend inspection"
+authors = ["hypothesi"]
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+repository = "https://github.com/hypothesi/mcp-server-tauri"
+documentation = "https://docs.rs/tauri-plugin-mcp-bridge"
+homepage = "https://github.com/hypothesi/mcp-server-tauri"
+readme = "README.md"
+keywords = ["tauri", "tauri-plugin", "mcp", "ipc", "monitoring"]
+categories = ["api-bindings", "development-tools"]
+links = "tauri-plugin-mcp-bridge"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name = "tauri_plugin_mcp_bridge"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.28"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22.1"
+thiserror = "1.0"
+# image = "0.25"  # Uncomment when implementing PNG to JPEG conversion
+
+# We only need to add dependencies that Tauri doesn't already provide
+# Tauri v2 already includes:
+# - macOS: objc2, objc2-foundation, objc2-app-kit, objc2-web-kit
+# - Windows: webview2-com, windows
+# - Linux: gtk, webkit2gtk
+# - Android: jni
+# - iOS: objc2-ui-kit
+
+# Platform-specific dependencies for native screenshot
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+block2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSData", "NSError", "NSString", "NSDictionary"] }
+objc2-app-kit = { version = "0.2", features = ["NSImage", "NSImageRep", "NSBitmapImageRep"] }
+objc2-web-kit = { version = "0.2", features = ["WKWebView", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
+
+[target.'cfg(all(target_vendor = "apple", not(target_os = "macos")))'.dependencies]
+objc2 = "0.5"
+block2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSData", "NSError", "NSString", "NSDictionary", "NSDate", "NSRunLoop", "NSObjCRuntime"] }
+objc2-ui-kit = { version = "0.2", features = ["UIImage"] }
+# Note: WKWebView feature requires objc2-app-kit (macOS only), so we only use WKSnapshotConfiguration
+# and call WKWebView methods via raw msg_send! in ios.rs
+objc2-web-kit = { version = "0.2", features = ["WKSnapshotConfiguration", "block2"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_Foundation"] }
+windows-core = "0.61"
+
+# Linux: Native screenshot not yet implemented due to webkit2gtk/glib version conflicts
+# The webkit2gtk crate uses glib 0.18.x while newer GTK crates use 0.20.x
+# Screenshots fall back to JavaScript (html2canvas) on Linux
+# [target.'cfg(target_os = "linux")'.dependencies]
+# gtk = "0.18"
+# webkit2gtk = "2.0"
+# cairo-rs = "0.20"
+# gio = "0.20"
+# glib = "0.20"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

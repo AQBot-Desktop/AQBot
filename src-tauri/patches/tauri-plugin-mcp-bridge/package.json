@@ -1,0 +1,50 @@
+{
+  "name": "@hypothesi/tauri-plugin-mcp-bridge",
+  "version": "0.2.2",
+  "description": "JavaScript bindings for @hypothesi/tauri-plugin-mcp-bridge - MCP Bridge plugin for Tauri",
+  "type": "module",
+  "main": "./dist-js/index.js",
+  "types": "./dist-js/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist-js/index.js",
+      "types": "./dist-js/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project guest-js/tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist-js",
+    "guest-js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hypothesi/mcp-server-tauri.git",
+    "directory": "packages/tauri-plugin-mcp-bridge"
+  },
+  "author": "hypothesi",
+  "license": "MIT",
+  "keywords": [
+    "tauri",
+    "tauri-plugin",
+    "mcp",
+    "ipc",
+    "monitoring"
+  ],
+  "devDependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "typescript": "^5.6.3"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

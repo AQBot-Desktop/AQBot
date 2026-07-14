@@ -1,0 +1,14 @@
+{
+   "extends": "./guest-js/tsconfig.json",
+   "compilerOptions": {
+      "rootDir": ".",
+      "noEmit": true,
+      "strict": true,
+      "esModuleInterop": true,
+      "forceConsistentCasingInFileNames": true,
+      "resolveJsonModule": true,
+      "allowSyntheticDefaultImports": true
+   },
+   "include": ["guest-js/**/*.ts"],
+   "exclude": ["node_modules", "dist", "dist-js"]
+}

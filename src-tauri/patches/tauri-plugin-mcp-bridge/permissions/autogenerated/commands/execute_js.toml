@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-execute-js"
+description = "Enables the execute_js command without any pre-configured scope."
+commands.allow = ["execute_js"]
+
+[[permission]]
+identifier = "deny-execute-js"
+description = "Denies the execute_js command without any pre-configured scope."
+commands.deny = ["execute_js"]

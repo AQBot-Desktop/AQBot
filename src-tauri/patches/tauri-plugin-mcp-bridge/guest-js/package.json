@@ -1,0 +1,8 @@
+{
+  "name": "@tauri-plugin/mcp-bridge",
+  "version": "0.1.3",
+  "description": "Guest bindings for MCP Bridge Tauri plugin",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts"
+}

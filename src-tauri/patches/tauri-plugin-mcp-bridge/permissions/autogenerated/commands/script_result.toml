@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-script-result"
+description = "Enables the script_result command without any pre-configured scope."
+commands.allow = ["script_result"]
+
+[[permission]]
+identifier = "deny-script-result"
+description = "Denies the script_result command without any pre-configured scope."
+commands.deny = ["script_result"]

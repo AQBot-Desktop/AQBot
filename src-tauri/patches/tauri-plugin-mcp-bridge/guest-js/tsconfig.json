@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "../dist-js",
+    "rootDir": ".",
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"],
+  "exclude": ["node_modules"]
+}
