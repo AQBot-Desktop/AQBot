@@ -495,7 +495,7 @@
     "agentWorkspaceDatetimeFormatDesc": "Supports YYYY, MM, DD, HH, mm, and ss. Invalid filename characters are replaced with -.",
     "agentWorkspacePreview": "Preview: {{value}}",
     "agentBashPath": "Bash Path",
-    "agentBashPathDesc": "Path to the Bash executable used for Agent commands. Leave empty to auto-detect from PATH. On Windows with Git, use e.g. C:\\Program Files\\Git\\bin\\bash.exe (not git-bash.exe).",
+    "agentBashPathDesc": "Path to the Bash executable used for Agent commands; leave empty to auto-detect from PATH. On Windows with Git installed, use e.g. C:\\Program Files\\Git\\bin\\bash.exe — do not select git-bash.exe.",
     "agentBashPathPlaceholder": "Leave empty for auto-detection",
     "selectAgentBashPath": "Select Bash executable",
     "resetAgentBashPath": "Reset to auto-detection",

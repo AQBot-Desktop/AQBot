@@ -495,7 +495,7 @@
     "agentWorkspaceDatetimeFormatDesc": "支持 YYYY、MM、DD、HH、mm、ss；非法文件名字符会自动替换为 -。",
     "agentWorkspacePreview": "预览：{{value}}",
     "agentBashPath": "Bash 路径",
-    "agentBashPathDesc": "Agent 执行命令时使用的 Bash 可执行文件路径。留空时自动从 PATH 检测。Windows 上若安装了 Git，可填例如 C:\\Program Files\\Git\\bin\\bash.exe（不要选 git-bash.exe）。",
+    "agentBashPathDesc": "Agent 执行命令所用的 Bash 可执行文件路径；留空则从 PATH 自动检测。Windows 若已安装 Git，可填写例如 C:\\Program Files\\Git\\bin\\bash.exe，请勿选择 git-bash.exe。",
     "agentBashPathPlaceholder": "留空自动检测",
     "selectAgentBashPath": "选择 Bash 可执行文件",
     "resetAgentBashPath": "恢复自动检测",
