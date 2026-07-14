@@ -6,7 +6,9 @@ import {
   WindowsOutlined,
   ClockCircleOutlined,
   LinkOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons-vue';
+import LinuxIcon from './components/ui/LinuxIcon.vue';
 
 declare const __APP_VERSION__: string;
 
@@ -25,16 +27,16 @@ interface DownloadItem {
 }
 
 const downloads: DownloadItem[] = [
-  { os: 'macos', arch: 'Apple Silicon', labelEn: 'Apple Silicon (M1/M2/M3/M4)', labelZh: 'Apple Silicon（M 系列芯片）', file: `AQBot_${VERSION}_aarch64.dmg`, primary: true },
-  { os: 'macos', arch: 'Intel', labelEn: 'Intel', labelZh: 'Intel（英特尔芯片）', file: `AQBot_${VERSION}_x64.dmg`, primary: true },
-  { os: 'windows', arch: 'x64', labelEn: 'Windows x64', labelZh: 'Windows x64', file: `AQBot_${VERSION}_x64-setup.exe`, primary: true },
+  { os: 'macos', arch: 'Apple Silicon', labelEn: 'Apple Silicon (M1–M4)', labelZh: 'Apple Silicon（M 系列）', file: `AQBot_${VERSION}_aarch64.dmg`, primary: true },
+  { os: 'macos', arch: 'Intel', labelEn: 'Intel', labelZh: 'Intel（英特尔）', file: `AQBot_${VERSION}_x64.dmg`, primary: true },
+  { os: 'windows', arch: 'x64', labelEn: 'Windows x64 Installer', labelZh: 'Windows x64 安装包', file: `AQBot_${VERSION}_x64-setup.exe`, primary: true },
   { os: 'windows', arch: 'x64 Portable', labelEn: 'Windows x64 Portable', labelZh: 'Windows x64 绿色版', file: `AQBot_v${VERSION}_windows-x64-portable.zip` },
-  { os: 'windows', arch: 'ARM64', labelEn: 'Windows ARM64', labelZh: 'Windows ARM64', file: `AQBot_${VERSION}_arm64-setup.exe` },
+  { os: 'windows', arch: 'ARM64', labelEn: 'Windows ARM64 Installer', labelZh: 'Windows ARM64 安装包', file: `AQBot_${VERSION}_arm64-setup.exe` },
   { os: 'windows', arch: 'ARM64 Portable', labelEn: 'Windows ARM64 Portable', labelZh: 'Windows ARM64 绿色版', file: `AQBot_v${VERSION}_windows-arm64-portable.zip` },
-  { os: 'linux', arch: 'x64 deb', labelEn: 'x64 .deb (Debian/Ubuntu)', labelZh: 'x64 .deb（Debian/Ubuntu）', file: `AQBot_${VERSION}_amd64.deb`, primary: true },
+  { os: 'linux', arch: 'x64 deb', labelEn: 'x64 .deb (Debian / Ubuntu)', labelZh: 'x64 .deb（Debian / Ubuntu）', file: `AQBot_${VERSION}_amd64.deb`, primary: true },
   { os: 'linux', arch: 'x64 AppImage', labelEn: 'x64 AppImage', labelZh: 'x64 AppImage', file: `AQBot_${VERSION}_amd64.AppImage` },
   { os: 'linux', arch: 'ARM64 deb', labelEn: 'ARM64 .deb', labelZh: 'ARM64 .deb', file: `AQBot_${VERSION}_arm64.deb` },
-  { os: 'linux', arch: 'x64 rpm', labelEn: 'x64 .rpm (Fedora/RHEL)', labelZh: 'x64 .rpm（Fedora/RHEL）', file: `AQBot-${VERSION}-1.x86_64.rpm` },
+  { os: 'linux', arch: 'x64 rpm', labelEn: 'x64 .rpm (Fedora / RHEL)', labelZh: 'x64 .rpm（Fedora / RHEL）', file: `AQBot-${VERSION}-1.x86_64.rpm` },
   { os: 'linux', arch: 'ARM64 rpm', labelEn: 'ARM64 .rpm', labelZh: 'ARM64 .rpm', file: `AQBot-${VERSION}-1.aarch64.rpm` },
 ];
 
@@ -45,24 +47,19 @@ const osTabs: { id: OS; label: string }[] = [
 ];
 
 const { lang } = useData();
-const isZh = computed(() => lang.value === 'zh-CN');
-
+const isZh = computed(() => lang.value.startsWith('zh'));
 const activeOS = ref<OS>('macos');
 
 onMounted(() => {
   const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes('win')) {
-    activeOS.value = 'windows';
-  } else if (ua.includes('linux')) {
-    activeOS.value = 'linux';
-  } else {
-    activeOS.value = 'macos';
-  }
+  if (ua.includes('win')) activeOS.value = 'windows';
+  else if (ua.includes('linux')) activeOS.value = 'linux';
+  else activeOS.value = 'macos';
 });
 
-const currentDownloads = computed(() =>
-  downloads.filter(d => d.os === activeOS.value)
-);
+const currentDownloads = computed(() => downloads.filter((d) => d.os === activeOS.value));
+const primaryDownloads = computed(() => currentDownloads.value.filter((d) => d.primary));
+const moreDownloads = computed(() => currentDownloads.value.filter((d) => !d.primary));
 
 function itemLabel(item: DownloadItem) {
   return isZh.value ? item.labelZh : item.labelEn;
@@ -82,371 +79,561 @@ interface InstallStep {
 const installInstructions = computed<InstallStep[]>(() => {
   const os = activeOS.value;
   if (os === 'macos') {
-    return [{
-      titleZh: '安装步骤',
-      titleEn: 'Installation',
-      stepsZh: [
-        '打开下载的 .dmg 文件',
-        '将 AQBot 拖入「应用程序」文件夹',
-        '首次运行时，在「系统设置 → 隐私与安全性」中允许运行',
-      ],
-      stepsEn: [
-        'Open the downloaded .dmg file',
-        'Drag AQBot to the Applications folder',
-        'On first launch, allow it in System Settings → Privacy & Security',
-      ],
-    }];
+    return [
+      {
+        titleZh: '安装说明',
+        titleEn: 'Install',
+        stepsZh: [
+          '打开下载的 .dmg 文件',
+          '将 AQBot 拖入「应用程序」文件夹',
+          '首次运行时，在「系统设置 → 隐私与安全性」中允许运行',
+        ],
+        stepsEn: [
+          'Open the downloaded .dmg file',
+          'Drag AQBot into the Applications folder',
+          'On first launch, allow it in System Settings → Privacy & Security',
+        ],
+      },
+    ];
   }
   if (os === 'windows') {
     return [
       {
         titleZh: '安装版',
         titleEn: 'Installer',
-        stepsZh: [
-          '运行下载的安装程序',
-          '按向导完成安装',
-          '从开始菜单或桌面快捷方式启动',
-        ],
+        stepsZh: ['运行下载的安装程序', '按向导完成安装', '从开始菜单或桌面快捷方式启动'],
         stepsEn: [
           'Run the downloaded installer',
           'Follow the wizard to complete installation',
-          'Launch from Start Menu or desktop shortcut',
+          'Launch from the Start Menu or desktop shortcut',
         ],
       },
       {
-        titleZh: '绿色免安装版 (Portable)',
+        titleZh: '绿色版（Portable）',
         titleEn: 'Portable',
-        stepsZh: [
-          '解压 .zip 文件到任意目录',
-          '双击 AQBot.exe 即可运行',
-        ],
-        stepsEn: [
-          'Extract the .zip file to any directory',
-          'Double-click AQBot.exe to run',
-        ],
+        stepsZh: ['解压 .zip 到任意目录', '双击 AQBot.exe 即可运行'],
+        stepsEn: ['Extract the .zip to any folder', 'Double-click AQBot.exe to run'],
       },
     ];
   }
-  return [{
-    titleZh: '安装步骤',
-    titleEn: 'Installation',
-    stepsZh: [
-      'Debian/Ubuntu: sudo dpkg -i AQBot_x.x.x_amd64.deb',
-      'AppImage: chmod +x AQBot_x.x.x_amd64.AppImage && ./AQBot_x.x.x_amd64.AppImage',
-      'RPM: sudo rpm -i AQBot-x.x.x-1.x86_64.rpm',
-    ],
-    stepsEn: [
-      'Debian/Ubuntu: sudo dpkg -i AQBot_x.x.x_amd64.deb',
-      'AppImage: chmod +x AQBot_x.x.x_amd64.AppImage && ./AQBot_x.x.x_amd64.AppImage',
-      'RPM: sudo rpm -i AQBot-x.x.x-1.x86_64.rpm',
-    ],
-  }];
+  return [
+    {
+      titleZh: '安装说明',
+      titleEn: 'Install',
+      stepsZh: [
+        'Debian / Ubuntu：sudo dpkg -i AQBot_*.deb',
+        'AppImage：chmod +x AQBot_*.AppImage && ./AQBot_*.AppImage',
+        'RPM：sudo rpm -i AQBot-*.rpm',
+      ],
+      stepsEn: [
+        'Debian / Ubuntu: sudo dpkg -i AQBot_*.deb',
+        'AppImage: chmod +x AQBot_*.AppImage && ./AQBot_*.AppImage',
+        'RPM: sudo rpm -i AQBot-*.rpm',
+      ],
+    },
+  ];
 });
 
 const sysReq = computed(() => {
   const os = activeOS.value;
-  if (os === 'macos') return isZh.value ? 'macOS 11.0 (Big Sur) 及以上' : 'macOS 11.0 (Big Sur) or later';
-  if (os === 'windows') return isZh.value ? 'Windows 10 (1803) 及以上' : 'Windows 10 (1803) or later';
-  return isZh.value ? '各主流 Linux 发行版' : 'Major Linux distributions';
+  if (os === 'macos') return isZh.value ? 'macOS 11.0（Big Sur）及以上' : 'macOS 11.0 (Big Sur) or later';
+  if (os === 'windows') return isZh.value ? 'Windows 10（1803）及以上' : 'Windows 10 (1803) or later';
+  return isZh.value ? '主流 Linux 发行版（glibc 兼容）' : 'Major Linux distros (glibc-compatible)';
+});
+
+const heroLead = computed(() =>
+  isZh.value
+    ? '免费开源，选择平台后即可在几分钟内完成安装。'
+    : 'Free and open source — pick a platform and install in minutes.',
+);
+
+const detectedHint = computed(() => {
+  const map: Record<OS, string> = isZh.value
+    ? { macos: '已检测：macOS', windows: '已检测：Windows', linux: '已检测：Linux' }
+    : { macos: 'Detected: macOS', windows: 'Detected: Windows', linux: 'Detected: Linux' };
+  return map[activeOS.value];
 });
 </script>
 
 <template>
-  <div class="download-page">
-    <!-- Version badge -->
-    <div class="version-header">
-      <a class="version-badge" href="https://github.com/AQBot-Desktop/AQBot/releases" target="_blank" rel="noopener">
-        <ClockCircleOutlined />
-        {{ isZh ? '最新发行版本' : 'Latest Release' }}：v{{ VERSION }}
-      </a>
-    </div>
+  <div class="aq-download">
+    <div class="aq-container wrap">
+      <header class="hero">
+        <h1>{{ isZh ? '下载 AQBot' : 'Download AQBot' }}</h1>
+        <p class="lead">{{ heroLead }}</p>
+        <div class="meta-row">
+          <a
+            class="version-badge"
+            href="https://github.com/AQBot-Desktop/AQBot/releases"
+            target="_blank"
+            rel="noopener"
+          >
+            <ClockCircleOutlined />
+            v{{ VERSION }}
+          </a>
+          <span class="detect">{{ detectedHint }}</span>
+        </div>
+      </header>
 
-    <!-- OS Tabs -->
-    <div class="os-tabs">
-      <button
-        v-for="tab in osTabs"
-        :key="tab.id"
-        :class="['os-tab', { active: activeOS === tab.id }]"
-        @click="activeOS = tab.id"
-      >
-        <AppleOutlined v-if="tab.id === 'macos'" class="tab-icon" />
-        <WindowsOutlined v-else-if="tab.id === 'windows'" class="tab-icon" />
-        <svg v-else class="tab-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 448 512" fill="currentColor"><path d="M220.8 123.3c1 .5 1.8 1.7 3 1.7 1.1 0 2.8-.4 2.9-1.5.2-1.4-1.9-2.3-3.2-2.9-1.7-.7-3.9-1-5.5-.1-.4.2-.8.7-.6 1.1.3 1.3 2.3 1.1 3.4 1.7zm-21.9 1.7c1.2 0 2-1.2 3-1.7 1.1-.6 3.1-.4 3.5-1.6.2-.4-.2-.9-.6-1.1-1.6-.9-3.8-.6-5.5.1-1.3.6-3.4 1.5-3.2 2.9.1 1 1.8 1.5 2.8 1.4zM420 403.8c-3.6-4-5.3-11.6-7.2-19.7-1.8-8.1-3.9-16.8-10.5-22.4-1.3-1.1-2.6-2.1-4-2.9-1.3-.8-2.7-1.5-4.1-2 9.2-27.3 5.6-54.5-3.7-79.1-11.4-30.1-31.3-56.4-46.5-74.4-17.1-21.5-33.7-41.9-33.4-72C311.1 85.4 315.7.1 234.8 0 132.4-.2 158 85.4 157.7 130.9c.3 30.4-16.3 51-33.4 72-15.2 18-35.1 44.3-46.5 74.4-9.3 24.6-12.9 51.8-3.7 79.1-1.4.5-2.8 1.2-4.1 2-1.4.8-2.7 1.8-4 2.9-6.6 5.6-8.7 14.3-10.5 22.4-1.9 8.1-3.6 15.7-7.2 19.7-6.3 6.7-7.1 16.5-3.5 22.9 3.6 6.4 11.5 9.5 18.5 6.9 3.6-1.3 6.5-4 9.1-6.5 2.5-2.5 4.9-5 7.9-6.5 5.4-2.8 12.4-2.3 19-1.2 6.8 1.2 13.2 3.1 18.8 1.9 12.2-2.6 16.5-11.1 23.7-16.9.5-.4.4-1.2-.1-1.6-.4-.3-1-.3-1.4.1-3.6 4-10.1 12.6-19.4 14.5-5.1 1-11.1-1-17.5-2.1-6.4-1.2-13.5-1.6-19.4 1.4-3.5 1.8-6.1 4.6-8.7 7.1-2.6 2.6-5.1 4.9-8.2 6-4.3 1.6-9.4-.3-11.7-4.4-2.3-4.1-1.7-10.6 2.6-15.1 4.5-4.9 6.3-13.5 8.2-21.5 1.9-8.1 3.9-16.3 9.6-21.1 2.4-2 5.3-3.2 8.3-3.5 2 12.3 9.2 23.4 19.5 31.1 1.4 1 1 3.6-.5 4.1-5.1 1.6-7.4 6.5-4.8 10.4 2.5 3.7 7.9 4.7 11.6 2.2 3.8-2.5 5.1-7.8 2.6-11.6-.5-.8-1.2-1.4-1.9-1.9 1.4-.5 2.4-1.8 2.1-3.2-.3-1.3-1.7-2.2-3-2.2h-.7c3.4-3.7 6.2-8.1 7.9-13 4.3.3 8.4 2 11.3 5.1 4.4 4.8 5.3 11.7 7.1 18 1.8 6.2 4.5 12.4 10.2 15.7 2.5 1.4 5.6 2 8.5 1 2.5-.9 4.3-3.1 5-5.7.4-1.5.2-3.1-.4-4.5-1.4-3.2-4.6-5-7.6-6.6-3-1.5-6.2-3-8-5.8-1.6-2.5-2-5.6-1.2-8.5.6-2.2 2.1-4.2 4.2-5 3.2-1.2 6.7.3 8.5 3.1 1 1.5 1.4 3.4 1.2 5.2.2.5.4 1 .5 1.5.3 1 .5 2.1.5 3.2 0 3.5-1.3 6.8-3.5 9.3 2.4 1.7 5.2 2.7 8.2 2.7 4.4 0 8.5-2.1 11.1-5.5 2.8-3.7 3.5-8.6 1.8-12.9z"/></svg>
-        {{ tab.label }}
-      </button>
-    </div>
-
-    <!-- Download buttons -->
-    <div class="download-section">
-      <div class="download-grid">
-        <a
-          v-for="item in currentDownloads"
-          :key="item.file"
-          :href="downloadUrl(item)"
-          :class="['dl-btn', item.primary ? 'dl-primary' : 'dl-secondary']"
+      <div class="os-tabs" role="tablist">
+        <button
+          v-for="tab in osTabs"
+          :key="tab.id"
+          type="button"
+          role="tab"
+          :class="['os-tab', { active: activeOS === tab.id }]"
+          :aria-selected="activeOS === tab.id"
+          @click="activeOS = tab.id"
         >
-          <AppleOutlined v-if="activeOS === 'macos'" class="btn-icon" />
-          <WindowsOutlined v-else-if="activeOS === 'windows'" class="btn-icon" />
-          <svg v-else class="btn-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 448 512" fill="currentColor"><path d="M220.8 123.3c1 .5 1.8 1.7 3 1.7 1.1 0 2.8-.4 2.9-1.5.2-1.4-1.9-2.3-3.2-2.9-1.7-.7-3.9-1-5.5-.1-.4.2-.8.7-.6 1.1.3 1.3 2.3 1.1 3.4 1.7zm-21.9 1.7c1.2 0 2-1.2 3-1.7 1.1-.6 3.1-.4 3.5-1.6.2-.4-.2-.9-.6-1.1-1.6-.9-3.8-.6-5.5.1-1.3.6-3.4 1.5-3.2 2.9.1 1 1.8 1.5 2.8 1.4zM420 403.8c-3.6-4-5.3-11.6-7.2-19.7-1.8-8.1-3.9-16.8-10.5-22.4-1.3-1.1-2.6-2.1-4-2.9-1.3-.8-2.7-1.5-4.1-2 9.2-27.3 5.6-54.5-3.7-79.1-11.4-30.1-31.3-56.4-46.5-74.4-17.1-21.5-33.7-41.9-33.4-72C311.1 85.4 315.7.1 234.8 0 132.4-.2 158 85.4 157.7 130.9c.3 30.4-16.3 51-33.4 72-15.2 18-35.1 44.3-46.5 74.4-9.3 24.6-12.9 51.8-3.7 79.1-1.4.5-2.8 1.2-4.1 2-1.4.8-2.7 1.8-4 2.9-6.6 5.6-8.7 14.3-10.5 22.4-1.9 8.1-3.6 15.7-7.2 19.7-6.3 6.7-7.1 16.5-3.5 22.9 3.6 6.4 11.5 9.5 18.5 6.9 3.6-1.3 6.5-4 9.1-6.5 2.5-2.5 4.9-5 7.9-6.5 5.4-2.8 12.4-2.3 19-1.2 6.8 1.2 13.2 3.1 18.8 1.9 12.2-2.6 16.5-11.1 23.7-16.9.5-.4.4-1.2-.1-1.6-.4-.3-1-.3-1.4.1-3.6 4-10.1 12.6-19.4 14.5-5.1 1-11.1-1-17.5-2.1-6.4-1.2-13.5-1.6-19.4 1.4-3.5 1.8-6.1 4.6-8.7 7.1-2.6 2.6-5.1 4.9-8.2 6-4.3 1.6-9.4-.3-11.7-4.4-2.3-4.1-1.7-10.6 2.6-15.1 4.5-4.9 6.3-13.5 8.2-21.5 1.9-8.1 3.9-16.3 9.6-21.1 2.4-2 5.3-3.2 8.3-3.5 2 12.3 9.2 23.4 19.5 31.1 1.4 1 1 3.6-.5 4.1-5.1 1.6-7.4 6.5-4.8 10.4 2.5 3.7 7.9 4.7 11.6 2.2 3.8-2.5 5.1-7.8 2.6-11.6-.5-.8-1.2-1.4-1.9-1.9 1.4-.5 2.4-1.8 2.1-3.2-.3-1.3-1.7-2.2-3-2.2h-.7c3.4-3.7 6.2-8.1 7.9-13 4.3.3 8.4 2 11.3 5.1 4.4 4.8 5.3 11.7 7.1 18 1.8 6.2 4.5 12.4 10.2 15.7 2.5 1.4 5.6 2 8.5 1 2.5-.9 4.3-3.1 5-5.7.4-1.5.2-3.1-.4-4.5-1.4-3.2-4.6-5-7.6-6.6-3-1.5-6.2-3-8-5.8-1.6-2.5-2-5.6-1.2-8.5.6-2.2 2.1-4.2 4.2-5 3.2-1.2 6.7.3 8.5 3.1 1 1.5 1.4 3.4 1.2 5.2.2.5.4 1 .5 1.5.3 1 .5 2.1.5 3.2 0 3.5-1.3 6.8-3.5 9.3 2.4 1.7 5.2 2.7 8.2 2.7 4.4 0 8.5-2.1 11.1-5.5 2.8-3.7 3.5-8.6 1.8-12.9z"/></svg>
-          <span>{{ itemLabel(item) }}</span>
+          <AppleOutlined v-if="tab.id === 'macos'" class="tab-icon" />
+          <WindowsOutlined v-else-if="tab.id === 'windows'" class="tab-icon" />
+          <LinuxIcon v-else class="tab-icon" />
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <section class="section">
+        <h2 class="section-title">{{ isZh ? '推荐下载' : 'Recommended' }}</h2>
+        <div class="dl-grid">
+          <a
+            v-for="item in primaryDownloads"
+            :key="item.file"
+            :href="downloadUrl(item)"
+            class="dl-card primary"
+          >
+            <div class="dl-left">
+              <span class="dl-icon">
+                <AppleOutlined v-if="activeOS === 'macos'" />
+                <WindowsOutlined v-else-if="activeOS === 'windows'" />
+                <LinuxIcon v-else :size="20" />
+              </span>
+              <div class="dl-text">
+                <div class="dl-name">{{ itemLabel(item) }}</div>
+                <code class="dl-file">{{ item.file }}</code>
+              </div>
+            </div>
+            <span class="dl-action">
+              <DownloadOutlined />
+              {{ isZh ? '下载' : 'Get' }}
+            </span>
+          </a>
+        </div>
+      </section>
+
+      <section v-if="moreDownloads.length" class="section">
+        <h2 class="section-title">{{ isZh ? '更多格式' : 'More formats' }}</h2>
+        <div class="dl-grid secondary-grid">
+          <a
+            v-for="item in moreDownloads"
+            :key="item.file"
+            :href="downloadUrl(item)"
+            class="dl-card secondary"
+          >
+            <div class="dl-text">
+              <div class="dl-name">{{ itemLabel(item) }}</div>
+              <code class="dl-file">{{ item.file }}</code>
+            </div>
+            <DownloadOutlined class="sec-dl" />
+          </a>
+        </div>
+      </section>
+
+      <div class="info-row">
+        <div class="sys-req">
+          <span class="sys-k">{{ isZh ? '系统要求' : 'Requirements' }}</span>
+          <span class="sys-v">{{ sysReq }}</span>
+        </div>
+        <a
+          class="releases-link"
+          href="https://github.com/AQBot-Desktop/AQBot/releases"
+          target="_blank"
+          rel="noopener"
+        >
+          {{ isZh ? 'GitHub Releases' : 'All releases' }}
+          <LinkOutlined />
         </a>
       </div>
 
-      <!-- System requirement -->
-      <div class="sys-req">
-        <span class="sys-req-label">{{ isZh ? '系统要求' : 'System Requirements' }}:</span>
-        {{ sysReq }}
-      </div>
-
-      <!-- GitHub Releases link -->
-      <a
-        class="releases-link"
-        href="https://github.com/AQBot-Desktop/AQBot/releases"
-        target="_blank"
-        rel="noopener"
-      >
-        {{ isZh ? '前往 GitHub Releases 下载更多版本' : 'View all versions on GitHub Releases' }}
-        <LinkOutlined />
-      </a>
-    </div>
-
-    <!-- Installation instructions -->
-    <div class="install-section">
-      <h3 class="section-title">{{ isZh ? '安装说明' : 'Installation' }}</h3>
-      <div v-for="(inst, idx) in installInstructions" :key="idx" class="install-block">
-        <h4 v-if="installInstructions.length > 1" class="install-subtitle">
-          {{ isZh ? inst.titleZh : inst.titleEn }}
-        </h4>
-        <ol class="install-steps">
-          <li v-for="(step, si) in (isZh ? inst.stepsZh : inst.stepsEn)" :key="si">
-            {{ step }}
-          </li>
-        </ol>
-      </div>
+      <section class="section install-section">
+        <h2 class="section-title">{{ isZh ? '安装说明' : 'Installation' }}</h2>
+        <div class="install-panel">
+          <div v-for="(inst, idx) in installInstructions" :key="idx" class="install-group">
+            <h3 v-if="installInstructions.length > 1" class="install-h">
+              {{ isZh ? inst.titleZh : inst.titleEn }}
+            </h3>
+            <ol class="install-steps">
+              <li v-for="(step, si) in isZh ? inst.stepsZh : inst.stepsEn" :key="si">
+                {{ step }}
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.download-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 48px 24px 64px;
+.aq-download {
+  position: relative;
+  padding: calc(var(--vp-nav-height) + 56px) 0 88px;
 }
 
-/* Version header */
-.version-header {
+.aq-download::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: min(720px, 90vw);
+  height: 260px;
+  background: radial-gradient(ellipse at center, var(--aq-glow-soft), transparent 70%);
+  z-index: 0;
+}
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 760px;
+}
+
+.hero {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 0 4px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2.15rem, 5vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  color: var(--aq-text-1);
+}
+
+.lead {
+  margin: 0;
+  max-width: 34em;
+  color: var(--aq-text-2);
+  line-height: 1.75;
+  font-size: 1.08rem;
+  text-wrap: pretty;
+  line-break: strict;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .version-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--vp-c-brand-1);
-  background: var(--vp-c-brand-soft);
-  padding: 6px 16px;
-  border-radius: 20px;
-  letter-spacing: 0.02em;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  font-family: var(--aq-font-mono);
+  color: var(--aq-brand);
+  background: var(--aq-brand-soft);
+  border: 1px solid rgba(63, 186, 64, 0.3);
+  padding: 5px 12px;
+  border-radius: 999px;
   text-decoration: none;
-  transition: opacity 0.2s;
 }
 
 .version-badge:hover {
-  opacity: 0.8;
+  background: rgba(63, 186, 64, 0.2);
 }
 
-/* OS Tabs */
+.detect {
+  font-size: 12px;
+  font-family: var(--aq-font-mono);
+  color: var(--aq-text-3);
+}
+
 .os-tabs {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-bottom: 32px;
-  border-bottom: 1px solid var(--vp-c-divider);
-  padding-bottom: 0;
+  margin-bottom: 28px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--aq-border);
+  background: var(--aq-inset);
 }
 
 .os-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 12px 24px;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--vp-c-text-2);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  padding: 12px 10px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--aq-text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-bottom: -1px;
 }
 
 .os-tab:hover {
-  color: var(--vp-c-text-1);
+  color: var(--aq-text-1);
+  background: var(--aq-elevated);
 }
 
 .os-tab.active {
-  color: var(--vp-c-brand-1);
-  border-bottom-color: var(--vp-c-brand-1);
+  color: var(--aq-text-1);
+  background: var(--aq-brand-soft);
+  border-color: rgba(63, 186, 64, 0.4);
+  box-shadow: 0 0 18px var(--aq-glow-soft);
 }
 
 .tab-icon {
-  flex-shrink: 0;
-  opacity: 0.7;
+  font-size: 16px;
 }
 
-.os-tab.active .tab-icon {
-  opacity: 1;
+.section {
+  margin-bottom: 28px;
 }
 
-/* Download section */
-.download-section {
-  margin-bottom: 40px;
+.section-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--aq-text-3);
+  font-family: var(--aq-font-mono);
 }
 
-.download-grid {
+.dl-grid {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.dl-btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 24px;
-  height: 52px;
-  border-radius: 12px;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: var(--vp-c-bg-soft);
-  border: 1px solid var(--vp-c-divider);
-  color: var(--vp-c-text-2);
-  font-size: 15px;
+.secondary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-.dl-btn:hover {
-  border-color: var(--vp-c-brand-1);
-  color: var(--vp-c-text-1);
-  background: var(--vp-c-brand-soft);
+.dl-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--aq-radius-md);
+  border: 1px solid var(--aq-border);
+  background: var(--aq-elevated);
+  text-decoration: none;
+  color: var(--aq-text-1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.dl-card:hover {
+  border-color: var(--aq-border-hover);
+  background: var(--aq-brand-soft);
+  box-shadow: 0 0 0 1px var(--aq-glow-soft);
   transform: translateY(-1px);
 }
 
-.dl-primary {
-  font-size: 16px;
-  color: var(--vp-c-text-1);
+.dl-card.primary {
+  border-color: rgba(63, 186, 64, 0.3);
+  background: linear-gradient(135deg, rgba(63, 186, 64, 0.1), var(--aq-elevated));
+  min-height: 72px;
 }
 
-.dl-secondary {
-  font-size: 14px;
-  color: var(--vp-c-text-1);
+.dl-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 
-.btn-icon {
+.dl-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--aq-bg-1);
+  border: 1px solid var(--aq-border);
+  color: var(--aq-brand);
+  font-size: 18px;
   flex-shrink: 0;
-  opacity: 1;
 }
 
-/* System requirements */
-.sys-req {
-  margin-top: 16px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--vp-c-bg-soft);
+.dl-text {
+  min-width: 0;
+}
+
+.dl-name {
+  font-weight: 650;
+  font-size: 15px;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.dl-file {
+  display: block;
+  font-family: var(--aq-font-mono);
+  font-size: 11px;
+  color: var(--aq-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  padding: 0;
+  border: none;
+}
+
+.dl-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--aq-brand);
+  color: #fff;
   font-size: 13px;
-  color: var(--vp-c-text-2);
+  font-weight: 650;
 }
 
-.sys-req-label {
-  font-weight: 600;
-  color: var(--vp-c-text-1);
+.sec-dl {
+  color: var(--aq-brand);
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
-/* Releases link */
+.info-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+  padding: 14px 16px;
+  border-radius: var(--aq-radius-md);
+  border: 1px solid var(--aq-border);
+  background: var(--aq-inset);
+}
+
+.sys-req {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.sys-k {
+  font-family: var(--aq-font-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--aq-brand);
+}
+
+.sys-v {
+  color: var(--aq-text-2);
+}
+
 .releases-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 16px;
-  font-size: 14px;
-  color: var(--vp-c-brand-1);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--aq-font-mono);
+  color: var(--aq-brand);
   text-decoration: none;
 }
 
 .releases-link:hover {
-  text-decoration: underline;
+  color: var(--aq-accent);
 }
 
-/* Installation section */
 .install-section {
-  border-top: 1px solid var(--vp-c-divider);
-  padding-top: 32px;
+  margin-bottom: 0;
 }
 
-.section-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-  margin-bottom: 20px;
+.install-panel {
+  padding: 18px 20px;
+  border-radius: var(--aq-radius-md);
+  border: 1px solid var(--aq-border);
+  background: var(--aq-elevated);
 }
 
-.install-block {
-  margin-bottom: 20px;
+.install-group + .install-group {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--aq-border);
 }
 
-.install-subtitle {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--vp-c-text-2);
-  margin-bottom: 8px;
+.install-h {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--aq-brand);
 }
 
 .install-steps {
   margin: 0;
-  padding-left: 20px;
-  color: var(--vp-c-text-2);
+  padding-left: 1.35em;
+  list-style-type: decimal;
+  list-style-position: outside;
+  color: var(--aq-text-2);
   font-size: 14px;
-  line-height: 2;
+  line-height: 1.65;
 }
 
 .install-steps li {
-  padding-left: 4px;
+  display: list-item;
+  padding-left: 0.2em;
 }
 
-/* Mobile responsive */
+.install-steps li + li {
+  margin-top: 0.5em;
+}
+
+.install-steps li::marker {
+  color: var(--aq-brand);
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
-  .download-page {
-    padding: 32px 16px 48px;
+  .secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dl-card.primary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dl-action {
+    justify-content: center;
   }
 
   .os-tabs {
-    gap: 4px;
-  }
-
-  .os-tab {
-    padding: 10px 16px;
-    font-size: 14px;
-    gap: 6px;
-  }
-
-  .tab-icon {
-    width: 18px;
-    height: 18px;
-  }
-
-  .dl-btn {
-    padding: 0 16px;
-    height: 48px;
-  }
-
-  .dl-primary {
-    font-size: 15px;
+    grid-template-columns: 1fr;
   }
 }
 </style>

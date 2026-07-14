@@ -16,6 +16,8 @@ export default defineConfig({
 
   base: '/',
 
+  // Default to dark; user can still toggle light via appearance switch
+  appearance: 'dark',
   lastUpdated: true,
   cleanUrls: true,
 
@@ -32,7 +34,7 @@ export default defineConfig({
   head: [
     ['link', { rel: 'icon', href: '/favicon.ico' }],
     // Primary SEO meta
-    ['meta', { name: 'theme-color', content: '#309731' }],
+    ['meta', { name: 'theme-color', content: '#050607' }],
     ['meta', { name: 'author', content: 'AQBot Team' }],
     ['meta', { name: 'keywords', content: 'AQBot, AI desktop client, AI gateway, AI chat client, LLM client, multi-model AI, MCP server, OpenAI client, Claude client, Gemini client, AI assistant, desktop AI app, open source AI, ChatGPT alternative, AI aggregator, large language model, AI desktop application, Tauri AI app' }],
     ['meta', { name: 'robots', content: 'index, follow' }],

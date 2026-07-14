@@ -1,0 +1,204 @@
+/* AQBot design tokens — single source for marketing + docs */
+
+:root {
+  /* Surfaces */
+  --aq-bg-0: #050607;
+  --aq-bg-1: #0b0f0c;
+  --aq-bg-2: #111814;
+  --aq-bg-3: #18201a;
+  --aq-elevated: rgba(255, 255, 255, 0.04);
+  --aq-elevated-hover: rgba(255, 255, 255, 0.07);
+  --aq-border: rgba(255, 255, 255, 0.08);
+  --aq-border-strong: rgba(255, 255, 255, 0.14);
+  --aq-border-hover: rgba(63, 186, 64, 0.45);
+
+  /* Brand */
+  --aq-brand: #3fba40;
+  --aq-brand-2: #309731;
+  --aq-brand-3: #27802a;
+  --aq-accent: #7ade7b;
+  --aq-glow: rgba(63, 186, 64, 0.35);
+  --aq-glow-soft: rgba(63, 186, 64, 0.14);
+  --aq-brand-soft: rgba(63, 186, 64, 0.16);
+
+  /* Text */
+  --aq-text-1: #f2f5f2;
+  --aq-text-2: #9aa89c;
+  --aq-text-3: #6b7a6e;
+
+  /* Semantic */
+  --aq-tip: #3fba40;
+  --aq-warning: #e6a23c;
+  --aq-danger: #f56c6c;
+  --aq-info: #4dabf7;
+
+  /* Shape */
+  --aq-radius-sm: 8px;
+  --aq-radius-md: 12px;
+  --aq-radius-lg: 20px;
+  --aq-radius-xl: 28px;
+  --aq-max: 1120px;
+  --aq-doc-max: 752px;
+
+  /* Effects */
+  --aq-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --aq-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --aq-shadow-glow: 0 0 40px var(--aq-glow-soft), 0 0 80px rgba(63, 186, 64, 0.08);
+  --aq-font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* Map → VitePress (dark-first) */
+  --vp-c-bg: var(--aq-bg-0);
+  --vp-c-bg-alt: var(--aq-bg-1);
+  --vp-c-bg-elv: var(--aq-bg-2);
+  --vp-c-bg-soft: var(--aq-bg-2);
+
+  --vp-c-border: var(--aq-border);
+  --vp-c-divider: var(--aq-border);
+  --vp-c-gutter: var(--aq-bg-1);
+
+  --vp-c-text-1: var(--aq-text-1);
+  --vp-c-text-2: var(--aq-text-2);
+  --vp-c-text-3: var(--aq-text-3);
+
+  --vp-c-brand-1: var(--aq-brand);
+  --vp-c-brand-2: var(--aq-brand-2);
+  --vp-c-brand-3: var(--aq-brand-3);
+  --vp-c-brand-soft: var(--aq-brand-soft);
+
+  --vp-c-default-1: var(--aq-bg-3);
+  --vp-c-default-2: var(--aq-bg-2);
+  --vp-c-default-3: var(--aq-bg-1);
+  --vp-c-default-soft: var(--aq-elevated);
+
+  --vp-c-mute: var(--aq-bg-2);
+  --vp-c-mute-1: var(--aq-bg-2);
+  --vp-c-mute-2: var(--aq-bg-3);
+
+  --vp-c-indigo-1: var(--aq-brand);
+  --vp-c-indigo-2: var(--aq-brand-2);
+  --vp-c-indigo-3: var(--aq-brand-3);
+  --vp-c-indigo-soft: var(--aq-brand-soft);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--aq-brand);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--aq-brand-2);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--aq-brand-3);
+
+  /* Shared primary CTA text (GlowButton + any custom) */
+  --aq-btn-primary-text: #ffffff;
+
+  --vp-button-alt-border: var(--aq-border-strong);
+  --vp-button-alt-text: var(--aq-text-1);
+  --vp-button-alt-bg: var(--aq-elevated);
+  --vp-button-alt-hover-border: var(--aq-border-hover);
+  --vp-button-alt-hover-text: var(--aq-text-1);
+  --vp-button-alt-hover-bg: var(--aq-elevated-hover);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, var(--aq-brand) 20%, var(--aq-accent) 90%);
+
+  --vp-c-tip-1: var(--aq-tip);
+  --vp-c-tip-2: var(--aq-brand-2);
+  --vp-c-tip-3: var(--aq-brand-3);
+  --vp-c-tip-soft: var(--aq-brand-soft);
+
+  --vp-c-warning-1: var(--aq-warning);
+  --vp-c-warning-soft: rgba(230, 162, 60, 0.14);
+
+  --vp-c-danger-1: var(--aq-danger);
+  --vp-c-danger-soft: rgba(245, 108, 108, 0.14);
+
+  --vp-sidebar-bg-color: var(--aq-bg-1);
+  --vp-nav-bg-color: rgba(5, 6, 7, 0.72);
+  --vp-local-search-bg: var(--aq-bg-1);
+}
+
+/* Light mode — soft green-tinted surfaces, avoid muddy pure grays */
+html:not(.dark) {
+  --aq-bg-0: #f5f9f5;
+  --aq-bg-1: #ffffff;
+  --aq-bg-2: #eef5ee;
+  --aq-bg-3: #e4eee4;
+  /* solid tints instead of black alpha (was looking dirty gray) */
+  --aq-elevated: #f0f6f0;
+  --aq-elevated-hover: #e6f0e6;
+  --aq-border: rgba(28, 72, 36, 0.1);
+  --aq-border-strong: rgba(28, 72, 36, 0.16);
+  --aq-border-hover: rgba(48, 151, 49, 0.45);
+
+  --aq-brand: #2d8f2e;
+  --aq-brand-2: #247a26;
+  --aq-brand-3: #1c661e;
+  --aq-accent: #3fba40;
+  --aq-glow: rgba(48, 151, 49, 0.22);
+  --aq-glow-soft: rgba(48, 151, 49, 0.1);
+  --aq-brand-soft: rgba(48, 151, 49, 0.12);
+
+  --aq-text-1: #122018;
+  --aq-text-2: #3a5242;
+  --aq-text-3: #5f7564;
+
+  /* panel / inset surfaces for light UI chrome */
+  --aq-inset: #e8f1e8;
+  --aq-inset-strong: #dfeadf;
+
+  --vp-c-bg: var(--aq-bg-0);
+  --vp-c-bg-alt: var(--aq-bg-1);
+  --vp-c-bg-elv: var(--aq-bg-1);
+  --vp-c-bg-soft: var(--aq-bg-2);
+
+  --vp-c-border: var(--aq-border);
+  --vp-c-divider: var(--aq-border);
+  --vp-c-gutter: var(--aq-bg-2);
+
+  --vp-c-text-1: var(--aq-text-1);
+  --vp-c-text-2: var(--aq-text-2);
+  --vp-c-text-3: var(--aq-text-3);
+
+  --vp-c-brand-1: var(--aq-brand);
+  --vp-c-brand-2: var(--aq-brand-2);
+  --vp-c-brand-3: var(--aq-brand-3);
+  --vp-c-brand-soft: var(--aq-brand-soft);
+
+  --vp-c-default-1: var(--aq-bg-3);
+  --vp-c-default-2: var(--aq-bg-2);
+  --vp-c-default-3: var(--aq-bg-2);
+  --vp-c-default-soft: var(--aq-elevated);
+
+  --vp-c-mute: var(--aq-bg-2);
+  --vp-c-mute-1: var(--aq-bg-2);
+  --vp-c-mute-2: var(--aq-bg-3);
+
+  --vp-button-brand-text: #fff;
+  --vp-button-brand-hover-text: #fff;
+  --vp-button-brand-active-text: #fff;
+  --vp-button-alt-bg: var(--aq-elevated);
+  --vp-button-alt-hover-bg: var(--aq-elevated-hover);
+
+  --vp-nav-bg-color: rgba(245, 249, 245, 0.88);
+  --vp-sidebar-bg-color: var(--aq-bg-1);
+  --vp-local-search-bg: var(--aq-bg-1);
+}
+
+/* Dark mode inset surfaces (do not set on :root or light mode gets overridden) */
+:root {
+  --aq-inset: rgba(0, 0, 0, 0.22);
+  --aq-inset-strong: rgba(0, 0, 0, 0.28);
+}
+
+.dark {
+  color-scheme: dark;
+  --aq-inset: rgba(0, 0, 0, 0.22);
+  --aq-inset-strong: rgba(0, 0, 0, 0.28);
+}
+
+/* Re-assert light inset after :root so it wins for light appearance */
+html:not(.dark) {
+  --aq-inset: #e8f1e8;
+  --aq-inset-strong: #dfeadf;
+}

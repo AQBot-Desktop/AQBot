@@ -1,0 +1,173 @@
+/* Shared marketing page helpers */
+
+.aq-section {
+  position: relative;
+  padding: 72px 0;
+}
+
+@media (max-width: 640px) {
+  .aq-section {
+    padding: 48px 0;
+  }
+}
+
+.aq-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--aq-brand);
+  margin-bottom: 12px;
+}
+
+.aq-section-title {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--aq-text-1);
+  margin: 0 0 12px;
+}
+
+.aq-section-desc {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--aq-text-2);
+  max-width: 560px;
+  margin: 0;
+  text-wrap: pretty;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: strict;
+}
+
+/* Marketing body copy — avoid ugly mid-phrase wraps */
+.aq-home p,
+.aq-features-page p,
+.aq-download p,
+.hero p,
+.subtitle {
+  text-wrap: pretty;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: strict;
+}
+
+/*
+ * Lists in glass / marketing cards must show markers.
+ * Do NOT use display:grid|flex on ul/ol — it hides list-style.
+ */
+.aq-glass ul,
+.aq-glass ol,
+.aq-features-page ul,
+.aq-features-page ol,
+.aq-download ul,
+.aq-download ol,
+.card ul,
+.card ol,
+.install-steps {
+  list-style-position: outside;
+  margin: 0;
+  padding-left: 1.35em;
+}
+
+.aq-glass ul,
+.aq-features-page ul,
+.aq-download ul,
+.card ul {
+  list-style-type: disc;
+}
+
+.aq-glass ol,
+.aq-features-page ol,
+.aq-download ol,
+.card ol,
+.install-steps {
+  list-style-type: decimal;
+}
+
+.aq-glass li,
+.aq-features-page li,
+.aq-download li,
+.card li,
+.install-steps li {
+  display: list-item;
+  padding-left: 0.15em;
+}
+
+.aq-glass li + li,
+.aq-features-page li + li,
+.aq-download li + li,
+.card li + li,
+.install-steps li + li {
+  margin-top: 0.45em;
+}
+
+.aq-glass li::marker,
+.aq-features-page li::marker,
+.aq-download li::marker,
+.card li::marker,
+.install-steps li::marker {
+  color: var(--aq-brand);
+}
+
+/* Glass card */
+.aq-glass {
+  background: var(--aq-elevated);
+  border: 1px solid var(--aq-border);
+  border-radius: var(--aq-radius-lg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.aq-glass:hover {
+  border-color: var(--aq-border-hover);
+  box-shadow: 0 0 0 1px var(--aq-glow-soft), var(--aq-shadow-md);
+}
+
+/* Glow frame for product shots */
+.aq-glow-frame {
+  position: relative;
+  border-radius: var(--aq-radius-lg);
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(63, 186, 64, 0.55),
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(63, 186, 64, 0.2)
+  );
+  box-shadow: var(--aq-shadow-glow);
+}
+
+.aq-glow-frame-inner {
+  border-radius: calc(var(--aq-radius-lg) - 1px);
+  overflow: hidden;
+  background: var(--aq-bg-1);
+}
+
+.aq-glow-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Hide default VP home pieces if any leftover */
+.VPHome {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.VPHero,
+.VPFeatures {
+  display: none !important;
+}
+
+/* Page layout for layout:page marketing routes */
+.VPPage {
+  padding: 0 !important;
+  min-height: auto;
+}

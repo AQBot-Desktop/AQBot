@@ -1,0 +1,212 @@
+/* Docs chrome: sidebar, outline, local nav, prev/next */
+
+/* —— Sidebar —— */
+.VPSidebar {
+  background-color: var(--vp-sidebar-bg-color) !important;
+  border-right: 1px solid var(--aq-border) !important;
+  /* keep VitePress fixed positioning intact */
+  z-index: 20;
+}
+
+.VPSidebar .nav {
+  padding-top: 8px;
+}
+
+.VPSidebar .group {
+  border-top: none !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Group title (e.g. 入门) */
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .link > .text {
+  font-weight: 650 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px !important;
+  color: var(--aq-text-3) !important;
+}
+
+.VPSidebarItem.level-0 > .item {
+  padding: 6px 0 4px !important;
+}
+
+/* Nested list spacing between items */
+.VPSidebarItem.level-0 > .items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 8px;
+}
+
+.VPSidebarItem.level-1 {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Compact leaf links */
+.VPSidebarItem.level-1 > .item {
+  padding: 0 !important;
+}
+
+.VPSidebarItem.level-1 > .item .link,
+.VPSidebarItem.level-0.is-link > .item .link {
+  border-radius: var(--aq-radius-sm);
+  transition: background 0.2s ease, color 0.2s ease;
+  padding: 6px 12px !important;
+  min-height: 0 !important;
+  line-height: 1.35 !important;
+}
+
+.VPSidebarItem.level-1 > .item .link > .text,
+.VPSidebarItem.level-0.is-link > .item .link > .text {
+  font-size: 13.5px !important;
+  line-height: 1.35 !important;
+}
+
+.VPSidebarItem .item .link:hover .text {
+  color: var(--aq-text-1) !important;
+}
+
+.VPSidebarItem .item .link:hover {
+  background: var(--aq-elevated);
+}
+
+.VPSidebarItem.is-active > .item .link {
+  background: var(--aq-brand-soft) !important;
+}
+
+.VPSidebarItem.is-active > .item .link > .text {
+  color: var(--aq-brand) !important;
+  font-weight: 600 !important;
+}
+
+/* Hide default tree indicator bars — use soft active bg only */
+.VPSidebarItem .indicator {
+  display: none !important;
+}
+
+/* —— Footer must not sit under fixed sidebar —— */
+@media (min-width: 960px) {
+  .Layout:has(.VPContent.has-sidebar) .aq-site-footer {
+    margin-left: var(--vp-sidebar-width);
+    width: calc(100% - var(--vp-sidebar-width));
+    box-sizing: border-box;
+  }
+}
+
+/* —— Local nav (mobile) —— */
+.VPLocalNav {
+  background: var(--vp-nav-bg-color) !important;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--aq-border) !important;
+}
+
+.VPLocalNav .menu,
+.VPLocalNav .top-link {
+  color: var(--aq-text-2) !important;
+}
+
+.VPLocalNav .menu:hover,
+.VPLocalNav .top-link:hover {
+  color: var(--aq-brand) !important;
+}
+
+/* —— Doc layout —— */
+.VPDoc {
+  padding-bottom: 48px !important;
+}
+
+.VPDoc .container {
+  position: relative;
+}
+
+@media (min-width: 960px) {
+  .VPDoc:not(.has-sidebar) .content {
+    max-width: 920px;
+  }
+}
+
+/* Aside outline */
+.VPDocAside .outline-title {
+  font-weight: 650 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px !important;
+  color: var(--aq-text-3) !important;
+}
+
+.VPDocOutlineItem .outline-link {
+  color: var(--aq-text-2) !important;
+  transition: color 0.15s ease;
+}
+
+.VPDocOutlineItem .outline-link:hover,
+.VPDocOutlineItem .outline-link.active {
+  color: var(--aq-brand) !important;
+}
+
+.VPDocAsideOutline .outline-marker {
+  background-color: var(--aq-brand) !important;
+  width: 2px !important;
+  border-radius: 1px;
+}
+
+.VPDocAside .VPDocAsideSponsors {
+  opacity: 0.9;
+}
+
+/* —— Prev / next —— */
+.VPDocFooter {
+  margin-top: 48px !important;
+  border-top: 1px solid var(--aq-border) !important;
+  padding-top: 24px !important;
+}
+
+.VPDocFooter .pager-link {
+  border: 1px solid var(--aq-border) !important;
+  border-radius: var(--aq-radius-md) !important;
+  background: var(--aq-elevated) !important;
+  padding: 16px 18px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease !important;
+}
+
+.VPDocFooter .pager-link:hover {
+  border-color: var(--aq-border-hover) !important;
+  box-shadow: 0 0 0 1px var(--aq-glow-soft), var(--aq-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.VPDocFooter .pager-link .desc {
+  color: var(--aq-text-3) !important;
+  font-size: 12px !important;
+}
+
+.VPDocFooter .pager-link .title {
+  color: var(--aq-text-1) !important;
+  font-weight: 600 !important;
+}
+
+.VPDocFooter .pager-link:hover .title {
+  color: var(--aq-brand) !important;
+}
+
+.VPDocFooter .last-updated,
+.VPDocFooter .edit-info {
+  color: var(--aq-text-3) !important;
+  font-size: 13px !important;
+}
+
+.VPContent {
+  background: transparent !important;
+}
+
+.VPContent.has-sidebar {
+  background: transparent !important;
+}
+
+.VPDoc .aside-container {
+  border-left: 1px solid var(--aq-border);
+  padding-left: 20px;
+}

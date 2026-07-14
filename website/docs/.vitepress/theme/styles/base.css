@@ -1,0 +1,128 @@
+/* Global base */
+
+html {
+  scroll-behavior: smooth;
+}
+
+html.dark,
+html:not(.dark) {
+  background-color: var(--aq-bg-0);
+}
+
+body {
+  background-color: var(--aq-bg-0);
+  color: var(--aq-text-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--aq-brand-soft);
+  color: var(--aq-text-1);
+}
+
+/* Subtle grid + top glow on full site */
+.Layout {
+  position: relative;
+  min-height: 100vh;
+}
+
+.Layout::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, var(--aq-glow-soft), transparent 55%),
+    linear-gradient(var(--aq-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--aq-border) 1px, transparent 1px);
+  background-size: auto, 64px 64px, 64px 64px;
+  background-position: center, center, center;
+  opacity: 0.35;
+  mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 85%);
+}
+
+.dark .Layout::before {
+  opacity: 0.45;
+}
+
+/* Doc pages: quieter grid so reading wins */
+.Layout:has(.VPDoc) ::before,
+.Layout .VPDoc ~ * {
+  /* no-op: handled below */
+}
+
+.VPDoc {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure content above ambient bg.
+   Do NOT set position on .VPSidebar — VitePress uses position:fixed. */
+.VPNav,
+.VPLocalNav,
+.VPContent,
+.VPFooter,
+.aq-site-footer,
+.aq-home,
+.aq-download,
+.aq-features-page {
+  position: relative;
+  z-index: 1;
+}
+
+/* Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--aq-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--aq-border-strong);
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--aq-text-3);
+}
+
+/* Focus */
+:focus-visible {
+  outline: 2px solid var(--aq-brand);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Utility */
+.aq-container {
+  width: 100%;
+  max-width: var(--aq-max);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+@media (min-width: 960px) {
+  .aq-container {
+    padding: 0 32px;
+  }
+}

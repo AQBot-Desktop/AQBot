@@ -1,0 +1,314 @@
+/* Nav, search, language switcher, hamburger */
+
+/* —— Nav bar glass —— */
+.VPNavBar {
+  border-bottom: 1px solid transparent !important;
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.VPNavBar .wrapper {
+  background: transparent !important;
+}
+
+.VPNavBar.top {
+  background: transparent !important;
+}
+
+.VPNavBar:not(.top) {
+  background: var(--vp-nav-bg-color) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom-color: var(--aq-border) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.VPNavBar .content-body {
+  background: transparent !important;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  border: none !important;
+}
+
+.VPNavBarTitle .logo {
+  height: 28px;
+  width: 28px;
+  border-radius: 6px;
+}
+
+.VPNavBarMenuLink {
+  font-weight: 500 !important;
+  transition: color 0.2s ease !important;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active {
+  color: var(--aq-brand) !important;
+}
+
+/* Nav icons via mask (home / features / download / docs) */
+.VPNavBarMenuLink[href="/"],
+.VPNavBarMenuLink[href="/zh/"],
+.VPNavBarMenuLink[href="/zh-tw/"],
+.VPNavBarMenuLink[href="/ja/"],
+.VPNavBarMenuLink[href="/ko/"],
+.VPNavBarMenuLink[href="/fr/"],
+.VPNavBarMenuLink[href="/de/"],
+.VPNavBarMenuLink[href="/es/"],
+.VPNavBarMenuLink[href="/ru/"],
+.VPNavBarMenuLink[href="/hi/"],
+.VPNavBarMenuLink[href="/ar/"],
+.VPNavBarMenuLink[href*="/features"],
+.VPNavBarMenuLink[href*="/download"],
+.VPNavBarMenuLink[href*="/guide/"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.VPNavBarMenuLink[href="/"]::before,
+.VPNavBarMenuLink[href="/zh/"]::before,
+.VPNavBarMenuLink[href="/zh-tw/"]::before,
+.VPNavBarMenuLink[href="/ja/"]::before,
+.VPNavBarMenuLink[href="/ko/"]::before,
+.VPNavBarMenuLink[href="/fr/"]::before,
+.VPNavBarMenuLink[href="/de/"]::before,
+.VPNavBarMenuLink[href="/es/"]::before,
+.VPNavBarMenuLink[href="/ru/"]::before,
+.VPNavBarMenuLink[href="/hi/"]::before,
+.VPNavBarMenuLink[href="/ar/"]::before,
+.VPNavBarMenuLink[href*="/features"]::before,
+.VPNavBarMenuLink[href*="/download"]::before,
+.VPNavBarMenuLink[href*="/guide/"]::before {
+  content: '';
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  opacity: 0.75;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.VPNavBarMenuLink[href="/"]::before,
+.VPNavBarMenuLink[href="/zh/"]::before,
+.VPNavBarMenuLink[href="/zh-tw/"]::before,
+.VPNavBarMenuLink[href="/ja/"]::before,
+.VPNavBarMenuLink[href="/ko/"]::before,
+.VPNavBarMenuLink[href="/fr/"]::before,
+.VPNavBarMenuLink[href="/de/"]::before,
+.VPNavBarMenuLink[href="/es/"]::before,
+.VPNavBarMenuLink[href="/ru/"]::before,
+.VPNavBarMenuLink[href="/hi/"]::before,
+.VPNavBarMenuLink[href="/ar/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1v-10.5z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1v-10.5z'/%3E%3C/svg%3E");
+}
+
+.VPNavBarMenuLink[href*="/features"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E");
+}
+
+.VPNavBarMenuLink[href*="/download"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M12 3v12m0 0 4-4m-4 4-4-4M5 21h14'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M12 3v12m0 0 4-4m-4 4-4-4M5 21h14'/%3E%3C/svg%3E");
+}
+
+.VPNavBarMenuLink[href*="/guide/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/%3E%3Cpath d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/%3E%3Cpath d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/%3E%3C/svg%3E");
+}
+
+.VPNavBarMenuLink:hover::before,
+.VPNavBarMenuLink.active::before {
+  opacity: 1;
+}
+
+/* Global primary brand buttons: white label in dark + light */
+.VPButton.brand,
+.VPButton.medium.brand,
+a.VPButton.brand {
+  color: #fff !important;
+}
+
+.VPButton.brand:hover,
+.VPButton.medium.brand:hover {
+  color: #fff !important;
+}
+
+/* Social icons */
+.VPSocialLink {
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.VPSocialLink:hover {
+  color: var(--aq-brand) !important;
+  transform: translateY(-1px);
+}
+
+/* Local search button — desktop pill only; mobile stays compact icon */
+@media (min-width: 768px) {
+  .VPNavBarSearch .DocSearch-Button,
+  .VPNavBar .VPNavBarSearch button {
+    border: 1px solid var(--aq-border) !important;
+    background: var(--aq-elevated) !important;
+    border-radius: 10px !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:hover {
+    border-color: var(--aq-border-hover) !important;
+    background: var(--aq-elevated-hover) !important;
+  }
+}
+
+/* Mobile nav icon buttons — smaller hit area, no heavy chrome */
+@media (max-width: 767px) {
+  .VPNavBarSearch .DocSearch-Button,
+  .VPNavBar .VPNavBarSearch .DocSearch-Button {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:hover {
+    background: var(--aq-elevated) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Search-Icon {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .VPNavBarHamburger {
+    width: 36px !important;
+    height: 36px !important;
+    margin: 0 4px 0 0 !important;
+  }
+
+  .VPNavBar .content-body {
+    gap: 0 !important;
+  }
+
+  .VPNavBarExtra {
+    margin-right: 0 !important;
+  }
+}
+
+/* Local search modal (VP local provider) */
+.VPLocalSearchBox {
+  --vp-local-search-highlight-bg: var(--aq-brand-soft);
+  --vp-local-search-highlight-text: var(--aq-brand);
+  --vp-local-search-bg: var(--aq-bg-1);
+}
+
+.VPLocalSearchBox .shell {
+  border: 1px solid var(--aq-border-strong) !important;
+  border-radius: var(--aq-radius-lg) !important;
+  background: var(--aq-bg-1) !important;
+  box-shadow: var(--aq-shadow-md), var(--aq-shadow-glow) !important;
+  overflow: visible !important;
+}
+
+.VPLocalSearchBox .search-bar {
+  border: 1px solid var(--aq-border) !important;
+  border-radius: 10px !important;
+  background: var(--aq-bg-0) !important;
+  box-sizing: border-box !important;
+  min-height: 44px;
+}
+
+.VPLocalSearchBox .search-bar:focus-within {
+  border-color: var(--aq-brand) !important;
+  box-shadow: 0 0 0 1px var(--aq-brand) !important;
+  outline: none !important;
+}
+
+.VPLocalSearchBox .search-input,
+.VPLocalSearchBox input {
+  color: var(--aq-text-1) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.VPLocalSearchBox .search-input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.VPLocalSearchBox .result.selected {
+  background: var(--aq-brand-soft) !important;
+}
+
+.VPLocalSearchBox .search-keyboard-shortcuts {
+  color: var(--aq-text-3);
+}
+
+/* Appearance / lang switches */
+.VPSwitchAppearance .check {
+  background-color: var(--aq-bg-2) !important;
+}
+
+.VPMenu {
+  border: 1px solid var(--aq-border) !important;
+  background: var(--aq-bg-1) !important;
+  border-radius: var(--aq-radius-md) !important;
+  box-shadow: var(--aq-shadow-md) !important;
+  backdrop-filter: blur(12px);
+}
+
+.VPMenuLink a:hover,
+.VPMenuGroup .title {
+  color: var(--aq-brand) !important;
+}
+
+/* Screen menu (mobile) */
+.VPNavScreen {
+  background: var(--aq-bg-1) !important;
+  border-top: 1px solid var(--aq-border);
+}
+
+.VPNavScreenMenuLink:hover,
+.VPNavScreenMenuLink.active {
+  color: var(--aq-brand) !important;
+}
+
+/* Hide default VP footer if present — we use SiteFooter */
+.VPFooter {
+  display: none !important;
+}
+
+/* Not found */
+.NotFound {
+  padding: 80px 24px !important;
+}
+
+.NotFound .code {
+  color: var(--aq-brand) !important;
+}
+
+.NotFound .link {
+  color: var(--aq-brand) !important;
+  border-color: var(--aq-border-hover) !important;
+  border-radius: 999px !important;
+  padding: 10px 24px !important;
+}
+
+.NotFound .link:hover {
+  background: var(--aq-brand-soft) !important;
+}
