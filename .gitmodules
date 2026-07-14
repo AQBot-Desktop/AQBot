@@ -1,6 +1,6 @@
 [submodule "src-tauri/crates/open-agent-sdk"]
 	path = src-tauri/crates/open-agent-sdk
-	url = git@github.com:AQBot-Desktop/open-agent-sdk-rust.git
+	url = https://github.com/euphoriaer/open-agent-sdk-rust.git
 [submodule "libs/markstream-vue"]
 	path = libs/markstream-vue
 	url = git@github.com:AQBot-Desktop/markstream-vue.git
