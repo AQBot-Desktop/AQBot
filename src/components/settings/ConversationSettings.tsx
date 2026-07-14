@@ -126,6 +126,28 @@ export function ConversationSettings() {
     }
   };
 
+  const handleSelectAgentBashPath = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        multiple: false,
+        title: t('settings.selectAgentBashPath'),
+        filters: [{ name: 'Executable', extensions: ['exe', 'bat', 'cmd', 'sh'] }],
+      });
+      if (selected && typeof selected === 'string') {
+        const lower = selected.toLowerCase();
+        if (lower.includes('git-bash') || lower.endsWith('git-bash.exe')) {
+          const corrected = selected.replace(/git-bash\.exe$/i, 'bin\\bash.exe');
+          await saveSettings({ agent_bash_path: corrected });
+        } else {
+          await saveSettings({ agent_bash_path: selected });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to select agent bash path:', e);
+    }
+  };
+
   const fontOptions = [
     { label: t('settings.fontDefault'), value: '' },
     ...systemFonts.map((font) => ({ label: font, value: font })),
@@ -412,6 +434,31 @@ export function ConversationSettings() {
               onClick={() => saveSettings({ agent_workspace_root: null })}
             />
           </div>
+        </div>
+        <div className="flex items-center justify-between gap-3" style={rowStyle}>
+          <span>{t('settings.agentBashPath')}</span>
+          <div className="flex items-center gap-2" style={{ minWidth: 0, flex: 1, justifyContent: 'flex-end' }}>
+            <Input
+              aria-label={t('settings.agentBashPath')}
+              value={settings.agent_bash_path ?? ''}
+              onChange={(e) => saveSettings({ agent_bash_path: e.target.value.trim() || null })}
+              placeholder={t('settings.agentBashPathPlaceholder')}
+              style={{ maxWidth: 360 }}
+            />
+            <Button
+              aria-label={t('settings.selectAgentBashPath')}
+              icon={<FolderOpen size={14} />}
+              onClick={handleSelectAgentBashPath}
+            />
+            <Button
+              aria-label={t('settings.resetAgentBashPath')}
+              icon={<RotateCcw size={14} />}
+              onClick={() => saveSettings({ agent_bash_path: null })}
+            />
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: token.colorTextDescription, marginTop: 2 }}>
+          {t('settings.agentBashPathDesc')}
         </div>
         <Divider style={{ margin: '4px 0' }} />
         <div className="flex items-center justify-between" style={rowStyle}>

@@ -914,6 +914,7 @@ pub async fn agent_query(
         can_use_tool: Some(can_use_tool),
         custom_tools: vec![skill_tool],
         abort_signal: Some(cancel_token.clone()),
+        shell_binary: global_settings.agent_bash_path.clone(),
         ..Default::default()
     };
 

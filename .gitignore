@@ -53,3 +53,6 @@ research-*.tsv
 .autoresearch/
 
 debug/*
+
+# Local toolchain config
+.cargo/

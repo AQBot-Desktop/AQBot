@@ -114,6 +114,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   agent_workspace_root: null,
   agent_workspace_name_strategy: DEFAULT_AGENT_WORKSPACE_NAME_STRATEGY,
   agent_workspace_datetime_format: DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT,
+  agent_bash_path: null,
   // WebDAV sync settings — must be present so stale saves never omit them
   webdav_host: null,
   webdav_username: null,

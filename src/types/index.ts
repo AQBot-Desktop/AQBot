@@ -628,6 +628,8 @@ export interface AppSettings {
   agent_workspace_name_strategy?: AgentWorkspaceNameStrategy;
   /** Agent workspace datetime naming format. Default: YYYY-MM-DD-HH-mm-ss. */
   agent_workspace_datetime_format?: string | null;
+  /** Agent bash/sh executable path. Null uses PATH auto-detection. */
+  agent_bash_path?: string | null;
 }
 
 // === Streaming ===
