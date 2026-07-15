@@ -5,6 +5,8 @@ import { RolesPage } from '../RolesPage';
 import type { MarketplaceRole, Role, RoleMarketplaceSource } from '@/types';
 
 const mocks = vi.hoisted(() => ({
+  ensureRolesLoaded: vi.fn(),
+  ensureMarketplaceSourcesLoaded: vi.fn(),
   loadRoles: vi.fn(),
   searchMarketplace: vi.fn(),
   installRole: vi.fn(),
@@ -127,6 +129,8 @@ vi.mock('@/stores', () => ({
     selectedMarketplaceSource: 'prompts-chat',
     loading: false,
     marketplaceLoading: false,
+    ensureRolesLoaded: mocks.ensureRolesLoaded,
+    ensureMarketplaceSourcesLoaded: mocks.ensureMarketplaceSourcesLoaded,
     loadRoles: mocks.loadRoles,
     loadMarketplaceSources: mocks.loadMarketplaceSources,
     setMarketplaceSource: mocks.setMarketplaceSource,
@@ -247,7 +251,7 @@ describe('RolesPage', () => {
     render(<RolesPage />);
 
     await user.click(screen.getByRole('tab', { name: '市场' }));
-    expect(mocks.loadMarketplaceSources).toHaveBeenCalled();
+    expect(mocks.ensureMarketplaceSourcesLoaded).toHaveBeenCalled();
     expect(mocks.searchMarketplace).toHaveBeenCalledWith('');
 
     await user.click(screen.getByRole('combobox'));

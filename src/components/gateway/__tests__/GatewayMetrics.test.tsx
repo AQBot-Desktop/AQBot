@@ -2,9 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GatewayMetrics } from '../GatewayMetrics';
 
-const fetchUsageByDay = vi.fn();
-const fetchUsageByProvider = vi.fn();
-const fetchUsageByKey = vi.fn();
+const ensureUsageLoaded = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -43,9 +41,7 @@ vi.mock('@/stores/gatewayStore', () => ({
         response_tokens: 2300,
       },
     ],
-    fetchUsageByDay,
-    fetchUsageByProvider,
-    fetchUsageByKey,
+    ensureUsageLoaded,
   }),
 }));
 
@@ -56,6 +52,8 @@ describe('GatewayMetrics', () => {
 
   it('renders split request and response token columns for aggregate tables', () => {
     render(<GatewayMetrics />);
+
+    expect(ensureUsageLoaded).toHaveBeenCalledWith(30, { maxAgeMs: 30_000 });
 
     expect(screen.getAllByText('gateway.logRequestTokens').length).toBeGreaterThan(0);
     expect(screen.getAllByText('gateway.logResponseTokens').length).toBeGreaterThan(0);

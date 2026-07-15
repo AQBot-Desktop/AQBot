@@ -3,6 +3,8 @@ import { Eraser, RotateCcw, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@/lib/invoke';
+import { loadStoredMediaSource } from '@/lib/storedMedia';
+import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 import type { DrawingImage, DrawingStoredFile } from '@/types';
 
 interface Props {
@@ -88,6 +90,26 @@ export function DrawingMaskEditor({ open, image, onApply, onClose }: Props) {
     }, MASK_ERASER_FEEDBACK_CLEAR_DELAY);
   };
 
+  usePageSuspendCleanup(() => {
+    setSrc(null);
+    setHistory([]);
+    setErasing(false);
+    erasingRef.current = false;
+    setDrawing(false);
+    imgRef.current = null;
+    clearFeedback();
+    const maskCanvas = maskCanvasRef.current;
+    if (maskCanvas) {
+      maskCanvas.width = 0;
+      maskCanvas.height = 0;
+    }
+    const feedbackCanvas = feedbackCanvasRef.current;
+    if (feedbackCanvas) {
+      feedbackCanvas.width = 0;
+      feedbackCanvas.height = 0;
+    }
+  });
+
   useEffect(() => {
     if (open) return;
     setSrc(null);
@@ -104,7 +126,7 @@ export function DrawingMaskEditor({ open, image, onApply, onClose }: Props) {
   useEffect(() => {
     if (!open || !image) return;
     let cancelled = false;
-    invoke<string>('read_attachment_preview', { filePath: image.storage_path })
+    loadStoredMediaSource(image.stored_file_id, image.storage_path)
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch((e) => message.error(String(e)));
     return () => { cancelled = true; };

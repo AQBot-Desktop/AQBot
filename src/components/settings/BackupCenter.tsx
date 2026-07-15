@@ -26,9 +26,9 @@ export default function BackupCenter() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const {
-    backups, loading, loadBackups, createBackup, restoreBackup,
+    backups, loading, ensureBackupsLoaded, createBackup, restoreBackup,
     deleteBackup, batchDeleteBackups,
-    selectedIds, setSelectedIds, backupSettings, loadBackupSettings,
+    selectedIds, setSelectedIds, backupSettings, ensureBackupSettingsLoaded,
     updateBackupSettings,
   } = useBackupStore();
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -40,9 +40,9 @@ export default function BackupCenter() {
   const effectiveBackupDir = backupSettings?.backupDir || t('backup.defaultDir');
 
   useEffect(() => {
-    loadBackups();
-    loadBackupSettings();
-  }, [loadBackups, loadBackupSettings]);
+    void ensureBackupsLoaded();
+    void ensureBackupSettingsLoaded();
+  }, [ensureBackupsLoaded, ensureBackupSettingsLoaded]);
 
   const handleCreate = async () => {
     try {

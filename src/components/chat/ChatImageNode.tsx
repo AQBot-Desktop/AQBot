@@ -7,6 +7,7 @@ import {
   getDefaultImageFilename,
   saveChatImage,
 } from '@/lib/chatImageActions';
+import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 
 type ChatImageNodeData = {
   type: 'image' | 'img';
@@ -94,6 +95,7 @@ export function ChatImageNode(props: ChatImageNodeProps) {
   const [copying, setCopying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [previewOpen, setPreviewOpen] = usePageTransientOpenState();
 
   useEffect(() => {
     setStatus(src || loading ? 'loading' : 'error');
@@ -231,7 +233,12 @@ export function ChatImageNode(props: ChatImageNodeProps) {
               borderRadius: token.borderRadius,
               objectFit: 'contain',
             }}
-            preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+            preview={{
+              open: previewOpen,
+              onOpenChange: setPreviewOpen,
+              mask: { blur: true },
+              scaleStep: 0.5,
+            }}
             onError={() => setStatus('error')}
           />
           <span

@@ -23,7 +23,7 @@ const { Text } = Typography;
 export function GatewayKeys() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { keys, loading, fetchKeys, createKey, deleteKey, toggleKey, decryptKey } =
+  const { keys, loading, ensureKeysLoaded, createKey, deleteKey, toggleKey, decryptKey } =
     useGatewayStore();
   const { copy: copyCreatedKey, isCopied: createdKeyCopied } = useCopyToClipboard();
 
@@ -34,8 +34,8 @@ export function GatewayKeys() {
   const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
-    fetchKeys();
-  }, [fetchKeys]);
+    void ensureKeysLoaded();
+  }, [ensureKeysLoaded]);
 
   const filteredKeys = useMemo(() => {
     if (!searchText.trim()) return keys;

@@ -25,6 +25,15 @@ function isHttpImageSource(src: string) {
   return /^https?:\/\//i.test(src.trim());
 }
 
+function isStoredMediaHttpSource(src: string) {
+  try {
+    const url = new URL(src.trim());
+    return url.protocol === 'http:' && url.hostname === 'aqbot-media.localhost';
+  } catch {
+    return false;
+  }
+}
+
 function base64ToBytes(base64: string) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -154,7 +163,7 @@ export async function resolveImageBlob(src: string) {
     throw new Error('Image source is empty.');
   }
 
-  if (isTauri() && isHttpImageSource(src)) {
+  if (isTauri() && isHttpImageSource(src) && !isStoredMediaHttpSource(src)) {
     const response = await invoke<RemoteImageResponse>('fetch_remote_image', { url: src });
     return new Blob([base64ToBytes(response.data)], { type: response.mimeType });
   }

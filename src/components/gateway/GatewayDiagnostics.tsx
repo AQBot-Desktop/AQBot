@@ -9,12 +9,18 @@ import { formatTokenCount } from './tokenFormat';
 
 export function GatewayDiagnostics() {
   const { t } = useTranslation();
-  const { requestLogs, requestLogsLoading, fetchRequestLogs, clearRequestLogs } = useGatewayStore();
+  const {
+    requestLogs,
+    requestLogsLoading,
+    ensureRequestLogsLoaded,
+    fetchRequestLogs,
+    clearRequestLogs,
+  } = useGatewayStore();
   const [selectedErrorMessage, setSelectedErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchRequestLogs();
-  }, [fetchRequestLogs]);
+    void ensureRequestLogsLoaded(100, 0, { maxAgeMs: 5_000 });
+  }, [ensureRequestLogsLoaded]);
 
   const columns: ColumnsType<GatewayRequestLog> = [
     {

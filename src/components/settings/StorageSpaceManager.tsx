@@ -3,6 +3,7 @@ import { Typography, Button, Space, Spin, List, App } from 'antd';
 import { FolderOpen, Image, FileText, CloudUpload, FolderEdit, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@/lib/invoke';
+import { invalidateApplicationResources } from '@/stores/invalidateResources';
 import { SettingsGroup } from './SettingsGroup';
 
 const { Text } = Typography;
@@ -147,6 +148,7 @@ export function StorageSpaceManager() {
           message.success(t('settings.storage.changeDirSuccess'));
         }
 
+        invalidateApplicationResources('path-change');
         await loadInventory();
         promptRestart();
       } catch (e) {
@@ -165,6 +167,7 @@ export function StorageSpaceManager() {
       onOk: async () => {
         try {
           await invoke('reset_documents_root');
+          invalidateApplicationResources('path-change');
           message.success(t('settings.storage.resetDirSuccess'));
           await loadInventory();
           promptRestart();

@@ -3,7 +3,7 @@ use aqbot_core::repo::backup;
 use aqbot_core::repo::settings::get_settings;
 use aqbot_core::types::*;
 use sea_orm::DatabaseConnection;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -45,18 +45,15 @@ pub async fn restore_backup(
     }
 
     let backup_path = manifest.file_path.ok_or("Backup file path not available")?;
-    let db_path = state
-        .db_path
-        .strip_prefix("sqlite:")
-        .unwrap_or(&state.db_path);
-    backup::restore_sqlite_backup(&backup_path, db_path)
-        .await
-        .map_err(|e| e.to_string())?;
-    // Remove stale WAL/SHM files so SQLite doesn't replay an incompatible journal on restart
-    let _ = std::fs::remove_file(format!("{}-wal", db_path));
-    let _ = std::fs::remove_file(format!("{}-shm", db_path));
+    aqbot_core::pending_restore::queue_pending_restore(
+        Path::new(&backup_path),
+        &state.app_data_dir,
+        &aqbot_core::storage_paths::default_documents_root(),
+    )
+    .map_err(|e| e.to_string())?;
 
-    // Auto-restart to pick up the restored database
+    // The live database and key remain untouched. Startup atomically publishes the
+    // durable pending payload before loading master.key or opening SQLite.
     app.restart();
 
     #[allow(unreachable_code)]

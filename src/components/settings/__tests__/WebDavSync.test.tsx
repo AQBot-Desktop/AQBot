@@ -2,7 +2,7 @@ import { App } from 'antd';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import WebDavSync from '../WebDavSync';
+import WebDavSync, { invalidateWebDavSyncResources } from '../WebDavSync';
 
 const { invokeMock, saveSettingsMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -36,6 +36,7 @@ vi.mock('react-i18next', () => ({
 describe('WebDavSync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateWebDavSyncResources();
     settingsStoreState.settings = {
       webdav_sync_enabled: false,
       webdav_sync_interval_minutes: 60,

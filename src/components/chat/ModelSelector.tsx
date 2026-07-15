@@ -10,6 +10,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { getVisibleModelCapabilities } from '@/lib/modelCapabilities';
 import type { ModelCapability, Model } from '@/types';
 import { ConversationModelIcon } from './ConversationModelIcon';
+import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 
 const PINNED_MODELS_KEY = 'aqbot_pinned_models';
 
@@ -93,6 +94,13 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
 
   // Multi-select state
   const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(new Set());
+
+  usePageSuspendCleanup(() => {
+    setOpen(false);
+    setSearch('');
+    setHoveredKey(null);
+    setActiveIndex(-1);
+  });
 
   // Reset multi-select state when modal opens with default selections
   useEffect(() => {

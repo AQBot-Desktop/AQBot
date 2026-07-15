@@ -32,10 +32,11 @@ pdf-extract = "0.7"
 zip = "2"
 litchi = "0.0.1"
 dirs = "5"
+tempfile = "3"
 aqbot-migration = { path = "../migration" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
-tempfile = "3"
+sea-orm = { workspace = true, features = ["mock"] }

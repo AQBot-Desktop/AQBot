@@ -7,6 +7,15 @@ import {
   type AppSettings,
 } from '@/types';
 import { DEFAULT_SHORTCUT_BINDINGS } from '@/lib/shortcuts';
+import { isResourceFresh } from '@/lib/resourceState';
+import type {
+  EnsureLoadedOptions,
+  ResourceInvalidationReason,
+  ResourceMeta,
+} from '@/lib/resourceState';
+
+const SETTINGS_RESOURCE_KEY = 'settings';
+let settingsRequest: { revision: number; promise: Promise<void> } | null = null;
 
 const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
@@ -161,6 +170,9 @@ interface SettingsState {
   _loaded: boolean;
   error: string | null;
   globalShortcutStatus: GlobalShortcutStatus;
+  settingsMeta: ResourceMeta;
+  ensureSettingsLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
+  invalidateSettings: (reason: ResourceInvalidationReason) => void;
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<void>;
   setGlobalShortcutStatus: (status: GlobalShortcutStatus) => void;
@@ -177,16 +189,84 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     failed: [],
     diagnostics: [],
   },
+  settingsMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
 
-  fetchSettings: async () => {
-    set({ loading: true });
-    try {
-      const fetched = await invoke<Partial<AppSettings>>('get_settings');
-      set({ settings: { ...DEFAULT_SETTINGS, ...fetched }, loading: false, _loaded: true, error: null });
-    } catch (e) {
-      set({ error: String(e), loading: false, _loaded: true });
+  ensureSettingsLoaded: async (options = {}) => {
+    const state = get();
+    if (!options.force && isResourceFresh(state.settingsMeta, {
+      ...options,
+      key: SETTINGS_RESOURCE_KEY,
+    })) return;
+    if (settingsRequest?.revision === state.settingsMeta.revision && !options.force) {
+      return settingsRequest.promise;
     }
+    if (settingsRequest) {
+      await settingsRequest.promise;
+      return get().ensureSettingsLoaded(options);
+    }
+
+    const revision = state.settingsMeta.revision;
+    set((current) => ({
+      loading: true,
+      settingsMeta: {
+        ...current.settingsMeta,
+        status: 'loading',
+        key: SETTINGS_RESOURCE_KEY,
+      },
+    }));
+    let promise!: Promise<void>;
+    promise = (async () => {
+      let reloadAfterCompletion = false;
+      try {
+        const fetched = await invoke<Partial<AppSettings>>('get_settings');
+        if (get().settingsMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set({
+            settings: { ...DEFAULT_SETTINGS, ...fetched },
+            loading: false,
+            _loaded: true,
+            error: null,
+            settingsMeta: {
+              status: 'ready',
+              key: SETTINGS_RESOURCE_KEY,
+              loadedAt: Date.now(),
+              revision,
+            },
+          });
+        }
+      } catch (e) {
+        if (get().settingsMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set((current) => ({
+            error: String(e),
+            loading: false,
+            _loaded: true,
+            settingsMeta: { ...current.settingsMeta, status: 'error' },
+          }));
+        }
+      } finally {
+        settingsRequest = null;
+      }
+      if (reloadAfterCompletion) await get().ensureSettingsLoaded();
+    })();
+    settingsRequest = { revision, promise };
+    return promise;
   },
+
+  invalidateSettings: (_reason) => set((state) => ({
+    settingsMeta: {
+      status: 'idle',
+      key: null,
+      loadedAt: null,
+      revision: state.settingsMeta.revision + 1,
+    },
+  })),
+
+  fetchSettings: () => get().ensureSettingsLoaded({ force: true }),
 
   saveSettings: async (partial) => {
     if (!get()._loaded) {
@@ -194,7 +274,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       return;
     }
     const merged = { ...get().settings, ...partial };
-    set({ settings: merged, error: null });
+    set((state) => ({
+      settings: merged,
+      error: null,
+      settingsMeta: {
+        status: 'ready',
+        key: SETTINGS_RESOURCE_KEY,
+        loadedAt: Date.now(),
+        revision: state.settingsMeta.revision + 1,
+      },
+    }));
     try {
       await invoke('save_settings', { settings: merged });
     } catch (e) {

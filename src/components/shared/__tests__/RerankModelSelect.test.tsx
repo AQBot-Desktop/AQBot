@@ -4,7 +4,7 @@ import type { ProviderConfig } from '@/types';
 import { RerankModelSelect } from '../RerankModelSelect';
 
 const mocks = vi.hoisted(() => ({
-  fetchProviders: vi.fn(),
+  ensureProvidersLoaded: vi.fn(),
 }));
 
 let providers: ProviderConfig[] = [];
@@ -52,10 +52,10 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('@/stores', () => ({
-  useProviderStore: (selector: (state: { providers: ProviderConfig[]; fetchProviders: () => Promise<void> }) => unknown) =>
+  useProviderStore: (selector: (state: { providers: ProviderConfig[]; ensureProvidersLoaded: () => Promise<void> }) => unknown) =>
     selector({
       providers,
-      fetchProviders: mocks.fetchProviders,
+      ensureProvidersLoaded: mocks.ensureProvidersLoaded,
     }),
 }));
 
@@ -70,8 +70,8 @@ vi.mock('../ModelSelect', () => ({
 describe('RerankModelSelect', () => {
   beforeEach(() => {
     providers = [];
-    mocks.fetchProviders.mockReset();
-    mocks.fetchProviders.mockResolvedValue(undefined);
+    mocks.ensureProvidersLoaded.mockReset();
+    mocks.ensureProvidersLoaded.mockResolvedValue(undefined);
   });
 
   it('shows enabled rerank models and hides chat models', () => {
@@ -114,7 +114,7 @@ describe('RerankModelSelect', () => {
     render(<RerankModelSelect onChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(mocks.fetchProviders).toHaveBeenCalledTimes(1);
+      expect(mocks.ensureProvidersLoaded).toHaveBeenCalledTimes(1);
     });
   });
 });

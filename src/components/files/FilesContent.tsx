@@ -18,7 +18,7 @@ export function FilesContent({ activeCategory }: FilesContentProps) {
     throw new Error(`Unhandled file category: ${activeCategory}`);
   }
 
-  const { rows, search, error, loadCategory, setSearch, setSortKey, clearError, revealEntry, cleanupMissingEntry } =
+  const { rows, search, error, ensureCategoryLoaded, loadCategory, setSearch, setSortKey, clearError, revealEntry, cleanupMissingEntry } =
     useFileStore();
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
@@ -27,13 +27,13 @@ export function FilesContent({ activeCategory }: FilesContentProps) {
     setSearch('');
     setSortKey('createdAt');
     setSelectedRowKeys([]);
-    void loadCategory(activeCategory);
+    void ensureCategoryLoaded(activeCategory);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
-    void loadCategory(activeCategory);
+    void ensureCategoryLoaded(activeCategory);
   };
 
   const handleBatchDelete = useCallback(async () => {

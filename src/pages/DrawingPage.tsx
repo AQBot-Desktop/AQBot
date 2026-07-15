@@ -1,4 +1,4 @@
-import { Alert, App, theme } from 'antd';
+import { Alert, App, Modal, theme } from 'antd';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { DrawingGenerationList } from '@/components/drawing/DrawingGenerationLis
 import { DrawingSettingsPanel } from '@/components/drawing/DrawingSettingsPanel';
 import { DrawingComposer } from '@/components/drawing/DrawingComposer';
 import { DrawingMaskEditor } from '@/components/drawing/DrawingMaskEditor';
+import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 import { getDrawingModelOptions, getDrawingProvidersForModel } from '@/lib/drawingModels';
 
 const HISTORY_BOTTOM_THRESHOLD = 48;
@@ -34,8 +35,8 @@ export function DrawingPage() {
   const { token } = theme.useToken();
   const { message, modal } = App.useApp();
   const providers = useProviderStore((s) => s.providers);
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
-  const loadHistory = useDrawingStore((s) => s.loadHistory);
+  const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
+  const ensureHistoryLoaded = useDrawingStore((s) => s.ensureHistoryLoaded);
   const error = useDrawingStore((s) => s.error);
   const generations = useDrawingStore((s) => s.generations);
   const selectImageForEdit = useDrawingStore((s) => s.selectImageForEdit);
@@ -60,15 +61,21 @@ export function DrawingPage() {
     ].join(':')
     : '';
 
+  usePageSuspendCleanup(() => Modal.destroyAll());
+
   const drawingModelOptions = useMemo(() => getDrawingModelOptions(), []);
 
   useEffect(() => {
-    if (providers.length === 0) fetchProviders();
-  }, [fetchProviders, providers.length]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   useEffect(() => {
-    loadHistory().catch((e) => message.error(String(e)));
-  }, [loadHistory, message]);
+    ensureHistoryLoaded().catch((e) => message.error(String(e)));
+  }, [ensureHistoryLoaded, message]);
+
+  useEffect(() => {
+    return () => setMaskImage(null);
+  }, []);
 
   const scrollHistoryToBottom = useCallback(() => {
     const scroller = getHistoryScrollElement(historyScrollRef.current, true);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, Tag, Statistic, Row, Col, Empty, Table, theme, message } from 'antd';
 import { PlayCircle, Power, Router, ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
@@ -20,28 +20,23 @@ export function GatewayOverview({ onViewMoreLogs }: GatewayOverviewProps) {
     metrics,
     startGateway,
     stopGateway,
+    ensureStatusLoaded,
+    ensureMetricsLoaded,
     fetchStatus,
     fetchMetrics,
-    listRequestLogs,
+    requestLogs,
+    requestLogsLoading,
+    ensureRequestLogsLoaded,
+    fetchRequestLogs,
   } = useGatewayStore();
-  const [recentLogs, setRecentLogs] = useState<GatewayRequestLog[]>([]);
-  const [recentLogsLoading, setRecentLogsLoading] = useState(false);
-
-  const loadRecentLogs = useCallback(async () => {
-    setRecentLogsLoading(true);
-    try {
-      const logs = await listRequestLogs(10);
-      setRecentLogs(logs.slice(0, 10));
-    } finally {
-      setRecentLogsLoading(false);
-    }
-  }, [listRequestLogs]);
+  const recentLogs = requestLogs.slice(0, 10);
+  const recentLogsLoading = requestLogsLoading;
 
   useEffect(() => {
-    fetchStatus();
-    fetchMetrics();
-    void loadRecentLogs();
-  }, [fetchStatus, fetchMetrics, loadRecentLogs]);
+    void ensureStatusLoaded({ maxAgeMs: 5_000 });
+    void ensureMetricsLoaded({ maxAgeMs: 5_000 });
+    void ensureRequestLogsLoaded(100, 0, { maxAgeMs: 5_000 });
+  }, [ensureStatusLoaded, ensureMetricsLoaded, ensureRequestLogsLoaded]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -57,11 +52,11 @@ export function GatewayOverview({ onViewMoreLogs }: GatewayOverviewProps) {
     }
 
     const interval = setInterval(() => {
-      void loadRecentLogs();
+      void fetchRequestLogs(100, 0);
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [loadRecentLogs, status.is_running]);
+  }, [fetchRequestLogs, status.is_running]);
 
   const gatewayHost =
     status.listen_address === '0.0.0.0'
@@ -181,8 +176,8 @@ export function GatewayOverview({ onViewMoreLogs }: GatewayOverviewProps) {
   }, [onViewMoreLogs]);
 
   const handleRefreshRecentLogs = useCallback(() => {
-    void loadRecentLogs();
-  }, [loadRecentLogs]);
+    void fetchRequestLogs(100, 0);
+  }, [fetchRequestLogs]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

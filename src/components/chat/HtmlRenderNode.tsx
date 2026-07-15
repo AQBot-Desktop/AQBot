@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { NodeComponentProps } from 'markstream-react';
 import { sanitizeHtmlContent } from 'stream-markdown-parser';
 import { getHtmlRenderInnerContent } from '@/lib/chatHtmlRender';
+import { createChatContentFingerprint } from '@/lib/chatMarkdownCache';
 
 type HtmlRenderNodeData = {
   type: 'html-render';
@@ -14,8 +15,16 @@ type HtmlRenderNodeProps =
   | NodeComponentProps<HtmlRenderNodeData>
   | { node: HtmlRenderNodeData; isDark?: boolean; ctx?: { isDark?: boolean } };
 
-const HTML_RENDER_CACHE_LIMIT = 80;
-const htmlRenderCache = new Map<string, string>();
+const HTML_RENDER_CACHE_MAX_ENTRIES = 80;
+const HTML_RENDER_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+
+interface HtmlRenderCacheEntry {
+  value: string;
+  estimatedBytes: number;
+}
+
+const htmlRenderCache = new Map<string, HtmlRenderCacheEntry>();
+let htmlRenderCacheBytes = 0;
 const STYLE_TAG_RE = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
 const STYLE_ATTR_RE = /\sstyle=("([^"]*)"|'([^']*)')/gi;
 
@@ -33,13 +42,44 @@ function stripStyleTags(html: string) {
   return html.replace(STYLE_TAG_RE, '');
 }
 
+function createHtmlRenderCacheKey(html: string, isDark: boolean) {
+  return `${isDark ? 'dark' : 'light'}:${createChatContentFingerprint(html)}`;
+}
+
 function rememberCachedHtml(key: string, value: string) {
-  if (htmlRenderCache.size >= HTML_RENDER_CACHE_LIMIT) {
-    const firstKey = htmlRenderCache.keys().next().value;
-    if (firstKey) htmlRenderCache.delete(firstKey);
+  const existing = htmlRenderCache.get(key);
+  if (existing) htmlRenderCacheBytes -= existing.estimatedBytes;
+  htmlRenderCache.delete(key);
+
+  const estimatedBytes = (key.length + value.length) * 2;
+  if (estimatedBytes > HTML_RENDER_CACHE_MAX_BYTES) return value;
+
+  htmlRenderCache.set(key, { value, estimatedBytes });
+  htmlRenderCacheBytes += estimatedBytes;
+  while (
+    htmlRenderCache.size > HTML_RENDER_CACHE_MAX_ENTRIES
+    || htmlRenderCacheBytes > HTML_RENDER_CACHE_MAX_BYTES
+  ) {
+    const oldestKey = htmlRenderCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = htmlRenderCache.get(oldestKey);
+    if (oldest) htmlRenderCacheBytes -= oldest.estimatedBytes;
+    htmlRenderCache.delete(oldestKey);
   }
-  htmlRenderCache.set(key, value);
   return value;
+}
+
+export function clearHtmlRenderCache() {
+  htmlRenderCache.clear();
+  htmlRenderCacheBytes = 0;
+}
+
+export function getHtmlRenderCacheStats() {
+  return {
+    entries: htmlRenderCache.size,
+    estimatedBytes: htmlRenderCacheBytes,
+    maxKeyLength: Math.max(0, ...Array.from(htmlRenderCache.keys(), (key) => key.length)),
+  };
 }
 
 function parseHexColor(value: string): Rgb | null {
@@ -148,9 +188,13 @@ function adaptHtmlForDarkMode(html: string) {
 }
 
 function renderSafeHtml(html: string, isDark: boolean) {
-  const key = `${isDark ? 'dark' : 'light'}\u0000${html}`;
+  const key = createHtmlRenderCacheKey(html, isDark);
   const cached = htmlRenderCache.get(key);
-  if (cached != null) return cached;
+  if (cached != null) {
+    htmlRenderCache.delete(key);
+    htmlRenderCache.set(key, cached);
+    return cached.value;
+  }
 
   const sanitized = stripStyleTags(sanitizeHtmlContent(stripStyleTags(html)));
   const themed = isDark ? adaptHtmlForDarkMode(sanitized) : sanitized;
@@ -182,7 +226,7 @@ export function HtmlRenderNode(props: HtmlRenderNodeProps) {
   const isDark = getIsDark(props);
   const isLoading = Boolean(node.loading);
   const html = useMemo(() => getHtmlRenderInnerContent(node), [node]);
-  const renderKey = `${isDark ? 'dark' : 'light'}\u0000${html}`;
+  const renderKey = createHtmlRenderCacheKey(html, isDark);
   const [safeHtml, setSafeHtml] = useState(() => renderSafeHtml(html, isDark));
   const latestRenderRef = useRef({ html, isDark, key: renderKey });
   const renderedKeyRef = useRef(renderKey);

@@ -3,8 +3,9 @@ import { ArrowUp, GripHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@/lib/invoke';
+import { loadStoredMediaSource } from '@/lib/storedMedia';
 import { useDrawingStore } from '@/stores/drawingStore';
+import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 import type { DrawingImage, DrawingSettings } from '@/types';
 
 interface Props {
@@ -54,6 +55,7 @@ function DrawingEditPreview({ image, previewUrl }: { image: DrawingImage; previe
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const [src, setSrc] = useState<string | null>(previewUrl);
+  const [previewOpen, setPreviewOpen] = usePageTransientOpenState();
 
   useEffect(() => {
     if (previewUrl) {
@@ -63,11 +65,11 @@ function DrawingEditPreview({ image, previewUrl }: { image: DrawingImage; previe
 
     let cancelled = false;
     setSrc(null);
-    invoke<string>('read_attachment_preview', { filePath: image.storage_path })
+    loadStoredMediaSource(image.stored_file_id, image.storage_path)
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [image.storage_path, previewUrl]);
+  }, [image.storage_path, image.stored_file_id, previewUrl]);
 
   return (
     <div
@@ -90,7 +92,12 @@ function DrawingEditPreview({ image, previewUrl }: { image: DrawingImage; previe
             objectFit: 'cover',
             borderRadius: 6,
           }}
-          preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+          preview={{
+            open: previewOpen,
+            onOpenChange: setPreviewOpen,
+            mask: { blur: true },
+            scaleStep: 0.5,
+          }}
         />
       ) : null}
     </div>
@@ -145,6 +152,8 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      resizeStateRef.current = null;
+      setResizing(false);
     };
   }, [resizing]);
 

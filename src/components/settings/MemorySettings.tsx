@@ -235,7 +235,7 @@ function MemoryItemsPanel({
   namespace: MemoryNamespace;
 }) {
   const { t } = useTranslation();
-  const { items, loading, loadItems, addItem, deleteItem, updateItem, updateNamespace } = useMemoryStore();
+  const { items, loading, ensureItemsLoaded, loadItems, addItem, deleteItem, updateItem, updateNamespace } = useMemoryStore();
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MemoryItem | null>(null);
   const [itemForm] = Form.useForm();
@@ -267,8 +267,8 @@ function MemoryItemsPanel({
   const rebuildingRef = useRef(false);
 
   useEffect(() => {
-    loadItems(namespace.id);
-  }, [namespace.id, loadItems]);
+    void ensureItemsLoaded(namespace.id);
+  }, [namespace.id, ensureItemsLoaded]);
 
   // Listen for indexing events
   useEffect(() => {
@@ -755,14 +755,14 @@ function MemoryItemsPanel({
 
 export default function MemorySettings() {
   const { t } = useTranslation();
-  const { namespaces, loadNamespaces, createNamespace, setSelectedNamespaceId } = useMemoryStore();
+  const { namespaces, ensureNamespacesLoaded, createNamespace, setSelectedNamespaceId } = useMemoryStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nsModalOpen, setNsModalOpen] = useState(false);
   const [nsForm] = Form.useForm();
 
   useEffect(() => {
-    loadNamespaces();
-  }, [loadNamespaces]);
+    void ensureNamespacesLoaded();
+  }, [ensureNamespacesLoaded]);
 
   useEffect(() => {
     if (!selectedId && namespaces.length > 0) {

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const enableD2 = vi.fn();
 const preloadChatRenderers = vi.fn();
 const setDefaultI18nMap = vi.fn();
+const setupAgentEventListeners = vi.fn(() => vi.fn());
 
 const settingsState = {
   settings: {
@@ -92,6 +93,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     i18n: {
       language: 'zh-CN',
+      dir: () => 'ltr',
       getFixedT: () => (_key: string) => _key,
       changeLanguage: vi.fn(),
     },
@@ -153,6 +155,10 @@ vi.mock('@/lib/preloadChatRenderers', () => ({
   preloadChatRenderers,
 }));
 
+vi.mock('@/stores/agentStore', () => ({
+  setupAgentEventListeners,
+}));
+
 vi.mock('markstream-react', () => ({
   enableD2,
   setDefaultI18nMap,
@@ -171,6 +177,7 @@ describe('AppRoot D2 setup', () => {
 
     expect(enableD2).toHaveBeenCalledTimes(1);
     expect(preloadChatRenderers).toHaveBeenCalledTimes(1);
+    expect(setupAgentEventListeners).toHaveBeenCalledTimes(1);
   });
 
   it('syncs chat typography settings to CSS variables', async () => {

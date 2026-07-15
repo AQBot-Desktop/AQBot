@@ -27,10 +27,35 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@/lib/invoke';
+import { createModuleResource } from '@/lib/moduleResource';
 import type { WebDavConfig, WebDavFileInfo } from '@/types';
 import { useSettingsStore } from '@/stores';
 
 const { Text } = Typography;
+
+interface WebDavSyncStatus {
+  lastSyncTime: string | null;
+  lastSyncStatus: string | null;
+}
+
+const webDavConfigResource = createModuleResource<WebDavConfig>();
+const webDavBackupsResource = createModuleResource<WebDavFileInfo[]>();
+const webDavSyncStatusResource = createModuleResource<WebDavSyncStatus>();
+
+export function invalidateWebDavSyncResources() {
+  webDavConfigResource.invalidate();
+  webDavBackupsResource.invalidate();
+  webDavSyncStatusResource.invalidate();
+}
+
+function webDavBackupResourceKey(config: WebDavConfig): string {
+  return JSON.stringify([
+    config.host,
+    config.username,
+    config.path,
+    config.acceptInvalidCerts,
+  ]);
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -77,53 +102,59 @@ export default function WebDavSync() {
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [selectedFileNames, setSelectedFileNames] = useState<string[]>([]);
 
-  const [syncStatus, setSyncStatus] = useState<{
-    lastSyncTime: string | null;
-    lastSyncStatus: string | null;
-  }>({ lastSyncTime: null, lastSyncStatus: null });
+  const [syncStatus, setSyncStatus] = useState<WebDavSyncStatus>({
+    lastSyncTime: null,
+    lastSyncStatus: null,
+  });
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (force = false) => {
     try {
-      const cfg = await invoke<WebDavConfig>('get_webdav_config');
+      const cfg = await webDavConfigResource.ensure({
+        force,
+        load: () => invoke<WebDavConfig>('get_webdav_config'),
+      });
       setConfig(cfg);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      console.error('Failed to load WebDAV config:', error);
     }
   }, []);
 
-  const loadRemoteBackups = useCallback(async () => {
+  const loadRemoteBackups = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const backups =
-        await invoke<WebDavFileInfo[]>('webdav_list_backups');
+      const backups = await webDavBackupsResource.ensure({
+        key: webDavBackupResourceKey(config),
+        force,
+        load: () => invoke<WebDavFileInfo[]>('webdav_list_backups'),
+      });
       setRemoteBackups(backups);
     } catch (e) {
       message.error(String(e));
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [config, message]);
 
-  const loadSyncStatus = useCallback(async () => {
+  const loadSyncStatus = useCallback(async (force = false) => {
     try {
-      const status = await invoke<{
-        lastSyncTime: string | null;
-        lastSyncStatus: string | null;
-      }>('get_webdav_sync_status');
+      const status = await webDavSyncStatusResource.ensure({
+        force,
+        load: () => invoke<WebDavSyncStatus>('get_webdav_sync_status'),
+      });
       setSyncStatus(status);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      console.error('Failed to load WebDAV sync status:', error);
     }
   }, []);
 
   useEffect(() => {
-    loadConfig();
-    loadSyncStatus();
+    void loadConfig();
+    void loadSyncStatus();
   }, [loadConfig, loadSyncStatus]);
 
   useEffect(() => {
     if (config.host) {
-      loadRemoteBackups();
+      void loadRemoteBackups();
     }
   }, [config.host, loadRemoteBackups]);
 
@@ -140,6 +171,8 @@ export default function WebDavSync() {
         acceptInvalidCerts: values.acceptInvalidCerts || false,
       };
       await invoke('save_webdav_config', { config: newConfig });
+      webDavConfigResource.set(newConfig);
+      webDavBackupsResource.invalidate();
       setConfig(newConfig);
 
       // Save sync settings
@@ -159,7 +192,6 @@ export default function WebDavSync() {
 
       message.success(t('common.saveSuccess'));
       setConfigModalOpen(false);
-      loadRemoteBackups();
     } catch (e) {
       message.error(String(e));
     }
@@ -195,8 +227,8 @@ export default function WebDavSync() {
     try {
       await invoke<string>('webdav_backup');
       message.success(t('backup.webdav.backupSuccess'));
-      loadRemoteBackups();
-      loadSyncStatus();
+      void loadRemoteBackups(true);
+      void loadSyncStatus(true);
     } catch (e) {
       message.error(t('backup.webdav.backupFailed') + ': ' + String(e));
     } finally {
@@ -220,7 +252,7 @@ export default function WebDavSync() {
       await invoke('webdav_delete_backup', { fileName });
       message.success(t('backup.deleteSuccess'));
       setSelectedFileNames((prev) => prev.filter((n) => n !== fileName));
-      loadRemoteBackups();
+      void loadRemoteBackups(true);
     } catch (e) {
       message.error(String(e));
     }
@@ -233,7 +265,7 @@ export default function WebDavSync() {
       }
       message.success(t('backup.deleteSuccess'));
       setSelectedFileNames([]);
-      loadRemoteBackups();
+      void loadRemoteBackups(true);
     } catch (e) {
       message.error(String(e));
     }
@@ -362,7 +394,7 @@ export default function WebDavSync() {
             <>
               <Button
                 icon={<RefreshCw size={16} />}
-                onClick={loadRemoteBackups}
+                onClick={() => void loadRemoteBackups(true)}
                 loading={loading}
               >
                 {t('common.refresh')}

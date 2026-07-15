@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BackupCenter from '../BackupCenter';
+import { invalidateS3SyncResources } from '../S3Sync';
 
 const { invokeMock, saveSettingsMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -20,13 +21,13 @@ const backupStoreState = {
     maxCount: 10,
     backupDir: '/Users/test/.aqbot/backups',
   },
-  loadBackups: vi.fn(),
+  ensureBackupsLoaded: vi.fn(),
   createBackup: vi.fn(),
   restoreBackup: vi.fn(),
   deleteBackup: vi.fn(),
   batchDeleteBackups: vi.fn(),
   setSelectedIds: vi.fn(),
-  loadBackupSettings: vi.fn(),
+  ensureBackupSettingsLoaded: vi.fn(),
   updateBackupSettings: vi.fn(),
 };
 
@@ -58,6 +59,7 @@ vi.mock('react-i18next', () => ({
 describe('BackupCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invalidateS3SyncResources();
     invokeMock.mockImplementation(async (command: string) => {
       switch (command) {
         case 'get_s3_config':

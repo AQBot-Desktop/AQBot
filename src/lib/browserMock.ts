@@ -645,6 +645,12 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     // ── Conversations ─────────────────────────────────────────────────
     case 'list_conversations':
       return getStore('conversations', []).filter((c: any) => !c.is_archived) as T;
+    case 'get_conversation_snapshot': {
+      const conversation = getStore<any[]>('conversations', [])
+        .find((item: any) => item.id === (args as any).id);
+      if (!conversation) throw new Error('Conversation not found');
+      return conversation as T;
+    }
     case 'list_archived_conversations':
       return getStore('conversations', []).filter((c: any) => c.is_archived) as T;
     case 'create_conversation': {
@@ -974,6 +980,21 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const { parentMessageId } = args as any;
       const allMsgs = getStore<any[]>('messages', []);
       return allMsgs.filter((m: any) => m.parent_message_id === parentMessageId) as T;
+    }
+    case 'list_message_versions_batch': {
+      const { conversationId, parentMessageIds = [] } = args as any;
+      const requestedParents = new Set<string>(parentMessageIds);
+      const result: Record<string, any[]> = {};
+      for (const parentMessageId of requestedParents) result[parentMessageId] = [];
+      for (const message of getStore<any[]>('messages', [])) {
+        if (
+          message.conversation_id === conversationId
+          && requestedParents.has(message.parent_message_id)
+        ) {
+          result[message.parent_message_id].push(message);
+        }
+      }
+      return result as T;
     }
     case 'switch_message_version': {
       const { parentMessageId: switchParent, messageId: switchTarget } = args as any;
@@ -1582,7 +1603,24 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
           missing: !backup.filePath,
         })) as T;
       }
-      return [] as T;
+      const files = getStore<any[]>('drawing_files', []);
+      return files
+        .filter((file: any) => category === 'images'
+          ? String(file.mime_type).startsWith('image/')
+          : !String(file.mime_type).startsWith('image/'))
+        .map((file: any) => ({
+          id: `attachment::${file.id}`,
+          storedFileId: file.id,
+          sourceKind: 'attachment',
+          category,
+          displayName: file.original_name,
+          path: file.storage_path,
+          storagePath: file.storage_path,
+          sizeBytes: file.size_bytes,
+          createdAt: file.created_at ?? new Date(0).toISOString(),
+          missing: false,
+          previewUrl: null,
+        })) as T;
     }
     case 'open_files_page_entry':
     case 'reveal_files_page_entry':

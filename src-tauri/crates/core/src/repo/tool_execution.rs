@@ -2,23 +2,32 @@ use sea_orm::*;
 
 use crate::entity::tool_executions;
 use crate::error::{AQBotError, Result};
+use crate::inline_media::filter_complete_inline_data;
 use crate::types::ToolExecution;
 use crate::utils::gen_id;
 
+fn sanitize_preview(value: Option<&str>) -> Option<String> {
+    value.map(filter_complete_inline_data)
+}
+
+fn sanitize_text(value: &str) -> String {
+    filter_complete_inline_data(value)
+}
+
 fn model_to_tool_execution(m: tool_executions::Model) -> ToolExecution {
     ToolExecution {
-        id: m.id,
-        conversation_id: m.conversation_id,
-        message_id: m.message_id,
-        server_id: m.server_id,
-        tool_name: m.tool_name,
-        status: m.status,
-        input_preview: m.input_preview,
-        output_preview: m.output_preview,
-        error_message: m.error_message,
+        id: sanitize_text(&m.id),
+        conversation_id: sanitize_text(&m.conversation_id),
+        message_id: sanitize_preview(m.message_id.as_deref()),
+        server_id: sanitize_text(&m.server_id),
+        tool_name: sanitize_text(&m.tool_name),
+        status: sanitize_text(&m.status),
+        input_preview: sanitize_preview(m.input_preview.as_deref()),
+        output_preview: sanitize_preview(m.output_preview.as_deref()),
+        error_message: sanitize_preview(m.error_message.as_deref()),
         duration_ms: m.duration_ms,
-        created_at: m.created_at,
-        approval_status: m.approval_status,
+        created_at: sanitize_text(&m.created_at),
+        approval_status: sanitize_preview(m.approval_status.as_deref()),
     }
 }
 
@@ -51,15 +60,15 @@ pub async fn create_tool_execution(
         id: Set(id.clone()),
         conversation_id: Set(conversation_id.to_string()),
         message_id: Set(message_id.map(|s| s.to_string())),
-        server_id: Set(server_id.to_string()),
-        tool_name: Set(tool_name.to_string()),
+        server_id: Set(sanitize_text(server_id)),
+        tool_name: Set(sanitize_text(tool_name)),
         status: Set("pending".to_string()),
-        input_preview: Set(input_preview.map(|s| s.to_string())),
+        input_preview: Set(sanitize_preview(input_preview)),
         output_preview: Set(None),
         error_message: Set(None),
         duration_ms: Set(None),
         created_at: Set(now),
-        approval_status: Set(approval_status.map(|s| s.to_string())),
+        approval_status: Set(sanitize_preview(approval_status)),
     }
     .insert(db)
     .await?;
@@ -85,9 +94,9 @@ pub async fn update_tool_execution_status(
         .ok_or_else(|| AQBotError::NotFound(format!("ToolExecution {}", id)))?;
 
     let mut am: tool_executions::ActiveModel = model.into();
-    am.status = Set(status.to_string());
-    am.output_preview = Set(output.map(|s| s.to_string()));
-    am.error_message = Set(error.map(|s| s.to_string()));
+    am.status = Set(sanitize_text(status));
+    am.output_preview = Set(sanitize_preview(output));
+    am.error_message = Set(sanitize_preview(error));
     am.update(db).await?;
 
     Ok(())
@@ -104,8 +113,64 @@ pub async fn update_tool_execution_approval_status(
         .ok_or_else(|| AQBotError::NotFound(format!("ToolExecution {}", id)))?;
 
     let mut am: tool_executions::ActiveModel = model.into();
-    am.approval_status = Set(Some(approval_status.to_string()));
+    am.approval_status = Set(Some(sanitize_text(approval_status)));
     am.update(db).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn previews_are_sanitized_before_persistence() {
+        let db = crate::db::create_test_pool().await.unwrap().conn;
+        let conversation = crate::repo::conversation::create_conversation(
+            &db,
+            "Tool execution media",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let execution = create_tool_execution(
+            &db,
+            &conversation.id,
+            None,
+            "server-data:image/png;base64,SERVER_SECRET",
+            "image_tool-data:image/png;base64,TOOL_SECRET",
+            Some(r#"{\"image\":\"data:image/png;base64,INPUT_SECRET\"}"#),
+            Some("pending-data:image/png;base64,APPROVAL_SECRET"),
+        )
+        .await
+        .unwrap();
+
+        update_tool_execution_status(
+            &db,
+            &execution.id,
+            "failed-data:image/gif;base64,STATUS_SECRET",
+            Some("data:image/jpeg;base64,OUTPUT_SECRET"),
+            Some("data:image/webp;base64,ERROR_SECRET"),
+        )
+        .await
+        .unwrap();
+
+        let stored = tool_executions::Entity::find_by_id(&execution.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        let serialized = serde_json::to_string(&stored).unwrap();
+
+        assert!(!serialized.to_ascii_lowercase().contains("data:image/"));
+        assert!(!serialized.contains("INPUT_SECRET"));
+        assert!(!serialized.contains("OUTPUT_SECRET"));
+        assert!(!serialized.contains("ERROR_SECRET"));
+        assert!(!serialized.contains("SERVER_SECRET"));
+        assert!(!serialized.contains("TOOL_SECRET"));
+        assert!(!serialized.contains("APPROVAL_SECRET"));
+        assert!(!serialized.contains("STATUS_SECRET"));
+    }
 }

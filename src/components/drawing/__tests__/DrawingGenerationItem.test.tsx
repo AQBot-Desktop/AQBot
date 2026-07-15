@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DrawingGeneration } from '@/types';
+import { clearStoredMediaSourceCache } from '@/lib/storedMedia';
+import * as storedMedia from '@/lib/storedMedia';
 import { DrawingGenerationItem } from '../DrawingGenerationItem';
 
 const invokeMock = vi.hoisted(() => vi.fn());
@@ -9,6 +11,7 @@ const saveChatImageMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
+  isTauri: () => false,
 }));
 
 vi.mock('@/lib/chatImageActions', () => ({
@@ -57,6 +60,7 @@ describe('DrawingGenerationItem', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue('data:image/png;base64,abc');
+    clearStoredMediaSourceCache();
     copyChatImageMock.mockReset();
     copyChatImageMock.mockResolvedValue(undefined);
     saveChatImageMock.mockReset();
@@ -135,6 +139,7 @@ describe('DrawingGenerationItem', () => {
   });
 
   it('renders source, mask, and reference thumbnails before the prompt', async () => {
+    const loadSourceSpy = vi.spyOn(storedMedia, 'loadStoredMediaSource');
     render(
       <DrawingGenerationItem
         generation={generationFixture({
@@ -192,6 +197,10 @@ describe('DrawingGenerationItem', () => {
     expect(invokeMock).toHaveBeenCalledWith('read_attachment_preview', { filePath: 'images/source.png' });
     expect(invokeMock).toHaveBeenCalledWith('read_attachment_preview', { filePath: 'images/mask.png' });
     expect(invokeMock).toHaveBeenCalledWith('read_attachment_preview', { filePath: 'images/ref.png' });
+    expect(loadSourceSpy).toHaveBeenCalledWith('source-file-1', 'images/source.png');
+    expect(loadSourceSpy).toHaveBeenCalledWith('mask-file-1', 'images/mask.png');
+    expect(loadSourceSpy).toHaveBeenCalledWith('ref-file-1', 'images/ref.png');
+    loadSourceSpy.mockRestore();
   });
 
   it('fills the composer prompt when the prompt text is clicked and exposes CopyButton', () => {

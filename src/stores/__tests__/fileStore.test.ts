@@ -86,6 +86,7 @@ describe('fileStore', () => {
       invokeMock.mockResolvedValueOnce([
         {
           id: 'attachment::img-1',
+          storedFileId: 'img-1',
           sourceKind: 'attachment',
           category: 'images',
           displayName: 'screen.png',
@@ -103,6 +104,7 @@ describe('fileStore', () => {
       expect(useFileStore.getState().rows).toEqual([
         expect.objectContaining({
           id: 'attachment::img-1',
+          storedFileId: 'img-1',
           category: 'images',
           name: 'screen.png',
           path: 'conv-1/screen.png',

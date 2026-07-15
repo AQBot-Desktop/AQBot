@@ -1,10 +1,13 @@
 use sea_orm::*;
+use sea_orm::sea_query::Expr;
 use serde_json;
+use std::collections::HashSet;
 
-use crate::entity::{conversation_summaries, conversations, messages};
+use crate::entity::{conversation_summaries, conversations, messages, stored_files};
 use crate::error::{AQBotError, Result};
 use crate::types::{
-    Conversation, ConversationSearchResult, ConversationSummary, UpdateConversationInput,
+    Attachment, Conversation, ConversationSearchResult, ConversationSummary,
+    UpdateConversationInput,
 };
 use crate::utils::{gen_id, now_ts};
 
@@ -245,6 +248,101 @@ pub async fn delete_conversation(db: &DatabaseConnection, id: &str) -> Result<()
     Ok(())
 }
 
+fn rewrite_stored_media_ids(
+    content: &str,
+    id_map: &std::collections::HashMap<String, String>,
+) -> String {
+    let mut rewritten = String::with_capacity(content.len());
+    let mut offset = 0;
+    for (id_start, id_end) in crate::repo::stored_file::stored_media_id_ranges(content) {
+        rewritten.push_str(&content[offset..id_start]);
+        let source_id = &content[id_start..id_end];
+        rewritten.push_str(
+            id_map
+                .get(source_id)
+                .map(String::as_str)
+                .unwrap_or(source_id),
+        );
+        offset = id_end;
+    }
+    rewritten.push_str(&content[offset..]);
+    rewritten
+}
+
+async fn clone_stored_file_for_branch(
+    txn: &DatabaseTransaction,
+    source_id: &str,
+    branch_conversation_id: &str,
+) -> Result<Option<String>> {
+    let Some(source) = stored_files::Entity::find_by_id(source_id).one(txn).await? else {
+        return Ok(None);
+    };
+    let branch_id = gen_id();
+    stored_files::ActiveModel {
+        id: Set(branch_id.clone()),
+        hash: Set(source.hash),
+        original_name: Set(source.original_name),
+        mime_type: Set(source.mime_type),
+        size_bytes: Set(source.size_bytes),
+        storage_path: Set(source.storage_path),
+        conversation_id: Set(Some(branch_conversation_id.to_string())),
+        ..Default::default()
+    }
+    .insert(txn)
+    .await?;
+    Ok(Some(branch_id))
+}
+
+async fn clone_message_media_for_branch(
+    txn: &DatabaseTransaction,
+    branch_conversation_id: &str,
+    content: &str,
+    attachments_json: &str,
+    id_map: &mut std::collections::HashMap<String, String>,
+) -> Result<(String, String)> {
+    let mut attachments: Vec<Attachment> =
+        serde_json::from_str(attachments_json).map_err(|error| {
+            AQBotError::Validation(format!("Invalid message attachments JSON: {error}"))
+        })?;
+    let mut referenced_ids: Vec<_> = crate::repo::stored_file::stored_media_ids(content)
+        .into_iter()
+        .collect();
+    referenced_ids.extend(
+        attachments
+            .iter()
+            .filter(|attachment| !attachment.id.is_empty())
+            .map(|attachment| attachment.id.clone()),
+    );
+    referenced_ids.sort();
+    referenced_ids.dedup();
+
+    for source_id in referenced_ids {
+        if id_map.contains_key(&source_id) {
+            continue;
+        }
+        match clone_stored_file_for_branch(txn, &source_id, branch_conversation_id).await? {
+            Some(branch_id) => {
+                id_map.insert(source_id, branch_id);
+            }
+            None => {
+                return Err(AQBotError::NotFound(format!(
+                    "StoredFile {source_id} referenced by branched message"
+                )));
+            }
+        }
+    }
+
+    for attachment in &mut attachments {
+        if let Some(branch_id) = id_map.get(&attachment.id) {
+            attachment.id.clone_from(branch_id);
+        }
+    }
+    let attachments_json = serde_json::to_string(&attachments).map_err(|error| {
+        AQBotError::Validation(format!("Failed to serialize branched attachments: {error}"))
+    })?;
+    Ok((rewrite_stored_media_ids(content, id_map), attachments_json))
+}
+
 /// Branch a conversation: copy settings + messages up to `until_message_id`.
 /// If `as_child` is true, the new conversation is nested under the source (or its parent).
 pub async fn branch_conversation(
@@ -265,6 +363,7 @@ pub async fn branch_conversation(
         .filter(messages::Column::ConversationId.eq(conversation_id))
         .filter(messages::Column::IsActive.eq(1))
         .order_by_asc(messages::Column::CreatedAt)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .all(db)
         .await?;
 
@@ -309,6 +408,10 @@ pub async fn branch_conversation(
                 AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
             })?;
         let mut selected_branch = all_msgs[..=parent_idx].to_vec();
+        selected_branch.retain(|message| {
+            message.role != "assistant"
+                || message.parent_message_id.as_deref() != Some(parent_message_id.as_str())
+        });
         selected_branch.push(target);
         selected_branch
     };
@@ -347,6 +450,8 @@ pub async fn branch_conversation(
         None
     };
 
+    let _file_reference_guard = crate::repo::stored_file::lock_file_references().await;
+    let txn = db.begin().await?;
     conversations::ActiveModel {
         id: Set(new_id.clone()),
         title: Set(branch_title),
@@ -375,34 +480,50 @@ pub async fn branch_conversation(
         updated_at: Set(now),
         ..Default::default()
     }
-    .insert(db)
+    .insert(&txn)
     .await?;
 
-    // 6. Copy messages — assign new IDs and remap parent_message_id references
-    let mut id_map = std::collections::HashMap::new();
+    // 6. Copy messages and give every stored-media reference branch-owned IDs.
+    // Physical files remain shared by storage_path/hash and are removed only
+    // after the final stored_files reference is deleted.
+    let mut message_id_map = std::collections::HashMap::new();
+    let mut stored_file_id_map = std::collections::HashMap::new();
+    let mut last_created_at = None;
     for msg in effective_msgs {
         let new_msg_id = gen_id();
-        id_map.insert(msg.id.clone(), new_msg_id.clone());
+        message_id_map.insert(msg.id.clone(), new_msg_id.clone());
 
         let new_parent = msg
             .parent_message_id
             .as_ref()
-            .and_then(|pid| id_map.get(pid))
+            .and_then(|pid| message_id_map.get(pid))
             .cloned();
+        let (content, attachments) = clone_message_media_for_branch(
+            &txn,
+            &new_id,
+            &msg.content,
+            &msg.attachments,
+            &mut stored_file_id_map,
+        )
+        .await?;
+        let created_at = last_created_at
+            .map(|previous| msg.created_at.max(previous + 1))
+            .unwrap_or(msg.created_at);
+        last_created_at = Some(created_at);
 
         messages::ActiveModel {
             id: Set(new_msg_id),
             conversation_id: Set(new_id.clone()),
             role: Set(msg.role.clone()),
-            content: Set(msg.content.clone()),
+            content: Set(content),
             provider_id: Set(msg.provider_id.clone()),
             model_id: Set(msg.model_id.clone()),
             token_count: Set(msg.token_count),
             prompt_tokens: Set(msg.prompt_tokens),
             completion_tokens: Set(msg.completion_tokens),
-            attachments: Set(msg.attachments.clone()),
+            attachments: Set(attachments),
             thinking: Set(msg.thinking.clone()),
-            created_at: Set(msg.created_at),
+            created_at: Set(created_at),
             parent_message_id: Set(new_parent),
             version_index: Set(msg.version_index),
             is_active: Set(1),
@@ -413,9 +534,10 @@ pub async fn branch_conversation(
             first_token_latency_ms: Set(msg.first_token_latency_ms),
             ..Default::default()
         }
-        .insert(db)
+        .insert(&txn)
         .await?;
     }
+    txn.commit().await?;
 
     get_conversation(db, &new_id).await
 }
@@ -426,17 +548,17 @@ pub async fn search_conversations(
 ) -> Result<Vec<ConversationSearchResult>> {
     #[derive(Debug, FromQueryResult)]
     struct FtsRow {
+        message_id: String,
         conversation_id: String,
         preview: String,
     }
 
     let fts_rows = FtsRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
-        "SELECT m.conversation_id, snippet(messages_fts, 0, '', '', '...', 32) as preview \
+        "SELECT m.id as message_id, m.conversation_id, snippet(messages_fts, 0, '', '', '...', 32) as preview \
          FROM messages_fts \
          JOIN messages m ON m.rowid = messages_fts.rowid \
          WHERE messages_fts MATCH ? \
-         GROUP BY m.conversation_id \
          ORDER BY rank",
         [query.into()],
     ))
@@ -444,7 +566,17 @@ pub async fn search_conversations(
     .await?;
 
     let mut results = Vec::with_capacity(fts_rows.len());
+    let mut seen_conversations = HashSet::new();
     for fts in fts_rows {
+        if crate::inline_media::contains_inline_image_data(&fts.preview) {
+            return Err(AQBotError::Validation(format!(
+                "Message {} cannot be returned in search results: unresolved inline media remains in preview",
+                fts.message_id
+            )));
+        }
+        if !seen_conversations.insert(fts.conversation_id.clone()) {
+            continue;
+        }
         if let Ok(conv) = get_conversation(db, &fts.conversation_id).await {
             results.push(ConversationSearchResult {
                 conversation: conv,
@@ -569,6 +701,182 @@ mod tests {
     use crate::db::create_test_pool;
     use crate::repo::message;
     use crate::types::MessageRole;
+
+    #[test]
+    fn stored_media_rewrite_respects_overlapping_id_boundaries() {
+        let id_map = std::collections::HashMap::from([
+            ("abc".to_string(), "branch-one".to_string()),
+            ("abc-2".to_string(), "branch-two".to_string()),
+        ]);
+
+        let rewritten = rewrite_stored_media_ids(
+            "aqbot-media://stored/abc aqbot-media://stored/abc-2",
+            &id_map,
+        );
+
+        assert_eq!(
+            rewritten,
+            "aqbot-media://stored/branch-one aqbot-media://stored/branch-two"
+        );
+    }
+
+    #[test]
+    fn stored_media_rewrite_stops_before_protocol_unsafe_punctuation() {
+        let id_map = std::collections::HashMap::from([
+            ("id_1".to_string(), "branch-one".to_string()),
+            ("id-2".to_string(), "branch-two".to_string()),
+        ]);
+
+        let rewritten = rewrite_stored_media_ids(
+            "aqbot-media://stored/id_1. https://aqbot-media.localhost/stored/id-2~",
+            &id_map,
+        );
+
+        assert_eq!(
+            rewritten,
+            "aqbot-media://stored/branch-one. https://aqbot-media.localhost/stored/branch-two~"
+        );
+    }
+
+    #[test]
+    fn stored_media_rewrite_supports_native_and_windows_protocol_urls() {
+        let id_map = std::collections::HashMap::from([
+            ("native-id".to_string(), "native-branch".to_string()),
+            ("windows-id".to_string(), "windows-branch".to_string()),
+            ("https-id".to_string(), "https-branch".to_string()),
+        ]);
+        let content = concat!(
+            "aqbot-media://stored/native-id ",
+            "http://AQBOT-MEDIA.LOCALHOST/stored/windows-id ",
+            "https://aqbot-media.localhost/stored/https-id"
+        );
+
+        let ids = crate::repo::stored_file::stored_media_ids(content);
+        let rewritten = rewrite_stored_media_ids(content, &id_map);
+
+        assert_eq!(
+            ids,
+            std::collections::HashSet::from([
+                "native-id".to_string(),
+                "windows-id".to_string(),
+                "https-id".to_string(),
+            ])
+        );
+        assert_eq!(
+            rewritten,
+            concat!(
+                "aqbot-media://stored/native-branch ",
+                "http://AQBOT-MEDIA.LOCALHOST/stored/windows-branch ",
+                "https://aqbot-media.localhost/stored/https-branch"
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_with_missing_stored_media_rolls_back_all_branch_rows() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let source = create_conversation(db, "Broken media", "model-a", "provider-a", None)
+            .await
+            .unwrap();
+        let source_message = message::create_message(
+            db,
+            &source.id,
+            MessageRole::Assistant,
+            "![missing](aqbot-media://stored/missing-file)",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let error = branch_conversation(db, &source.id, &source_message.id, false, None)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("StoredFile missing-file"));
+        assert_eq!(list_conversations(db).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn branch_clones_and_rewrites_windows_stored_media_reference() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let source = create_conversation(db, "Windows media", "model-a", "provider-a", None)
+            .await
+            .unwrap();
+        crate::repo::stored_file::create_stored_file(
+            db,
+            "source-file",
+            "hash",
+            "preview.png",
+            "image/png",
+            8,
+            "images/preview.png",
+            Some(&source.id),
+        )
+        .await
+        .unwrap();
+        let source_message = message::create_message(
+            db,
+            &source.id,
+            MessageRole::Assistant,
+            "![preview](http://AQBOT-MEDIA.LOCALHOST/stored/source-file)",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let branch = branch_conversation(db, &source.id, &source_message.id, false, None)
+            .await
+            .unwrap();
+        let branch_files = crate::repo::stored_file::list_stored_files_by_conversation(
+            db,
+            &branch.id,
+        )
+        .await
+        .unwrap();
+        let branch_messages = message::list_messages(db, &branch.id).await.unwrap();
+
+        assert_eq!(branch_files.len(), 1);
+        assert_ne!(branch_files[0].id, "source-file");
+        assert_eq!(
+            branch_messages[0].content,
+            format!(
+                "![preview](http://AQBOT-MEDIA.LOCALHOST/stored/{})",
+                branch_files[0].id
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn conversation_search_fails_closed_with_message_id_for_inline_data_preview() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation =
+            create_conversation(db, "Unsafe search", "model-a", "provider-a", None)
+                .await
+                .unwrap();
+        let message = message::create_message(
+            db,
+            &conversation.id,
+            MessageRole::Assistant,
+            "findme data:image/png;base64,SEARCH_SECRET",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let error = search_conversations(db, "findme").await.unwrap_err();
+
+        assert!(error.to_string().contains(&message.id));
+        assert!(!error.to_string().contains("SEARCH_SECRET"));
+    }
 
     #[tokio::test]
     async fn branch_conversation_from_inactive_assistant_version_uses_selected_version() {

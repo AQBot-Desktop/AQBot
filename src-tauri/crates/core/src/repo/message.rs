@@ -41,7 +41,7 @@ fn stringify_attachment_list(attachments: &[Attachment]) -> Result<String> {
 const STALE_PARTIAL_ASSISTANT_ERROR: &str = "AQBot was closed while this response was running. This stale response has been marked as failed.";
 const COMPRESSION_MARKER: &str = "<!-- context-compressed -->";
 
-fn message_from_entity(m: messages::Model) -> Result<Message> {
+pub(crate) fn message_from_entity(m: messages::Model) -> Result<Message> {
     Ok(Message {
         id: m.id,
         conversation_id: m.conversation_id,
@@ -64,6 +64,14 @@ fn message_from_entity(m: messages::Model) -> Result<Message> {
         tokens_per_second: m.tokens_per_second,
         first_token_latency_ms: m.first_token_latency_ms,
     })
+}
+
+pub async fn get_message(db: &DatabaseConnection, id: &str) -> Result<Message> {
+    let row = messages::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Message {id}")))?;
+    message_from_entity(row)
 }
 
 pub async fn list_messages(db: &DatabaseConnection, conversation_id: &str) -> Result<Vec<Message>> {
@@ -397,6 +405,7 @@ pub async fn create_message(
     let now = now_ts();
     let role_s = role_str(&role);
     let attachments_json = stringify_attachment_list(attachments)?;
+    let txn = db.begin().await?;
 
     messages::ActiveModel {
         id: Set(id.clone()),
@@ -410,14 +419,16 @@ pub async fn create_message(
         is_active: Set(1),
         ..Default::default()
     }
-    .insert(db)
+    .insert(&txn)
     .await?;
 
     let row = messages::Entity::find_by_id(&id)
-        .one(db)
+        .one(&txn)
         .await?
         .ok_or_else(|| AQBotError::NotFound(format!("Message {}", id)))?;
-    message_from_entity(row)
+    let message = message_from_entity(row)?;
+    txn.commit().await?;
+    Ok(message)
 }
 
 pub async fn update_message_content(
@@ -439,6 +450,22 @@ pub async fn update_message_content(
         .await?
         .ok_or_else(|| AQBotError::NotFound(format!("Message {}", id)))?;
     message_from_entity(row)
+}
+
+pub async fn update_message_status(
+    db: &DatabaseConnection,
+    id: &str,
+    status: &str,
+) -> Result<Message> {
+    let row = messages::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", id)))?;
+
+    let mut am: messages::ActiveModel = row.into();
+    am.status = Set(status.to_string());
+    am.update(db).await?;
+    get_message(db, id).await
 }
 
 /// Update token usage stats on an existing message.
@@ -526,6 +553,9 @@ pub async fn delete_message(db: &DatabaseConnection, id: &str) -> Result<()> {
         }
     }
 
+    // Stored files are conversation-owned, not message-owned. Keep their records
+    // here because another message/version can share the same attachment ID;
+    // conversation deletion performs reference-counted physical cleanup.
     let result = messages::Entity::delete_by_id(id).exec(&txn).await?;
     txn.commit().await?;
 
@@ -541,6 +571,8 @@ pub async fn clear_conversation_messages(
     conversation_id: &str,
 ) -> Result<u64> {
     let txn = db.begin().await?;
+    // Retain conversation-owned stored_files until the conversation itself is
+    // deleted. This avoids removing media still referenced by branches/versions.
     let result = messages::Entity::delete_many()
         .filter(messages::Column::ConversationId.eq(conversation_id))
         .exec(&txn)

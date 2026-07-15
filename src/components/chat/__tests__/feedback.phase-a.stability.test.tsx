@@ -34,7 +34,8 @@ describe('Phase A feedback regressions', () => {
   it('feeds normalized assistant markdown content into the stream renderer', () => {
     const chatViewSource = readSource('src/components/chat/ChatView.tsx');
 
-    expect(chatViewSource).toContain('const rendererContent = displaySplit.body;');
+    expect(chatViewSource).toContain('normalizeHtmlRenderContent(displaySplit.body, { final: !isStreaming })');
+    expect(chatViewSource).toContain('content={rendererContent}');
     expect(chatViewSource).not.toContain('const rendererContent = displaySplit.prefix ? displaySplit.body : content;');
   });
 

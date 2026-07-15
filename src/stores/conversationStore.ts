@@ -14,6 +14,12 @@ import { buildContextualSearchQuery, formatSearchContent, buildSearchQueryTag, b
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
 import { appendStreamErrorToContent, type StreamActivity } from '@/lib/streamStatus';
 import { perfNow, perfTrace, perfTraceDuration } from '@/lib/perfTrace';
+import { isResourceFresh } from '@/lib/resourceState';
+import type {
+  EnsureLoadedOptions,
+  ResourceInvalidationReason,
+  ResourceMeta,
+} from '@/lib/resourceState';
 import { useProviderStore } from '@/stores/providerStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { useKnowledgeStore } from '@/stores/knowledgeStore';
@@ -84,9 +90,209 @@ const _liveStreamContentByMessageId = new Map<string, string>();
 const _liveStreamListenersByMessageId = new Map<string, Set<() => void>>();
 let _activeMessageLoadSeq = 0;
 const _conversationPreferenceSaveSeq = new Map<string, number>();
-const MESSAGE_PAGE_SIZE = 10;
+export const MESSAGE_PAGE_SIZE = 10;
+export const MAX_LOADED_MESSAGES = 40;
+const CONVERSATIONS_RESOURCE_KEY = 'conversations';
+const MESSAGE_CACHE_MAX_CONVERSATIONS = 8;
+const MESSAGE_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 let _agentStreamSeq = 0;
 let _activeAgentCancel: (() => void) | null = null;
+let _conversationsRequest: { revision: number; promise: Promise<void> } | null = null;
+
+function mutateConversationsMeta(meta: ResourceMeta): ResourceMeta {
+  const remainsComplete = meta.status === 'ready' && meta.key === CONVERSATIONS_RESOURCE_KEY;
+  return {
+    status: remainsComplete ? 'ready' : 'idle',
+    key: remainsComplete ? CONVERSATIONS_RESOURCE_KEY : null,
+    loadedAt: remainsComplete ? Date.now() : null,
+    revision: meta.revision + 1,
+  };
+}
+
+interface CachedMessageState {
+  messages: Message[];
+  hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+  totalActiveCount: number;
+  oldestLoadedMessageId: string | null;
+  newestLoadedMessageId: string | null;
+  conversationUpdatedAt: number | null;
+  conversationMessageCount: number | null;
+  estimatedBytes: number;
+}
+
+const _messageCache = new Map<string, CachedMessageState>();
+let _messageCacheBytes = 0;
+
+function estimateMessageCacheBytes(messages: Message[]): number {
+  return messages.reduce((total, message) => {
+    const attachmentBytes = message.attachments.reduce((sum, attachment) => (
+      sum + (attachment.data?.length ?? 0) * 2 + attachment.file_path.length * 2
+    ), 0);
+    const metadataBytes = [
+      message.tool_calls_json,
+      message.provider_id,
+      message.model_id,
+      message.parent_message_id,
+      message.tool_call_id,
+    ].reduce((sum, value) => sum + (value?.length ?? 0) * 2, 0);
+    return total
+      + message.content.length * 2
+      + (message.thinking?.length ?? 0) * 2
+      + attachmentBytes
+      + metadataBytes
+      + 384;
+  }, 0);
+}
+
+function findConversationForCache(state: ConversationState, conversationId: string): Conversation | undefined {
+  return state.conversations.find((conversation) => conversation.id === conversationId)
+    ?? state.archivedConversations.find((conversation) => conversation.id === conversationId);
+}
+
+function deleteCachedMessageState(conversationId: string) {
+  const existing = _messageCache.get(conversationId);
+  if (!existing) return;
+  _messageCacheBytes -= existing.estimatedBytes;
+  _messageCache.delete(conversationId);
+}
+
+export function invalidateConversationMessageCache(conversationId?: string) {
+  if (conversationId) {
+    deleteCachedMessageState(conversationId);
+    return;
+  }
+  _messageCache.clear();
+  _messageCacheBytes = 0;
+}
+
+function cacheMessageState(state: ConversationState, conversationId: string) {
+  if (
+    state.activeConversationId !== conversationId
+    || state.loading
+    || state.loadingOlder
+    || state.loadingNewer
+  ) return;
+  const conversation = findConversationForCache(state, conversationId);
+  const estimatedBytes = estimateMessageCacheBytes(state.messages);
+  deleteCachedMessageState(conversationId);
+  if (estimatedBytes > MESSAGE_CACHE_MAX_BYTES) return;
+
+  _messageCache.set(conversationId, {
+    messages: state.messages,
+    hasOlderMessages: state.hasOlderMessages,
+    hasNewerMessages: state.hasNewerMessages,
+    totalActiveCount: state.totalActiveCount,
+    oldestLoadedMessageId: state.oldestLoadedMessageId,
+    newestLoadedMessageId: state.newestLoadedMessageId,
+    conversationUpdatedAt: conversation?.updated_at ?? null,
+    conversationMessageCount: conversation?.message_count ?? null,
+    estimatedBytes,
+  });
+  _messageCacheBytes += estimatedBytes;
+
+  while (
+    _messageCache.size > MESSAGE_CACHE_MAX_CONVERSATIONS
+    || _messageCacheBytes > MESSAGE_CACHE_MAX_BYTES
+  ) {
+    const oldestConversationId = _messageCache.keys().next().value;
+    if (!oldestConversationId) break;
+    deleteCachedMessageState(oldestConversationId);
+  }
+}
+
+function readCachedMessageState(
+  conversationId: string,
+  conversation?: Conversation,
+): { state: CachedMessageState; fresh: boolean } | null {
+  const cached = _messageCache.get(conversationId);
+  if (!cached) return null;
+  _messageCache.delete(conversationId);
+  _messageCache.set(conversationId, cached);
+  const fresh = !conversation || (
+    cached.conversationUpdatedAt === conversation.updated_at
+    && cached.conversationMessageCount === conversation.message_count
+  );
+  return { state: cached, fresh };
+}
+
+function validateCachedMessageState(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  conversationId: string,
+  cached: CachedMessageState,
+  requestSeq: number,
+) {
+  void (async () => {
+    try {
+      const latestConversation = await invoke<Conversation>('get_conversation_snapshot', {
+        id: conversationId,
+      });
+      if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== conversationId) {
+        return;
+      }
+      set((state) => ({
+        ...mergeConversationCollections(
+          state.conversations,
+          state.archivedConversations,
+          latestConversation,
+        ),
+      }));
+      const unchanged = cached.conversationUpdatedAt === latestConversation.updated_at
+        && cached.conversationMessageCount === latestConversation.message_count;
+      if (unchanged) return;
+
+      deleteCachedMessageState(conversationId);
+      void get().fetchMessages(conversationId, [], { setLoading: false });
+    } catch (error) {
+      console.error('Failed to validate cached conversation messages:', error);
+    }
+  })();
+}
+
+function boundMessageWindow(
+  messages: Message[],
+  keepEdge: 'older' | 'newer',
+): { messages: Message[]; trimmedOlder: boolean; trimmedNewer: boolean } {
+  const activeMessages = messages.filter((message) => message.is_active !== false);
+  if (activeMessages.length <= MAX_LOADED_MESSAGES) {
+    return { messages, trimmedOlder: false, trimmedNewer: false };
+  }
+
+  const overflow = activeMessages.length - MAX_LOADED_MESSAGES;
+  const trimCount = Math.ceil(overflow / MESSAGE_PAGE_SIZE) * MESSAGE_PAGE_SIZE;
+  const retainedActiveMessages = keepEdge === 'older'
+    ? activeMessages.slice(0, activeMessages.length - trimCount)
+    : activeMessages.slice(trimCount);
+  const retainedActiveIds = new Set(retainedActiveMessages.map((message) => message.id));
+  const retainedVersionParentIds = new Set<string>();
+  for (const message of retainedActiveMessages) {
+    retainedVersionParentIds.add(message.id);
+    if (message.parent_message_id) retainedVersionParentIds.add(message.parent_message_id);
+  }
+  const boundedMessages = messages.filter((message) => (
+    message.is_active !== false
+      ? retainedActiveIds.has(message.id)
+      : Boolean(message.parent_message_id && retainedVersionParentIds.has(message.parent_message_id))
+  ));
+
+  return {
+    messages: boundedMessages,
+    trimmedOlder: keepEdge === 'newer',
+    trimmedNewer: keepEdge === 'older',
+  };
+}
+
+function getActiveMessageEdges(messages: Message[]): {
+  oldestMessageId: string | null;
+  newestMessageId: string | null;
+} {
+  const activeMessages = messages.filter((message) => message.is_active !== false);
+  return {
+    oldestMessageId: activeMessages[0]?.id ?? null,
+    newestMessageId: activeMessages[activeMessages.length - 1]?.id ?? null,
+  };
+}
 
 // Multi-model parallel tracking
 let _multiModelTotalRemaining = 0; // counts ALL models (including first)
@@ -198,6 +404,70 @@ function materializeLiveStreamContent(
   for (const messageId of ids) {
     clearLiveStreamContent(messageId);
   }
+}
+
+function restoreActiveStreamBuffer(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  conversationId: string,
+): boolean {
+  const buffer = _streamBuffer;
+  if (
+    !buffer
+    || buffer.conversationId !== conversationId
+    || !get().streaming
+  ) return false;
+
+  const realMessageId = buffer.resolvedId ?? buffer.messageId;
+  if (buffer.messageId !== realMessageId) clearLiveStreamContent(buffer.messageId);
+  setLiveStreamContent(realMessageId, buffer.content);
+  set((state) => {
+    if (state.activeConversationId !== conversationId) return {};
+    const candidateIds = new Set(
+      [buffer.messageId, state.streamingMessageId]
+        .filter((messageId): messageId is string => Boolean(messageId)),
+    );
+    let hasRealMessage = state.messages.some((message) => message.id === realMessageId);
+    let resolvedCandidate = false;
+    const messages = state.messages.flatMap((message) => {
+      if (message.id === realMessageId) {
+        return [{ ...message, thinking: buffer.thinking ?? message.thinking }];
+      }
+      if (!candidateIds.has(message.id)) return [message];
+      if (hasRealMessage || resolvedCandidate) return [];
+      hasRealMessage = true;
+      resolvedCandidate = true;
+      return [{
+        ...message,
+        id: realMessageId,
+        thinking: buffer.thinking ?? message.thinking,
+      }];
+    });
+
+    if (!hasRealMessage) {
+      messages.push({
+        id: realMessageId,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: buffer.content,
+        provider_id: null,
+        model_id: null,
+        token_count: null,
+        attachments: [],
+        thinking: buffer.thinking,
+        tool_calls_json: null,
+        tool_call_id: null,
+        created_at: Date.now(),
+        parent_message_id: null,
+        version_index: 0,
+        is_active: true,
+        status: 'partial',
+      });
+    }
+
+    return { messages, streamingMessageId: realMessageId };
+  });
+  return true;
 }
 
 function createStreamId(): string {
@@ -867,6 +1137,7 @@ async function persistConversationPreferences(
 
     set((state) => ({
       ...mergeConversationCollections(state.conversations, state.archivedConversations, updated),
+      conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
       ...(state.activeConversationId === conversationId
         ? conversationPreferenceStateFromConversation(updated)
         : {}),
@@ -921,6 +1192,7 @@ function sanitizeActiveConversationCapabilityIds(
     enabledMcpServerIds: next.enabledMcpServerIds,
     enabledKnowledgeBaseIds: next.enabledKnowledgeBaseIds,
     enabledMemoryNamespaceIds: next.enabledMemoryNamespaceIds,
+    conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
     conversations: state.conversations.map((conversation) => (
       conversation.id === conversationId
         ? {
@@ -960,6 +1232,7 @@ function sanitizeActiveConversationCapabilityIds(
 
 interface ConversationState {
   conversations: Conversation[];
+  conversationsMeta: ResourceMeta;
   activeConversationId: string | null;
   messages: Message[];
   ragDisplayByMessageId: Record<string, string>;
@@ -1020,6 +1293,8 @@ interface ConversationState {
   getContextUsage: (conversationId: string) => Promise<ContextUsage | null>;
   /** Delete the compression summary and all marker messages */
   deleteCompression: () => Promise<void>;
+  ensureConversationsLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
+  invalidateConversations: (reason: ResourceInvalidationReason) => void;
   fetchConversations: () => Promise<void>;
   setActiveConversation: (id: string | null) => void;
   createConversation: (
@@ -1320,6 +1595,7 @@ function flushPendingStreamChunk(
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
+  conversationsMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
   activeConversationId: null,
   messages: [],
   ragDisplayByMessageId: {},
@@ -1508,39 +1784,27 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   insertContextClear: async () => {
     const conversationId = get().activeConversationId;
     if (!conversationId) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
     try {
       const msg = await invoke<Message>('send_system_message', {
         conversationId,
         content: '<!-- context-clear -->',
       });
-      set((s) => ({ messages: [...s.messages, msg] }));
+      if (get().activeConversationId === conversationId) {
+        set((s) => ({ messages: [...s.messages, msg] }));
+      } else {
+        invalidateConversationMessageCache(conversationId);
+      }
       // Backup and clear agent SDK context (no-op if no agent session exists)
       await invoke('agent_backup_and_clear_sdk_context', { conversationId }).catch(() => {});
-    } catch {
-      // If backend command doesn't exist yet, add optimistic local message
-      const localMsg: Message = {
-        id: `ctx-clear-${Date.now()}`,
-        conversation_id: conversationId,
-        role: 'system',
-        content: '<!-- context-clear -->',
-        provider_id: null,
-        model_id: null,
-        token_count: null,
-        attachments: [],
-        thinking: null,
-        tool_calls_json: null,
-        tool_call_id: null,
-        created_at: Date.now(),
-        parent_message_id: null,
-        version_index: 0,
-        is_active: true,
-        status: 'complete',
-      };
-      set((s) => ({ messages: [...s.messages, localMsg] }));
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
     }
   },
   removeContextClear: async (messageId) => {
     const conversationId = get().activeConversationId;
+    if (get().loading) throw new Error('Conversation messages are still loading');
     if (messageId.startsWith('ctx-clear-') || messageId.startsWith('temp-')) {
       set((s) => ({ messages: s.messages.filter((m) => m.id !== messageId) }));
       return;
@@ -1562,8 +1826,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   clearAllMessages: async () => {
     const conversationId = get().activeConversationId;
     if (!conversationId) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
     try {
       await invoke('clear_conversation_messages', { conversationId });
+      invalidateConversationMessageCache(conversationId);
+      if (get().activeConversationId !== conversationId) return;
+      _activeMessageLoadSeq += 1;
       set({
         messages: [],
         hasOlderMessages: false,
@@ -1583,9 +1851,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const conversationId = get().activeConversationId;
     const safeRounds = Math.trunc(rounds);
     if (!conversationId || !Number.isFinite(safeRounds) || safeRounds <= 0) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
     try {
       await invoke('clear_conversation_first_rounds', { conversationId, rounds: safeRounds });
-      await get().fetchMessages(conversationId);
+      invalidateConversationMessageCache(conversationId);
+      if (get().activeConversationId === conversationId) {
+        await get().fetchMessages(conversationId);
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -1594,27 +1866,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   compressContext: async () => {
     const conversationId = get().activeConversationId;
     if (!conversationId) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
     set({ compressingConversationId: conversationId });
     try {
       await invoke<ConversationSummary>('compress_context', { conversationId });
-      // Reload messages to get the new compression marker
-      const page = await invoke<MessagePage>('list_messages_page', {
-        conversationId,
-        limit: 100,
-        beforeMessageId: null,
-      });
-      set((s) => ({
-        ...(s.activeConversationId === conversationId
-          ? {
-            messages: page.messages,
-            hasOlderMessages: page.has_older,
-            hasNewerMessages: false,
-            totalActiveCount: page.total_active_count,
-            oldestLoadedMessageId: page.messages.length > 0 ? page.messages[0].id : null,
-            newestLoadedMessageId: page.messages.length > 0 ? page.messages[page.messages.length - 1].id : null,
-          }
-          : {}),
-        compressingConversationId: null,
+      invalidateConversationMessageCache(conversationId);
+      if (get().activeConversationId === conversationId) {
+        await get().fetchMessages(conversationId);
+      }
+      set((state) => ({
+        compressingConversationId: state.compressingConversationId === conversationId
+          ? null
+          : state.compressingConversationId,
       }));
     } catch (e) {
       set({ compressingConversationId: null });
@@ -1646,37 +1909,101 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     if (!conversationId) return;
     try {
       await invoke('delete_compression', { conversationId });
-      // Reload messages to remove the compression marker
-      const page = await invoke<MessagePage>('list_messages_page', {
-        conversationId,
-        limit: 100,
-        beforeMessageId: null,
-      });
-      set({
-        messages: page.messages,
-        hasOlderMessages: page.has_older,
-        hasNewerMessages: false,
-        totalActiveCount: page.total_active_count,
-        oldestLoadedMessageId: page.messages.length > 0 ? page.messages[0].id : null,
-        newestLoadedMessageId: page.messages.length > 0 ? page.messages[page.messages.length - 1].id : null,
-      });
+      invalidateConversationMessageCache(conversationId);
+      if (get().activeConversationId === conversationId) {
+        await get().fetchMessages(conversationId);
+      }
     } catch (e) {
       console.error('Failed to delete compression:', e);
       throw e;
     }
   },
 
-  fetchConversations: async () => {
-    set({ loading: true });
-    try {
-      const conversations = await invoke<Conversation[]>('list_conversations');
-      set({ conversations, loading: false, error: null });
-    } catch (e) {
-      set({ error: String(e), loading: false });
+  ensureConversationsLoaded: async (options = {}) => {
+    const state = get();
+    if (!options.force && isResourceFresh(state.conversationsMeta, {
+      ...options,
+      key: CONVERSATIONS_RESOURCE_KEY,
+    })) return;
+
+    if (_conversationsRequest?.revision === state.conversationsMeta.revision && !options.force) {
+      return _conversationsRequest.promise;
     }
+    if (_conversationsRequest) {
+      await _conversationsRequest.promise;
+      return get().ensureConversationsLoaded(options);
+    }
+
+    const revision = state.conversationsMeta.revision;
+    set((current) => ({
+      loading: true,
+      conversationsMeta: {
+        ...current.conversationsMeta,
+        status: 'loading',
+        key: CONVERSATIONS_RESOURCE_KEY,
+      },
+    }));
+
+    let promise!: Promise<void>;
+    promise = (async () => {
+      let reloadAfterCompletion = false;
+      try {
+        const conversations = await invoke<Conversation[]>('list_conversations');
+        if (get().conversationsMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set({
+            conversations,
+            loading: false,
+            error: null,
+            conversationsMeta: {
+              status: 'ready',
+              key: CONVERSATIONS_RESOURCE_KEY,
+              loadedAt: Date.now(),
+              revision,
+            },
+          });
+        }
+      } catch (e) {
+        if (get().conversationsMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set((current) => ({
+            error: String(e),
+            loading: false,
+            conversationsMeta: { ...current.conversationsMeta, status: 'error' },
+          }));
+        }
+      } finally {
+        _conversationsRequest = null;
+      }
+      if (reloadAfterCompletion) {
+        await get().ensureConversationsLoaded();
+      }
+    })();
+    _conversationsRequest = { revision, promise };
+    return promise;
   },
 
+  invalidateConversations: (_reason) => set((state) => ({
+    conversationsMeta: {
+      status: 'idle',
+      key: null,
+      loadedAt: null,
+      revision: state.conversationsMeta.revision + 1,
+    },
+  })),
+
+  fetchConversations: () => get().ensureConversationsLoaded({ force: true }),
+
   setActiveConversation: (id) => {
+    const previousState = get();
+    const previousConversationId = previousState.activeConversationId;
+    if (previousConversationId && previousConversationId !== id) {
+      cacheMessageState(get(), previousConversationId);
+    }
     if (!id) {
       _activeMessageLoadSeq += 1;
       set({
@@ -1712,24 +2039,48 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       && !needsRefreshAfterStreamDone
       && get().streamingConversationId !== id
       && _streamBuffer?.conversationId !== id;
+    const cachedCandidate = readCachedMessageState(id, conversation);
+    const cached = conversation?.message_count === 0 && cachedCandidate?.fresh !== true
+      ? null
+      : cachedCandidate;
+    const canUseFreshCache = cached?.fresh === true && !needsRefreshAfterStreamDone;
+    const retainPreviousWindow = !cached
+      && !canSkipMessageFetch
+      && previousConversationId !== null
+      && previousState.messages.length > 0;
 
-    perfTrace('chat.switch.start', { conversationId: id, skipMessageFetch: canSkipMessageFetch });
+    perfTrace('chat.switch.start', {
+      conversationId: id,
+      skipMessageFetch: canSkipMessageFetch || canUseFreshCache,
+      cacheHit: Boolean(cached),
+    });
     set({
       activeConversationId: id,
-      messages: [],
-      loading: !canSkipMessageFetch,
+      messages: cached?.state.messages ?? (retainPreviousWindow ? previousState.messages : []),
+      loading: !canSkipMessageFetch && !cached,
       loadingOlder: false,
       loadingNewer: false,
-      hasOlderMessages: false,
-      hasNewerMessages: false,
-      totalActiveCount: 0,
-      oldestLoadedMessageId: null,
-      newestLoadedMessageId: null,
+      hasOlderMessages: cached?.state.hasOlderMessages
+        ?? (retainPreviousWindow ? previousState.hasOlderMessages : false),
+      hasNewerMessages: cached?.state.hasNewerMessages
+        ?? (retainPreviousWindow ? previousState.hasNewerMessages : false),
+      totalActiveCount: cached?.state.totalActiveCount
+        ?? (retainPreviousWindow ? previousState.totalActiveCount : 0),
+      oldestLoadedMessageId: cached?.state.oldestLoadedMessageId
+        ?? (retainPreviousWindow ? previousState.oldestLoadedMessageId : null),
+      newestLoadedMessageId: cached?.state.newestLoadedMessageId
+        ?? (retainPreviousWindow ? previousState.newestLoadedMessageId : null),
       error: null,
       ...conversationPreferenceStateFromConversation(conversation),
     });
-    if (canSkipMessageFetch) {
-      perfTraceDuration('chat.switch.empty', startedAt, { conversationId: id });
+    if (canUseFreshCache) {
+      restoreActiveStreamBuffer(set, get, id);
+      validateCachedMessageState(set, get, id, cached.state, requestSeq);
+    }
+    if (canSkipMessageFetch || canUseFreshCache) {
+      perfTraceDuration(canUseFreshCache ? 'chat.switch.cached' : 'chat.switch.empty', startedAt, {
+        conversationId: id,
+      });
       return;
     }
     get().fetchMessages(id, [], { setLoading: false }).then(() => {
@@ -1739,44 +2090,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       // If there's an active stream for this conversation, inject buffered content
       if (_streamBuffer && _streamBuffer.conversationId === id && get().streaming) {
-        const realId = _streamBuffer.resolvedId ?? _streamBuffer.messageId;
-        set((s) => {
-          const exists = s.messages.some((m) => m.id === realId);
-          if (exists) {
-            // Message already fetched from backend — replace with buffered content (more up-to-date)
-            return {
-              messages: s.messages.map((m) =>
-                m.id === realId
-                  ? { ...m, content: _streamBuffer!.content, thinking: _streamBuffer!.thinking || null }
-                  : m,
-              ),
-              streamingMessageId: realId,
-            };
-          }
-          // Message not yet in backend — create from buffer
-          const newMessage: Message = {
-            id: realId,
-            conversation_id: id,
-            role: 'assistant',
-            content: _streamBuffer!.content,
-            provider_id: null,
-            model_id: null,
-            token_count: null,
-            attachments: [],
-            thinking: _streamBuffer!.thinking || null,
-            tool_calls_json: null,
-            tool_call_id: null,
-            created_at: Date.now(),
-            parent_message_id: null,
-            version_index: 0,
-            is_active: true,
-            status: 'partial',
-          };
-          return {
-            messages: [...s.messages, newMessage],
-            streamingMessageId: realId,
-          };
-        });
+        restoreActiveStreamBuffer(set, get, id);
       } else if (_streamBuffer && _streamBuffer.conversationId === id && needsRefreshAfterStreamDone) {
         // Stream completed while user was away — buffer still has final content.
         // fetchMessages already loaded the completed message from DB, but inject
@@ -1836,6 +2150,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       }
       set((s) => ({
         conversations: [conversation, ...s.conversations],
+        conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
         activeConversationId: conversation.id,
         messages: [],
         loading: false,
@@ -1861,6 +2176,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const updated = await invoke<Conversation>('update_conversation', { id, input });
       set((s) => ({
         ...mergeConversationCollections(s.conversations, s.archivedConversations, updated),
+        conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
         ...(s.activeConversationId === id ? conversationPreferenceStateFromConversation(updated) : {}),
         error: null,
       }));
@@ -1885,9 +2201,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   deleteConversation: async (id) => {
     try {
       await invoke('delete_conversation', { id });
+      invalidateConversationMessageCache(id);
       const state = get();
       set({
         conversations: state.conversations.filter((c) => c.id !== id),
+        conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
         activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
         messages: state.activeConversationId === id ? [] : state.messages,
         error: null,
@@ -1906,15 +2224,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         asChild,
         title: title || null,
       });
+      const shouldActivateBranch = get().activeConversationId === conversationId;
       set((s) => ({
         conversations: [newConv, ...s.conversations],
-        activeConversationId: newConv.id,
-        messages: [],
+        conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
         error: null,
       }));
-      // Load the branched messages
-      const msgs = await invoke<Message[]>('list_messages', { conversationId: newConv.id });
-      set({ messages: msgs });
+      if (shouldActivateBranch && get().activeConversationId === conversationId) {
+        get().setActiveConversation(newConv.id);
+      }
       return newConv;
     } catch (e) {
       set({ error: String(e) });
@@ -1927,6 +2245,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const updated = await invoke<Conversation>('toggle_pin_conversation', { id });
       set((s) => ({
         conversations: s.conversations.map((c) => (c.id === id ? updated : c)),
+        conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
         error: null,
       }));
     } catch (e) {
@@ -1944,6 +2263,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         // Moved to archive — remove from active list, add to archived
         set((s) => ({
           conversations: s.conversations.filter((c) => c.id !== id),
+          conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
           archivedConversations: [updated, ...s.archivedConversations],
           activeConversationId: s.activeConversationId === id ? null : s.activeConversationId,
           messages: s.activeConversationId === id ? [] : s.messages,
@@ -1953,6 +2273,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         // Unarchived — remove from archived, add to active
         set((s) => ({
           conversations: [updated, ...s.conversations],
+          conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
           archivedConversations: s.archivedConversations.filter((c) => c.id !== id),
           error: null,
         }));
@@ -1977,12 +2298,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     for (const id of ids) {
       try {
         await invoke('delete_conversation', { id });
+        invalidateConversationMessageCache(id);
       } catch (e) {
         errors.push(String(e));
       }
     }
     set((s) => ({
       conversations: s.conversations.filter((c) => !ids.includes(c.id)),
+      conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
       activeConversationId: ids.includes(s.activeConversationId ?? '') ? null : s.activeConversationId,
       messages: ids.includes(s.activeConversationId ?? '') ? [] : s.messages,
       error: errors.length ? errors.join('; ') : null,
@@ -1999,6 +2322,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
     set((s) => ({
       conversations: s.conversations.filter((c) => !ids.includes(c.id)),
+      conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
       archivedConversations: [...archived, ...s.archivedConversations],
       activeConversationId: ids.includes(s.activeConversationId ?? '') ? null : s.activeConversationId,
       messages: ids.includes(s.activeConversationId ?? '') ? [] : s.messages,
@@ -2009,6 +2333,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sendMessage: async (content, attachments = [], searchProviderId = null) => {
     const conversationId = get().activeConversationId;
     if (!conversationId) throw new Error('No active conversation');
+    if (get().loading) throw new Error('Conversation messages are still loading');
     const activeConversation = get().conversations.find((conversation) => conversation.id === conversationId);
     const searchHistoryMessages = get().messages;
 
@@ -2299,6 +2624,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sendAgentMessage: async (content, attachments = []) => {
     const conversationId = get().activeConversationId;
     if (!conversationId) throw new Error('No active conversation');
+    if (get().loading) throw new Error('Conversation messages are still loading');
 
     _activeAgentCancel?.();
     _activeAgentCancel = null;
@@ -2651,6 +2977,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   regenerateMessage: async (targetMessageId?: string) => {
     const conversationId = get().activeConversationId;
     if (!conversationId) throw new Error('No active conversation');
+    if (get().loading) throw new Error('Conversation messages are still loading');
 
     const msgs = get().messages;
     // Find the user message (either specific or last one)
@@ -2925,6 +3252,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   sendMultiModelMessage: async (content, companionModels, attachments = [], searchProviderId = null) => {
     const conversationId = get().activeConversationId;
     if (!conversationId || companionModels.length === 0) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
 
     // Save original conversation model to restore later
     const conv = get().conversations.find((c) => c.id === conversationId);
@@ -3187,6 +3515,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   deleteMessage: async (messageId) => {
     const conversationId = get().activeConversationId;
     if (!conversationId) return;
+    if (get().loading) throw new Error('Conversation messages are still loading');
 
     const targetMessage = get().messages.find((message) => message.id === messageId) ?? null;
     let nextActiveVersion: Message | null = null;
@@ -3293,6 +3622,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           Array.from(effectivePreserveMessageIds),
           s.messages,
         );
+        const edges = getActiveMessageEdges(messages);
         return {
           messages,
           loading: false,
@@ -3301,16 +3631,30 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           hasOlderMessages: page.has_older,
           hasNewerMessages: false,
           totalActiveCount: page.total_active_count,
-          oldestLoadedMessageId: messages[0]?.id ?? page.oldest_message_id,
-          newestLoadedMessageId: messages[messages.length - 1]?.id ?? null,
+          oldestLoadedMessageId: edges.oldestMessageId ?? page.oldest_message_id,
+          newestLoadedMessageId: edges.newestMessageId,
           error: null,
         };
       });
+      cacheMessageState(get(), conversationId);
     } catch (e) {
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== conversationId) {
         return;
       }
-      set({ error: String(e), loading: false, loadingOlder: false, loadingNewer: false });
+      set((state) => ({
+        error: String(e),
+        loading: false,
+        loadingOlder: false,
+        loadingNewer: false,
+        ...(state.messages.some((message) => message.conversation_id !== conversationId) ? {
+          messages: [],
+          hasOlderMessages: false,
+          hasNewerMessages: false,
+          totalActiveCount: 0,
+          oldestLoadedMessageId: null,
+          newestLoadedMessageId: null,
+        } : {}),
+      }));
     }
   },
 
@@ -3332,15 +3676,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         return;
       }
 
-      set((s) => ({
-        messages: mergeOlderPages(page.messages, s.messages),
-        loadingOlder: false,
-        hasOlderMessages: page.has_older,
-        totalActiveCount: page.total_active_count,
-        oldestLoadedMessageId: page.oldest_message_id ?? s.oldestLoadedMessageId,
-        newestLoadedMessageId: s.newestLoadedMessageId,
-        error: null,
-      }));
+      set((s) => {
+        const bounded = boundMessageWindow(mergeOlderPages(page.messages, s.messages), 'older');
+        const edges = getActiveMessageEdges(bounded.messages);
+        return {
+          messages: bounded.messages,
+          loadingOlder: false,
+          hasOlderMessages: page.has_older,
+          hasNewerMessages: s.hasNewerMessages || bounded.trimmedNewer,
+          totalActiveCount: page.total_active_count,
+          oldestLoadedMessageId: edges.oldestMessageId,
+          newestLoadedMessageId: edges.newestMessageId,
+          error: null,
+        };
+      });
+      cacheMessageState(get(), activeConversationId);
     } catch (e) {
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
         return;
@@ -3367,14 +3717,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         return;
       }
 
-      set((s) => ({
-        messages: mergeOlderPages(page.messages, s.messages),
-        loadingNewer: false,
-        hasNewerMessages: page.has_newer,
-        totalActiveCount: page.total_active_count,
-        newestLoadedMessageId: page.newest_message_id ?? s.newestLoadedMessageId,
-        error: null,
-      }));
+      set((s) => {
+        const bounded = boundMessageWindow(mergeOlderPages(page.messages, s.messages), 'newer');
+        const edges = getActiveMessageEdges(bounded.messages);
+        return {
+          messages: bounded.messages,
+          loadingNewer: false,
+          hasOlderMessages: s.hasOlderMessages || page.has_older || bounded.trimmedOlder,
+          hasNewerMessages: page.has_newer,
+          totalActiveCount: page.total_active_count,
+          oldestLoadedMessageId: edges.oldestMessageId,
+          newestLoadedMessageId: edges.newestMessageId,
+          error: null,
+        };
+      });
+      cacheMessageState(get(), activeConversationId);
     } catch (e) {
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
         return;
@@ -3411,6 +3768,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         newestLoadedMessageId: page.newest_message_id,
         error: null,
       });
+      cacheMessageState(get(), activeConversationId);
     } catch (e) {
       if (requestSeq !== _activeMessageLoadSeq || get().activeConversationId !== activeConversationId) {
         return;
@@ -3553,6 +3911,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
                 ? { ...c, message_count: c.message_count + 1 }
                 : c,
             ),
+            conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
             // Update completed message status immediately to prevent "主动停止" tag flash.
             // If the provider sends final done before any content chunk, the temporary
             // placeholder has not been resolved yet; resolve it here so the later
@@ -3703,6 +4062,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         conversations: s.conversations.map((c) =>
           c.id === conversation_id ? { ...c, title } : c,
         ),
+        conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
       }));
     });
 
@@ -4065,6 +4425,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   updateMessageContent: async (messageId, content) => {
+    if (get().loading) throw new Error('Conversation messages are still loading');
     try {
       const updated = await invoke<Message>('update_message_content', { id: messageId, content });
       set((s) => ({

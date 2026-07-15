@@ -66,32 +66,80 @@ pub async fn upload_file(
     mime_type: String,
     conversation_id: Option<String>,
 ) -> Result<StoredFile, String> {
+    upload_file_using(
+        &state.sea_db,
+        &data,
+        &file_name,
+        &mime_type,
+        conversation_id.as_deref(),
+    )
+    .await
+}
+
+async fn upload_file_using(
+    db: &sea_orm::DatabaseConnection,
+    data: &str,
+    file_name: &str,
+    mime_type: &str,
+    conversation_id: Option<&str>,
+) -> Result<StoredFile, String> {
     use base64::Engine;
+    if aqbot_core::inline_media::contains_inline_image_data(file_name)
+        || aqbot_core::inline_media::contains_inline_image_data(mime_type)
+    {
+        return Err("File metadata contains inline image data".to_string());
+    }
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&data)
+        .decode(data)
         .map_err(|e| format!("Invalid base64: {}", e))?;
 
     aqbot_core::storage_paths::ensure_documents_dirs()
         .map_err(|e| format!("Failed to ensure documents dirs: {}", e))?;
     let file_store = aqbot_core::file_store::FileStore::new();
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
 
     let saved = file_store
-        .save_file(&bytes, &file_name, &mime_type)
+        .save_file(&bytes, file_name, mime_type)
         .map_err(|e| e.to_string())?;
 
     let id = aqbot_core::utils::gen_id();
     let stored = aqbot_core::repo::stored_file::create_stored_file(
-        &state.sea_db,
+        db,
         &id,
         &saved.hash,
-        &file_name,
-        &mime_type,
+        file_name,
+        mime_type,
         saved.size_bytes,
         &saved.storage_path,
-        conversation_id.as_deref(),
+        conversation_id,
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await;
+
+    let stored = match stored {
+        Ok(stored) => stored,
+        Err(error) => {
+            let cleanup_error = if saved.created {
+                match aqbot_core::repo::stored_file::count_stored_files_with_storage_path(
+                    db,
+                    &saved.storage_path,
+                )
+                .await
+                {
+                    Ok(0) => file_store.delete_file(&saved.storage_path).err(),
+                    Ok(_) => None,
+                    Err(cleanup_error) => Some(cleanup_error),
+                }
+            } else {
+                None
+            };
+            return Err(format!(
+                "Failed to register stored file: {error}; cleanup error: {}",
+                cleanup_error
+                    .map(|cleanup_error| cleanup_error.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+        }
+    };
 
     Ok(stored)
 }
@@ -181,6 +229,7 @@ pub async fn delete_file(state: State<'_, AppState>, file_id: String) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     #[test]
     fn validate_remote_image_url_accepts_http_and_https() {
@@ -205,5 +254,60 @@ mod tests {
         let json = reqwest::header::HeaderValue::from_static("application/json");
         assert!(normalize_image_mime(Some(&json)).is_err());
         assert!(normalize_image_mime(None).is_err());
+    }
+
+    #[tokio::test]
+    async fn upload_removes_new_physical_file_when_database_registration_fails() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let bytes = format!("orphan-test-{}", aqbot_core::utils::gen_id()).into_bytes();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let file_name = format!("orphan-{}.png", aqbot_core::utils::gen_id());
+        let mime_type = "image/png";
+        let expected_path = aqbot_core::storage_paths::build_relative_path(
+            &file_name,
+            mime_type,
+            &aqbot_core::file_store::FileStore::hash_bytes(&bytes),
+        );
+
+        let result = upload_file_using(
+            &db,
+            &encoded,
+            &file_name,
+            mime_type,
+            Some("missing-conversation"),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(!aqbot_core::file_store::FileStore::new()
+            .resolve_path(&expected_path)
+            .exists());
+        assert!(aqbot_core::repo::stored_file::list_all_stored_files(&db)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_inline_data_in_metadata_before_writing() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"metadata-test");
+
+        let error = upload_file_using(
+            &db,
+            &encoded,
+            "data:image/png;base64,SECRET",
+            "image/png",
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("metadata"));
+        assert!(!error.contains("SECRET"));
+        assert!(aqbot_core::repo::stored_file::list_all_stored_files(&db)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

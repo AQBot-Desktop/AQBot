@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DrawingImage } from '@/types';
+import { clearStoredMediaSourceCache } from '@/lib/storedMedia';
 import { DrawingImageStrip } from '../DrawingImageStrip';
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
+  isTauri: () => false,
 }));
 
 vi.mock('@/lib/chatImageActions', () => ({
@@ -41,6 +43,7 @@ describe('DrawingImageStrip', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue('data:image/png;base64,abc');
+    clearStoredMediaSourceCache();
     originalIntersectionObserver = globalThis.IntersectionObserver;
 
     class MockIntersectionObserver {

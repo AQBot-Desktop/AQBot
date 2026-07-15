@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
+import {
+  isResourceFresh,
+  type EnsureLoadedOptions,
+  type ResourceInvalidationReason,
+  type ResourceMeta,
+} from '@/lib/resourceState';
 import type {
   DrawingAction,
   DrawingEditInput,
@@ -16,6 +22,7 @@ const OFFICIAL_IMAGE_PARAM_NAME = 'images';
 
 interface DrawingState {
   generations: DrawingGeneration[];
+  historyMeta: ResourceMeta;
   references: DrawingStoredFile[];
   loading: boolean;
   submitting: boolean;
@@ -25,6 +32,8 @@ interface DrawingState {
   editMaskFile: DrawingStoredFile | null;
   editPreviewUrl: string | null;
   loadHistory: (cursor?: string) => Promise<void>;
+  ensureHistoryLoaded: (options?: EnsureLoadedOptions & { cursor?: string }) => Promise<void>;
+  invalidateHistory: (reason: ResourceInvalidationReason) => void;
   uploadReferenceImage: (file: File) => Promise<DrawingStoredFile>;
   generateImages: (input: DrawingGenerateInput) => Promise<DrawingGeneration>;
   editImage: (input: DrawingEditInput) => Promise<DrawingGeneration>;
@@ -41,6 +50,9 @@ interface DrawingState {
   clearReferences: () => void;
   clearError: () => void;
 }
+
+const historyLoads = new Map<string, Promise<void>>();
+let historyLoadSequence = 0;
 
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -184,6 +196,7 @@ function normalizeDrawingRequestInput<T extends DrawingRequestInput>(input: T): 
 
 export const useDrawingStore = create<DrawingState>((set, get) => ({
   generations: [],
+  historyMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
   references: [],
   loading: false,
   submitting: false,
@@ -193,18 +206,95 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   editMaskFile: null,
   editPreviewUrl: null,
 
-  loadHistory: async (cursor) => {
-    set({ loading: true });
-    try {
-      const generations = await invoke<DrawingGeneration[]>('list_drawing_generations', {
-        limit: 30,
-        cursor,
-      });
-      set({ generations: sortGenerations(generations), loading: false, error: null });
-    } catch (e) {
-      set({ loading: false, error: String(e) });
-      throw e;
-    }
+  loadHistory: async (cursor) => get().ensureHistoryLoaded({ force: true, cursor }),
+
+  ensureHistoryLoaded: async (options = {}) => {
+    const key = options.cursor ?? 'latest';
+    if (!options.force && isResourceFresh(get().historyMeta, { ...options, key })) return;
+    const revision = get().historyMeta.revision;
+    const requestKey = `${revision}\0${key}`;
+    const existingLoad = historyLoads.get(requestKey);
+    if (existingLoad) return existingLoad;
+    const requestSequence = ++historyLoadSequence;
+    const generationsAtLoadStart = new Map(
+      get().generations.map((generation) => [generation.id, generation]),
+    );
+    set((state) => ({
+      loading: true,
+      historyMeta: { ...state.historyMeta, status: 'loading', key },
+    }));
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        const generations = await invoke<DrawingGeneration[]>('list_drawing_generations', {
+          limit: 30,
+          cursor: options.cursor,
+        });
+        set((state) => {
+          if (
+            state.historyMeta.revision !== revision
+            || requestSequence !== historyLoadSequence
+          ) return {};
+          const currentById = new Map(
+            state.generations.map((generation) => [generation.id, generation]),
+          );
+          const removedDuringLoad = new Set(
+            Array.from(generationsAtLoadStart.keys()).filter((id) => !currentById.has(id)),
+          );
+          const changedDuringLoad = state.generations.filter(
+            (generation) => generationsAtLoadStart.get(generation.id) !== generation,
+          );
+          const loadedGenerations = generations.filter(
+            (generation) => !removedDuringLoad.has(generation.id),
+          );
+          const mergedGenerations = changedDuringLoad.reduce(
+            appendOrReplace,
+            loadedGenerations,
+          );
+          return {
+            generations: sortGenerations(mergedGenerations),
+            loading: false,
+            error: null,
+            historyMeta: {
+              status: 'ready',
+              key,
+              loadedAt: Date.now(),
+              revision,
+            },
+          };
+        });
+      } catch (error) {
+        set((state) => {
+          if (
+            state.historyMeta.revision !== revision
+            || requestSequence !== historyLoadSequence
+          ) return {};
+          return {
+            loading: false,
+            error: String(error),
+            historyMeta: { ...state.historyMeta, status: 'error' },
+          };
+        });
+        throw error;
+      } finally {
+        if (historyLoads.get(requestKey) === promise) historyLoads.delete(requestKey);
+      }
+    })();
+    historyLoads.set(requestKey, promise);
+    return promise;
+  },
+
+  invalidateHistory: (_reason) => {
+    historyLoadSequence += 1;
+    set((state) => ({
+      loading: false,
+      historyMeta: {
+        status: 'idle',
+        key: null,
+        loadedAt: null,
+        revision: state.historyMeta.revision + 1,
+      },
+    }));
   },
 
   uploadReferenceImage: async (file) => {

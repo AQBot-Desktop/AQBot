@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CHAT_AUTO_SCROLL_BOTTOM_THRESHOLD,
   CHAT_SCROLL_IS_REVERSED,
+  captureMessageScrollAnchor,
   getDistanceToHistoryTop,
   getScrollTopAfterPrepend,
   hasMeasuredScrollLayoutChanged,
   hasScrollLayoutMetricsChanged,
   resolveChatScrollElements,
+  restoreMessageScrollAnchor,
   shouldIgnoreScrollDepartureFromBottom,
   shouldKeepAutoScroll,
   shouldStickToBottomOnLayoutChange,
@@ -122,5 +124,57 @@ describe('chat scroll helpers', () => {
   it('preserves the viewport anchor when older messages are prepended in regular scroll mode', () => {
     expect(getScrollTopAfterPrepend(0, 1200, 1600, false)).toBe(400);
     expect(getScrollTopAfterPrepend(240, 1200, 1600, false)).toBe(640);
+  });
+
+  it('restores the first visible message anchor when both ends of the data window change', () => {
+    const scrollBox = document.createElement('div');
+    const hidden = document.createElement('span');
+    const visible = document.createElement('span');
+    const later = document.createElement('span');
+    hidden.dataset.aqbotMsg = 'message-hidden';
+    visible.dataset.aqbotMsg = 'message-visible';
+    later.dataset.aqbotMsg = 'message-later';
+    scrollBox.append(hidden, visible, later);
+    Object.defineProperty(scrollBox, 'scrollTop', { value: 500, writable: true });
+    vi.spyOn(scrollBox, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500 } as DOMRect);
+    vi.spyOn(hidden, 'getBoundingClientRect').mockReturnValue({ top: 80, bottom: 80 } as DOMRect);
+    const visibleRect = vi.spyOn(visible, 'getBoundingClientRect');
+    visibleRect.mockReturnValue({ top: 140, bottom: 140 } as DOMRect);
+    vi.spyOn(later, 'getBoundingClientRect').mockReturnValue({ top: 300, bottom: 300 } as DOMRect);
+
+    const anchor = captureMessageScrollAnchor(scrollBox);
+    expect(anchor).toEqual({ messageId: 'message-visible', viewportOffset: 40 });
+
+    visibleRect.mockReturnValue({ top: 210, bottom: 210 } as DOMRect);
+    expect(restoreMessageScrollAnchor(scrollBox, anchor)).toBe(true);
+    expect(scrollBox.scrollTop).toBe(570);
+  });
+
+  it('anchors a tall bubble that is visible even when its zero-height marker is above the viewport', () => {
+    const scrollBox = document.createElement('div');
+    const tallBubble = document.createElement('div');
+    const marker = document.createElement('span');
+    const nextBubble = document.createElement('div');
+    const nextMarker = document.createElement('span');
+    tallBubble.className = 'ant-bubble-content';
+    nextBubble.className = 'ant-bubble-content';
+    marker.dataset.aqbotMsg = 'message-tall';
+    nextMarker.dataset.aqbotMsg = 'message-next';
+    tallBubble.append(marker);
+    nextBubble.append(nextMarker);
+    scrollBox.append(tallBubble, nextBubble);
+    Object.defineProperty(scrollBox, 'scrollTop', { value: 500, writable: true });
+    vi.spyOn(scrollBox, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500 } as DOMRect);
+    vi.spyOn(marker, 'getBoundingClientRect').mockReturnValue({ top: -200, bottom: -200 } as DOMRect);
+    const tallRect = vi.spyOn(tallBubble, 'getBoundingClientRect');
+    tallRect.mockReturnValue({ top: -200, bottom: 220 } as DOMRect);
+    vi.spyOn(nextBubble, 'getBoundingClientRect').mockReturnValue({ top: 220, bottom: 300 } as DOMRect);
+
+    const anchor = captureMessageScrollAnchor(scrollBox);
+    expect(anchor).toEqual({ messageId: 'message-tall', viewportOffset: -300 });
+
+    tallRect.mockReturnValue({ top: -150, bottom: 270 } as DOMRect);
+    expect(restoreMessageScrollAnchor(scrollBox, anchor)).toBe(true);
+    expect(scrollBox.scrollTop).toBe(550);
   });
 });

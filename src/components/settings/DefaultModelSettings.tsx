@@ -297,11 +297,11 @@ function ModelCard({
 
 export function DefaultModelSettings() {
   const { t } = useTranslation();
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+  const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
 
   useEffect(() => {
-    fetchProviders();
-  }, [fetchProviders]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   const placeholderText = t('settings.useActiveModel');
 

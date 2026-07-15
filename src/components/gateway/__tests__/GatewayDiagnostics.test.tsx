@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GatewayDiagnostics } from '../GatewayDiagnostics';
 
 const fetchRequestLogs = vi.fn();
+const ensureRequestLogsLoaded = vi.fn();
 const clearRequestLogs = vi.fn();
 let requestLogs = [
   {
@@ -33,6 +34,7 @@ vi.mock('@/stores/gatewayStore', () => ({
   useGatewayStore: () => ({
     requestLogs,
     requestLogsLoading: false,
+    ensureRequestLogsLoaded,
     fetchRequestLogs,
     clearRequestLogs,
   }),
@@ -66,11 +68,11 @@ describe('GatewayDiagnostics', () => {
 
     render(<GatewayDiagnostics />);
 
-    expect(fetchRequestLogs).toHaveBeenCalledTimes(1);
+    expect(ensureRequestLogsLoaded).toHaveBeenCalledWith(100, 0, { maxAgeMs: 5_000 });
     expect(setIntervalSpy).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'common.refresh' }));
-    expect(fetchRequestLogs).toHaveBeenCalledTimes(2);
+    expect(fetchRequestLogs).toHaveBeenCalledTimes(1);
     setIntervalSpy.mockRestore();
   });
 

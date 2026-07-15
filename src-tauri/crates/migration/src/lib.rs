@@ -36,6 +36,7 @@ mod m20260518_000001_add_builtin_model_deletions;
 mod m20260627_000001_add_roles;
 mod m20260628_000001_repair_roles_schema;
 mod m20260701_000001_add_chat_perf_indexes;
+mod m20260702_000001_add_inline_media_failures;
 
 pub struct Migrator;
 
@@ -79,6 +80,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260627_000001_add_roles::Migration),
             Box::new(m20260628_000001_repair_roles_schema::Migration),
             Box::new(m20260701_000001_add_chat_perf_indexes::Migration),
+            Box::new(m20260702_000001_add_inline_media_failures::Migration),
         ]
     }
 }
@@ -227,6 +229,30 @@ mod tests {
             assert!(
                 conversation_indexes.contains(&index_name.to_string()),
                 "missing conversations performance index {index_name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_inline_media_failure_diagnostics_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let manager = SchemaManager::new(&db);
+        assert!(manager
+            .has_table("inline_media_failures")
+            .await
+            .expect("check inline media failures table"));
+        for column in ["message_id", "content_hash", "error", "updated_at"] {
+            assert!(
+                manager
+                    .has_column("inline_media_failures", column)
+                    .await
+                    .expect("check inline media failure column"),
+                "missing inline_media_failures.{column}"
             );
         }
     }

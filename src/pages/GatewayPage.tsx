@@ -68,6 +68,7 @@ export function GatewayPage() {
         items={items}
         activeKey={activeKey}
         onChange={setActiveKey}
+        destroyOnHidden
         className="flex-1"
         style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
         tabBarStyle={{ flexShrink: 0 }}

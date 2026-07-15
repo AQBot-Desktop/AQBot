@@ -13,6 +13,7 @@ pub(crate) mod file_cleanup;
 pub mod files;
 pub mod files_page;
 pub mod gateway;
+pub(crate) mod import_media;
 pub mod kelivo_import;
 pub mod knowledge;
 pub mod mcp;

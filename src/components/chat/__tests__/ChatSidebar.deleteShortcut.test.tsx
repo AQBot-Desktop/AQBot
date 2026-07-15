@@ -1,6 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatSidebar } from '../ChatSidebar';
 
@@ -17,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   batchArchive: vi.fn(),
   regenerateTitle: vi.fn(),
   saveSettings: vi.fn(),
-  fetchCategories: vi.fn(),
+  ensureCategoriesLoaded: vi.fn(),
   createCategory: vi.fn(),
   updateCategory: vi.fn(),
   deleteCategory: vi.fn(),
@@ -85,7 +83,7 @@ const settingsState = {
 
 const categoryState: any = {
   categories: [],
-  fetchCategories: mocks.fetchCategories,
+  ensureCategoriesLoaded: mocks.ensureCategoriesLoaded,
   createCategory: mocks.createCategory,
   updateCategory: mocks.updateCategory,
   deleteCategory: mocks.deleteCategory,
@@ -139,8 +137,8 @@ vi.mock('antd', () => ({
     </button>
   ),
   Input: (props: any) => <input {...props} />,
-  Tooltip: ({ children, title }: any) => (
-    <span title={typeof title === 'string' ? title : undefined}>{children}</span>
+  Tooltip: ({ children, title, ...triggerProps }: any) => (
+    <span {...triggerProps} title={typeof title === 'string' ? title : undefined}>{children}</span>
   ),
   Checkbox: ({ checked, onChange, onClick }: any) => (
     <input type="checkbox" checked={checked} onChange={onChange} onClick={onClick} readOnly />
@@ -179,24 +177,40 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('@ant-design/x/es/conversations', () => ({
-  default: ({ items, menu }: any) => (
+  default: ({ items, menu, activeKey, onActiveChange }: any) => (
     <ul>
       {items.map((item: any) => {
         const menuConfig = typeof menu === 'function' ? menu(item) : menu;
-        const trigger = menuConfig?.trigger
-          ? menuConfig.trigger(item, { originNode: <button type="button" aria-label="更多" /> })
-          : <button type="button" aria-label="更多" />;
+        const originNode = <button type="button" aria-label="更多" />;
+        const trigger = typeof menuConfig?.trigger === 'function'
+          ? menuConfig.trigger(item, { originNode })
+          : menuConfig?.trigger ?? originNode;
 
         return (
-          <li key={item.key} data-conv-id={item['data-conv-id']}>
+          <li
+            key={item.key}
+            data-conv-id={item['data-conv-id']}
+            className={activeKey === item.key ? 'ant-conversations-item-active' : undefined}
+            onClick={() => onActiveChange?.(item.key, item)}
+          >
             {item.icon}
             {item.label}
-            {trigger}
-            <button
-              type="button"
-              aria-label="菜单删除"
-              onClick={() => menuConfig?.onClick?.({ key: 'delete', domEvent: {} })}
-            />
+            {menuConfig && trigger}
+            {menuConfig?.items?.map((menuItem: any) => (
+              <button
+                key={menuItem.key}
+                type="button"
+                aria-label={typeof menuItem.label === 'string' ? `菜单${menuItem.label}` : undefined}
+                disabled={menuItem.disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  menuConfig.onClick?.({ key: menuItem.key, domEvent: event });
+                }}
+              >
+                {menuItem.icon}
+                {menuItem.label}
+              </button>
+            ))}
           </li>
         );
       })}
@@ -271,6 +285,12 @@ vi.mock('../CategoryEditModal', () => ({
   CategoryEditModal: () => null,
 }));
 
+function armConversationMenu(title = '快捷删除测试') {
+  const row = screen.getByText(title).closest('li');
+  expect(row).not.toBeNull();
+  fireEvent.pointerOver(row!);
+}
+
 describe('ChatSidebar direct delete shortcut', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -292,6 +312,7 @@ describe('ChatSidebar direct delete shortcut', () => {
     conversationState.activeConversationId = 'conv-1';
     conversationState.titleGeneratingConversationId = null;
     categoryState.categories = [];
+    mocks.ensureCategoriesLoaded.mockResolvedValue(undefined);
     mocks.regenerateTitle.mockResolvedValue(undefined);
     mocks.createConversation.mockResolvedValue({
       id: 'conv-new',
@@ -308,13 +329,20 @@ describe('ChatSidebar direct delete shortcut', () => {
     });
   });
 
-  it('keeps the confirmation dialog for a normal menu delete click', () => {
+  it('keeps the confirmation dialog for a normal menu delete click', async () => {
     render(<ChatSidebar />);
+
+    expect(screen.queryByRole('button', { name: '更多' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '菜单删除' })).not.toBeInTheDocument();
+
+    armConversationMenu();
 
     expect(screen.getByRole('button', { name: '更多' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '菜单删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
+    const deleteButton = await screen.findByRole('button', { name: '菜单删除' });
+    fireEvent.click(deleteButton);
 
     expect(mocks.confirm).toHaveBeenCalledTimes(1);
     expect(mocks.deleteConversation).not.toHaveBeenCalled();
@@ -352,8 +380,58 @@ describe('ChatSidebar direct delete shortcut', () => {
     expect(screen.getByText('Agent')).toBeInTheDocument();
   });
 
+  it('switches the active conversation through the rendered row', () => {
+    conversationState.conversations = [
+      { ...conversationState.conversations[0], id: 'conv-1', title: '第一条', updated_at: 2 },
+      { ...conversationState.conversations[0], id: 'conv-2', title: '第二条', updated_at: 1 },
+    ];
+
+    render(<ChatSidebar />);
+    fireEvent.click(screen.getByText('第二条'));
+
+    expect(mocks.setActiveConversation).toHaveBeenCalledWith('conv-2');
+  });
+
+  it('filters rendered conversation rows by title', () => {
+    conversationState.conversations = [
+      { ...conversationState.conversations[0], id: 'conv-1', title: 'Alpha 规划', updated_at: 2 },
+      { ...conversationState.conversations[0], id: 'conv-2', title: 'Beta 记录', updated_at: 1 },
+    ];
+
+    render(<ChatSidebar />);
+    fireEvent.click(within(screen.getByTitle('搜索对话...')).getByRole('button'));
+    fireEvent.change(screen.getByPlaceholderText('搜索对话...'), { target: { value: 'beta' } });
+
+    expect(screen.queryByText('Alpha 规划')).not.toBeInTheDocument();
+    expect(screen.getByText('Beta 记录')).toBeInTheDocument();
+  });
+
+  it('reveals a child conversation only after its parent toggle is clicked', () => {
+    conversationState.conversations = [
+      { ...conversationState.conversations[0], id: 'parent', title: '父对话', updated_at: 2 },
+      {
+        ...conversationState.conversations[0],
+        id: 'child',
+        title: '子对话',
+        parent_conversation_id: 'parent',
+        updated_at: 1,
+      },
+    ];
+    conversationState.activeConversationId = 'parent';
+
+    render(<ChatSidebar />);
+    expect(screen.queryByText('子对话')).not.toBeInTheDocument();
+
+    const toggle = screen.getByText('父对话').closest('li')?.querySelector('.lucide-chevron-right');
+    expect(toggle).not.toBeNull();
+    fireEvent.click(toggle!);
+
+    expect(screen.getByText('子对话')).toBeInTheDocument();
+  });
+
   it('turns the more trigger into direct delete while Ctrl is held', async () => {
     render(<ChatSidebar />);
+    armConversationMenu();
 
     fireEvent.keyDown(window, { key: 'Control', ctrlKey: true });
 
@@ -369,6 +447,7 @@ describe('ChatSidebar direct delete shortcut', () => {
 
   it('turns the more trigger into direct delete while Cmd is held', async () => {
     render(<ChatSidebar />);
+    armConversationMenu();
 
     fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
 
@@ -382,22 +461,18 @@ describe('ChatSidebar direct delete shortcut', () => {
     expect(mocks.deleteConversation).toHaveBeenCalledWith('conv-1');
   });
 
-  it('does not add a separate row delete action and hides the delete trigger on active rows until hover', () => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/components/chat/ChatSidebar.tsx'),
-      'utf8',
-    );
+  it('keeps a single menu trigger and only exposes direct delete while the shortcut is held', async () => {
+    render(<ChatSidebar />);
+    armConversationMenu();
 
-    expect(source).not.toContain('aqbot-chat-conversation-direct-delete');
-    expect(source).not.toContain('PanelLeftClose');
-    expect(source).not.toContain('onCollapse');
-    expect(source).not.toContain('chat.collapseSidebar');
-    expect(source).not.toContain('@tanstack/react-virtual');
-    expect(source).not.toContain('useVirtualizer');
-    expect(source).not.toContain('aqbot-chat-conversation-virtual');
-    expect(source).toContain('<Conversations');
-    expect(source).toContain('.ant-conversations .ant-conversations-item-active .aqbot-chat-conversation-menu-delete');
-    expect(source).toContain('opacity: 0;');
+    expect(screen.getAllByRole('button', { name: '更多' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Control', ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: '删除' })).toHaveLength(1);
+    });
   });
 
   it('offers current-category and standalone choices when creating from a categorized conversation', async () => {

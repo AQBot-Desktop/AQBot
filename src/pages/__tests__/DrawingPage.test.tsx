@@ -13,6 +13,7 @@ vi.mock('@/pages/GatewayPage', () => ({ GatewayPage: () => <div>gateway</div> })
 vi.mock('@/pages/FilesPage', () => ({ FilesPage: () => <div>files</div> }));
 vi.mock('@/pages/SettingsPage', () => ({ SettingsPage: () => <div>settings</div> }));
 vi.mock('@/pages/SkillsPage', () => ({ SkillsPage: () => <div>skills</div> }));
+vi.mock('@/pages/RolesPage', () => ({ RolesPage: () => <div>roles</div> }));
 vi.mock('@/lib/providerIcons', () => ({
   SmartProviderIcon: () => <span>provider-icon</span>,
 }));
@@ -147,19 +148,21 @@ describe('DrawingPage routing', () => {
       providers: [],
       loading: false,
       error: null,
-      fetchProviders: vi.fn(async () => {}),
+      providersMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
+      ensureProvidersLoaded: vi.fn(async () => {}),
     });
   });
 
   it('renders the drawing page from ContentArea', () => {
-    const { container } = render(<ContentArea activePage="drawing" />);
+    render(<ContentArea activePage="drawing" />);
 
     expect(screen.queryByText('历史记录')).toBeNull();
     expect(screen.queryByText('绘画设置')).toBeNull();
     expect(screen.getByTestId('drawing-generation-list')).toBeDefined();
     expect(screen.getByTestId('drawing-composer')).toBeDefined();
     expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(1);
-    expect(container.firstElementChild).toHaveStyle({ background: '#0f172a' });
+    const drawingPageRoot = screen.getByTestId('drawing-history-frame').closest('main')?.parentElement;
+    expect(drawingPageRoot).toHaveStyle({ background: '#0f172a' });
     expect(screen.queryByRole('button', { name: '参考图' })).toBeNull();
 
     const composer = screen.getByTestId('drawing-composer');
@@ -674,8 +677,8 @@ describe('DrawingPage routing', () => {
   });
 
   it('does not clear a saved provider while providers are still loading', async () => {
-    const fetchProviders = vi.fn(() => new Promise<void>(() => {}));
-    useProviderStore.setState({ providers: [], fetchProviders });
+    const ensureProvidersLoaded = vi.fn(() => new Promise<void>(() => {}));
+    useProviderStore.setState({ providers: [], ensureProvidersLoaded });
     useDrawingSettingsStore.getState().patchSettings({ providerId: 'provider-1' });
 
     render(<ContentArea activePage="drawing" />);

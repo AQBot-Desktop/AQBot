@@ -32,6 +32,7 @@ pub mod backup_targets;
 pub mod context_sources;
 pub mod conversation_branches;
 pub mod import_jobs;
+pub mod inline_media_failures;
 pub mod knowledge_bases;
 pub mod knowledge_documents;
 pub mod memory_items;

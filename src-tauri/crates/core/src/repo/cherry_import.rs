@@ -7,7 +7,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{decrypt_key, encrypt_key};
-use crate::entity::{conversations, import_jobs, messages, models, provider_keys, providers, stored_files};
+use crate::entity::{
+    conversations, import_jobs, messages, models, provider_keys, providers, stored_files,
+};
 use crate::error::{AQBotError, Result};
 use crate::file_store::FileStore;
 use crate::repo::settings::get_settings;
@@ -267,184 +269,215 @@ pub async fn import_cherry_studio_backup_from_path_with_root(
         .clone()
         .unwrap_or_else(|| "unknown-model".to_string());
     let file_store = FileStore::with_root(documents_root.to_path_buf());
+    let _file_reference_guard = crate::repo::stored_file::lock_file_references().await;
     let txn = db.begin().await?;
+    let mut created_paths = Vec::new();
+    let operation = async {
+        if options.import_provider_keys {
+            for provider in cherry_providers(&backup)? {
+                if !used_provider_ids.contains(&provider.id) {
+                    continue;
+                }
+                match import_provider(&txn, master_key, &provider).await {
+                    Ok(Some(imported_id)) => {
+                        provider_map.insert(provider.id.clone(), imported_id);
+                        result.imported_provider_count += 1;
+                    }
+                    Ok(None) => {}
+                    Err(error) => result.warnings.push(warning(
+                        "provider_import_failed",
+                        format!(
+                            "Failed to import Cherry Studio provider {}: {error}",
+                            provider.id
+                        ),
+                        Some(provider.id.clone()),
+                    )),
+                }
+            }
+        }
 
-    if options.import_provider_keys {
-        for provider in cherry_providers(&backup)? {
-            if !used_provider_ids.contains(&provider.id) {
+        let imported_files = import_files(
+            &txn,
+            &file_store,
+            path,
+            &backup,
+            &mut result,
+            &mut created_paths,
+        )
+        .await?;
+
+        for topic in backup.indexed_db.topics.iter() {
+            if topic.messages.is_empty() {
                 continue;
             }
-            match import_provider(&txn, master_key, &provider).await {
-                Ok(Some(imported_id)) => {
-                    provider_map.insert(provider.id.clone(), imported_id);
-                    result.imported_provider_count += 1;
-                }
-                Ok(None) => {}
-                Err(error) => result.warnings.push(warning(
-                    "provider_import_failed",
-                    format!(
-                        "Failed to import Cherry Studio provider {}: {error}",
-                        provider.id
-                    ),
-                    Some(provider.id.clone()),
-                )),
-            }
-        }
-    }
-
-    let imported_files = import_files(&txn, &file_store, path, &backup, &mut result).await?;
-
-    for topic in backup.indexed_db.topics.iter() {
-        if topic.messages.is_empty() {
-            continue;
-        }
-        if conversations::Entity::find_by_id(&topic.id)
-            .one(&txn)
-            .await?
-            .is_some()
-        {
-            result.skipped_duplicate_conversation_count += 1;
-            continue;
-        }
-
-        let meta = topic_meta.get(&topic.id).cloned().unwrap_or_default();
-        let first_message = topic.messages.first();
-        let source_provider_id = first_message
-            .and_then(|message| message.model.as_ref())
-            .and_then(|model| model.provider.as_ref())
-            .cloned();
-        let imported_provider_id = source_provider_id
-            .as_ref()
-            .and_then(|source_id| provider_map.get(source_id))
-            .cloned();
-        let use_cherry_model = imported_provider_id.is_some();
-        let provider_id = imported_provider_id.unwrap_or_else(|| fallback_provider_id.clone());
-        let model_id = if use_cherry_model {
-            first_message
-                .and_then(|message| {
-                    message
-                        .model_id
-                        .clone()
-                        .or_else(|| message.model.as_ref()?.id.clone())
-                })
-                .unwrap_or_else(|| fallback_model_id.clone())
-        } else {
-            fallback_model_id.clone()
-        };
-        let created_at = meta
-            .created_at
-            .or_else(|| first_message.and_then(|message| parse_cherry_ts_opt(message.created_at.as_deref())))
-            .unwrap_or_else(now_ts);
-        let updated_at = meta.updated_at.unwrap_or_else(|| {
-            topic
-                .messages
-                .iter()
-                .filter_map(|message| parse_cherry_ts_opt(message.created_at.as_deref()))
-                .max()
-                .unwrap_or(created_at)
-        });
-        let title = meta
-            .name
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "Cherry Studio Chat".to_string());
-
-        conversations::ActiveModel {
-            id: Set(topic.id.clone()),
-            title: Set(title),
-            model_id: Set(model_id.clone()),
-            provider_id: Set(provider_id.clone()),
-            system_prompt: Set(meta.system_prompt.filter(|value| !value.trim().is_empty())),
-            temperature: Set(None),
-            max_tokens: Set(None),
-            top_p: Set(None),
-            frequency_penalty: Set(None),
-            search_enabled: Set(0),
-            search_provider_id: Set(None),
-            thinking_budget: Set(None),
-            thinking_level: Set(None),
-            enabled_mcp_server_ids: Set("[]".to_string()),
-            enabled_knowledge_base_ids: Set("[]".to_string()),
-            enabled_memory_namespace_ids: Set("[]".to_string()),
-            message_count: Set(topic.messages.len() as i32),
-            created_at: Set(created_at),
-            updated_at: Set(updated_at),
-            is_pinned: Set(0),
-            is_archived: Set(0),
-            workspace_snapshot_json: Set("{}".to_string()),
-            active_branch_id: Set(None),
-            active_artifact_id: Set(None),
-            research_mode: Set(0),
-            context_compression: Set(0),
-            category_id: Set(None),
-            parent_conversation_id: Set(None),
-            mode: Set("chat".to_string()),
-        }
-        .insert(&txn)
-        .await?;
-        result.imported_conversation_count += 1;
-
-        let mut previous_message_id: Option<String> = None;
-        for message in &topic.messages {
-            if messages::Entity::find_by_id(&message.id)
+            if conversations::Entity::find_by_id(&topic.id)
                 .one(&txn)
                 .await?
                 .is_some()
             {
+                result.skipped_duplicate_conversation_count += 1;
                 continue;
             }
-            let materialized = materialize_message(
-                message,
-                ordered_blocks(message, block_map.get(&message.id).cloned().unwrap_or_default()),
-                &imported_files,
-                &provider_map,
-                &provider_id,
-                &model_id,
-                &mut result.warnings,
-            );
-            messages::ActiveModel {
-                id: Set(message.id.clone()),
-                conversation_id: Set(topic.id.clone()),
-                role: Set(materialized.role),
-                content: Set(materialized.content),
-                provider_id: Set(Some(materialized.provider_id)),
-                model_id: Set(Some(materialized.model_id)),
-                token_count: Set(materialized.token_count),
-                prompt_tokens: Set(materialized.prompt_tokens),
-                completion_tokens: Set(materialized.completion_tokens),
-                attachments: Set(serde_json::to_string(&materialized.attachments).map_err(|e| {
-                    AQBotError::Validation(format!("Failed to serialize Cherry attachments: {e}"))
-                })?),
-                thinking: Set(materialized.thinking),
-                created_at: Set(materialized.created_at),
-                branch_id: Set(None),
-                parent_message_id: Set(previous_message_id.clone()),
-                version_index: Set(0),
-                is_active: Set(1),
-                tool_calls_json: Set(None),
-                tool_call_id: Set(None),
-                status: Set(materialized.status),
-                tokens_per_second: Set(materialized.tokens_per_second),
-                first_token_latency_ms: Set(materialized.first_token_latency_ms),
+
+            let meta = topic_meta.get(&topic.id).cloned().unwrap_or_default();
+            let first_message = topic.messages.first();
+            let source_provider_id = first_message
+                .and_then(|message| message.model.as_ref())
+                .and_then(|model| model.provider.as_ref())
+                .cloned();
+            let imported_provider_id = source_provider_id
+                .as_ref()
+                .and_then(|source_id| provider_map.get(source_id))
+                .cloned();
+            let use_cherry_model = imported_provider_id.is_some();
+            let provider_id = imported_provider_id.unwrap_or_else(|| fallback_provider_id.clone());
+            let model_id = if use_cherry_model {
+                first_message
+                    .and_then(|message| {
+                        message
+                            .model_id
+                            .clone()
+                            .or_else(|| message.model.as_ref()?.id.clone())
+                    })
+                    .unwrap_or_else(|| fallback_model_id.clone())
+            } else {
+                fallback_model_id.clone()
+            };
+            let created_at = meta
+                .created_at
+                .or_else(|| {
+                    first_message
+                        .and_then(|message| parse_cherry_ts_opt(message.created_at.as_deref()))
+                })
+                .unwrap_or_else(now_ts);
+            let updated_at = meta.updated_at.unwrap_or_else(|| {
+                topic
+                    .messages
+                    .iter()
+                    .filter_map(|message| parse_cherry_ts_opt(message.created_at.as_deref()))
+                    .max()
+                    .unwrap_or(created_at)
+            });
+            let title = meta
+                .name
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Cherry Studio Chat".to_string());
+
+            conversations::ActiveModel {
+                id: Set(topic.id.clone()),
+                title: Set(title),
+                model_id: Set(model_id.clone()),
+                provider_id: Set(provider_id.clone()),
+                system_prompt: Set(meta.system_prompt.filter(|value| !value.trim().is_empty())),
+                temperature: Set(None),
+                max_tokens: Set(None),
+                top_p: Set(None),
+                frequency_penalty: Set(None),
+                search_enabled: Set(0),
+                search_provider_id: Set(None),
+                thinking_budget: Set(None),
+                thinking_level: Set(None),
+                enabled_mcp_server_ids: Set("[]".to_string()),
+                enabled_knowledge_base_ids: Set("[]".to_string()),
+                enabled_memory_namespace_ids: Set("[]".to_string()),
+                message_count: Set(topic.messages.len() as i32),
+                created_at: Set(created_at),
+                updated_at: Set(updated_at),
+                is_pinned: Set(0),
+                is_archived: Set(0),
+                workspace_snapshot_json: Set("{}".to_string()),
+                active_branch_id: Set(None),
+                active_artifact_id: Set(None),
+                research_mode: Set(0),
+                context_compression: Set(0),
+                category_id: Set(None),
+                parent_conversation_id: Set(None),
+                mode: Set("chat".to_string()),
             }
             .insert(&txn)
             .await?;
-            previous_message_id = Some(message.id.clone());
-            result.imported_message_count += 1;
+            result.imported_conversation_count += 1;
+
+            let mut previous_message_id: Option<String> = None;
+            for message in &topic.messages {
+                if messages::Entity::find_by_id(&message.id)
+                    .one(&txn)
+                    .await?
+                    .is_some()
+                {
+                    continue;
+                }
+                let materialized = materialize_message(
+                    message,
+                    ordered_blocks(
+                        message,
+                        block_map.get(&message.id).cloned().unwrap_or_default(),
+                    ),
+                    &imported_files,
+                    &provider_map,
+                    &provider_id,
+                    &model_id,
+                    &mut result.warnings,
+                );
+                messages::ActiveModel {
+                    id: Set(message.id.clone()),
+                    conversation_id: Set(topic.id.clone()),
+                    role: Set(materialized.role),
+                    content: Set(materialized.content),
+                    provider_id: Set(Some(materialized.provider_id)),
+                    model_id: Set(Some(materialized.model_id)),
+                    token_count: Set(materialized.token_count),
+                    prompt_tokens: Set(materialized.prompt_tokens),
+                    completion_tokens: Set(materialized.completion_tokens),
+                    attachments: Set(serde_json::to_string(&materialized.attachments).map_err(
+                        |e| {
+                            AQBotError::Validation(format!(
+                                "Failed to serialize Cherry attachments: {e}"
+                            ))
+                        },
+                    )?),
+                    thinking: Set(materialized.thinking),
+                    created_at: Set(materialized.created_at),
+                    branch_id: Set(None),
+                    parent_message_id: Set(previous_message_id.clone()),
+                    version_index: Set(0),
+                    is_active: Set(1),
+                    tool_calls_json: Set(None),
+                    tool_call_id: Set(None),
+                    status: Set(materialized.status),
+                    tokens_per_second: Set(materialized.tokens_per_second),
+                    first_token_latency_ms: Set(materialized.first_token_latency_ms),
+                }
+                .insert(&txn)
+                .await?;
+                previous_message_id = Some(message.id.clone());
+                result.imported_message_count += 1;
+            }
         }
-    }
 
-    import_jobs::ActiveModel {
-        id: Set(gen_id()),
-        source_type: Set("cherry_studio".to_string()),
-        status: Set("success".to_string()),
-        summary_json: Set(Some(serde_json::to_string(&result).unwrap_or_default())),
-        conflict_count: Set(result.skipped_duplicate_conversation_count as i32),
-        created_at: Set(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()),
-    }
-    .insert(&txn)
-    .await?;
+        import_jobs::ActiveModel {
+            id: Set(gen_id()),
+            source_type: Set("cherry_studio".to_string()),
+            status: Set("success".to_string()),
+            summary_json: Set(Some(serde_json::to_string(&result).unwrap_or_default())),
+            conflict_count: Set(result.skipped_duplicate_conversation_count as i32),
+            created_at: Set(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+        }
+        .insert(&txn)
+        .await?;
 
-    txn.commit().await?;
+        Ok::<(), AQBotError>(())
+    }
+    .await;
+    if let Err(error) = operation {
+        let rollback_error = txn.rollback().await.err();
+        let cleanup_errors = cleanup_import_created_paths(db, &file_store, &created_paths).await;
+        return Err(import_failure(error, rollback_error, cleanup_errors));
+    }
+    if let Err(error) = txn.commit().await {
+        let cleanup_errors = cleanup_import_created_paths(db, &file_store, &created_paths).await;
+        return Err(import_failure(error.into(), None, cleanup_errors));
+    }
     Ok(result)
 }
 
@@ -523,7 +556,10 @@ async fn summarize_backup(
 fn collect_block_warnings(backup: &CherryBackup, warnings: &mut Vec<CherryStudioImportWarning>) {
     let mut seen = HashSet::new();
     for block in &backup.indexed_db.message_blocks {
-        if matches!(block.block_type.as_str(), "main_text" | "thinking" | "error") {
+        if matches!(
+            block.block_type.as_str(),
+            "main_text" | "thinking" | "error"
+        ) {
             continue;
         }
         if seen.insert(block.block_type.clone()) {
@@ -554,7 +590,9 @@ fn collect_topic_meta(backup: &CherryBackup) -> HashMap<String, TopicMeta> {
 
     if let Some(assistants) = assistants_value.get("assistants").and_then(Value::as_array) {
         for assistant_value in assistants {
-            if let Ok(assistant) = serde_json::from_value::<CherryAssistant>(assistant_value.clone()) {
+            if let Ok(assistant) =
+                serde_json::from_value::<CherryAssistant>(assistant_value.clone())
+            {
                 collect_assistant_topics(assistant, &mut map);
             }
         }
@@ -619,7 +657,11 @@ fn referenced_provider_ids(backup: &CherryBackup) -> HashSet<String> {
     let mut ids = HashSet::new();
     for topic in &backup.indexed_db.topics {
         for message in &topic.messages {
-            if let Some(provider_id) = message.model.as_ref().and_then(|model| model.provider.clone()) {
+            if let Some(provider_id) = message
+                .model
+                .as_ref()
+                .and_then(|model| model.provider.clone())
+            {
                 ids.insert(provider_id);
             }
         }
@@ -699,7 +741,11 @@ where
                 provider_type: Set(provider_type_storage(&provider_type).to_string()),
                 api_host: Set(api_host),
                 api_path: Set(api_path),
-                enabled: Set(if provider.enabled.unwrap_or(true) { 1 } else { 0 }),
+                enabled: Set(if provider.enabled.unwrap_or(true) {
+                    1
+                } else {
+                    0
+                }),
                 proxy_config: Set(None),
                 custom_headers: Set(None),
                 icon: Set(None),
@@ -781,6 +827,7 @@ async fn import_files<C>(
     backup_path: &Path,
     backup: &CherryBackup,
     result: &mut CherryStudioImportResult,
+    created_paths: &mut Vec<String>,
 ) -> Result<Vec<ImportedFile>>
 where
     C: ConnectionTrait,
@@ -799,7 +846,11 @@ where
 
     let mut imported = Vec::new();
     for file in &backup.indexed_db.files {
-        if stored_files::Entity::find_by_id(&file.id).one(db).await?.is_some() {
+        if stored_files::Entity::find_by_id(&file.id)
+            .one(db)
+            .await?
+            .is_some()
+        {
             continue;
         }
         let mut bytes = Vec::new();
@@ -812,7 +863,10 @@ where
                 Err(_) => {
                     result.warnings.push(warning(
                         "missing_file",
-                        format!("Cherry Studio attachment '{}' is missing from the backup.", file.name),
+                        format!(
+                            "Cherry Studio attachment '{}' is missing from the backup.",
+                            file.name
+                        ),
                         Some(file.id.clone()),
                     ));
                     continue;
@@ -821,7 +875,10 @@ where
         } else {
             result.warnings.push(warning(
                 "missing_file",
-                format!("Cherry Studio attachment '{}' is only available in zip backups.", file.name),
+                format!(
+                    "Cherry Studio attachment '{}' is only available in zip backups.",
+                    file.name
+                ),
                 Some(file.id.clone()),
             ));
             continue;
@@ -834,6 +891,9 @@ where
             .unwrap_or_else(|| file.name.clone());
         let mime_type = mime_from_name(&original_name, file.ext.as_deref());
         let saved = file_store.save_file(&bytes, &original_name, &mime_type)?;
+        if saved.created {
+            created_paths.push(saved.storage_path.clone());
+        }
         let size_bytes = file.size.unwrap_or(saved.size_bytes).max(0);
         stored_files::ActiveModel {
             id: Set(file.id.clone()),
@@ -857,6 +917,50 @@ where
         result.imported_file_count += 1;
     }
     Ok(imported)
+}
+
+async fn cleanup_import_created_paths(
+    db: &DatabaseConnection,
+    file_store: &FileStore,
+    paths: &[String],
+) -> Vec<String> {
+    let mut unique_paths = paths.to_vec();
+    unique_paths.sort();
+    unique_paths.dedup();
+    let mut errors = Vec::new();
+    for path in unique_paths {
+        match crate::repo::stored_file::count_stored_files_with_storage_path(db, &path).await {
+            Ok(0) => {
+                if let Err(error) = file_store.delete_file(&path) {
+                    errors.push(format!("failed to delete {path}: {error}"));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("failed to inspect {path}: {error}")),
+        }
+    }
+    errors
+}
+
+fn import_failure(
+    primary: AQBotError,
+    rollback: Option<sea_orm::DbErr>,
+    cleanup: Vec<String>,
+) -> AQBotError {
+    if rollback.is_none() && cleanup.is_empty() {
+        return primary;
+    }
+    AQBotError::Validation(format!(
+        "{primary}; rollback error: {}; cleanup errors: {}",
+        rollback
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        if cleanup.is_empty() {
+            "none".to_string()
+        } else {
+            cleanup.join(", ")
+        }
+    ))
 }
 
 struct MaterializedMessage {
@@ -945,7 +1049,10 @@ fn materialize_message(
         fallback_model_id.to_string()
     };
     let prompt_tokens = message.usage.as_ref().and_then(|usage| usage.prompt_tokens);
-    let completion_tokens = message.usage.as_ref().and_then(|usage| usage.completion_tokens);
+    let completion_tokens = message
+        .usage
+        .as_ref()
+        .and_then(|usage| usage.completion_tokens);
     let token_count = message
         .usage
         .as_ref()
@@ -959,7 +1066,10 @@ fn materialize_message(
     let searchable_message = format!("{message:?}");
     let attachments = files
         .iter()
-        .filter(|file| searchable_message.contains(&file.id) || searchable_message.contains(&file.original_name))
+        .filter(|file| {
+            searchable_message.contains(&file.id)
+                || searchable_message.contains(&file.original_name)
+        })
         .map(|file| Attachment {
             id: file.id.clone(),
             file_type: file.mime_type.clone(),
@@ -1039,7 +1149,9 @@ fn map_message_role(role: Option<&str>) -> String {
 
 fn map_provider_type(value: Option<&str>) -> ProviderType {
     match value.unwrap_or("").trim() {
-        "openai-response" | "openai_responses" | "openai-responses" => ProviderType::OpenAIResponses,
+        "openai-response" | "openai_responses" | "openai-responses" => {
+            ProviderType::OpenAIResponses
+        }
         "anthropic" => ProviderType::Anthropic,
         "gemini" => ProviderType::Gemini,
         "openai" => ProviderType::OpenAI,
@@ -1192,7 +1304,7 @@ mod tests {
     use crate::entity::{conversations, messages, stored_files};
     use crate::repo::provider;
     use crate::types::ProviderType;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use sea_orm::{ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, QueryFilter, Statement};
     use serde_json::json;
     use std::fs::File;
     use std::io::Write;
@@ -1208,7 +1320,8 @@ mod tests {
         zip.write_all(serde_json::to_string(&data).unwrap().as_bytes())
             .unwrap();
         for (name, bytes) in files {
-            zip.start_file(format!("Data/Files/{name}"), options).unwrap();
+            zip.start_file(format!("Data/Files/{name}"), options)
+                .unwrap();
             zip.write_all(bytes).unwrap();
         }
         zip.finish().unwrap();
@@ -1366,7 +1479,11 @@ mod tests {
     async fn scan_cherry_studio_zip_summarizes_importable_data() {
         let dir = tempdir().unwrap();
         let zip_path = dir.path().join("cherry.zip");
-        write_cherry_zip(&zip_path, sample_backup_json(), &[("file-1.pdf", b"pdfdata")]);
+        write_cherry_zip(
+            &zip_path,
+            sample_backup_json(),
+            &[("file-1.pdf", b"pdfdata")],
+        );
         let db = create_test_pool().await.unwrap();
 
         let summary = scan_cherry_studio_import_from_path(&db.conn, &zip_path)
@@ -1390,7 +1507,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let zip_path = dir.path().join("cherry.zip");
         let docs_root = dir.path().join("aqbot-docs");
-        write_cherry_zip(&zip_path, sample_backup_json(), &[("file-1.pdf", b"pdfdata")]);
+        write_cherry_zip(
+            &zip_path,
+            sample_backup_json(),
+            &[("file-1.pdf", b"pdfdata")],
+        );
         let db = create_test_pool().await.unwrap();
         let master_key = [8u8; 32];
 
@@ -1430,7 +1551,10 @@ mod tests {
             .iter()
             .find(|message| message.id == "msg-assistant-1")
             .unwrap();
-        assert_eq!(assistant.content, "world\n\n### Cherry Studio tool block: fetch_html\n```json\n{\"ok\":true}\n```");
+        assert_eq!(
+            assistant.content,
+            "world\n\n### Cherry Studio tool block: fetch_html\n```json\n{\"ok\":true}\n```"
+        );
         assert_eq!(assistant.thinking.as_deref(), Some("think step"));
         assert_eq!(assistant.prompt_tokens, Some(7));
         assert_eq!(assistant.completion_tokens, Some(11));
@@ -1489,6 +1613,60 @@ mod tests {
         .unwrap();
         assert_eq!(duplicate.imported_conversation_count, 0);
         assert_eq!(duplicate.skipped_duplicate_conversation_count, 1);
+    }
+
+    #[tokio::test]
+    async fn import_failure_rolls_back_rows_and_removes_new_physical_files() {
+        let dir = tempdir().unwrap();
+        let zip_path = dir.path().join("cherry.zip");
+        let docs_root = dir.path().join("aqbot-docs");
+        write_cherry_zip(
+            &zip_path,
+            sample_backup_json(),
+            &[("file-1.pdf", b"pdfdata")],
+        );
+        let db = create_test_pool().await.unwrap();
+        db.conn
+            .execute(Statement::from_string(
+                DbBackend::Sqlite,
+                "CREATE TRIGGER fail_cherry_conversation BEFORE INSERT ON conversations \
+                 BEGIN SELECT RAISE(ABORT, 'forced conversation insert failure'); END"
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+
+        let result = import_cherry_studio_backup_from_path_with_root(
+            &db.conn,
+            &[8u8; 32],
+            &zip_path,
+            CherryStudioImportOptions {
+                import_provider_keys: false,
+            },
+            &docs_root,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(conversations::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(messages::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(stored_files::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap()
+            .is_empty());
+        let hash = FileStore::hash_bytes(b"pdfdata");
+        let path =
+            crate::storage_paths::build_relative_path("source.pdf", "application/pdf", &hash);
+        assert!(!docs_root.join(path).exists());
     }
 
     #[tokio::test]
@@ -1573,7 +1751,10 @@ mod tests {
 
         println!("summary: {summary:?}");
         println!("result: {result:?}");
-        assert_eq!(result.imported_conversation_count, summary.conversation_count);
+        assert_eq!(
+            result.imported_conversation_count,
+            summary.conversation_count
+        );
         assert_eq!(result.imported_message_count, summary.message_count);
         assert_eq!(result.imported_provider_count, 0);
     }

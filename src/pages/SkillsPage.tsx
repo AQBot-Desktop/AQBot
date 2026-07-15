@@ -227,7 +227,7 @@ export function SkillsPage() {
   const [messageApi, contextHolder] = message.useMessage();
   const {
     skills, marketplaceSkills, loading, marketplaceLoading, selectedSkill,
-    loadSkills, getSkill, toggleSkill, installSkill, uninstallSkill,
+    ensureSkillsLoaded, loadSkills, getSkill, toggleSkill, installSkill, uninstallSkill,
     uninstallSkillGroup,
     openSkillDir, searchMarketplace, clearSelectedSkill,
   } = useSkillStore();
@@ -244,8 +244,8 @@ export function SkillsPage() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
 
   useEffect(() => {
-    loadSkills();
-  }, [loadSkills]);
+    void ensureSkillsLoaded();
+  }, [ensureSkillsLoaded]);
 
   // Re-search when source changes (if marketplace was already searched)
   useEffect(() => {

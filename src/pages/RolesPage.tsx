@@ -194,8 +194,8 @@ export function RolesPage() {
     selectedMarketplaceSource,
     loading,
     marketplaceLoading,
-    loadRoles,
-    loadMarketplaceSources,
+    ensureRolesLoaded,
+    ensureMarketplaceSourcesLoaded,
     setMarketplaceSource,
     createRole,
     updateRole,
@@ -225,9 +225,9 @@ export function RolesPage() {
   const tagInputRef = useRef<InputRef>(null);
 
   useEffect(() => {
-    void Promise.resolve(loadRoles()).finally(() => setRolesLoaded(true));
-    void loadMarketplaceSources();
-  }, [loadMarketplaceSources, loadRoles]);
+    void Promise.resolve(ensureRolesLoaded()).finally(() => setRolesLoaded(true));
+    void ensureMarketplaceSourcesLoaded();
+  }, [ensureMarketplaceSourcesLoaded, ensureRolesLoaded]);
 
   useEffect(() => {
     if (didAutoOpenMarketplace || !rolesLoaded || roles.length > 0) return;

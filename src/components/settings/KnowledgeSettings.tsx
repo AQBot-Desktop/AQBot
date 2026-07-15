@@ -255,7 +255,7 @@ function KnowledgeBaseDetail({
   onDeleted: () => void;
 }) {
   const { t } = useTranslation();
-  const { documents, loading, updateBase, loadDocuments, addDocument, deleteDocument } =
+  const { documents, loading, updateBase, ensureDocumentsLoaded, loadDocuments, addDocument, deleteDocument } =
     useKnowledgeStore();
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -312,8 +312,8 @@ function KnowledgeBaseDetail({
   const [rebuildingDocIds, setRebuildingDocIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    loadDocuments(base.id);
-  }, [base.id, loadDocuments]);
+    void ensureDocumentsLoaded(base.id);
+  }, [base.id, ensureDocumentsLoaded]);
 
   // Listen for indexing completion events to refresh document status in real-time
   useEffect(() => {
@@ -1247,14 +1247,14 @@ function KnowledgeBaseDetail({
 
 export default function KnowledgeSettings() {
   const { t } = useTranslation();
-  const { bases, loadBases, createBase, setSelectedBaseId } = useKnowledgeStore();
+  const { bases, ensureBasesLoaded, createBase, setSelectedBaseId } = useKnowledgeStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
-    loadBases();
-  }, [loadBases]);
+    void ensureBasesLoaded();
+  }, [ensureBasesLoaded]);
 
   useEffect(() => {
     if (!selectedId && bases.length > 0) {

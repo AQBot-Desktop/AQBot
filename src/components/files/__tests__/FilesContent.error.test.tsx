@@ -10,6 +10,7 @@ const mockStoreBase = {
   search: '',
   sortKey: 'createdAt' as const,
   loadCategory: vi.fn().mockResolvedValue(undefined),
+  ensureCategoryLoaded: vi.fn().mockResolvedValue(undefined),
   setSearch: vi.fn(),
   setSortKey: vi.fn(),
   clearError: vi.fn(),

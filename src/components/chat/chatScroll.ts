@@ -9,6 +9,45 @@ export type ChatScrollElements = {
   scrollContent: HTMLElement | null;
 };
 
+export type MessageScrollAnchor = {
+  messageId: string;
+  viewportOffset: number;
+};
+
+function getMessageAnchorElement(marker: HTMLElement): HTMLElement {
+  return marker.closest<HTMLElement>('.ant-bubble-content') ?? marker;
+}
+
+export function captureMessageScrollAnchor(scrollBox: HTMLElement): MessageScrollAnchor | null {
+  const viewportRect = scrollBox.getBoundingClientRect();
+  const markers = scrollBox.querySelectorAll<HTMLElement>('[data-aqbot-msg]');
+  for (const marker of markers) {
+    const messageId = marker.dataset.aqbotMsg;
+    if (!messageId) continue;
+    const rect = getMessageAnchorElement(marker).getBoundingClientRect();
+    if (rect.bottom < viewportRect.top || rect.top > viewportRect.bottom) continue;
+    return {
+      messageId,
+      viewportOffset: rect.top - viewportRect.top,
+    };
+  }
+  return null;
+}
+
+export function restoreMessageScrollAnchor(
+  scrollBox: HTMLElement,
+  anchor: MessageScrollAnchor | null,
+): boolean {
+  if (!anchor) return false;
+  const marker = Array.from(scrollBox.querySelectorAll<HTMLElement>('[data-aqbot-msg]'))
+    .find((candidate) => candidate.dataset.aqbotMsg === anchor.messageId);
+  if (!marker) return false;
+  const viewportTop = scrollBox.getBoundingClientRect().top;
+  const currentOffset = getMessageAnchorElement(marker).getBoundingClientRect().top - viewportTop;
+  scrollBox.scrollTop += currentOffset - anchor.viewportOffset;
+  return true;
+}
+
 export function resolveChatScrollElements(
   root: ParentNode | null | undefined,
   scrollBoxCandidate?: HTMLElement | null,

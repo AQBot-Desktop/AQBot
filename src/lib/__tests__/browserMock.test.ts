@@ -45,6 +45,27 @@ describe('browserMock gateway templates', () => {
     expect(backups).toHaveLength(0);
   });
 
+  it('exposes raw stored-file ids for files-page image protocol URLs', async () => {
+    localStorage.setItem('aqbot_drawing_files', JSON.stringify([{
+      id: 'stored-image-1',
+      original_name: 'preview.png',
+      mime_type: 'image/png',
+      size_bytes: 68,
+      storage_path: 'images/preview.png',
+      data: 'ignored-by-files-page-list',
+    }]));
+
+    const rows = await handleCommand<any[]>('list_files_page_entries', { category: 'images' });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: 'attachment::stored-image-1',
+        storedFileId: 'stored-image-1',
+        storagePath: 'images/preview.png',
+      }),
+    ]);
+  });
+
   it('stores S3 config and supports S3 backup list/delete commands', async () => {
     await handleCommand('save_s3_config', {
       config: {

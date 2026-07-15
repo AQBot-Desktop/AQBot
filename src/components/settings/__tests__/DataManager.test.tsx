@@ -41,6 +41,10 @@ vi.mock('@/stores/fileStore', () => ({
   },
 }));
 
+vi.mock('@/stores/invalidateResources', () => ({
+  invalidateApplicationResources: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
   save: vi.fn(),

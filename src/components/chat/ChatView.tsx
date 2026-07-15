@@ -29,7 +29,7 @@ import {
   useSettingsStore,
   useAgentStore,
 } from '@/stores';
-import { setupAgentEventListeners } from '@/stores/agentStore';
+import { MAX_LOADED_MESSAGES } from '@/stores/conversationStore';
 import { useUserProfileStore, type AvatarType } from '@/stores/userProfileStore';
 import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { InputArea } from './InputArea';
@@ -42,8 +42,23 @@ import {
   stripAqbotTags,
   type ChatMarkdownNode,
 } from '@/lib/chatMarkdown';
+import {
+  createChatContentFingerprint,
+  getCachedChatMarkdown,
+  setCachedChatMarkdown,
+} from '@/lib/chatMarkdownCache';
+import { useDeferredChatMarkdown } from '@/hooks/useDeferredChatMarkdown';
+import {
+  usePageSuspendCleanup,
+  usePageConnectionGeneration,
+  usePageTransientOpenState,
+} from '@/components/layout/PageLifecycle';
 import { normalizeHtmlRenderContent } from '@/lib/chatHtmlRender';
 import { normalizeThinkTagsForMarkdown } from '@/lib/thinkTags';
+import {
+  loadStoredMediaSource,
+  normalizeStoredMediaUrlsForPlatform,
+} from '@/lib/storedMedia';
 import {
   getMessageVersionGroupKey,
   hasMultipleModelVersions,
@@ -59,11 +74,12 @@ import { McpContainerNode } from './McpContainerNode';
 import {
   CHAT_AUTO_SCROLL_BOTTOM_THRESHOLD,
   CHAT_SCROLL_IS_REVERSED,
+  captureMessageScrollAnchor,
   getDistanceToHistoryTop,
-  getScrollTopAfterPrepend,
   hasMeasuredScrollLayoutChanged,
   hasScrollLayoutMetricsChanged,
   resolveChatScrollElements,
+  restoreMessageScrollAnchor,
   shouldIgnoreScrollDepartureFromBottom,
   shouldKeepAutoScroll,
   shouldStickToBottomOnLayoutChange,
@@ -102,8 +118,13 @@ import { ChatImageNode } from './ChatImageNode';
 import { HtmlRenderNode } from './HtmlRenderNode';
 import { formatChatTime } from './chatTime';
 import { ChatMessageRenderBoundary } from './ChatMessageRenderBoundary';
+import {
+  collectRetainedChatCacheKeys,
+  getOrParseThinkingNodes,
+  retainMapKeys,
+  retainSetValues,
+} from './chatRetainedCaches';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
-
 import { invoke } from '@/lib/invoke';
 import { registerHighlight } from 'stream-markdown';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
@@ -186,34 +207,49 @@ function AttachmentPreview({ att, themeColor }: { att: Attachment; themeColor: s
   });
   const [failed, setFailed] = React.useState(false);
   const [fileExists, setFileExists] = React.useState<boolean | null>(null);
+  const [previewOpen, setPreviewOpen] = usePageTransientOpenState();
+  const pageConnectionGenerationRef = usePageConnectionGeneration();
 
-  // Check file existence for all attachments
+  // Stored images use aqbot-media directly. The protocol response is the
+  // existence check, so avoid a separate IPC before every image render.
   React.useEffect(() => {
+    if (isImage || fileExists !== null) return;
     if (!att.file_path) { setFileExists(false); return; }
     let cancelled = false;
     invoke<boolean>('check_attachment_exists', { filePath: att.file_path })
       .then((exists) => { if (!cancelled) setFileExists(exists); })
       .catch(() => { if (!cancelled) setFileExists(false); });
     return () => { cancelled = true; };
-  }, [att.file_path]);
+  }, [att.file_path, fileExists, isImage]);
 
-  // Load image preview (only if file exists)
+  // Load image preview without a preceding existence IPC. A missing protocol
+  // resource is surfaced through the image error handler below.
   React.useEffect(() => {
     if (!isImage || src || failed) return;
-    if (!att.file_path || fileExists === false) { setFailed(true); return; }
-    if (fileExists === null) return; // still checking
+    if (!att.file_path) {
+      setFailed(true);
+      setFileExists(false);
+      return;
+    }
     let cancelled = false;
-    invoke<string>('read_attachment_preview', { filePath: att.file_path })
+    loadStoredMediaSource(att.id, att.file_path)
       .then((dataUrl) => { if (!cancelled) setSrc(dataUrl); })
-      .catch(() => { if (!cancelled) setFailed(true); });
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true);
+          setFileExists(false);
+        }
+      });
     return () => { cancelled = true; };
-  }, [isImage, att.file_path, src, failed, fileExists]);
+  }, [isImage, att.id, att.file_path, src, failed]);
 
   // Deleted/missing file — show red error tag, click to show location modal
   if (fileExists === false) {
     const showMissingModal = () => {
+      const connectionGeneration = pageConnectionGenerationRef.current;
       invoke<string>('resolve_attachment_path', { filePath: att.file_path })
         .then((absPath) => {
+          if (pageConnectionGenerationRef.current !== connectionGeneration) return;
           modal.confirm({
             icon: <CloseCircleFilled style={{ color: '#ff4d4f' }} />,
             title: t('chat.attachmentNotFound'),
@@ -226,6 +262,7 @@ function AttachmentPreview({ att, themeColor }: { att: Attachment; themeColor: s
           });
         })
         .catch(() => {
+          if (pageConnectionGenerationRef.current !== connectionGeneration) return;
           modal.error({
             title: t('chat.attachmentNotFound'),
             content: att.file_path || att.file_name,
@@ -263,7 +300,16 @@ function AttachmentPreview({ att, themeColor }: { att: Attachment; themeColor: s
         src={src}
         alt={att.file_name}
         style={ATTACHMENT_IMG_STYLE}
-        preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+        onError={() => {
+          setFailed(true);
+          setFileExists(false);
+        }}
+        preview={{
+          open: previewOpen,
+          onOpenChange: setPreviewOpen,
+          mask: { blur: true },
+          scaleStep: 0.5,
+        }}
       />
     );
   }
@@ -446,7 +492,7 @@ function isStandaloneD2Fence(content: string) {
 }
 
 function shouldDeferAssistantMarkdownParse(content: string) {
-  return content.length > HEAVY_MARKDOWN_CHAR_LIMIT || (content.includes('```') && !isStandaloneD2Fence(content));
+  return content.length > HEAVY_MARKDOWN_CHAR_LIMIT && !isStandaloneD2Fence(content);
 }
 
 function sanitizeD2Url(url: string) {
@@ -584,18 +630,13 @@ function ThinkNode(props: NodeComponentProps<{
       : t('chat.thinkingComplete');
 
   const thinkingNodes = useMemo(() => {
-    const cache = thinkingNodesCacheRef.current;
-    const cached = cache.get(thinkingContent);
-    if (cached) return cached;
-
-    const parsed = safeParseChatMarkdown(thinkingContent);
-    cache.set(thinkingContent, parsed);
-    if (cache.size > 24) {
-      const firstKey = cache.keys().next().value;
-      if (firstKey) cache.delete(firstKey);
-    }
-    return parsed;
-  }, [thinkingContent]);
+    return getOrParseThinkingNodes(
+      thinkingNodesCacheRef.current,
+      thinkingContent,
+      isStreaming,
+      safeParseChatMarkdown,
+    );
+  }, [isStreaming, thinkingContent]);
   const { darkTheme, lightTheme, themes } = useMemo(
     () => getChatCodeThemes(selectedDarkCodeTheme, selectedLightCodeTheme),
     [selectedDarkCodeTheme, selectedLightCodeTheme],
@@ -970,14 +1011,13 @@ function ToolCallNode(props: NodeComponentProps<{
   const { node } = props;
   const { token } = theme.useToken();
   const { t } = useTranslation();
-  const toolCalls = useAgentStore((s) => s.toolCalls);
+  const execId = getCustomAttr(node.attrs, 'id') ?? '';
+  const tc = useAgentStore((s) => s.toolCalls[execId]);
   const [expanded, setExpanded] = useState(false);
 
-  const execId = getCustomAttr(node.attrs, 'id') ?? '';
   const toolName = getCustomAttr(node.attrs, 'name') ?? '';
   const summary = String(node.content ?? '');
 
-  const tc = toolCalls[execId];
   const status = tc?.executionStatus ?? 'success';
   const statusColor = toolCallStatusColors[status] || token.colorTextSecondary;
   const isLoading = status === 'queued' || status === 'running';
@@ -1149,6 +1189,7 @@ function MessageRenderFallback({
 const AssistantMarkdown = React.memo(function AssistantMarkdown({
   content,
   nodes,
+  cacheKey,
   isDarkMode,
   isStreaming,
   codeBlockDarkTheme,
@@ -1159,6 +1200,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
 }: {
   content: string;
   nodes?: ChatMarkdownNode[];
+  cacheKey?: string;
   isDarkMode: boolean;
   isStreaming: boolean;
   codeBlockDarkTheme: string;
@@ -1169,6 +1211,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const codeBlockProps = useMemo(
     () => getChatCodeBlockProps(codeBlockDarkTheme, codeBlockLightTheme),
@@ -1178,26 +1221,45 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
     () => codeFontFamily ? { fontFamily: codeFontFamily } : undefined,
     [codeFontFamily],
   );
-  const singleD2Node = useMemo(() => getSingleD2CodeBlockNode(nodes), [nodes]);
+  const renderableContent = useMemo(
+    () => normalizeStoredMediaUrlsForPlatform(content),
+    [content],
+  );
+  const contentWithoutExplicitDisplay = useMemo(() => (
+    displayPrefix
+      ? stripLeadingAqbotDisplayTags(normalizeThinkTagsForMarkdown(renderableContent), ['knowledge-retrieval', 'memory-retrieval'])
+      : normalizeThinkTagsForMarkdown(renderableContent)
+  ), [displayPrefix, renderableContent]);
+  const deferredParseContent = useMemo(() => (
+    displayPrefix
+      ? splitLeadingAqbotDisplayContent(contentWithoutExplicitDisplay).body
+      : normalizeThinkTagsForMarkdown(renderableContent)
+  ), [contentWithoutExplicitDisplay, displayPrefix, renderableContent]);
+  const deferredNodes = useDeferredChatMarkdown({
+    cacheKey: cacheKey ?? `content:${createChatContentFingerprint(deferredParseContent)}`,
+    content: deferredParseContent,
+    enabled: !nodes && !isStreaming && shouldDeferAssistantMarkdownParse(deferredParseContent),
+    onError: (error) => {
+      console.error('Failed to parse chat markdown in worker:', error);
+      messageApi.error(String(error));
+    },
+  });
+  const renderNodes = nodes ?? deferredNodes;
+  const singleD2Node = useMemo(() => getSingleD2CodeBlockNode(renderNodes), [renderNodes]);
   const hasDeferredHeavyNodes = useMemo(
-    () => !isStreaming && (containsDeferredHeavyNode(nodes) || shouldDeferAssistantMarkdownParse(content)),
-    [content, nodes, isStreaming],
+    () => !isStreaming && (containsDeferredHeavyNode(renderNodes) || shouldDeferAssistantMarkdownParse(deferredParseContent)),
+    [deferredParseContent, renderNodes, isStreaming],
   );
   const [readyToRenderHeavyNodes, setReadyToRenderHeavyNodes] = useState(!hasDeferredHeavyNodes);
   const rendererKey = `${isDarkMode ? 'dark' : 'light'}:${codeBlockDarkTheme}:${codeBlockLightTheme}`;
-  const contentWithoutExplicitDisplay = useMemo(() => (
-    displayPrefix
-      ? stripLeadingAqbotDisplayTags(normalizeThinkTagsForMarkdown(content), ['knowledge-retrieval', 'memory-retrieval'])
-      : normalizeThinkTagsForMarkdown(content)
-  ), [content, displayPrefix]);
   const displaySplit = useMemo(() => {
-    if (nodes) return { prefix: displayPrefix ?? '', body: normalizeThinkTagsForMarkdown(content) };
+    if (renderNodes) return { prefix: displayPrefix ?? '', body: normalizeThinkTagsForMarkdown(renderableContent) };
     const split = splitLeadingAqbotDisplayContent(contentWithoutExplicitDisplay);
     return {
       prefix: `${split.prefix}${displayPrefix ?? ''}`,
       body: split.body,
     };
-  }, [content, contentWithoutExplicitDisplay, displayPrefix, nodes]);
+  }, [contentWithoutExplicitDisplay, displayPrefix, renderableContent, renderNodes]);
   const displayPrefixNodes = useMemo(() => (
     displaySplit.prefix
       ? safeParseChatMarkdown(displaySplit.prefix)
@@ -1263,7 +1325,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
     );
   }
 
-  if (hasDeferredHeavyNodes && !readyToRenderHeavyNodes) {
+  if (hasDeferredHeavyNodes && (!readyToRenderHeavyNodes || (!renderNodes && !isStreaming))) {
     return (
       <div className="aqbot-chat-markdown">
         <div
@@ -1288,10 +1350,10 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
 
   return (
     <div className="aqbot-chat-markdown">
-      {nodes ? (
+      {renderNodes ? (
         <NodeRenderer
           key={rendererKey}
-          nodes={nodes}
+          nodes={renderNodes}
           isDark={isDarkMode}
           customId="chat"
           customHtmlTags={CHAT_CUSTOM_HTML_TAGS}
@@ -1353,6 +1415,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({
 }, (prev, next) => (
   prev.content === next.content
   && prev.nodes === next.nodes
+  && prev.cacheKey === next.cacheKey
   && prev.isDarkMode === next.isDarkMode
   && prev.isStreaming === next.isStreaming
   && prev.codeBlockDarkTheme === next.codeBlockDarkTheme
@@ -1579,7 +1642,7 @@ function DeleteLastVersionPopover({
   token: ReturnType<typeof theme.useToken>['token'];
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePageTransientOpenState();
 
   const handleDeleteThisOnly = async () => {
     setOpen(false);
@@ -1679,6 +1742,10 @@ function AssistantFooter({
   const [branchModalOpen, setBranchModalOpen] = useState(false);
   const [branchAsChild, setBranchAsChild] = useState(false);
   const [branchTitle, setBranchTitle] = useState('');
+  usePageSuspendCleanup(() => {
+    setBranchModalOpen(false);
+    setBranchTitle('');
+  });
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
   const storeMessages = useConversationStore((s) => s.messages);
@@ -2069,6 +2136,17 @@ export function ChatView() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { message: messageApi } = App.useApp();
+  const pageActiveRef = useRef(true);
+  const pageConnectionGenerationRef = useRef(0);
+
+  useEffect(() => {
+    pageConnectionGenerationRef.current += 1;
+    pageActiveRef.current = true;
+    return () => {
+      pageActiveRef.current = false;
+      pageConnectionGenerationRef.current += 1;
+    };
+  }, []);
 
   // ── Store selectors ────────────────────────────────────────────────
   const conversations = useConversationStore((s) => s.conversations);
@@ -2077,6 +2155,12 @@ export function ChatView() {
   const ragDisplayByMessageId = useConversationStore((s) => s.ragDisplayByMessageId);
   const searchDisplayByMessageId = useConversationStore((s) => s.searchDisplayByMessageId);
   const loading = useConversationStore((s) => s.loading);
+  const showingPreviousConversationWindow = Boolean(
+    loading
+    && activeConversationId
+    && messages.length > 0
+    && messages.some((message) => message.conversation_id !== activeConversationId),
+  );
   const loadingOlder = useConversationStore((s) => s.loadingOlder);
   const loadingNewer = useConversationStore((s) => s.loadingNewer);
   const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
@@ -2192,6 +2276,18 @@ export function ChatView() {
   }, []);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  useEffect(() => {
+    const agentStore = useAgentStore.getState();
+    const visibleAgentConversationId = activeConversation?.mode === 'agent'
+      ? activeConversationId
+      : null;
+    agentStore.setVisibleConversation(visibleAgentConversationId);
+    return () => {
+      if (useAgentStore.getState().visibleConversationId === visibleAgentConversationId) {
+        useAgentStore.getState().setVisibleConversation(null);
+      }
+    };
+  }, [activeConversation?.mode, activeConversationId]);
   const activeCustomConvIcon = activeConversation ? getConvIcon(activeConversation.id) : null;
   const resolvedActiveCustomConvIconSrc = useResolvedAvatarSrc(
     (activeCustomConvIcon?.type as AvatarType) ?? 'icon',
@@ -2307,6 +2403,23 @@ export function ChatView() {
   const titleInputRef = useRef<InputRef>(null);
   const skipTitleSaveRef = useRef(false);
 
+  usePageSuspendCleanup(() => {
+    setStatsOpen(false);
+    setStats(null);
+    setEditingTitle(false);
+    setEditingMessageId(null);
+    setEditingMessageRole(null);
+    setEditingContent('');
+    setCardBranchTarget(null);
+    setCardBranchTitle('');
+    setSummaryModalOpen(false);
+    setSummaryModalSummary(null);
+    setPreviewModalOpen(false);
+    setPreviewPayload(null);
+    setMermaidPreviewOpen(false);
+    setMermaidPreviewSvg(null);
+  });
+
   // ── Stats popover state ─────────────────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
   const [stats, setStats] = useState<ConversationStats | null>(null);
@@ -2327,8 +2440,10 @@ export function ChatView() {
   const scrollBoxRef = useRef<HTMLElement | null>(null);
   const scrollContentRef = useRef<HTMLElement | null>(null);
   const pendingScrollConversationIdRef = useRef<string | null>(activeConversationId ?? null);
+  const lastScrollResetConversationIdRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(stickToBottom);
   const scrollLayoutMetricsRef = useRef({ scrollHeight: 0, clientHeight: 0 });
+  const visibleMessageAnchorRef = useRef<ReturnType<typeof captureMessageScrollAnchor>>(null);
   const lastUserScrollIntentAtRef = useRef(0);
   const contentRendererMessageIdsRef = useRef<Set<string>>(new Set());
 
@@ -2390,10 +2505,6 @@ export function ChatView() {
       attachedScrollBox.addEventListener('touchstart', handleUserIntent, { passive: true });
       attachedScrollBox.addEventListener('touchmove', handleUserIntent, { passive: true });
       attachedScrollBox.addEventListener('pointerdown', handleUserIntent, { passive: true });
-      scrollLayoutMetricsRef.current = {
-        scrollHeight: attachedScrollBox.scrollHeight,
-        clientHeight: attachedScrollBox.clientHeight,
-      };
     };
 
     const scheduleAttach = () => {
@@ -2446,7 +2557,7 @@ export function ChatView() {
 
     void (async () => {
       await loadMessagesAround(messageId, MINIMAP_JUMP_BEFORE_LIMIT, MINIMAP_JUMP_AFTER_LIMIT);
-      window.requestAnimationFrame(scrollToMountedMessage);
+      if (pageActiveRef.current) window.requestAnimationFrame(scrollToMountedMessage);
     })();
   }, [loadMessagesAround]);
 
@@ -2457,10 +2568,13 @@ export function ChatView() {
   }, [editingTitle]);
 
   useEffect(() => {
+    if (lastScrollResetConversationIdRef.current === activeConversationId) return;
+    lastScrollResetConversationIdRef.current = activeConversationId ?? null;
     pendingScrollConversationIdRef.current = activeConversationId ?? null;
     setShowScrollToBottom(false);
     setStickToBottomState(true);
     scrollLayoutMetricsRef.current = { scrollHeight: 0, clientHeight: 0 };
+    visibleMessageAnchorRef.current = null;
     contentRendererMessageIdsRef.current.clear();
   }, [activeConversationId, setStickToBottomState]);
 
@@ -2496,7 +2610,9 @@ export function ChatView() {
   // Load agent tool history from DB on conversation switch
   useEffect(() => {
     if (activeConversation?.mode === 'agent' && activeConversationId) {
-      useAgentStore.getState().loadToolHistory(activeConversationId);
+      void useAgentStore.getState().ensureToolHistoryLoaded(activeConversationId).catch((error) => {
+        console.error('[ChatView] loadToolHistory failed:', error);
+      });
     }
   }, [activeConversationId, activeConversation?.mode]);
 
@@ -2508,19 +2624,17 @@ export function ChatView() {
     }
   }, [storeError, messageApi]);
 
-  // ── Agent event listeners ────────────────────────────────────────────
-  useEffect(() => {
-    const cleanup = setupAgentEventListeners();
-    return cleanup;
-  }, []);
-
   const currentAgentStatus = useAgentStore(
     (s) => (activeConversationId ? s.agentStatus[activeConversationId] : undefined),
   );
 
-  const agentToolCalls = useAgentStore((s) => s.toolCalls);
-  const agentPendingPermissions = useAgentStore((s) => s.pendingPermissions);
-  const agentPendingAskUser = useAgentStore((s) => s.pendingAskUser);
+  useAgentStore(
+    (s) => (activeConversationId ? s.conversationRevisions[activeConversationId] ?? 0 : 0),
+  );
+  const agentState = useAgentStore.getState();
+  const agentToolCalls = agentState.toolCalls;
+  const agentPendingPermissions = agentState.pendingPermissions;
+  const agentPendingAskUser = agentState.pendingAskUser;
 
   const handleTitleClick = useCallback(() => {
     if (!activeConversation) return;
@@ -2548,28 +2662,39 @@ export function ChatView() {
 
   const handleLoadOlderMessages = useCallback(async () => {
     const scrollContainer = bubbleListRef.current?.scrollBoxNativeElement as HTMLDivElement | null | undefined;
-    const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
-    const previousScrollTop = scrollContainer?.scrollTop ?? 0;
+    const anchor = scrollContainer ? captureMessageScrollAnchor(scrollContainer) : null;
     await loadOlderMessages();
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        if (!scrollContainer) return;
-        scrollContainer.scrollTop = getScrollTopAfterPrepend(
-          previousScrollTop,
-          previousScrollHeight,
-          scrollContainer.scrollHeight,
-          CHAT_SCROLL_IS_REVERSED,
-        );
+        if (!scrollContainer || !pageActiveRef.current) return;
+        restoreMessageScrollAnchor(scrollContainer, anchor);
+        visibleMessageAnchorRef.current = captureMessageScrollAnchor(scrollContainer);
       });
     });
   }, [loadOlderMessages]);
 
   const handleLoadNewerMessages = useCallback(async () => {
+    const scrollContainer = bubbleListRef.current?.scrollBoxNativeElement as HTMLDivElement | null | undefined;
+    const anchor = !stickToBottomRef.current && scrollContainer
+      ? captureMessageScrollAnchor(scrollContainer)
+      : null;
     await loadNewerMessages();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (!scrollContainer || !pageActiveRef.current) return;
+        if (stickToBottomRef.current) {
+          bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'auto' });
+          return;
+        }
+        restoreMessageScrollAnchor(scrollContainer, anchor);
+        visibleMessageAnchorRef.current = captureMessageScrollAnchor(scrollContainer);
+      });
+    });
   }, [loadNewerMessages]);
 
   const handleBubbleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
+    visibleMessageAnchorRef.current = captureMessageScrollAnchor(target);
     const currentMetrics = {
       scrollHeight: target.scrollHeight,
       clientHeight: target.clientHeight,
@@ -2679,8 +2804,14 @@ export function ChatView() {
         hadRecentUserScrollIntent,
       )) {
         bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'auto' });
+        visibleMessageAnchorRef.current = null;
         setShowScrollToBottom(false);
         return;
+      }
+
+      if (!stickToBottomRef.current && visibleMessageAnchorRef.current) {
+        restoreMessageScrollAnchor(target, visibleMessageAnchorRef.current);
+        visibleMessageAnchorRef.current = captureMessageScrollAnchor(target);
       }
 
       syncScrollToBottomVisibility();
@@ -2702,10 +2833,12 @@ export function ChatView() {
       disconnectResizeObserver();
       observedScrollBox = scrollBox;
       observedScrollContent = scrollContent;
-      scrollLayoutMetricsRef.current = {
-        scrollHeight: scrollBox.scrollHeight,
-        clientHeight: scrollBox.clientHeight,
-      };
+      if (scrollLayoutMetricsRef.current.scrollHeight === 0) {
+        scrollLayoutMetricsRef.current = {
+          scrollHeight: scrollBox.scrollHeight,
+          clientHeight: scrollBox.clientHeight,
+        };
+      }
 
       resizeObserver = new ResizeObserver(() => {
         if (frameId) {
@@ -2744,18 +2877,37 @@ export function ChatView() {
   // Scroll to bottom when streaming starts (user sent a message while scrolled up)
   const prevStreamingRef = useRef(false);
   useEffect(() => {
+    let timeoutId: number | null = null;
     if (streaming && !prevStreamingRef.current) {
       // Delay to let the new message bubble render before scrolling
-      setTimeout(() => {
+      timeoutId = window.setTimeout(() => {
         bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' });
         setShowScrollToBottom(false);
         setStickToBottomState(true);
       }, 50);
     }
     prevStreamingRef.current = streaming;
+    return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
   }, [setStickToBottomState, streaming]);
 
   // ── Export menu ────────────────────────────────────────────────────
+  const loadCompleteTranscript = useCallback(async () => {
+    if (!activeConversationId || (!hasOlderMessages && !hasNewerMessages)) {
+      return messages;
+    }
+
+    const persisted = await invoke<Message[]>('list_messages', {
+      conversationId: activeConversationId,
+    });
+    const currentById = new Map(messages.map((item) => [item.id, item]));
+    const complete = persisted.map((item) => currentById.get(item.id) ?? item);
+    const persistedIds = new Set(persisted.map((item) => item.id));
+    complete.push(...messages.filter((item) => !persistedIds.has(item.id)));
+    return complete;
+  }, [activeConversationId, hasNewerMessages, hasOlderMessages, messages]);
+
   const exportMenuItems = useMemo(
     () => [
       {
@@ -2763,9 +2915,10 @@ export function ChatView() {
         label: t('chat.copyMarkdown', '复制 Markdown'),
         icon: <Copy size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await copyTranscript(messages, activeConversation?.title ?? 'chat', 'markdown', { includeThinking: false });
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await copyTranscript(transcript, activeConversation?.title ?? 'chat', 'markdown', { includeThinking: false });
             if (ok) messageApi.success(t('chat.copied'));
           } catch (e) { console.error('Copy MD failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2786,9 +2939,10 @@ export function ChatView() {
         label: t('chat.exportMd'),
         icon: <FileCode size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsMarkdown(messages, activeConversation?.title ?? 'chat');
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsMarkdown(transcript, activeConversation?.title ?? 'chat');
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export MD failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2798,9 +2952,10 @@ export function ChatView() {
         label: t('chat.exportMdNoThinking', '导出 Markdown（不含思维链）'),
         icon: <FileCode size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsMarkdown(messages, activeConversation?.title ?? 'chat', { includeThinking: false });
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsMarkdown(transcript, activeConversation?.title ?? 'chat', { includeThinking: false });
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export MD (no thinking) failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2810,9 +2965,10 @@ export function ChatView() {
         label: t('chat.exportTxt'),
         icon: <FileType size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsText(messages, activeConversation?.title ?? 'chat');
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsText(transcript, activeConversation?.title ?? 'chat');
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export TXT failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2822,9 +2978,10 @@ export function ChatView() {
         label: t('chat.exportTxtNoThinking', '导出文本（不含思维链）'),
         icon: <FileType size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsText(messages, activeConversation?.title ?? 'chat', { includeThinking: false });
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsText(transcript, activeConversation?.title ?? 'chat', { includeThinking: false });
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export TXT (no thinking) failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2834,9 +2991,10 @@ export function ChatView() {
         label: t('chat.exportJson'),
         icon: <FileText size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsJSON(messages, activeConversation?.title ?? 'chat');
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsJSON(transcript, activeConversation?.title ?? 'chat');
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export JSON failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
@@ -2846,15 +3004,16 @@ export function ChatView() {
         label: t('chat.exportJsonNoThinking', '导出 JSON（不含思维链）'),
         icon: <FileText size={14} />,
         onClick: async () => {
-          if (messages.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
           try {
-            const ok = await exportAsJSON(messages, activeConversation?.title ?? 'chat', { includeThinking: false });
+            const transcript = await loadCompleteTranscript();
+            if (transcript.length === 0) { messageApi.warning(t('chat.noMessages')); return; }
+            const ok = await exportAsJSON(transcript, activeConversation?.title ?? 'chat', { includeThinking: false });
             if (ok) messageApi.success(t('chat.exportSuccess'));
           } catch (e) { console.error('Export JSON (no thinking) failed:', e); messageApi.error(t('chat.exportFailed')); }
         },
       },
     ],
-    [messages, activeConversation, t, messageApi],
+    [activeConversation, loadCompleteTranscript, messageApi, t],
   );
 
   // ── Welcome prompt items ───────────────────────────────────────────
@@ -2946,21 +3105,61 @@ export function ChatView() {
     const ids = new Set<string>();
     for (const msg of activeMessages) {
       if (msg.role === 'assistant' && msg.parent_message_id) {
-        ids.add(msg.parent_message_id);
+        ids.add([
+          msg.parent_message_id,
+          msg.id,
+          msg.version_index,
+          createChatContentFingerprint(msg.content),
+        ].join('\0'));
       }
     }
     return Array.from(ids).join('\n');
   }, [activeMessages]);
   const [messageVersionsByParentId, setMessageVersionsByParentId] = useState<Record<string, Message[]>>({});
+  const messageVersionsCacheRef = useRef(new Map<string, Record<string, string[]>>());
   const messageById = useMemo(
     () => new Map(messages.map((msg) => [msg.id, msg])),
     [messages],
   );
+  const currentMessageVersionsByParentId = useMemo(() => Object.fromEntries(
+    Object.entries(messageVersionsByParentId).map(([parentId, versions]) => [
+      parentId,
+      versions.map((version) => messageById.get(version.id) ?? version),
+    ]),
+  ), [messageById, messageVersionsByParentId]);
 
   useEffect(() => {
     if (!activeConversationId || !assistantVersionParentIdsKey) {
       setMessageVersionsByParentId((prev) => (Object.keys(prev).length > 0 ? {} : prev));
       return;
+    }
+
+    const resourceKey = `${activeConversationId}\n${assistantVersionParentIdsKey}`;
+    const cachedVersionIds = messageVersionsCacheRef.current.get(resourceKey);
+    if (cachedVersionIds) {
+      const currentMessagesById = new Map(
+        useConversationStore.getState().messages.map((message) => [message.id, message]),
+      );
+      const cachedVersions: Record<string, Message[]> = {};
+      let cacheComplete = true;
+      for (const [parentId, versionIds] of Object.entries(cachedVersionIds)) {
+        const versions = versionIds
+          .map((messageId) => currentMessagesById.get(messageId))
+          .filter((message): message is Message => Boolean(message));
+        if (versions.length !== versionIds.length) {
+          cacheComplete = false;
+          break;
+        }
+        cachedVersions[parentId] = versions;
+      }
+      if (!cacheComplete) {
+        messageVersionsCacheRef.current.delete(resourceKey);
+      } else {
+        messageVersionsCacheRef.current.delete(resourceKey);
+        messageVersionsCacheRef.current.set(resourceKey, cachedVersionIds);
+        setMessageVersionsByParentId(cachedVersions);
+        return;
+      }
     }
 
     let cancelled = false;
@@ -2970,7 +3169,10 @@ export function ChatView() {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
       cancelIdleCallback?: (handle: number) => void;
     };
-    const parentMessageIds = assistantVersionParentIdsKey.split('\n').filter(Boolean);
+    const parentMessageIds = assistantVersionParentIdsKey
+      .split('\n')
+      .map((entry) => entry.split('\0', 1)[0])
+      .filter(Boolean);
     const startedAt = perfNow();
     const load = () => {
       listMessageVersionsBatch(activeConversationId, parentMessageIds).then((result) => {
@@ -2979,6 +3181,18 @@ export function ChatView() {
           parentCount: parentMessageIds.length,
         });
         if (cancelled) return;
+        messageVersionsCacheRef.current.set(
+          resourceKey,
+          Object.fromEntries(parentMessageIds.map((parentId) => [
+            parentId,
+            (result[parentId] ?? []).map((message) => message.id),
+          ])),
+        );
+        while (messageVersionsCacheRef.current.size > 8) {
+          const oldestKey = messageVersionsCacheRef.current.keys().next().value;
+          if (!oldestKey) break;
+          messageVersionsCacheRef.current.delete(oldestKey);
+        }
         setMessageVersionsByParentId(result);
         for (const [parentId, versions] of Object.entries(result)) {
           if (versions.length > 0) {
@@ -3060,6 +3274,38 @@ export function ChatView() {
   const [displayModeOverrides, setDisplayModeOverrides] = useState<Map<string, MultiModelDisplayMode>>(new Map());
   const [displayVersionOverrides, setDisplayVersionOverrides] = useState<Map<string, Map<string, string>>>(new Map());
   const [pendingDisplayVersionSelections, setPendingDisplayVersionSelections] = useState<Map<string, Map<string, PendingDisplayVersionSelection>>>(new Map());
+  const retainedChatCacheKeys = useMemo(() => collectRetainedChatCacheKeys(
+    messages,
+    MAX_LOADED_MESSAGES,
+    streamingMessageId ? [streamingMessageId] : [],
+  ), [messages, streamingMessageId]);
+  const transientCacheConversationIdRef = useRef(activeConversationId);
+
+  useEffect(() => {
+    if (transientCacheConversationIdRef.current === activeConversationId) return;
+    transientCacheConversationIdRef.current = activeConversationId;
+    multiModelVersionsRef.current.clear();
+    contentRendererMessageIdsRef.current.clear();
+    if (streamingMessageId) contentRendererMessageIdsRef.current.add(streamingMessageId);
+    setDisplayModeOverrides((prev) => (prev.size > 0 ? new Map() : prev));
+    setDisplayVersionOverrides((prev) => (prev.size > 0 ? new Map() : prev));
+    setPendingDisplayVersionSelections((prev) => (prev.size > 0 ? new Map() : prev));
+  }, [activeConversationId, streamingMessageId]);
+
+  useEffect(() => {
+    multiModelVersionsRef.current = retainMapKeys(
+      multiModelVersionsRef.current,
+      retainedChatCacheKeys.parentIds,
+    );
+    contentRendererMessageIdsRef.current = retainSetValues(
+      contentRendererMessageIdsRef.current,
+      retainedChatCacheKeys.messageIds,
+    );
+    setDisplayModeOverrides((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
+    setDisplayVersionOverrides((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
+    setPendingDisplayVersionSelections((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
+  }, [retainedChatCacheKeys]);
+
   const handleDisplayModeOverride = useCallback((parentMsgId: string, mode: MultiModelDisplayMode) => {
     setDisplayModeOverrides((prev) => {
       const next = new Map(prev);
@@ -3274,7 +3520,7 @@ export function ChatView() {
 
       if (msg.role === 'user') {
         const { userContent } = userSearchContentById.get(msg.id) ?? parseSearchContent(msg.content);
-        const signature = `user:${userContent}`;
+        const signature = `user:${createChatContentFingerprint(userContent)}`;
         const cached = cache.get(msg.id);
         const item = cached?.signature === signature
           ? cached.item
@@ -3307,7 +3553,13 @@ export function ChatView() {
       const stableKey = msg.parent_message_id ? `ai:${msg.parent_message_id}` : msg.id;
       if (nextCache.has(stableKey)) continue; // already rendered for this parent
       const displaySignature = msg.role === 'assistant' ? searchDisplayByMessageId[msg.id] ?? '' : '';
-      const signature = `ai:${msg.id}:${displaySignature}:${aiContent}`;
+      const signature = [
+        'ai',
+        msg.id,
+        msg.status,
+        createChatContentFingerprint(displaySignature),
+        createChatContentFingerprint(aiContent),
+      ].join(':');
       const cached = cache.get(stableKey);
       const item = cached?.signature === signature
         ? cached.item
@@ -3337,8 +3589,21 @@ export function ChatView() {
   const lastBubbleKey = finalBubbleItems.length > 0
     ? String(finalBubbleItems[finalBubbleItems.length - 1].key)
     : '';
+  const lastAutoScrollRequestRef = useRef<{
+    items: typeof finalBubbleItems;
+    stickToBottom: boolean;
+  } | null>(null);
 
   useEffect(() => {
+    const previousRequest = lastAutoScrollRequestRef.current;
+    if (
+      previousRequest?.items === finalBubbleItems
+      && previousRequest.stickToBottom === stickToBottom
+    ) {
+      return;
+    }
+    lastAutoScrollRequestRef.current = { items: finalBubbleItems, stickToBottom };
+
     const rafId = window.requestAnimationFrame(() => {
       if (stickToBottom) {
         bubbleListRef.current?.scrollTo({ top: 'bottom', behavior: 'auto' });
@@ -3368,12 +3633,7 @@ export function ChatView() {
       window.cancelAnimationFrame(frame2);
     };
   }, [activeConversationId, bubbleItems.length, lastBubbleKey]);
-  const aiContentNodesCacheRef = useRef<Map<string, {
-    content: string;
-    nodes: ChatMarkdownNode[];
-  }>>(new Map());
   const aiContentNodesById = useMemo(() => {
-    const cache = aiContentNodesCacheRef.current;
     const next = new Map<string, ChatMarkdownNode[]>();
 
     for (const item of bubbleItems) {
@@ -3404,25 +3664,19 @@ export function ChatView() {
 
       const messageId = String(item.key);
       if (shouldDeferAssistantMarkdownParse(item.content)) {
-        cache.delete(messageId);
         continue;
       }
 
-      const cached = cache.get(messageId);
-      if (cached && cached.content === item.content) {
-        next.set(messageId, cached.nodes);
+      const renderableContent = normalizeStoredMediaUrlsForPlatform(item.content);
+      const cached = getCachedChatMarkdown(messageId, renderableContent);
+      if (cached) {
+        next.set(messageId, cached);
         continue;
       }
 
-      const nodes = safeParseChatMarkdown(item.content);
-      cache.set(messageId, { content: item.content, nodes });
+      const nodes = safeParseChatMarkdown(renderableContent);
+      setCachedChatMarkdown(messageId, renderableContent, nodes);
       next.set(messageId, nodes);
-    }
-
-    for (const messageId of Array.from(cache.keys())) {
-      if (!next.has(messageId)) {
-        cache.delete(messageId);
-      }
     }
 
     return next;
@@ -3507,6 +3761,7 @@ export function ChatView() {
         >
           <AssistantMarkdown
             content={content}
+            cacheKey={msg?.id ?? `user:${createChatContentFingerprint(content)}`}
             isDarkMode={isDarkMode}
             isStreaming={false}
             codeBlockDarkTheme={codeBlockDarkTheme}
@@ -3724,6 +3979,7 @@ export function ChatView() {
           >
             <AssistantMarkdown
               content={versionContent}
+              cacheKey={versionMessage.id}
               isDarkMode={isDarkMode}
               isStreaming={versionIsStreaming}
               codeBlockDarkTheme={codeBlockDarkTheme}
@@ -3825,6 +4081,7 @@ export function ChatView() {
                   >
                     <AssistantMarkdown
                       content={errorDisplay.prefix}
+                      cacheKey={`${msg?.id ?? String(bubbleData.key)}:error-prefix`}
                       isDarkMode={isDarkMode}
                       isStreaming={false}
                       codeBlockDarkTheme={codeBlockDarkTheme}
@@ -3885,6 +4142,7 @@ export function ChatView() {
                 <AssistantMarkdown
                   content={renderContent}
                   nodes={parsedNodes}
+                  cacheKey={msg?.id ?? String(bubbleData.key)}
                   isDarkMode={isDarkMode}
                   isStreaming={isStreaming}
                   codeBlockDarkTheme={codeBlockDarkTheme}
@@ -3997,7 +4255,7 @@ export function ChatView() {
             <AssistantFooter
               msg={msg}
               conversationId={activeConversationId}
-              versions={msg.parent_message_id ? messageVersionsByParentId[msg.parent_message_id] : undefined}
+              versions={msg.parent_message_id ? currentMessageVersionsByParentId[msg.parent_message_id] : undefined}
               assistantCopyText={assistantCopyText}
               getModelDisplayInfo={getModelDisplayInfo}
               onEditMessage={handleEditMessage}
@@ -4021,7 +4279,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messageVersionsByParentId, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, settings, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, currentMessageVersionsByParentId, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, settings, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, token.colorPrimary, token.colorTextDescription]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');
@@ -4086,7 +4344,13 @@ export function ChatView() {
               onClick={async () => {
                 const convId = activeConversationId;
                 if (!convId) return;
+                const connectionGeneration = pageConnectionGenerationRef.current;
                 const summary = await getCompressionSummary(convId);
+                if (
+                  !pageActiveRef.current
+                  || pageConnectionGenerationRef.current !== connectionGeneration
+                  || useConversationStore.getState().activeConversationId !== convId
+                ) return;
                 setSummaryModalText(summary?.summary_text ?? t('chat.noSummary'));
                 setSummaryModalSummary(summary ?? null);
                 setSummaryModalOpen(true);
@@ -4454,6 +4718,7 @@ export function ChatView() {
               role={roles}
               style={{
                 height: '100%',
+                visibility: showingPreviousConversationWindow ? 'hidden' : undefined,
                 padding: settings.chat_minimap_enabled && settings.chat_minimap_style === 'sticky'
                   ? '50px 24px 16px 24px'
                   : '16px 24px',
@@ -4464,6 +4729,23 @@ export function ChatView() {
             <MinimapScrollProvider scrollTo={minimapScrollTo} scrollBoxRef={scrollBoxRef}>
               <ChatMinimap />
             </MinimapScrollProvider>
+            {showingPreviousConversationWindow && (
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center"
+                style={{
+                  gap: 12,
+                  padding: '0 24px',
+                  color: token.colorTextSecondary,
+                  background: token.colorBgContainer,
+                  zIndex: 1,
+                }}
+              >
+                <SyncOutlined spin style={{ fontSize: 20, color: token.colorPrimary }} />
+                <Typography.Text type="secondary">
+                  {t('chat.loadingConversation')}
+                </Typography.Text>
+              </div>
+            )}
           </>
         )}
       </div>

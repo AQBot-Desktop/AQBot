@@ -2,7 +2,7 @@ use aqbot_core::repo::stored_file::StoredFile;
 use aqbot_core::types::BackupManifest;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Component, Path};
 use tauri::State;
 
 use crate::AppState;
@@ -14,6 +14,9 @@ use crate::AppState;
 pub struct FilesPageEntry {
     /// Stable namespaced id: `"attachment::<record_id>"` or `"backup_manifest::<record_id>"`
     pub id: String,
+    /// Raw `stored_files.id`, used by `aqbot-media://stored/<id>`.
+    /// Backup rows do not have a stored-file id.
+    pub stored_file_id: Option<String>,
     /// `"attachment"` | `"backup_manifest"`
     pub source_kind: String,
     /// `"images"` | `"files"` | `"backups"`
@@ -21,7 +24,8 @@ pub struct FilesPageEntry {
     pub display_name: String,
     pub path: String,
     /// Relative storage path under documents root (e.g. `images/abc123_photo.jpg`).
-    /// Used by frontend to load base64 preview via `read_attachment_preview`.
+    /// Legacy fallback path. New image rendering must use the stored-file id
+    /// with `aqbot-media://stored/<id>` instead of loading this path as base64.
     pub storage_path: Option<String>,
     pub size_bytes: i64,
     pub created_at: String,
@@ -66,6 +70,7 @@ pub fn build_image_entries(files: &[StoredFile]) -> Vec<FilesPageEntry> {
             };
             FilesPageEntry {
                 id: format!("attachment::{}", f.id),
+                stored_file_id: Some(f.id.clone()),
                 source_kind: "attachment".to_string(),
                 category: "images".to_string(),
                 display_name: f.original_name.clone(),
@@ -90,6 +95,7 @@ pub fn build_file_entries(files: &[StoredFile]) -> Vec<FilesPageEntry> {
             let resolved_path = resolve_storage_path(&f.storage_path);
             FilesPageEntry {
                 id: format!("attachment::{}", f.id),
+                stored_file_id: Some(f.id.clone()),
                 source_kind: "attachment".to_string(),
                 category: "files".to_string(),
                 display_name: f.original_name.clone(),
@@ -114,6 +120,7 @@ pub fn build_backup_entries(manifests: &[BackupManifest]) -> Vec<FilesPageEntry>
             let missing = path.is_empty() || check_file_missing(&path);
             FilesPageEntry {
                 id: format!("backup_manifest::{}", m.id),
+                stored_file_id: None,
                 source_kind: "backup_manifest".to_string(),
                 category: "backups".to_string(),
                 display_name: format!("backup-{}.{}", m.created_at, m.version),
@@ -211,6 +218,68 @@ fn mime_from_extension(path: &str) -> &'static str {
     }
 }
 
+const LEGACY_PREVIEW_MAX_BYTES: usize = 1024 * 1024;
+static LEGACY_PREVIEW_WARNING: std::sync::Once = std::sync::Once::new();
+
+fn read_attachment_preview_from_root(
+    documents_root: &Path,
+    file_path: &str,
+) -> Result<String, String> {
+    if file_path.is_empty() {
+        return Err("file_path is empty".to_string());
+    }
+    aqbot_core::storage_paths::validate_relative_path(file_path)?;
+    let relative = Path::new(file_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || relative
+            .components()
+            .next()
+            .and_then(|component| component.as_os_str().to_str())
+            != Some("images")
+    {
+        return Err("Legacy previews require a relative path under images/".to_string());
+    }
+
+    let canonical_images_root = documents_root
+        .join("images")
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve documents images directory: {error}"))?;
+    let canonical_path = documents_root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve preview image: {error}"))?;
+    if !canonical_path.starts_with(&canonical_images_root) || !canonical_path.is_file() {
+        return Err("Preview image resolves outside the documents images directory".to_string());
+    }
+
+    let mime = mime_from_extension(&canonical_path.to_string_lossy());
+    if !matches!(
+        mime,
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+    ) {
+        return Err("Legacy preview supports PNG, JPEG, WebP, and GIF only".to_string());
+    }
+    let size_bytes = canonical_path
+        .metadata()
+        .map_err(|error| format!("Failed to inspect preview image: {error}"))?
+        .len();
+    if size_bytes > LEGACY_PREVIEW_MAX_BYTES as u64 {
+        return Err(format!(
+            "Legacy preview is limited to {LEGACY_PREVIEW_MAX_BYTES} bytes; use aqbot-media://stored/<id>"
+        ));
+    }
+
+    let bytes = std::fs::read(&canonical_path)
+        .map_err(|error| format!("Failed to read preview image: {error}"))?;
+    aqbot_core::inline_media::validate_image_bytes(mime, &bytes)
+        .map_err(|error| format!("Invalid preview image: {error}"))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
 // ── Tauri command wrappers ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -223,15 +292,17 @@ pub async fn check_attachment_exists(file_path: String) -> Result<bool, String> 
 }
 
 #[tauri::command]
+/// DEPRECATED compatibility command. Stored images must use
+/// `aqbot-media://stored/<id>`; this endpoint accepts only small, verified
+/// relative images while the remaining legacy callers are migrated.
 pub async fn read_attachment_preview(file_path: String) -> Result<String, String> {
-    if file_path.is_empty() {
-        return Err("file_path is empty".to_string());
-    }
-    let abs = resolve_storage_path(&file_path);
-    let bytes = std::fs::read(&abs).map_err(|e| format!("Failed to read file: {e}"))?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    let mime = mime_from_extension(&abs);
-    Ok(format!("data:{mime};base64,{b64}"))
+    LEGACY_PREVIEW_WARNING.call_once(|| {
+        tracing::warn!(
+            "read_attachment_preview is deprecated; migrate callers to aqbot-media://stored/<id>"
+        );
+    });
+    let documents_root = aqbot_core::storage_paths::documents_root();
+    read_attachment_preview_from_root(&documents_root, &file_path)
 }
 
 #[tauri::command]
@@ -241,8 +312,13 @@ pub async fn save_avatar_file(data: String, mime_type: String) -> Result<String,
         .decode(&data)
         .map_err(|e| format!("Invalid base64: {e}"))?;
     let store = FileStore::new();
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
+    // Avatar paths are not stored_files rows. Give them a unique physical
+    // name so managed attachment GC can never delete an avatar that happens
+    // to have identical bytes and an identical user-supplied file name.
+    let avatar_name = format!("avatar-{}", aqbot_core::utils::gen_id());
     let saved = store
-        .save_file(&bytes, "avatar", &mime_type)
+        .save_file(&bytes, &avatar_name, &mime_type)
         .map_err(|e| format!("Failed to save avatar: {e}"))?;
     Ok(saved.storage_path)
 }
@@ -427,6 +503,8 @@ mod tests {
         assert!(entries.iter().all(|e| e.category == "images"));
         assert!(entries.iter().all(|e| e.source_kind == "attachment"));
         assert!(entries.iter().all(|e| e.id.starts_with("attachment::")));
+        assert_eq!(entries[0].stored_file_id.as_deref(), Some("1"));
+        assert_eq!(entries[1].stored_file_id.as_deref(), Some("3"));
     }
 
     #[test]
@@ -460,6 +538,7 @@ mod tests {
             .all(|e| e.id.starts_with("backup_manifest::")));
         assert!(entries.iter().any(|e| e.id == "backup_manifest::bk1"));
         assert!(entries.iter().any(|e| e.id == "backup_manifest::bk2"));
+        assert!(entries.iter().all(|e| e.stored_file_id.is_none()));
     }
 
     // ── missing detection ────────────────────────────────────────────────────
@@ -531,6 +610,63 @@ mod tests {
             None,
             "missing files should not expose preview urls"
         );
+    }
+
+    #[test]
+    fn legacy_preview_accepts_only_small_relative_images() {
+        let root = make_temp_app_data_dir();
+        let images = root.join("images");
+        std::fs::create_dir_all(&images).unwrap();
+        std::fs::write(images.join("preview.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let preview = read_attachment_preview_from_root(&root, "images/preview.png").unwrap();
+
+        assert_eq!(preview, "data:image/png;base64,iVBORw0KGgo=");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_preview_rejects_absolute_and_traversal_paths() {
+        let root = make_temp_app_data_dir();
+        std::fs::create_dir_all(root.join("images")).unwrap();
+
+        assert!(read_attachment_preview_from_root(&root, "/tmp/secret.png").is_err());
+        assert!(read_attachment_preview_from_root(&root, "images/../secret.png").is_err());
+        assert!(read_attachment_preview_from_root(&root, "files/secret.png").is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_preview_rejects_images_larger_than_the_compatibility_limit() {
+        let root = make_temp_app_data_dir();
+        let images = root.join("images");
+        std::fs::create_dir_all(&images).unwrap();
+        let mut oversized = vec![0_u8; LEGACY_PREVIEW_MAX_BYTES + 1];
+        oversized[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        std::fs::write(images.join("oversized.png"), oversized).unwrap();
+
+        let error = read_attachment_preview_from_root(&root, "images/oversized.png")
+            .expect_err("large images must use the stored-media protocol");
+
+        assert!(error.contains("aqbot-media://stored"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_preview_rejects_symlinks_leaving_documents_images() {
+        use std::os::unix::fs::symlink;
+
+        let root = make_temp_app_data_dir();
+        let outside = root.with_extension("outside");
+        std::fs::create_dir_all(root.join("images")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        symlink(outside.join("secret.png"), root.join("images/link.png")).unwrap();
+
+        assert!(read_attachment_preview_from_root(&root, "images/link.png").is_err());
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 
     // ── open / reveal path validation ────────────────────────────────────────
@@ -726,12 +862,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(&app_data_dir);
     }
 
+    #[tokio::test]
+    async fn file_reference_lock_prevents_last_reference_gc_racing_a_writer() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let root = make_temp_app_data_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file_store = aqbot_core::file_store::FileStore::with_root(root.clone());
+        let saved = file_store
+            .save_file(b"shared bytes", "shared.png", "image/png")
+            .unwrap();
+        aqbot_core::repo::stored_file::create_stored_file(
+            &db,
+            "old-reference",
+            &saved.hash,
+            "shared.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let guard = aqbot_core::repo::stored_file::lock_file_references().await;
+        let delete_db = db.clone();
+        let delete_root = root.clone();
+        let mut deletion = tokio::spawn(async move {
+            let store = aqbot_core::file_store::FileStore::with_root(delete_root);
+            file_cleanup::delete_attachment_reference(&delete_db, &store, "old-reference").await
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut deletion)
+                .await
+                .is_err(),
+            "last-reference deletion must wait while a writer is between save and insert"
+        );
+
+        aqbot_core::repo::stored_file::create_stored_file(
+            &db,
+            "new-reference",
+            &saved.hash,
+            "shared.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            None,
+        )
+        .await
+        .unwrap();
+        drop(guard);
+        deletion.await.unwrap().unwrap();
+
+        assert!(root.join(&saved.storage_path).exists());
+        assert!(
+            aqbot_core::repo::stored_file::get_stored_file(&db, "new-reference")
+                .await
+                .is_ok()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     // ── search / sort ────────────────────────────────────────────────────────
 
     fn sample_entries() -> Vec<FilesPageEntry> {
         vec![
             FilesPageEntry {
                 id: "attachment::1".to_string(),
+                stored_file_id: Some("1".to_string()),
                 source_kind: "attachment".to_string(),
                 category: "files".to_string(),
                 display_name: "Important Document.pdf".to_string(),
@@ -744,6 +941,7 @@ mod tests {
             },
             FilesPageEntry {
                 id: "attachment::2".to_string(),
+                stored_file_id: Some("2".to_string()),
                 source_kind: "attachment".to_string(),
                 category: "files".to_string(),
                 display_name: "photo.jpg".to_string(),
@@ -756,6 +954,7 @@ mod tests {
             },
             FilesPageEntry {
                 id: "attachment::3".to_string(),
+                stored_file_id: Some("3".to_string()),
                 source_kind: "attachment".to_string(),
                 category: "files".to_string(),
                 display_name: "archive.zip".to_string(),

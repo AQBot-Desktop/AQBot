@@ -15,13 +15,14 @@ let status = {
 };
 const startGateway = vi.fn();
 const stopGateway = vi.fn();
+const ensureStatusLoaded = vi.fn();
+const ensureMetricsLoaded = vi.fn();
 const fetchStatus = vi.fn();
 const fetchMetrics = vi.fn();
 const fetchRequestLogs = vi.fn();
-const listRequestLogs = vi.fn();
+const ensureRequestLogsLoaded = vi.fn();
 let metrics: Record<string, unknown> | null = null;
 let requestLogs: Array<Record<string, unknown>> = [];
-let recentLogsResponse: Array<Record<string, unknown>> = [];
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -37,10 +38,12 @@ vi.mock('@/stores/gatewayStore', () => ({
     requestLogsLoading: false,
     startGateway,
     stopGateway,
+    ensureStatusLoaded,
+    ensureMetricsLoaded,
     fetchStatus,
     fetchMetrics,
     fetchRequestLogs,
-    listRequestLogs,
+    ensureRequestLogsLoaded,
   }),
 }));
 
@@ -58,8 +61,6 @@ describe('GatewayOverview', () => {
     };
     metrics = null;
     requestLogs = [];
-    recentLogsResponse = [];
-    listRequestLogs.mockImplementation(() => Promise.resolve(recentLogsResponse));
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -124,8 +125,6 @@ describe('GatewayOverview', () => {
         createdAt: 1_700_000_000,
       },
     ];
-    recentLogsResponse = [...requestLogs];
-
     render(<GatewayOverview />);
 
     await screen.findByText('/v1/chat/completions');
@@ -138,7 +137,7 @@ describe('GatewayOverview', () => {
 
   it('shows only the latest 10 overview logs and exposes a view more action', async () => {
     const onViewMoreLogs = vi.fn();
-    recentLogsResponse = Array.from({ length: 12 }, (_, index) => ({
+    requestLogs = Array.from({ length: 12 }, (_, index) => ({
       id: `log-${index + 1}`,
       keyId: `key-${index + 1}`,
       keyName: `Gateway Key ${index + 1}`,
@@ -168,7 +167,7 @@ describe('GatewayOverview', () => {
 
   it('does not auto-refresh recent logs while the gateway is stopped but still allows manual refresh', async () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval');
-    recentLogsResponse = [
+    requestLogs = [
       {
         id: 'log-1',
         keyId: 'key-1',
@@ -189,12 +188,12 @@ describe('GatewayOverview', () => {
     render(<GatewayOverview />);
 
     await waitFor(() => {
-      expect(listRequestLogs).toHaveBeenCalledTimes(1);
+      expect(ensureRequestLogsLoaded).toHaveBeenCalledWith(100, 0, { maxAgeMs: 5_000 });
     });
     expect(setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000)).toHaveLength(1);
 
     await userEvent.click(screen.getByRole('button', { name: 'common.refresh' }));
-    expect(listRequestLogs).toHaveBeenCalledTimes(2);
+    expect(fetchRequestLogs).toHaveBeenCalledWith(100, 0);
     setIntervalSpy.mockRestore();
   });
 });

@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen } from '@tauri-apps/api/event';
 import { handleCommand } from './browserMock';
+import { beginMeasuredInvoke, recordMeasuredInvoke } from './performanceInstrumentation';
 
 export type UnlistenFn = () => void;
 
@@ -9,10 +10,17 @@ export function isTauri(): boolean {
 }
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (isTauri()) {
-    return tauriInvoke<T>(cmd, args);
+  const startedAt = beginMeasuredInvoke();
+  try {
+    const result = isTauri()
+      ? await tauriInvoke<T>(cmd, args)
+      : await handleCommand<T>(cmd, args);
+    recordMeasuredInvoke(cmd, args, result, startedAt, true);
+    return result;
+  } catch (error) {
+    recordMeasuredInvoke(cmd, args, error, startedAt, false);
+    throw error;
   }
-  return handleCommand<T>(cmd, args);
 }
 
 export async function listen<T>(

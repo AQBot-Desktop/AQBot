@@ -512,7 +512,7 @@ function McpServerDetail({
 
 export default function McpServerSettings() {
   const { t } = useTranslation();
-  const { servers, loadServers, createServer, updateServer, discoverTools } = useMcpStore();
+  const { servers, ensureServersLoaded, createServer, updateServer, discoverTools } = useMcpStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<'form' | 'import'>('form');
@@ -544,8 +544,8 @@ export default function McpServerSettings() {
   };
 
   useEffect(() => {
-    loadServers();
-  }, [loadServers]);
+    void ensureServersLoaded();
+  }, [ensureServersLoaded]);
 
   useEffect(() => {
     if (!selectedId && servers.length > 0) {

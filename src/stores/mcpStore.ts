@@ -1,6 +1,24 @@
 import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
+import { isResourceFresh } from '@/lib/resourceState';
+import type {
+  EnsureLoadedOptions,
+  ResourceInvalidationReason,
+  ResourceMeta,
+} from '@/lib/resourceState';
 import type { McpServer, CreateMcpServerInput, UpdateMcpServerInput, ToolDescriptor, ToolExecution } from '@/types';
+
+const MCP_SERVERS_RESOURCE_KEY = 'mcp-servers';
+let serversRequest: { revision: number; promise: Promise<void> } | null = null;
+
+function mutateServersMeta(meta: ResourceMeta): ResourceMeta {
+  return {
+    status: meta.status === 'ready' ? 'ready' : 'idle',
+    key: meta.status === 'ready' ? MCP_SERVERS_RESOURCE_KEY : null,
+    loadedAt: meta.status === 'ready' ? Date.now() : null,
+    revision: meta.revision + 1,
+  };
+}
 
 interface McpState {
   servers: McpServer[];
@@ -8,7 +26,10 @@ interface McpState {
   toolExecutions: ToolExecution[];
   loading: boolean;
   error: string | null;
+  serversMeta: ResourceMeta;
 
+  ensureServersLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
+  invalidateServers: (reason: ResourceInvalidationReason) => void;
   loadServers: () => Promise<void>;
   createServer: (input: CreateMcpServerInput) => Promise<McpServer | null>;
   updateServer: (id: string, input: UpdateMcpServerInput) => Promise<void>;
@@ -19,27 +40,94 @@ interface McpState {
   loadToolExecutions: (conversationId: string) => Promise<void>;
 }
 
-export const useMcpStore = create<McpState>((set) => ({
+export const useMcpStore = create<McpState>((set, get) => ({
   servers: [],
   toolDescriptors: {},
   toolExecutions: [],
   loading: false,
   error: null,
+  serversMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
 
-  loadServers: async () => {
-    set({ loading: true });
-    try {
-      const servers = await invoke<McpServer[]>('list_mcp_servers');
-      set({ servers, loading: false, error: null });
-    } catch (e) {
-      set({ error: String(e), loading: false });
+  ensureServersLoaded: async (options = {}) => {
+    const state = get();
+    if (!options.force && isResourceFresh(state.serversMeta, {
+      ...options,
+      key: MCP_SERVERS_RESOURCE_KEY,
+    })) return;
+    if (serversRequest?.revision === state.serversMeta.revision) {
+      return serversRequest.promise;
     }
+
+    const revision = state.serversMeta.revision;
+    set((current) => ({
+      loading: true,
+      serversMeta: {
+        ...current.serversMeta,
+        status: 'loading',
+        key: MCP_SERVERS_RESOURCE_KEY,
+      },
+    }));
+    let promise!: Promise<void>;
+    promise = (async () => {
+      let reloadAfterCompletion = false;
+      try {
+        const servers = await invoke<McpServer[]>('list_mcp_servers');
+        if (get().serversMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set({
+            servers,
+            loading: false,
+            error: null,
+            serversMeta: {
+              status: 'ready',
+              key: MCP_SERVERS_RESOURCE_KEY,
+              loadedAt: Date.now(),
+              revision,
+            },
+          });
+        }
+      } catch (e) {
+        if (get().serversMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set((current) => ({
+            error: String(e),
+            loading: false,
+            serversMeta: { ...current.serversMeta, status: 'error' },
+          }));
+        }
+      } finally {
+        if (serversRequest?.promise === promise) serversRequest = null;
+      }
+      if (reloadAfterCompletion) await get().ensureServersLoaded();
+    })();
+    serversRequest = { revision, promise };
+    return promise;
   },
+
+  invalidateServers: (_reason) => set((state) => ({
+    loading: false,
+    serversMeta: {
+      status: 'idle',
+      key: null,
+      loadedAt: null,
+      revision: state.serversMeta.revision + 1,
+    },
+  })),
+
+  loadServers: () => get().ensureServersLoaded({ force: true }),
 
   createServer: async (input) => {
     try {
       const server = await invoke<McpServer>('create_mcp_server', { input });
-      set((s) => ({ servers: [...s.servers, server], error: null }));
+      set((s) => ({
+        servers: [...s.servers, server],
+        serversMeta: mutateServersMeta(s.serversMeta),
+        error: null,
+      }));
       return server;
     } catch (e) {
       set({ error: String(e) });
@@ -52,6 +140,7 @@ export const useMcpStore = create<McpState>((set) => ({
       const updated = await invoke<McpServer>('update_mcp_server', { id, input });
       set((s) => ({
         servers: s.servers.map((srv) => (srv.id === id ? updated : srv)),
+        serversMeta: mutateServersMeta(s.serversMeta),
         error: null,
       }));
     } catch (e) {
@@ -68,6 +157,7 @@ export const useMcpStore = create<McpState>((set) => ({
         toolDescriptors: Object.fromEntries(
           Object.entries(s.toolDescriptors).filter(([k]) => k !== id),
         ),
+        serversMeta: mutateServersMeta(s.serversMeta),
         error: null,
       }));
     } catch (e) {

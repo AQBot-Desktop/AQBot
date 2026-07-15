@@ -1,11 +1,11 @@
 /** FileList renders file rows in an antd Table with built-in multi-column sorting. */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Empty, Image, Popconfirm, Table, Tag, theme } from 'antd';
+import { Button, Empty, Image, Popconfirm, Table, Tag, Tooltip, theme } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { FolderOpen, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { CircleAlert, FolderOpen, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@/lib/invoke';
+import { loadStoredMediaSource } from '@/lib/storedMedia';
 import type { FileCategory, FileRow } from '@/types';
 
 interface FileListProps {
@@ -25,24 +25,33 @@ function formatSize(bytes?: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-/** Load base64 data URL for an image thumbnail via Rust command. */
-function useThumbnailSrc(storagePath: string | undefined, missing: boolean | undefined): string | undefined {
+interface ThumbnailState {
+  src?: string;
+  error?: string;
+}
+
+/** Resolve an image through the stored-media protocol (browser mock uses its cached preview adapter). */
+function useThumbnailSrc(record: FileRow): ThumbnailState {
   const [src, setSrc] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
   useEffect(() => {
-    if (!storagePath || missing) return;
+    setSrc(undefined);
+    setError(undefined);
+    if (!record.storedFileId || !record.storagePath || record.missing) return;
     let cancelled = false;
-    invoke<string>('read_attachment_preview', { filePath: storagePath })
-      .then((dataUrl) => { if (!cancelled) setSrc(dataUrl); })
-      .catch(() => {});
+    loadStoredMediaSource(record.storedFileId, record.storagePath)
+      .then((mediaSrc) => { if (!cancelled) setSrc(mediaSrc); })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
     return () => { cancelled = true; };
-  }, [storagePath, missing]);
-  return src;
+  }, [record.missing, record.storagePath, record.storedFileId]);
+  return { src, error };
 }
 
 function ImageThumbnail({ record }: { record: FileRow }) {
   const { token } = theme.useToken();
-  // Extract relative storage path from the full resolved path — use the row's raw storage_path if available
-  const src = useThumbnailSrc(record.storagePath, record.missing);
+  const { src, error } = useThumbnailSrc(record);
   return (
     <div
       className="h-10 w-10 overflow-hidden rounded-md border flex items-center justify-center"
@@ -60,6 +69,15 @@ function ImageThumbnail({ record }: { record: FileRow }) {
           style={{ objectFit: 'cover' }}
           preview={{ mask: { blur: true }, scaleStep: 0.5 }}
         />
+      ) : error ? (
+        <Tooltip title={error}>
+          <CircleAlert
+            data-testid={`thumbnail-error-${record.id}`}
+            aria-label={`Failed to load thumbnail for ${record.name}: ${error}`}
+            size={16}
+            style={{ color: token.colorError }}
+          />
+        </Tooltip>
       ) : (
         <ImageIcon size={16} style={{ color: token.colorTextSecondary }} />
       )}

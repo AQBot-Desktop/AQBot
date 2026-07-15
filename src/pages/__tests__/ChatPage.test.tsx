@@ -2,18 +2,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ChatPage } from '../ChatPage';
 
-const fetchConversations = vi.fn();
-const fetchProviders = vi.fn();
+const ensureConversationsLoaded = vi.fn();
+const ensureProvidersLoaded = vi.fn();
 const saveSettings = vi.fn();
 
 const conversationState = {
   conversations: [] as Array<{ id: string }>,
-  fetchConversations,
+  ensureConversationsLoaded,
 };
 
 const providerState = {
   providers: [] as Array<{ id: string }>,
-  fetchProviders,
+  ensureProvidersLoaded,
 };
 
 const settingsState = {
@@ -40,6 +40,7 @@ vi.mock('antd', () => ({
     </button>
   ),
   Tooltip: ({ children }: any) => <>{children}</>,
+  Modal: { destroyAll: vi.fn() },
   theme: {
     useToken: () => ({
       token: {
@@ -76,21 +77,21 @@ describe('ChatPage', () => {
     chatSidebarProps.length = 0;
   });
 
-  it('fetches conversations and providers only when the stores are empty', () => {
+  it('ensures conversations and providers are loaded on entry', () => {
     render(<ChatPage />);
 
-    expect(fetchConversations).toHaveBeenCalledTimes(1);
-    expect(fetchProviders).toHaveBeenCalledTimes(1);
+    expect(ensureConversationsLoaded).toHaveBeenCalledTimes(1);
+    expect(ensureProvidersLoaded).toHaveBeenCalledTimes(1);
   });
 
-  it('skips refetching when conversations and providers are already loaded', () => {
+  it('delegates freshness decisions to resource metadata instead of array length', () => {
     conversationState.conversations = [{ id: 'conv-1' }];
     providerState.providers = [{ id: 'provider-1' }];
 
     render(<ChatPage />);
 
-    expect(fetchConversations).not.toHaveBeenCalled();
-    expect(fetchProviders).not.toHaveBeenCalled();
+    expect(ensureConversationsLoaded).toHaveBeenCalledTimes(1);
+    expect(ensureProvidersLoaded).toHaveBeenCalledTimes(1);
   });
 
   it('renders the full chat sidebar by default without passing a page-level collapse callback', () => {

@@ -10,16 +10,12 @@ export function GatewayMetrics() {
     usageByDay,
     usageByProvider,
     usageByKey,
-    fetchUsageByDay,
-    fetchUsageByProvider,
-    fetchUsageByKey,
+    ensureUsageLoaded,
   } = useGatewayStore();
 
   useEffect(() => {
-    fetchUsageByDay(30);
-    fetchUsageByProvider();
-    fetchUsageByKey();
-  }, [fetchUsageByDay, fetchUsageByProvider, fetchUsageByKey]);
+    void ensureUsageLoaded(30, { maxAgeMs: 30_000 });
+  }, [ensureUsageLoaded]);
 
   const dayColumns = [
     { title: t('gateway.date'), dataIndex: 'date', key: 'date' },

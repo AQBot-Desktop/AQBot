@@ -5,8 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GatewayTemplates } from '../GatewayTemplates';
 
 const fetchStatus = vi.fn();
+const ensureStatusLoaded = vi.fn();
 const fetchCliToolStatuses = vi.fn();
+const ensureCliToolStatusesLoaded = vi.fn();
 const fetchKeys = vi.fn();
+const ensureKeysLoaded = vi.fn();
 const connectCliTool = vi.fn();
 const disconnectCliTool = vi.fn();
 const getCodexSessionVisibilityStatus = vi.fn();
@@ -97,8 +100,11 @@ function buildStoreState(overrides: Record<string, unknown> = {}) {
       },
     ],
     fetchStatus,
+    ensureStatusLoaded,
     fetchCliToolStatuses,
+    ensureCliToolStatusesLoaded,
     fetchKeys,
+    ensureKeysLoaded,
     connectCliTool,
     disconnectCliTool,
     getCodexSessionVisibilityStatus,
@@ -202,9 +208,9 @@ describe('GatewayTemplates', () => {
     renderWithApp();
 
     await waitFor(() => {
-      expect(fetchStatus).toHaveBeenCalledTimes(1);
-      expect(fetchCliToolStatuses).toHaveBeenCalledTimes(1);
-      expect(fetchKeys).toHaveBeenCalledTimes(1);
+      expect(ensureStatusLoaded).toHaveBeenCalledTimes(1);
+      expect(ensureCliToolStatusesLoaded).toHaveBeenCalledWith({ maxAgeMs: 30_000 });
+      expect(ensureKeysLoaded).toHaveBeenCalledTimes(1);
     });
 
     expect(screen.getByText('gateway.cliConnectedHttp')).toBeInTheDocument();
@@ -353,7 +359,7 @@ describe('GatewayTemplates', () => {
       expect(repairCodexSessionVisibility).toHaveBeenCalledWith(true);
     });
     await waitFor(() => expect(getCodexSessionVisibilityStatus).toHaveBeenCalledTimes(2));
-    expect(fetchCliToolStatuses).toHaveBeenCalledTimes(2);
+    expect(fetchCliToolStatuses).toHaveBeenCalledTimes(1);
   });
 
   it('passes the unchecked backup option when repairing Codex session visibility', async () => {

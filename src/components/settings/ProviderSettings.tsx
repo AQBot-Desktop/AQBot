@@ -9,12 +9,12 @@ const ProviderDetail = lazy(() => import('./ProviderDetail').then((m) => ({ defa
 export function ProviderSettings() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+  const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
   const selectedProviderId = useUIStore((s) => s.selectedProviderId);
 
   useEffect(() => {
-    fetchProviders();
-  }, [fetchProviders]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   return (
     <div className="flex h-full">

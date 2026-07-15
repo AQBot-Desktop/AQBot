@@ -51,6 +51,7 @@ mod indexing;
 pub mod knowledge_index_scheduler;
 #[cfg(any(target_os = "linux", test))]
 mod linux_webkit;
+mod media_protocol;
 mod paths;
 mod startup_diagnostics;
 mod tray;
@@ -78,6 +79,7 @@ pub fn run() {
         tracing::info!("Created Tauri application builder");
         builder
     };
+    builder = media_protocol::register(builder);
 
     let minimal_plugins = {
         #[cfg(target_os = "linux")]
@@ -251,6 +253,7 @@ pub fn run() {
         commands::drawing::delete_drawing_generation,
         // conversations
         commands::conversations::list_conversations,
+        commands::conversations::get_conversation_snapshot,
         commands::conversations::create_conversation,
         commands::conversations::update_conversation,
         commands::conversations::delete_conversation,
@@ -313,6 +316,7 @@ pub fn run() {
         commands::gateway::generate_self_signed_cert,
         // messages
         commands::messages::list_messages,
+        commands::messages::list_inline_media_diagnostics,
         commands::messages::list_messages_page,
         commands::messages::list_message_summaries,
         commands::messages::list_messages_window,
@@ -529,6 +533,29 @@ pub fn run() {
             // %USERPROFILE%\.aqbot\ on Windows).
             let app_dir = paths::aqbot_home();
             std::fs::create_dir_all(&app_dir).expect("failed to create AQBot home dir");
+            match aqbot_core::pending_restore::apply_pending_restore(&app_dir) {
+                Ok(aqbot_core::pending_restore::PendingRestoreOutcome::Applied) => {
+                    tracing::info!("Pending restore applied before database startup")
+                }
+                Ok(aqbot_core::pending_restore::PendingRestoreOutcome::NotPending) => {}
+                Ok(aqbot_core::pending_restore::PendingRestoreOutcome::FailedSafely {
+                    error,
+                    quarantine_path,
+                    report_path,
+                }) => tracing::error!(
+                    error,
+                    quarantine_path = %quarantine_path.display(),
+                    report_path = ?report_path,
+                    "Pending restore failed safely; continuing with the previous database"
+                ),
+                Err(error) => {
+                    tracing::error!(error = %error, "Pending restore could not be rolled back safely");
+                    panic!(
+                        "FATAL: pending restore failed before database startup and a safe \
+                         rollback could not be confirmed: {error}."
+                    );
+                }
+            }
             tracing::info!(
                 app_dir = %app_dir.display(),
                 version = %app.package_info().version,
@@ -649,6 +676,72 @@ pub fn run() {
             // Re-ensure documents dirs under the (possibly custom) root
             aqbot_core::storage_paths::ensure_documents_dirs()
                 .expect("failed to create documents storage dirs (custom root)");
+
+            // One-time, idempotent migration of historical assistant images that were
+            // embedded directly in message Markdown/HTML. Never mutate a candidate
+            // unless a pre-migration SQLite backup succeeds.
+            match rt.block_on(aqbot_core::inline_media::pending_inline_media_message_ids(
+                &db_handle.conn,
+                None,
+            )) {
+                Ok(message_ids) if !message_ids.is_empty() => {
+                    let backup_dir = aqbot_core::path_vars::decode_path_opt(&app_settings.backup_dir)
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| {
+                            aqbot_core::storage_paths::documents_root().join("backups")
+                        });
+                    match rt.block_on(aqbot_core::repo::backup::create_backup(
+                        &db_handle.conn,
+                        "sqlite",
+                        &backup_dir,
+                    )) {
+                        Ok(backup) => {
+                            tracing::info!(
+                                backup_id = %backup.id,
+                                candidate_count = message_ids.len(),
+                                "Created backup before inline media migration"
+                            );
+                            let file_store = aqbot_core::file_store::FileStore::new();
+                            match rt.block_on(
+                                aqbot_core::inline_media::materialize_inline_media_messages(
+                                    &db_handle.conn,
+                                    &file_store,
+                                    &message_ids,
+                                ),
+                            ) {
+                                Ok(report) => {
+                                    tracing::info!(
+                                        migrated = report.migrated,
+                                        failed = report.failures.len(),
+                                        "Historical inline media migration finished"
+                                    );
+                                    for failure in report.failures {
+                                        tracing::error!(
+                                            message_id = %failure.message_id,
+                                            error = %failure.error,
+                                            "Historical inline media message was left unchanged"
+                                        );
+                                    }
+                                }
+                                Err(error) => tracing::error!(
+                                    error = %error,
+                                    "Historical inline media migration could not start"
+                                ),
+                            }
+                        }
+                        Err(error) => tracing::error!(
+                            error = %error,
+                            candidate_count = message_ids.len(),
+                            "Skipped inline media migration because the safety backup failed"
+                        ),
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => tracing::error!(
+                    error = %error,
+                    "Failed to inspect historical inline media candidates"
+                ),
+            }
 
             let tray_language = app_settings.language.clone();
 

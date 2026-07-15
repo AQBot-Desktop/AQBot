@@ -34,6 +34,30 @@ function makeMessage(overrides: Partial<Message>): Message {
 }
 
 describe('ChatView assistant display policy', () => {
+  it('loads stored attachment images through the read-only media source', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    const attachmentPreview = source.match(/function AttachmentPreview[\s\S]*?const handleOpen/)?.[0] ?? '';
+
+    expect(attachmentPreview).toContain('loadStoredMediaSource(att.id, att.file_path)');
+    expect(attachmentPreview).not.toContain("invoke<string>('read_attachment_preview'");
+    expect(attachmentPreview).toMatch(
+      /React\.useEffect\(\(\) => \{\s*if \(isImage \|\| fileExists !== null\) return;[\s\S]*?invoke<boolean>\('check_attachment_exists'/,
+    );
+    expect(attachmentPreview).toContain('onError={() => {');
+  });
+
+  it('loads the complete transcript before copy and structured exports when the message window is trimmed', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+
+    expect(source).toContain('const loadCompleteTranscript = useCallback(async () => {');
+    expect(source).toContain("invoke<Message[]>('list_messages'");
+    expect(source).toContain('const transcript = await loadCompleteTranscript();');
+    expect(source).not.toContain('exportAsMarkdown(messages,');
+    expect(source).not.toContain('exportAsText(messages,');
+    expect(source).not.toContain('exportAsJSON(messages,');
+    expect(source).not.toContain('copyTranscript(messages,');
+  });
+
   it('does not mount AssistantFooter while an assistant message is streaming', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
     const footerBranch = source.match(/footer:\s*msg && activeConversationId \? \([\s\S]*?\) : footerLoading \?/);
@@ -139,13 +163,32 @@ describe('ChatView assistant display policy', () => {
     expect(scrollHandler).toContain('void handleLoadOlderMessages();');
   });
 
+  it('does not repeat auto-scroll or synchronous layout reads when an Activity page reconnects', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+
+    expect(source).toContain('previousRequest?.items === finalBubbleItems');
+    expect(source).toContain('lastAutoScrollRequestRef.current = { items: finalBubbleItems, stickToBottom }');
+    expect(source).toContain('if (scrollLayoutMetricsRef.current.scrollHeight === 0)');
+
+    const userIntentAttach = source.match(/const attach = \(\) => \{[\s\S]*?\n    \};/)?.[0] ?? '';
+    expect(userIntentAttach).not.toContain('attachedScrollBox.scrollHeight');
+  });
+
+  it('invalidates transient popovers and late async modals when Chat is suspended', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+
+    expect(source).toContain('const [open, setOpen] = usePageTransientOpenState();');
+    expect(source).toContain('pageConnectionGenerationRef.current !== connectionGeneration');
+    expect(source).toContain('useConversationStore.getState().activeConversationId !== convId');
+  });
+
   it('defers parsing assistant code blocks until the message becomes visible', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
     const nodesMemo = source.match(/const aiContentNodesById = useMemo\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0] ?? '';
 
     expect(nodesMemo).toContain('shouldDeferAssistantMarkdownParse(item.content)');
     expect(nodesMemo.indexOf('shouldDeferAssistantMarkdownParse(item.content)')).toBeLessThan(
-      nodesMemo.indexOf('safeParseChatMarkdown(item.content)'),
+      nodesMemo.indexOf('safeParseChatMarkdown(renderableContent)'),
     );
   });
 

@@ -29,4 +29,18 @@ describe('chat image actions', () => {
     expect(blob.type).toBe('image/png');
     await expect(blob.text()).resolves.toBe('hello');
   });
+
+  it('fetches the Windows stored-media protocol URL inside the WebView', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      new TextEncoder().encode('stored-image'),
+      { status: 200, headers: { 'content-type': 'image/png' } },
+    )));
+
+    const blob = await resolveImageBlob('http://aqbot-media.localhost/stored/file-123');
+
+    expect(fetch).toHaveBeenCalledWith('http://aqbot-media.localhost/stored/file-123');
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(blob.type).toBe('image/png');
+    await expect(blob.text()).resolves.toBe('stored-image');
+  });
 });

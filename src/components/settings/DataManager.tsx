@@ -4,6 +4,7 @@ import { Share2, Upload, Trash2, AlertTriangle, FileArchive } from 'lucide-react
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore } from '@/stores';
 import { useFileStore } from '@/stores/fileStore';
+import { invalidateApplicationResources } from '@/stores/invalidateResources';
 import { isTauri } from '@/lib/invoke';
 import { SettingsGroup } from './SettingsGroup';
 import { CherryStudioImportModal } from './CherryStudioImportModal';
@@ -190,6 +191,7 @@ export function DataManager() {
         open={cherryImportOpen}
         onClose={() => setCherryImportOpen(false)}
         onImported={() => {
+          invalidateApplicationResources('import');
           void useConversationStore.getState().fetchConversations?.();
           void useProviderStore.getState().fetchProviders?.();
           void useFileStore.getState().refreshCurrentCategory();
@@ -199,6 +201,7 @@ export function DataManager() {
         open={chatgptImportOpen}
         onClose={() => setChatgptImportOpen(false)}
         onImported={() => {
+          invalidateApplicationResources('import');
           void useConversationStore.getState().fetchConversations?.();
         }}
       />
@@ -206,6 +209,7 @@ export function DataManager() {
         open={kelivoImportOpen}
         onClose={() => setKelivoImportOpen(false)}
         onImported={() => {
+          invalidateApplicationResources('import');
           void useConversationStore.getState().fetchConversations?.();
           void useProviderStore.getState().fetchProviders?.();
           void useFileStore.getState().refreshCurrentCategory();

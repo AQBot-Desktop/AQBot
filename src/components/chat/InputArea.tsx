@@ -26,6 +26,7 @@ import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/share
 import { ModelIcon } from '@lobehub/icons';
 import type { AttachmentInput, ProviderType, RealtimeConfig } from '@/types';
 import { invoke } from '@/lib/invoke';
+import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 
 const DOCUMENT_ATTACHMENT_ACCEPT = [
   '.pdf',
@@ -106,6 +107,7 @@ export function InputArea() {
   const userMinHeightRef = useRef(userMinHeight);
   userMinHeightRef.current = userMinHeight;
   const dragStateRef = useRef<{ startY: number; startH: number } | null>(null);
+  const resizeCleanupRef = useRef<() => void>(() => {});
   const hasUserResizedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -185,11 +187,11 @@ export function InputArea() {
   const setSearchEnabled = useConversationStore((s) => s.setSearchEnabled);
   const setSearchProviderId = useConversationStore((s) => s.setSearchProviderId);
   const searchProviders = useSearchStore((s) => s.providers);
-  const loadSearchProviders = useSearchStore((s) => s.loadProviders);
+  const ensureSearchProvidersLoaded = useSearchStore((s) => s.ensureProvidersLoaded);
 
   // MCP state
   const mcpServers = useMcpStore((s) => s.servers);
-  const loadMcpServers = useMcpStore((s) => s.loadServers);
+  const ensureMcpServersLoaded = useMcpStore((s) => s.ensureServersLoaded);
   const enabledMcpServerIds = useConversationStore((s) => s.enabledMcpServerIds);
   const toggleMcpServer = useConversationStore((s) => s.toggleMcpServer);
 
@@ -208,14 +210,14 @@ export function InputArea() {
 
   // Knowledge base state
   const knowledgeBases = useKnowledgeStore((s) => s.bases);
-  const loadKnowledgeBases = useKnowledgeStore((s) => s.loadBases);
+  const ensureKnowledgeBasesLoaded = useKnowledgeStore((s) => s.ensureBasesLoaded);
   const enabledKnowledgeBaseIds = useConversationStore((s) => s.enabledKnowledgeBaseIds);
   const toggleKnowledgeBase = useConversationStore((s) => s.toggleKnowledgeBase);
   const [kbPopoverOpen, setKbPopoverOpen] = useState(false);
 
   // Memory state
   const memoryNamespaces = useMemoryStore((s) => s.namespaces);
-  const loadMemoryNamespaces = useMemoryStore((s) => s.loadNamespaces);
+  const ensureMemoryNamespacesLoaded = useMemoryStore((s) => s.ensureNamespacesLoaded);
   const enabledMemoryNamespaceIds = useConversationStore((s) => s.enabledMemoryNamespaceIds);
   const toggleMemoryNamespace = useConversationStore((s) => s.toggleMemoryNamespace);
   const [memoryPopoverOpen, setMemoryPopoverOpen] = useState(false);
@@ -233,25 +235,22 @@ export function InputArea() {
   const setActivePage = useUIStore((s) => s.setActivePage);
   const setSettingsSection = useUIStore((s) => s.setSettingsSection);
 
-  // Load search providers on mount
+  // Empty arrays are valid loaded resources; Activity resumes must not refetch.
   useEffect(() => {
-    if (searchProviders.length === 0) loadSearchProviders();
-  }, [searchProviders.length, loadSearchProviders]);
+    void ensureSearchProvidersLoaded();
+  }, [ensureSearchProvidersLoaded]);
 
-  // Load MCP servers on mount
   useEffect(() => {
-    if (mcpServers.length === 0) loadMcpServers();
-  }, [mcpServers.length, loadMcpServers]);
+    void ensureMcpServersLoaded();
+  }, [ensureMcpServersLoaded]);
 
-  // Load knowledge bases on mount
   useEffect(() => {
-    if (knowledgeBases.length === 0) loadKnowledgeBases();
-  }, [knowledgeBases.length, loadKnowledgeBases]);
+    void ensureKnowledgeBasesLoaded();
+  }, [ensureKnowledgeBasesLoaded]);
 
-  // Load memory namespaces on mount
   useEffect(() => {
-    if (memoryNamespaces.length === 0) loadMemoryNamespaces();
-  }, [memoryNamespaces.length, loadMemoryNamespaces]);
+    void ensureMemoryNamespacesLoaded();
+  }, [ensureMemoryNamespacesLoaded]);
 
   // Fetch agent permission mode on mount/conversation switch
   useEffect(() => {
@@ -270,13 +269,16 @@ export function InputArea() {
   // Draft persistence: save old draft & restore new when conversation changes
   useEffect(() => {
     const prev = prevConvIdRef.current;
-    if (prev && prev !== activeConversationId) {
+    const next = activeConversationId ?? null;
+    if (prev === next) return;
+
+    if (prev) {
       const draft = valueRef.current;
       if (draft) _draftCache.set(prev, draft);
       else _draftCache.delete(prev);
     }
-    setValue(activeConversationId ? _draftCache.get(activeConversationId) || '' : '');
-    prevConvIdRef.current = activeConversationId ?? null;
+    setValue(next ? _draftCache.get(next) || '' : '');
+    prevConvIdRef.current = next;
   }, [activeConversationId]);
 
   // Save draft on unmount (navigating away from chat page)
@@ -487,7 +489,7 @@ export function InputArea() {
     }
   }, [agentPermissionMode]);
 
-  const clearConversationDisabled = !activeConversationId || streaming || messages.length === 0;
+  const clearConversationDisabled = !activeConversationId || loading || streaming || messages.length === 0;
 
   const confirmClearAllMessages = useCallback(() => {
     if (clearConversationDisabled) return;
@@ -953,7 +955,7 @@ export function InputArea() {
 
   const handleSend = useCallback(async () => {
     const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!trimmed || loading) return;
 
     const submittedFiles = attachedFiles;
 
@@ -1016,10 +1018,10 @@ export function InputArea() {
         }
       });
     }
-  }, [value, attachedFiles, sendMessage, sendAgentMessage, sendMultiModelMessage, companionModels, activeConversationId, providers, settings, createConversation, messageApi, t, searchEnabled, searchProviderId, currentMode]);
+  }, [value, attachedFiles, sendMessage, sendAgentMessage, sendMultiModelMessage, companionModels, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, currentMode]);
 
   const handleFillLastMessage = useCallback(() => {
-    if (streaming) return;
+    if (loading || streaming) return;
     const lastUserMessage = [...messages]
       .reverse()
       .find((message) => message.role === 'user' && message.status !== 'error');
@@ -1034,7 +1036,7 @@ export function InputArea() {
       const desired = Math.max(textarea.scrollHeight, userMinHeightRef.current);
       textarea.style.height = Math.min(desired, ABSOLUTE_MAX_HEIGHT) + 'px';
     });
-  }, [messages, streaming]);
+  }, [loading, messages, streaming]);
 
   const handleCancel = useCallback(() => {
     cancelCurrentStream();
@@ -1095,17 +1097,31 @@ export function InputArea() {
 
   // Drag-and-drop overlay (Tauri native)
   const [isDragging, setIsDragging] = useState(false);
+  usePageSuspendCleanup(() => {
+    setVoiceCallVisible(false);
+    setSettingsOpen(false);
+    setMcpPopoverOpen(false);
+    setSearchDropdownOpen(false);
+    setMultiModelOpen(false);
+    setThinkingDropdownOpen(false);
+    setKbPopoverOpen(false);
+    setMemoryPopoverOpen(false);
+    setIsDragging(false);
+    resizeCleanupRef.current();
+  });
 
   useEffect(() => {
     if (!canAttachFiles) return;
 
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
     (async () => {
       const { getCurrentWebview } = await import('@tauri-apps/api/webview');
       const { readFile } = await import('@tauri-apps/plugin-fs');
 
-      unlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
+      const nextUnlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
+        if (cancelled) return;
         const { type } = event.payload;
         if (type === 'enter') {
           setIsDragging(true);
@@ -1149,14 +1165,19 @@ export function InputArea() {
               console.error('[drag-drop] Failed to read file:', filePath, err);
             }
           }
-          if (files.length > 0) {
+          if (!cancelled && files.length > 0) {
             setAttachedFiles((prev) => [...prev, ...files]);
           }
         }
       });
-    })();
+      if (cancelled) nextUnlisten();
+      else unlisten = nextUnlisten;
+    })().catch((error) => {
+      if (!cancelled) console.error('[drag-drop] Failed to register listener:', error);
+    });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [canAttachFiles, documentAttachmentReadingEnabled, hasVision]);
@@ -1194,6 +1215,7 @@ export function InputArea() {
   // Drag-to-resize: changes userMinHeight so the textarea grows even with short content
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    resizeCleanupRef.current();
     const textarea = textareaRef.current;
     const startHeight = textarea ? textarea.offsetHeight : userMinHeightRef.current;
     dragStateRef.current = { startY: e.clientY, startH: startHeight };
@@ -1208,15 +1230,17 @@ export function InputArea() {
         textarea.style.height = newH + 'px';
       }
     };
-    const onMouseUp = () => {
+    const cleanupResize = () => {
       dragStateRef.current = null;
       document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('mouseup', cleanupResize);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      resizeCleanupRef.current = () => {};
     };
+    resizeCleanupRef.current = cleanupResize;
     document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mouseup', cleanupResize);
     document.body.style.cursor = 'ns-resize';
     document.body.style.userSelect = 'none';
   }, []);
@@ -1231,12 +1255,12 @@ export function InputArea() {
   React.useEffect(() => {
     const onFillLast = () => handleFillLastMessage();
     const onClearContext = () => {
-      if (activeConversationId && !streaming) {
+      if (activeConversationId && !loading && !streaming) {
         void insertContextClear();
       }
     };
     const onClearConversation = () => {
-      if (!activeConversationId || streaming || messages.length === 0) return;
+      if (!activeConversationId || loading || streaming || messages.length === 0) return;
       confirmClearAllMessages();
     };
 
@@ -1253,6 +1277,7 @@ export function InputArea() {
     confirmClearAllMessages,
     handleFillLastMessage,
     insertContextClear,
+    loading,
     messages.length,
     streaming,
   ]);
@@ -1590,7 +1615,7 @@ export function InputArea() {
                     key: 'manual',
                     icon: <Shrink size={14} />,
                     label: t('chat.manualCompress'),
-                    disabled: !activeConversationId || streaming || compressing || messages.length === 0,
+                    disabled: !activeConversationId || loading || streaming || compressing || messages.length === 0,
                     onClick: async () => {
                       if (!activeConversationId) return;
                       try {
@@ -1612,7 +1637,7 @@ export function InputArea() {
                   size="small"
                   icon={<Zap size={14} />}
                   loading={compressing}
-                  disabled={!activeConversationId}
+                  disabled={!activeConversationId || loading}
                   style={activeConversation?.context_compression ? { color: token.colorPrimary } : undefined}
                 />
               </Tooltip>
@@ -1623,7 +1648,7 @@ export function InputArea() {
                 size="small"
                 icon={<Scissors size={14} />}
                 onClick={insertContextClear}
-                disabled={!activeConversationId || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
+                disabled={!activeConversationId || loading || streaming || messages.length === 0 || messages[messages.length - 1]?.content === '<!-- context-clear -->'}
               />
             </Tooltip>
             <Dropdown
@@ -1672,7 +1697,7 @@ export function InputArea() {
                 size="small"
                 icon={<ArrowUp size={14} />}
                 onClick={handleSend}
-                disabled={!value.trim()}
+                disabled={loading || !value.trim()}
               />
             )}
           </div>

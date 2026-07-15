@@ -36,6 +36,112 @@ describe('drawingStore', () => {
     });
   });
 
+  it('deduplicates concurrent history loads and treats an empty result as loaded', async () => {
+    let resolveHistory: (value: unknown[]) => void = () => {};
+    invokeMock.mockReturnValueOnce(new Promise((resolve) => {
+      resolveHistory = resolve;
+    }));
+    const { useDrawingStore } = await import('../drawingStore');
+
+    const first = useDrawingStore.getState().ensureHistoryLoaded();
+    const second = useDrawingStore.getState().ensureHistoryLoaded();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    resolveHistory([]);
+    await Promise.all([first, second]);
+    await useDrawingStore.getState().ensureHistoryLoaded();
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(useDrawingStore.getState().historyMeta.status).toBe('ready');
+  });
+
+  it('reloads drawing history only after explicit invalidation', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { useDrawingStore } = await import('../drawingStore');
+
+    await useDrawingStore.getState().ensureHistoryLoaded();
+    useDrawingStore.getState().invalidateHistory('restore');
+    await useDrawingStore.getState().ensureHistoryLoaded();
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(useDrawingStore.getState().historyMeta.revision).toBe(1);
+  });
+
+  it('merges an optimistic generation created while history is loading', async () => {
+    let resolveHistory: (value: unknown[]) => void = () => {};
+    let resolveGeneration: (value: unknown) => void = () => {};
+    invokeMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveHistory = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveGeneration = resolve; }));
+    const { useDrawingStore } = await import('../drawingStore');
+
+    const historyPromise = useDrawingStore.getState().ensureHistoryLoaded();
+    const generationPromise = useDrawingStore.getState().generateImages({
+      provider_id: 'provider-1',
+      model_id: 'gpt-image-2',
+      prompt: '并发绘画',
+      size: '1024x1024',
+      quality: 'auto',
+      output_format: 'png',
+      background: 'auto',
+      n: 1,
+      reference_image_mode: 'multipart',
+      reference_image_format: 'object',
+      reference_image_param_name: 'images',
+      reference_file_ids: [],
+    });
+    const optimistic = useDrawingStore.getState().generations[0];
+
+    resolveHistory([{ id: 'history-1', created_at: 1, images: [] }]);
+    await historyPromise;
+
+    expect(useDrawingStore.getState().generations.map((item) => item.id)).toEqual([
+      'history-1',
+      optimistic.id,
+    ]);
+
+    resolveGeneration({ ...optimistic, id: 'generation-1', status: 'succeeded' });
+    await generationPromise;
+  });
+
+  it('does not let an invalidated history failure overwrite newer resource state', async () => {
+    let rejectHistory: (error: Error) => void = () => {};
+    invokeMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectHistory = reject; }));
+    const { useDrawingStore } = await import('../drawingStore');
+
+    const historyPromise = useDrawingStore.getState().ensureHistoryLoaded();
+    useDrawingStore.getState().invalidateHistory('restore');
+    rejectHistory(new Error('stale history failure'));
+
+    await expect(historyPromise).rejects.toThrow('stale history failure');
+    expect(useDrawingStore.getState()).toMatchObject({
+      loading: false,
+      error: null,
+      historyMeta: { status: 'idle', revision: 1 },
+    });
+  });
+
+  it('keeps the newest keyed history request when cursors resolve out of order', async () => {
+    let resolveLatest: (value: unknown[]) => void = () => {};
+    const latest = new Promise<unknown[]>((resolve) => { resolveLatest = resolve; });
+    let resolveCursor: (value: unknown[]) => void = () => {};
+    const cursor = new Promise<unknown[]>((resolve) => { resolveCursor = resolve; });
+    invokeMock
+      .mockReturnValueOnce(latest)
+      .mockReturnValueOnce(cursor);
+    const { useDrawingStore } = await import('../drawingStore');
+
+    const first = useDrawingStore.getState().ensureHistoryLoaded();
+    const second = useDrawingStore.getState().ensureHistoryLoaded({ cursor: 'older-page' });
+    resolveCursor([{ id: 'older', created_at: 1, images: [] }]);
+    await second;
+    resolveLatest([{ id: 'latest', created_at: 2, images: [] }]);
+    await Promise.all([first, second]);
+
+    expect(useDrawingStore.getState().generations.map((item) => item.id)).toEqual(['older']);
+    expect(useDrawingStore.getState().historyMeta.key).toBe('older-page');
+  });
+
   it('keeps drawing history oldest first', async () => {
     invokeMock.mockResolvedValueOnce([
       { id: 'newer', created_at: 20, images: [] },

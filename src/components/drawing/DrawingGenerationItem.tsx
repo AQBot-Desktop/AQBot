@@ -8,7 +8,9 @@ import { describeDrawingSize } from '@/lib/drawingModels';
 import { CopyButton } from '@/components/common/CopyButton';
 import { invoke } from '@/lib/invoke';
 import { copyChatImage, saveChatImage } from '@/lib/chatImageActions';
+import { loadStoredMediaSource } from '@/lib/storedMedia';
 import { DrawingImageStrip } from './DrawingImageStrip';
+import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 
 interface Props {
   generation: DrawingGeneration;
@@ -60,18 +62,27 @@ function describeSize(value: string | undefined, t: (key: string, fallback: stri
 
 const CONTEXT_THUMBNAIL_SIZE = 32;
 
-function DrawingContextThumbnail({ filePath, label }: { filePath: string; label: string }) {
+function DrawingContextThumbnail({
+  storedFileId,
+  filePath,
+  label,
+}: {
+  storedFileId: string;
+  filePath: string;
+  label: string;
+}) {
   const { token } = theme.useToken();
   const [src, setSrc] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = usePageTransientOpenState();
 
   useEffect(() => {
     let cancelled = false;
     setSrc(null);
-    invoke<string>('read_attachment_preview', { filePath })
+    loadStoredMediaSource(storedFileId, filePath)
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [filePath]);
+  }, [filePath, storedFileId]);
 
   return (
     <Tooltip title={label}>
@@ -97,7 +108,12 @@ function DrawingContextThumbnail({ filePath, label }: { filePath: string; label:
               objectFit: 'cover',
               borderRadius: 6,
             }}
-            preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+            preview={{
+              open: previewOpen,
+              onOpenChange: setPreviewOpen,
+              mask: { blur: true },
+              scaleStep: 0.5,
+            }}
           />
         ) : null}
       </span>
@@ -111,11 +127,11 @@ function DrawingImageMenuLabel({ image, label }: { image: DrawingImage; label: s
 
   useEffect(() => {
     let cancelled = false;
-    invoke<string>('read_attachment_preview', { filePath: image.storage_path })
+    loadStoredMediaSource(image.stored_file_id, image.storage_path)
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [image.storage_path]);
+  }, [image.storage_path, image.stored_file_id]);
 
   return (
     <span className="inline-flex items-center gap-2">
@@ -170,16 +186,19 @@ export function DrawingGenerationItem({
   const contextThumbnails = useMemo(() => [
     ...(generation.source_images ?? []).map((image, index) => ({
       key: `source-${image.id}`,
+      storedFileId: image.stored_file_id,
       filePath: image.storage_path,
       label: t('drawing.sourceImageWithIndex', `原图 ${index + 1}`, { index: index + 1 }),
     })),
     ...(generation.mask_file ? [{
       key: `mask-${generation.mask_file.id}`,
+      storedFileId: generation.mask_file.id,
       filePath: generation.mask_file.storage_path,
       label: t('drawing.maskImage', 'Mask 图'),
     }] : []),
     ...(generation.reference_files ?? []).map((file, index) => ({
       key: `ref-${file.id}`,
+      storedFileId: file.id,
       filePath: file.storage_path,
       label: t('drawing.referenceImageWithIndex', `参考图 ${index + 1}`, { index: index + 1 }),
     })),
@@ -196,7 +215,7 @@ export function DrawingGenerationItem({
 
   const resolveFirstImagePreview = async () => {
     if (!firstImage) throw new Error('No image to operate on.');
-    return invoke<string>('read_attachment_preview', { filePath: firstImage.storage_path });
+    return loadStoredMediaSource(firstImage.stored_file_id, firstImage.storage_path);
   };
 
   const handleRevealImage = async () => {
@@ -330,6 +349,7 @@ export function DrawingGenerationItem({
             {contextThumbnails.map((item) => (
               <DrawingContextThumbnail
                 key={item.key}
+                storedFileId={item.storedFileId}
                 filePath={item.filePath}
                 label={item.label}
               />

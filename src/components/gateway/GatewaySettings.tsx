@@ -14,18 +14,18 @@ interface CertResult {
 export function GatewaySettings() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { settings, fetchSettings, saveSettings } = useSettingsStore();
-  const { status, fetchStatus, stopGateway } = useGatewayStore();
+  const { settings, ensureSettingsLoaded, saveSettings } = useSettingsStore();
+  const { status, ensureStatusLoaded, fetchStatus, stopGateway } = useGatewayStore();
 
   useEffect(() => {
-    fetchSettings();
-    fetchStatus();
+    void ensureSettingsLoaded();
+    void ensureStatusLoaded({ maxAgeMs: 5_000 });
     const interval = window.setInterval(() => {
       fetchStatus();
     }, 5000);
 
     return () => window.clearInterval(interval);
-  }, [fetchSettings, fetchStatus]);
+  }, [ensureSettingsLoaded, ensureStatusLoaded, fetchStatus]);
 
   const settingsLocked = status.is_running;
 

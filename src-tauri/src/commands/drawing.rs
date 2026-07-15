@@ -1,8 +1,6 @@
 use crate::AppState;
 use aqbot_core::file_store::FileStore;
-use aqbot_core::repo::drawing::{
-    DrawingGeneration, DrawingImage, NewDrawingGeneration, NewDrawingImage,
-};
+use aqbot_core::repo::drawing::{DrawingGeneration, DrawingImage, NewDrawingGeneration};
 use aqbot_core::repo::stored_file::StoredFile;
 use aqbot_core::types::{ProviderConfig, ProviderProxyConfig, ProviderType};
 use aqbot_providers::openai_images::{
@@ -12,6 +10,7 @@ use aqbot_providers::openai_images::{
 use aqbot_providers::{resolve_base_url_for_type, ProviderRequestContext};
 use base64::Engine;
 use image::GenericImageView;
+use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -193,6 +192,11 @@ pub async fn upload_drawing_reference(
     state: State<'_, AppState>,
     input: DrawingUploadInput,
 ) -> Result<DrawingStoredFile, String> {
+    if aqbot_core::inline_media::contains_inline_image_data(&input.file_name)
+        || aqbot_core::inline_media::contains_inline_image_data(&input.mime_type)
+    {
+        return Err("Drawing file metadata contains inline image data".to_string());
+    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&input.data)
         .map_err(|e| format!("Invalid base64: {}", e))?;
@@ -451,24 +455,180 @@ pub async fn delete_drawing_generation(
     id: String,
     delete_resources: Option<bool>,
 ) -> Result<(), String> {
-    if delete_resources.unwrap_or(false) {
-        let generation = aqbot_core::repo::drawing::get_generation(&state.sea_db, &id)
-            .await
-            .map_err(|e| e.to_string())?;
-        let file_store = FileStore::new();
-        for image in generation.images {
-            super::file_cleanup::delete_attachment_reference(
-                &state.sea_db,
-                &file_store,
-                &image.stored_file_id,
-            )
+    let file_store = FileStore::new();
+    delete_drawing_generation_using(
+        &state.sea_db,
+        &file_store,
+        &id,
+        delete_resources.unwrap_or(false),
+    )
+    .await
+}
+
+async fn delete_drawing_generation_using(
+    db: &sea_orm::DatabaseConnection,
+    file_store: &FileStore,
+    id: &str,
+    delete_resources: bool,
+) -> Result<(), String> {
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
+    let txn = db.begin().await.map_err(|e| e.to_string())?;
+    let operation = async {
+        aqbot_core::entity::drawing_generations::Entity::find_by_id(id)
+            .one(&txn)
+            .await?
+            .ok_or_else(|| {
+                aqbot_core::error::AQBotError::NotFound(format!(
+                    "DrawingGeneration {id}"
+                ))
+            })?;
+        let images = aqbot_core::entity::drawing_images::Entity::find()
+            .filter(aqbot_core::entity::drawing_images::Column::GenerationId.eq(id))
+            .all(&txn)
             .await?;
+        let dependencies = drawing_generation_dependencies(&txn, id, &images).await?;
+        if !dependencies.is_empty() {
+            return Err(aqbot_core::error::AQBotError::Validation(format!(
+                "Drawing generation {id} is still referenced by {}; delete dependent generations first",
+                dependencies.join(", ")
+            )));
+        }
+
+        let mut stored_file_ids = images
+            .iter()
+            .map(|image| image.stored_file_id.clone())
+            .collect::<Vec<_>>();
+        stored_file_ids.sort();
+        stored_file_ids.dedup();
+        aqbot_core::entity::drawing_images::Entity::delete_many()
+            .filter(aqbot_core::entity::drawing_images::Column::GenerationId.eq(id))
+            .exec(&txn)
+            .await?;
+        let deleted = aqbot_core::entity::drawing_generations::Entity::delete_by_id(id)
+            .exec(&txn)
+            .await?;
+        if deleted.rows_affected == 0 {
+            return Err(aqbot_core::error::AQBotError::NotFound(format!(
+                "DrawingGeneration {id}"
+            )));
+        }
+        let resource_paths = if delete_resources {
+            let candidates = stored_file_ids.into_iter().collect::<std::collections::HashSet<_>>();
+            aqbot_core::repo::stored_file::delete_unreferenced_candidates(&txn, &candidates)
+                .await?
+        } else {
+            Vec::new()
+        };
+        Ok::<_, aqbot_core::error::AQBotError>(resource_paths)
+    }
+    .await;
+    let resource_paths = match operation {
+        Ok(resource_paths) => resource_paths,
+        Err(error) => {
+            let rollback = txn.rollback().await.err();
+            return Err(format!(
+                "Failed to delete drawing generation {id}: {error}; rollback error: {}",
+                rollback
+                    .map(|error| error.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+        }
+    };
+    txn.commit()
+        .await
+        .map_err(|error| format!("Failed to commit drawing generation deletion {id}: {error}"))?;
+
+    if delete_resources {
+        let mut paths = resource_paths;
+        paths.sort();
+        paths.dedup();
+        let cleanup_errors = cleanup_created_drawing_paths(db, file_store, &paths).await;
+        if !cleanup_errors.is_empty() {
+            return Err(format!(
+                "Drawing generation {id} was deleted but resource cleanup failed: {}",
+                cleanup_errors.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn drawing_generation_dependencies(
+    txn: &sea_orm::DatabaseTransaction,
+    target_generation_id: &str,
+    target_images: &[aqbot_core::entity::drawing_images::Model],
+) -> aqbot_core::error::Result<Vec<String>> {
+    let target_image_ids = target_images
+        .iter()
+        .map(|image| image.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let target_stored_file_ids = target_images
+        .iter()
+        .map(|image| image.stored_file_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let generations = aqbot_core::entity::drawing_generations::Entity::find()
+        .filter(aqbot_core::entity::drawing_generations::Column::Id.ne(target_generation_id))
+        .all(txn)
+        .await?;
+    let other_images = aqbot_core::entity::drawing_images::Entity::find()
+        .filter(aqbot_core::entity::drawing_images::Column::GenerationId.ne(target_generation_id))
+        .all(txn)
+        .await?;
+    let mut dependencies = std::collections::BTreeSet::new();
+
+    for generation in generations {
+        if generation.parent_generation_id.as_deref() == Some(target_generation_id) {
+            dependencies.insert(format!("{} (parent_generation_id)", generation.id));
+        }
+        let reference_file_ids = parse_drawing_dependency_ids(
+            &generation.reference_file_ids_json,
+            &generation.id,
+            "reference_file_ids_json",
+        )?;
+        if reference_file_ids
+            .iter()
+            .any(|id| target_stored_file_ids.contains(id.as_str()))
+        {
+            dependencies.insert(format!("{} (reference_file_ids_json)", generation.id));
+        }
+        let source_image_ids = parse_drawing_dependency_ids(
+            &generation.source_image_ids_json,
+            &generation.id,
+            "source_image_ids_json",
+        )?;
+        if source_image_ids
+            .iter()
+            .any(|id| target_image_ids.contains(id.as_str()))
+        {
+            dependencies.insert(format!("{} (source_image_ids_json)", generation.id));
+        }
+        if generation
+            .mask_file_id
+            .as_deref()
+            .is_some_and(|id| target_stored_file_ids.contains(id))
+        {
+            dependencies.insert(format!("{} (mask_file_id)", generation.id));
+        }
+    }
+    for image in other_images {
+        if target_stored_file_ids.contains(image.stored_file_id.as_str()) {
+            dependencies.insert(format!("{} (drawing_images)", image.generation_id));
         }
     }
 
-    aqbot_core::repo::drawing::delete_generation(&state.sea_db, &id)
-        .await
-        .map_err(|e| e.to_string())
+    Ok(dependencies.into_iter().collect())
+}
+
+fn parse_drawing_dependency_ids(
+    raw: &str,
+    generation_id: &str,
+    field: &str,
+) -> aqbot_core::error::Result<Vec<String>> {
+    serde_json::from_str(raw).map_err(|error| {
+        aqbot_core::error::AQBotError::Validation(format!(
+            "Drawing generation {generation_id} has invalid {field}: {error}"
+        ))
+    })
 }
 
 async fn build_image_context(
@@ -576,6 +736,20 @@ async fn create_running_generation<T: Serialize>(
     parent_generation_id: Option<String>,
     mask_file_id: Option<String>,
 ) -> Result<DrawingGeneration, String> {
+    let parameters_json = serde_json::to_string(parameters).map_err(|e| e.to_string())?;
+    let reference_file_ids_json =
+        serde_json::to_string(reference_file_ids).map_err(|e| e.to_string())?;
+    let source_image_ids_json =
+        serde_json::to_string(source_image_ids).map_err(|e| e.to_string())?;
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
+    validate_drawing_generation_references(
+        &state.sea_db,
+        reference_file_ids,
+        source_image_ids,
+        parent_generation_id.as_deref(),
+        mask_file_id.as_deref(),
+    )
+    .await?;
     aqbot_core::repo::drawing::create_generation(
         &state.sea_db,
         NewDrawingGeneration {
@@ -585,16 +759,59 @@ async fn create_running_generation<T: Serialize>(
             model_id: model_id.to_string(),
             action: action.to_string(),
             prompt: prompt.trim().to_string(),
-            parameters_json: serde_json::to_string(parameters).map_err(|e| e.to_string())?,
-            reference_file_ids_json: serde_json::to_string(reference_file_ids)
-                .map_err(|e| e.to_string())?,
-            source_image_ids_json: serde_json::to_string(source_image_ids)
-                .map_err(|e| e.to_string())?,
+            parameters_json,
+            reference_file_ids_json,
+            source_image_ids_json,
             mask_file_id,
         },
     )
     .await
     .map_err(|e| e.to_string())
+}
+
+async fn validate_drawing_generation_references(
+    db: &sea_orm::DatabaseConnection,
+    reference_file_ids: &[String],
+    source_image_ids: &[String],
+    parent_generation_id: Option<&str>,
+    mask_file_id: Option<&str>,
+) -> Result<(), String> {
+    for file_id in reference_file_ids
+        .iter()
+        .map(String::as_str)
+        .chain(mask_file_id)
+    {
+        aqbot_core::entity::stored_files::Entity::find_by_id(file_id)
+            .one(db)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("StoredFile {file_id} not found"))?;
+    }
+    for image_id in source_image_ids {
+        let image = aqbot_core::entity::drawing_images::Entity::find_by_id(image_id)
+            .one(db)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("DrawingImage {image_id} not found"))?;
+        aqbot_core::entity::stored_files::Entity::find_by_id(&image.stored_file_id)
+            .one(db)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "StoredFile {} referenced by drawing image {image_id} not found",
+                    image.stored_file_id
+                )
+            })?;
+    }
+    if let Some(parent_generation_id) = parent_generation_id {
+        aqbot_core::entity::drawing_generations::Entity::find_by_id(parent_generation_id)
+            .one(db)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("DrawingGeneration {parent_generation_id} not found"))?;
+    }
+    Ok(())
 }
 
 async fn persist_api_result(
@@ -606,30 +823,63 @@ async fn persist_api_result(
 ) -> Result<DrawingGeneration, String> {
     match result {
         Ok(output) => {
+            let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
             let mime_type = output_format_to_mime(output_format);
-            for (index, image) in output.images.into_iter().enumerate() {
-                let ext = output_format_to_extension(output_format);
-                let file_name = format!("drawing-{}-{}.{}", generation.id, index + 1, ext);
-                let saved = FileStore::new()
-                    .save_file(&image.bytes, &file_name, mime_type)
-                    .map_err(|e| e.to_string())?;
-                let stored_file_id = aqbot_core::utils::gen_id();
-                aqbot_core::repo::stored_file::create_stored_file(
-                    &state.sea_db,
-                    &stored_file_id,
-                    &saved.hash,
-                    &file_name,
-                    mime_type,
-                    saved.size_bytes,
-                    &saved.storage_path,
-                    None,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-                let dimensions = image_dimensions(&image.bytes).ok();
-                aqbot_core::repo::drawing::add_image(
-                    &state.sea_db,
-                    NewDrawingImage {
+            let file_store = FileStore::new();
+            let txn = state.sea_db.begin().await.map_err(|e| e.to_string())?;
+            let mut created_paths = Vec::new();
+            let response_id = output.response_id;
+            let usage_json = output.usage_json;
+            let operation = async {
+                let generation_row =
+                    aqbot_core::entity::drawing_generations::Entity::find_by_id(&generation.id)
+                        .one(&txn)
+                        .await?
+                        .ok_or_else(|| {
+                            aqbot_core::error::AQBotError::NotFound(format!(
+                                "DrawingGeneration {}",
+                                generation.id
+                            ))
+                        })?;
+                let mut persisted_images = Vec::with_capacity(output.images.len());
+                for (index, image) in output.images.into_iter().enumerate() {
+                    let ext = output_format_to_extension(output_format);
+                    let file_name = format!("drawing-{}-{}.{}", generation.id, index + 1, ext);
+                    let saved = file_store.save_file(&image.bytes, &file_name, mime_type)?;
+                    if saved.created {
+                        created_paths.push(saved.storage_path.clone());
+                    }
+                    let stored_file_id = aqbot_core::utils::gen_id();
+                    aqbot_core::entity::stored_files::ActiveModel {
+                        id: Set(stored_file_id.clone()),
+                        hash: Set(saved.hash),
+                        original_name: Set(file_name.clone()),
+                        mime_type: Set(mime_type.to_string()),
+                        size_bytes: Set(saved.size_bytes),
+                        storage_path: Set(saved.storage_path.clone()),
+                        conversation_id: Set(None),
+                        ..Default::default()
+                    }
+                    .insert(&txn)
+                    .await?;
+                    let dimensions = image_dimensions(&image.bytes).ok();
+                    let image_id = aqbot_core::utils::gen_id();
+                    let created_at = aqbot_core::utils::now_ts();
+                    aqbot_core::entity::drawing_images::ActiveModel {
+                        id: Set(image_id.clone()),
+                        generation_id: Set(generation.id.clone()),
+                        stored_file_id: Set(stored_file_id.clone()),
+                        storage_path: Set(saved.storage_path.clone()),
+                        mime_type: Set(mime_type.to_string()),
+                        width: Set(dimensions.map(|d| d.0 as i32)),
+                        height: Set(dimensions.map(|d| d.1 as i32)),
+                        revised_prompt: Set(image.revised_prompt.clone()),
+                        created_at: Set(created_at),
+                    }
+                    .insert(&txn)
+                    .await?;
+                    persisted_images.push(DrawingImage {
+                        id: image_id,
                         generation_id: generation.id.clone(),
                         stored_file_id,
                         storage_path: saved.storage_path,
@@ -637,22 +887,73 @@ async fn persist_api_result(
                         width: dimensions.map(|d| d.0 as i32),
                         height: dimensions.map(|d| d.1 as i32),
                         revised_prompt: image.revised_prompt,
-                    },
-                )
-                .await
-                .map_err(|e| e.to_string())?;
+                        created_at,
+                    });
+                }
+
+                let completed_at = aqbot_core::utils::now_ts();
+                let mut update: aqbot_core::entity::drawing_generations::ActiveModel =
+                    generation_row.into();
+                update.status = Set("succeeded".to_string());
+                update.error_message = Set(None);
+                update.response_id = Set(response_id.clone());
+                update.usage_json = Set(usage_json.clone());
+                update.completed_at = Set(Some(completed_at));
+                update.update(&txn).await?;
+
+                let mut persisted_generation = generation.clone();
+                persisted_generation.status = "succeeded".to_string();
+                persisted_generation.error_message = None;
+                persisted_generation.response_id = response_id;
+                persisted_generation.usage_json = usage_json;
+                persisted_generation.completed_at = Some(completed_at);
+                persisted_generation.images = persisted_images;
+                Ok::<DrawingGeneration, aqbot_core::error::AQBotError>(persisted_generation)
             }
-            aqbot_core::repo::drawing::mark_generation_succeeded(
-                &state.sea_db,
-                &generation.id,
-                output.response_id,
-                output.usage_json,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-            aqbot_core::repo::drawing::get_generation(&state.sea_db, &generation.id)
-                .await
-                .map_err(|e| e.to_string())
+            .await;
+
+            let persisted_generation = match operation {
+                Ok(persisted_generation) => persisted_generation,
+                Err(error) => {
+                    let rollback_error = txn.rollback().await.err();
+                    let cleanup_errors =
+                        cleanup_created_drawing_paths(&state.sea_db, &file_store, &created_paths)
+                            .await;
+                    let failure = format!(
+                        "Failed to persist drawing generation {}: {error}; rollback error: {}; cleanup errors: {}",
+                        generation.id,
+                        rollback_error
+                            .map(|error| error.to_string())
+                            .unwrap_or_else(|| "none".to_string()),
+                        if cleanup_errors.is_empty() {
+                            "none".to_string()
+                        } else {
+                            cleanup_errors.join(", ")
+                        }
+                    );
+                    let _ = aqbot_core::repo::drawing::mark_generation_failed(
+                        &state.sea_db,
+                        &generation.id,
+                        failure.clone(),
+                    )
+                    .await;
+                    return Err(failure);
+                }
+            };
+            if let Err(error) = txn.commit().await {
+                let cleanup_errors =
+                    cleanup_created_drawing_paths(&state.sea_db, &file_store, &created_paths).await;
+                return Err(format!(
+                    "Failed to commit drawing generation {}: {error}; cleanup errors: {}",
+                    generation.id,
+                    if cleanup_errors.is_empty() {
+                        "none".to_string()
+                    } else {
+                        cleanup_errors.join(", ")
+                    }
+                ));
+            }
+            Ok(persisted_generation)
         }
         Err(err) => {
             let sanitized = sanitize_error(&err.to_string(), provider);
@@ -667,30 +968,100 @@ async fn persist_api_result(
     }
 }
 
+async fn cleanup_unregistered_drawing_file(
+    db: &sea_orm::DatabaseConnection,
+    file_store: &FileStore,
+    saved: &aqbot_core::file_store::SavedFile,
+) -> String {
+    if !saved.created {
+        return "none".to_string();
+    }
+    match aqbot_core::repo::stored_file::count_stored_files_with_storage_path(
+        db,
+        &saved.storage_path,
+    )
+    .await
+    {
+        Ok(0) => file_store
+            .delete_file(&saved.storage_path)
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        Ok(_) => "none".to_string(),
+        Err(error) => error.to_string(),
+    }
+}
+
+async fn cleanup_created_drawing_paths(
+    db: &sea_orm::DatabaseConnection,
+    file_store: &FileStore,
+    paths: &[String],
+) -> Vec<String> {
+    let mut unique_paths = paths.to_vec();
+    unique_paths.sort();
+    unique_paths.dedup();
+    let mut errors = Vec::new();
+    for path in unique_paths {
+        match aqbot_core::repo::stored_file::count_stored_files_with_storage_path(db, &path).await {
+            Ok(0) => {
+                if let Err(error) = file_store.delete_file(&path) {
+                    errors.push(format!("failed to delete {path}: {error}"));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("failed to inspect {path}: {error}")),
+        }
+    }
+    errors
+}
+
 async fn save_drawing_reference_file(
     state: &AppState,
     bytes: &[u8],
     file_name: &str,
     mime_type: &str,
 ) -> Result<DrawingStoredFile, String> {
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
     let file_store = FileStore::new();
     let saved = file_store
         .save_file(bytes, file_name, mime_type)
         .map_err(|e| e.to_string())?;
 
-    if let Some(existing) = aqbot_core::repo::stored_file::find_by_hash(&state.sea_db, &saved.hash)
-        .await
-        .map_err(|e| e.to_string())?
-    {
+    let existing =
+        match aqbot_core::repo::stored_file::find_by_hash(&state.sea_db, &saved.hash).await {
+            Ok(existing) => existing,
+            Err(error) => {
+                let cleanup =
+                    cleanup_unregistered_drawing_file(&state.sea_db, &file_store, &saved).await;
+                return Err(format!(
+                "Failed to inspect drawing file deduplication: {error}; cleanup error: {cleanup}"
+            ));
+            }
+        };
+    if let Some(existing) = existing {
         if existing.storage_path != saved.storage_path {
-            let references = aqbot_core::repo::stored_file::count_stored_files_with_storage_path(
-                &state.sea_db,
-                &saved.storage_path,
-            )
-            .await
-            .unwrap_or(0);
+            let references =
+                match aqbot_core::repo::stored_file::count_stored_files_with_storage_path(
+                    &state.sea_db,
+                    &saved.storage_path,
+                )
+                .await
+                {
+                    Ok(references) => references,
+                    Err(error) => {
+                        let cleanup =
+                            cleanup_unregistered_drawing_file(&state.sea_db, &file_store, &saved)
+                                .await;
+                        return Err(format!(
+                        "Failed to inspect duplicate drawing file {}: {error}; cleanup error: {cleanup}",
+                        saved.storage_path
+                    ));
+                    }
+                };
             if references == 0 {
-                let _ = file_store.delete_file(&saved.storage_path);
+                file_store
+                    .delete_file(&saved.storage_path)
+                    .map_err(|error| error.to_string())?;
             }
         }
 
@@ -710,7 +1081,7 @@ async fn save_drawing_reference_file(
             None,
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| format!("Failed to register drawing reference: {error}"))?;
         return Ok(drawing_stored_file_from_repo(stored));
     }
 
@@ -725,8 +1096,17 @@ async fn save_drawing_reference_file(
         &saved.storage_path,
         None,
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await;
+    let stored = match stored {
+        Ok(stored) => stored,
+        Err(error) => {
+            let cleanup =
+                cleanup_unregistered_drawing_file(&state.sea_db, &file_store, &saved).await;
+            return Err(format!(
+                "Failed to register drawing reference: {error}; cleanup error: {cleanup}"
+            ));
+        }
+    };
 
     Ok(drawing_stored_file_from_repo(stored))
 }
@@ -926,6 +1306,8 @@ fn sanitize_error(raw: &str, provider: &ProviderConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aqbot_core::repo::drawing::{NewDrawingGeneration, NewDrawingImage};
+    use tempfile::tempdir;
 
     #[test]
     fn validates_batch_count_at_api_maximum() {
@@ -1029,5 +1411,187 @@ mod tests {
                 .expect("custom providers may use custom image edit paths"),
             Some("/v1/images/edits".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn refuses_both_deletion_modes_while_a_later_generation_uses_the_output() {
+        let dir = tempdir().unwrap();
+        let file_store = FileStore::with_root(dir.path().join("documents"));
+        let saved = file_store
+            .save_file(b"drawing-bytes", "drawing.png", "image/png")
+            .unwrap();
+        let db = aqbot_core::db::create_test_pool().await.unwrap();
+        let stored = aqbot_core::repo::stored_file::create_stored_file(
+            &db.conn,
+            "stored-a",
+            &saved.hash,
+            "drawing.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            None,
+        )
+        .await
+        .unwrap();
+        let generation_a = aqbot_core::repo::drawing::create_generation(
+            &db.conn,
+            NewDrawingGeneration {
+                parent_generation_id: None,
+                provider_id: "provider".into(),
+                key_id: "key".into(),
+                model_id: "gpt-image-2".into(),
+                action: "generate".into(),
+                prompt: "A".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: "[]".into(),
+                source_image_ids_json: "[]".into(),
+                mask_file_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let image_a = aqbot_core::repo::drawing::add_image(
+            &db.conn,
+            NewDrawingImage {
+                generation_id: generation_a.id.clone(),
+                stored_file_id: stored.id.clone(),
+                storage_path: stored.storage_path.clone(),
+                mime_type: stored.mime_type.clone(),
+                width: Some(1024),
+                height: Some(1024),
+                revised_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+        let generation_b = aqbot_core::repo::drawing::create_generation(
+            &db.conn,
+            NewDrawingGeneration {
+                parent_generation_id: None,
+                provider_id: "provider".into(),
+                key_id: "key".into(),
+                model_id: "gpt-image-2".into(),
+                action: "mask_edit".into(),
+                prompt: "B".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: serde_json::to_string(&vec![stored.id.clone()]).unwrap(),
+                source_image_ids_json: serde_json::to_string(&vec![image_a.id.clone()]).unwrap(),
+                mask_file_id: Some(stored.id.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+        for delete_resources in [false, true] {
+            let error = delete_drawing_generation_using(
+                &db.conn,
+                &file_store,
+                &generation_a.id,
+                delete_resources,
+            )
+            .await
+            .expect_err("a referenced drawing generation must not be deleted");
+            assert!(error.contains(&generation_b.id));
+        }
+
+        let fetched_a = aqbot_core::repo::drawing::get_generation(&db.conn, &generation_a.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched_a.images.len(), 1);
+        let fetched_b = aqbot_core::repo::drawing::get_generation(&db.conn, &generation_b.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched_b.reference_files.len(), 1);
+        assert_eq!(fetched_b.source_images.len(), 1);
+        assert_eq!(
+            fetched_b.mask_file.as_ref().map(|file| file.id.as_str()),
+            Some(stored.id.as_str())
+        );
+        assert!(file_store.read_file(&stored.storage_path).is_ok());
+    }
+
+    #[tokio::test]
+    async fn deleting_drawing_resources_preserves_files_referenced_by_chat() {
+        let dir = tempdir().unwrap();
+        let file_store = FileStore::with_root(dir.path().join("documents"));
+        let saved = file_store
+            .save_file(b"shared-drawing", "shared.png", "image/png")
+            .unwrap();
+        let db = aqbot_core::db::create_test_pool().await.unwrap();
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db.conn,
+            "Shared drawing",
+            "model",
+            "provider",
+            None,
+        )
+        .await
+        .unwrap();
+        let stored = aqbot_core::repo::stored_file::create_stored_file(
+            &db.conn,
+            "shared-stored-file",
+            &saved.hash,
+            "shared.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            Some(&conversation.id),
+        )
+        .await
+        .unwrap();
+        aqbot_core::repo::message::create_message(
+            &db.conn,
+            &conversation.id,
+            aqbot_core::types::MessageRole::Assistant,
+            &format!("![shared](aqbot-media://stored/{})", stored.id),
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+        let generation = aqbot_core::repo::drawing::create_generation(
+            &db.conn,
+            NewDrawingGeneration {
+                parent_generation_id: None,
+                provider_id: "provider".into(),
+                key_id: "key".into(),
+                model_id: "gpt-image-2".into(),
+                action: "generate".into(),
+                prompt: "shared".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: "[]".into(),
+                source_image_ids_json: "[]".into(),
+                mask_file_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        aqbot_core::repo::drawing::add_image(
+            &db.conn,
+            NewDrawingImage {
+                generation_id: generation.id.clone(),
+                stored_file_id: stored.id.clone(),
+                storage_path: stored.storage_path.clone(),
+                mime_type: stored.mime_type.clone(),
+                width: None,
+                height: None,
+                revised_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        delete_drawing_generation_using(&db.conn, &file_store, &generation.id, true)
+            .await
+            .unwrap();
+
+        assert!(aqbot_core::repo::drawing::get_generation(&db.conn, &generation.id)
+            .await
+            .is_err());
+        assert!(aqbot_core::repo::stored_file::get_stored_file(&db.conn, &stored.id)
+            .await
+            .is_ok());
+        assert!(file_store.read_file(&stored.storage_path).is_ok());
     }
 }

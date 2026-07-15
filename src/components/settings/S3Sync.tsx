@@ -28,10 +28,36 @@ import {
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@/lib/invoke';
 import { getErrorMessage, isFormValidationError } from '@/lib/errorMessage';
+import { createModuleResource } from '@/lib/moduleResource';
 import type { S3Config, S3FileInfo } from '@/types';
 import { useSettingsStore } from '@/stores';
 
 const { Text } = Typography;
+
+interface S3SyncStatus {
+  lastSyncTime: string | null;
+  lastSyncStatus: string | null;
+}
+
+const s3ConfigResource = createModuleResource<S3Config>();
+const s3BackupsResource = createModuleResource<S3FileInfo[]>();
+const s3SyncStatusResource = createModuleResource<S3SyncStatus>();
+
+export function invalidateS3SyncResources() {
+  s3ConfigResource.invalidate();
+  s3BackupsResource.invalidate();
+  s3SyncStatusResource.invalidate();
+}
+
+function s3BackupResourceKey(config: S3Config): string {
+  return JSON.stringify([
+    config.bucket,
+    config.region,
+    config.prefix,
+    config.endpointUrl,
+    config.forcePathStyle,
+  ]);
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -80,52 +106,59 @@ export default function S3Sync() {
   const [syncing, setSyncing] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [selectedFileNames, setSelectedFileNames] = useState<string[]>([]);
-  const [syncStatus, setSyncStatus] = useState<{
-    lastSyncTime: string | null;
-    lastSyncStatus: string | null;
-  }>({ lastSyncTime: null, lastSyncStatus: null });
+  const [syncStatus, setSyncStatus] = useState<S3SyncStatus>({
+    lastSyncTime: null,
+    lastSyncStatus: null,
+  });
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (force = false) => {
     try {
-      const cfg = await invoke<S3Config>('get_s3_config');
+      const cfg = await s3ConfigResource.ensure({
+        force,
+        load: () => invoke<S3Config>('get_s3_config'),
+      });
       setConfig(cfg);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      console.error('Failed to load S3 config:', error);
     }
   }, []);
 
-  const loadRemoteBackups = useCallback(async () => {
+  const loadRemoteBackups = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const backups = await invoke<S3FileInfo[]>('s3_list_backups');
+      const backups = await s3BackupsResource.ensure({
+        key: s3BackupResourceKey(config),
+        force,
+        load: () => invoke<S3FileInfo[]>('s3_list_backups'),
+      });
       setRemoteBackups(backups);
     } catch (e) {
       message.error(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [config, message]);
 
-  const loadSyncStatus = useCallback(async () => {
+  const loadSyncStatus = useCallback(async (force = false) => {
     try {
-      const status = await invoke<{
-        lastSyncTime: string | null;
-        lastSyncStatus: string | null;
-      }>('get_s3_sync_status');
+      const status = await s3SyncStatusResource.ensure({
+        force,
+        load: () => invoke<S3SyncStatus>('get_s3_sync_status'),
+      });
       setSyncStatus(status);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      console.error('Failed to load S3 sync status:', error);
     }
   }, []);
 
   useEffect(() => {
-    loadConfig();
-    loadSyncStatus();
+    void loadConfig();
+    void loadSyncStatus();
   }, [loadConfig, loadSyncStatus]);
 
   useEffect(() => {
     if (config.bucket) {
-      loadRemoteBackups();
+      void loadRemoteBackups();
     }
   }, [config.bucket, loadRemoteBackups]);
 
@@ -151,6 +184,8 @@ export default function S3Sync() {
       const newConfig = buildConfigFromValues(values);
 
       await invoke('save_s3_config', { config: newConfig });
+      s3ConfigResource.set(newConfig);
+      s3BackupsResource.invalidate();
       setConfig(newConfig);
 
       await saveSettings({
@@ -170,7 +205,6 @@ export default function S3Sync() {
 
       message.success(t('common.saveSuccess'));
       setConfigModalOpen(false);
-      loadRemoteBackups();
     } catch (e) {
       if (isFormValidationError(e)) {
         return;
@@ -206,8 +240,8 @@ export default function S3Sync() {
     try {
       await invoke<string>('s3_backup');
       message.success(t('backup.s3.backupSuccess'));
-      loadRemoteBackups();
-      loadSyncStatus();
+      void loadRemoteBackups(true);
+      void loadSyncStatus(true);
     } catch (e) {
       message.error(t('backup.s3.backupFailed') + ': ' + getErrorMessage(e));
     } finally {
@@ -231,7 +265,7 @@ export default function S3Sync() {
       await invoke('s3_delete_backup', { fileName });
       message.success(t('backup.deleteSuccess'));
       setSelectedFileNames((prev) => prev.filter((n) => n !== fileName));
-      loadRemoteBackups();
+      void loadRemoteBackups(true);
     } catch (e) {
       message.error(getErrorMessage(e));
     }
@@ -244,7 +278,7 @@ export default function S3Sync() {
       }
       message.success(t('backup.deleteSuccess'));
       setSelectedFileNames([]);
-      loadRemoteBackups();
+      void loadRemoteBackups(true);
     } catch (e) {
       message.error(getErrorMessage(e));
     }
@@ -372,7 +406,7 @@ export default function S3Sync() {
             <>
               <Button
                 icon={<RefreshCw size={16} />}
-                onClick={loadRemoteBackups}
+                onClick={() => void loadRemoteBackups(true)}
                 loading={loading}
               >
                 {t('common.refresh')}

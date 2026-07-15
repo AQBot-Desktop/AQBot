@@ -269,14 +269,15 @@ fn build_stream_error_event(
     kind: &str,
     timeout_secs: Option<u64>,
 ) -> ChatStreamErrorEvent {
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
     ChatStreamErrorEvent {
-        conversation_id: conversation_id.to_string(),
-        message_id: message_id.to_string(),
-        stream_id: Some(stream_id.to_string()),
-        model_id: Some(model_id.to_string()),
-        provider_id: Some(provider_id.to_string()),
-        error,
-        kind: Some(kind.to_string()),
+        conversation_id: safe(conversation_id),
+        message_id: safe(message_id),
+        stream_id: Some(safe(stream_id)),
+        model_id: Some(safe(model_id)),
+        provider_id: Some(safe(provider_id)),
+        error: safe(&error),
+        kind: Some(safe(kind)),
         timeout_secs,
     }
 }
@@ -343,12 +344,13 @@ fn build_stream_done_event(
     provider_id: &str,
     usage: Option<TokenUsage>,
 ) -> ChatStreamEvent {
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
     ChatStreamEvent {
-        conversation_id: conversation_id.to_string(),
-        message_id: message_id.to_string(),
-        stream_id: Some(stream_id.to_string()),
-        model_id: Some(model_id.to_string()),
-        provider_id: Some(provider_id.to_string()),
+        conversation_id: safe(conversation_id),
+        message_id: safe(message_id),
+        stream_id: Some(safe(stream_id)),
+        model_id: Some(safe(model_id)),
+        provider_id: Some(safe(provider_id)),
         chunk: ChatStreamChunk {
             content: None,
             thinking: None,
@@ -383,6 +385,42 @@ fn pre_persist_stream_chunk(chunk: &ChatStreamChunk) -> Option<ChatStreamChunk> 
     delta.done = false;
     delta.is_final = None;
     Some(delta)
+}
+
+fn filter_inline_data_stream_event_content(
+    filter: &mut aqbot_core::inline_media::InlineDataStreamFilter,
+    content: &str,
+    is_done: bool,
+) -> String {
+    let mut filtered = filter.push(content);
+    if is_done {
+        filtered.push_str(&filter.finish());
+    }
+    filtered
+}
+
+fn filter_complete_inline_data_event_text(content: &str) -> String {
+    let mut filter = aqbot_core::inline_media::InlineDataStreamFilter::default();
+    filter_inline_data_stream_event_content(&mut filter, content, true)
+}
+
+fn filter_tool_calls_for_event(tool_calls: Option<&[ToolCall]>) -> Option<Vec<ToolCall>> {
+    tool_calls.map(|tool_calls| {
+        tool_calls
+            .iter()
+            .cloned()
+            .map(|mut tool_call| {
+                tool_call.id = filter_complete_inline_data_event_text(&tool_call.id);
+                tool_call.call_type =
+                    filter_complete_inline_data_event_text(&tool_call.call_type);
+                tool_call.function.name =
+                    filter_complete_inline_data_event_text(&tool_call.function.name);
+                tool_call.function.arguments =
+                    filter_complete_inline_data_event_text(&tool_call.function.arguments);
+                tool_call
+            })
+            .collect()
+    })
 }
 
 const STREAM_ERROR_CONTENT_MARKER: &str = "<!-- aqbot-stream-error -->";
@@ -453,44 +491,224 @@ pub(crate) async fn persist_attachments(
     conversation_id: &str,
     attachments: &[AttachmentInput],
 ) -> aqbot_core::error::Result<Vec<Attachment>> {
+    for (index, attachment) in attachments.iter().enumerate() {
+        if aqbot_core::inline_media::contains_inline_image_data(&attachment.file_name)
+            || aqbot_core::inline_media::contains_inline_image_data(&attachment.file_type)
+        {
+            return Err(aqbot_core::error::AQBotError::Validation(format!(
+                "Attachment {index} metadata contains inline image data"
+            )));
+        }
+    }
     aqbot_core::storage_paths::ensure_documents_dirs()?;
     let file_store = aqbot_core::file_store::FileStore::new();
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
+    let txn = state.sea_db.begin().await?;
+    let mut created_paths = Vec::new();
+    let operation = async {
+        let mut persisted = Vec::with_capacity(attachments.len());
+        for attachment in attachments {
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(&attachment.data)
+                .map_err(|e| {
+                    aqbot_core::error::AQBotError::Validation(format!(
+                        "Invalid attachment base64 for {}: {}",
+                        attachment.file_name, e
+                    ))
+                })?;
+            let saved =
+                file_store.save_file(&data, &attachment.file_name, &attachment.file_type)?;
+            if saved.created {
+                created_paths.push(saved.storage_path.clone());
+            }
+            let stored_file_id = aqbot_core::utils::gen_id();
+            aqbot_core::entity::stored_files::ActiveModel {
+                id: Set(stored_file_id.clone()),
+                hash: Set(saved.hash),
+                original_name: Set(attachment.file_name.clone()),
+                mime_type: Set(attachment.file_type.clone()),
+                size_bytes: Set(saved.size_bytes),
+                storage_path: Set(saved.storage_path.clone()),
+                conversation_id: Set(Some(conversation_id.to_string())),
+                ..Default::default()
+            }
+            .insert(&txn)
+            .await?;
 
-    let mut persisted = Vec::with_capacity(attachments.len());
-    for attachment in attachments {
-        let data = base64::engine::general_purpose::STANDARD
-            .decode(&attachment.data)
-            .map_err(|e| {
-                aqbot_core::error::AQBotError::Validation(format!(
-                    "Invalid attachment base64 for {}: {}",
-                    attachment.file_name, e
-                ))
-            })?;
-        let saved = file_store.save_file(&data, &attachment.file_name, &attachment.file_type)?;
-        let stored_file_id = aqbot_core::utils::gen_id();
-        aqbot_core::repo::stored_file::create_stored_file(
-            &state.sea_db,
-            &stored_file_id,
-            &saved.hash,
-            &attachment.file_name,
-            &attachment.file_type,
-            saved.size_bytes,
-            &saved.storage_path,
-            Some(conversation_id),
-        )
-        .await?;
-
-        persisted.push(Attachment {
-            id: stored_file_id,
-            file_type: attachment.file_type.clone(),
-            file_name: attachment.file_name.clone(),
-            file_path: saved.storage_path,
-            file_size: attachment.file_size,
-            data: None,
-        });
+            persisted.push(Attachment {
+                id: stored_file_id,
+                file_type: attachment.file_type.clone(),
+                file_name: attachment.file_name.clone(),
+                file_path: saved.storage_path,
+                file_size: attachment.file_size,
+                data: None,
+            });
+        }
+        Ok::<_, aqbot_core::error::AQBotError>(persisted)
     }
+    .await;
 
+    let persisted = match operation {
+        Ok(persisted) => persisted,
+        Err(error) => {
+            let rollback_error = txn.rollback().await.err();
+            let cleanup_errors =
+                cleanup_created_attachment_paths(&state.sea_db, &file_store, &created_paths).await;
+            return Err(attachment_persistence_failure(
+                error,
+                rollback_error,
+                cleanup_errors,
+            ));
+        }
+    };
+    if let Err(error) = txn.commit().await {
+        let cleanup_errors =
+            cleanup_created_attachment_paths(&state.sea_db, &file_store, &created_paths).await;
+        return Err(attachment_persistence_failure(
+            error.into(),
+            None,
+            cleanup_errors,
+        ));
+    }
     Ok(persisted)
+}
+
+async fn cleanup_created_attachment_paths(
+    db: &DatabaseConnection,
+    file_store: &aqbot_core::file_store::FileStore,
+    paths: &[String],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for path in paths {
+        match aqbot_core::repo::stored_file::count_stored_files_with_storage_path(db, path).await {
+            Ok(0) => {
+                if let Err(error) = file_store.delete_file(path) {
+                    errors.push(format!("failed to remove {path}: {error}"));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("failed to inspect {path}: {error}")),
+        }
+    }
+    errors
+}
+
+fn attachment_persistence_failure(
+    primary: aqbot_core::error::AQBotError,
+    rollback: Option<sea_orm::DbErr>,
+    cleanup: Vec<String>,
+) -> aqbot_core::error::AQBotError {
+    if rollback.is_none() && cleanup.is_empty() {
+        return primary;
+    }
+    aqbot_core::error::AQBotError::Validation(format!(
+        "{primary}; rollback error: {}; cleanup errors: {}",
+        rollback
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        if cleanup.is_empty() {
+            "none".to_string()
+        } else {
+            cleanup.join(", ")
+        }
+    ))
+}
+
+pub(crate) async fn cleanup_new_message_attachments(
+    db: &DatabaseConnection,
+    attachments: &[Attachment],
+) -> Vec<String> {
+    let file_store = aqbot_core::file_store::FileStore::new();
+    let mut ids = attachments
+        .iter()
+        .map(|attachment| attachment.id.as_str())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut errors = Vec::new();
+    for id in ids {
+        if let Err(error) =
+            crate::commands::file_cleanup::delete_attachment_reference(db, &file_store, id).await
+        {
+            errors.push(format!("failed to clean attachment {id}: {error}"));
+        }
+    }
+    errors
+}
+
+pub(crate) async fn rollback_new_message(
+    db: &DatabaseConnection,
+    message_id: &str,
+    attachments: &[Attachment],
+) -> Vec<String> {
+    if let Err(error) = aqbot_core::repo::message::delete_message(db, message_id).await {
+        return vec![format!(
+            "failed to remove message {message_id}; attachments were retained: {error}"
+        )];
+    }
+    cleanup_new_message_attachments(db, attachments).await
+}
+
+pub(crate) fn format_new_message_failure(
+    message_id: &str,
+    stage: &str,
+    primary: impl std::fmt::Display,
+    rollback_errors: Vec<String>,
+) -> String {
+    let rollback = if rollback_errors.is_empty() {
+        "none".to_string()
+    } else {
+        rollback_errors.join(", ")
+    };
+    format!("Message {message_id} {stage}: {primary}; rollback errors: {rollback}")
+}
+
+async fn finalize_new_message_for_ipc(
+    db: &DatabaseConnection,
+    message: Message,
+    prepared: Option<&aqbot_core::inline_media::PreparedInlineMedia>,
+) -> Result<Message, String> {
+    let message_id = message.id.clone();
+    let mut rollback_attachments = message.attachments.clone();
+    let finalized = match prepared {
+        Some(prepared) => {
+            let file_store = aqbot_core::file_store::FileStore::new();
+            match aqbot_core::inline_media::materialize_prepared_message_inline_images(
+                db,
+                &file_store,
+                &message_id,
+                prepared,
+            )
+            .await
+            {
+                Ok(message) => message,
+                Err(error) => {
+                    let rollback_errors =
+                        rollback_new_message(db, &message_id, &rollback_attachments).await;
+                    return Err(format_new_message_failure(
+                        &message_id,
+                        "inline media persistence failed",
+                        error,
+                        rollback_errors,
+                    ));
+                }
+            }
+        }
+        None => message,
+    };
+    rollback_attachments = finalized.attachments.clone();
+    if let Err(error) = crate::commands::messages::ensure_message_safe_for_ipc(&finalized) {
+        let rollback_errors =
+            rollback_new_message(db, &message_id, &rollback_attachments).await;
+        return Err(format_new_message_failure(
+            &message_id,
+            "IPC validation failed",
+            error,
+            rollback_errors,
+        ));
+    }
+    Ok(finalized)
 }
 
 /// Strip `<think ...>...</think>` blocks from content (all variants).
@@ -822,7 +1040,7 @@ fn read_document_attachment_text(
         return result.map(Some);
     }
 
-    let path = file_store.resolve_path(&attachment.file_path);
+    let path = file_store.validated_path(&attachment.file_path)?;
     if !path.exists() {
         return Ok(None);
     }
@@ -1398,6 +1616,16 @@ pub async fn list_conversations(state: State<'_, AppState>) -> Result<Vec<Conver
 }
 
 #[tauri::command]
+pub async fn get_conversation_snapshot(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Conversation, String> {
+    aqbot_core::repo::conversation::get_conversation(&state.sea_db, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn create_conversation(
     state: State<'_, AppState>,
     title: String,
@@ -1471,17 +1699,39 @@ async fn delete_conversation_with_attachments_using(
     file_store: &aqbot_core::file_store::FileStore,
     conversation_id: &str,
 ) -> Result<(), String> {
+    let _file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
     let files =
         aqbot_core::repo::stored_file::list_stored_files_by_conversation(db, conversation_id)
             .await
             .map_err(|e| e.to_string())?;
-    for file in files {
-        super::file_cleanup::delete_attachment_reference(db, file_store, &file.id).await?;
-    }
-
-    aqbot_core::repo::conversation::delete_conversation(db, conversation_id)
+    let candidate_ids = files
+        .iter()
+        .map(|file| file.id.clone())
+        .collect::<HashSet<_>>();
+    let txn = db.begin().await.map_err(|error| error.to_string())?;
+    let deleted = aqbot_core::entity::conversations::Entity::delete_by_id(conversation_id)
+        .exec(&txn)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|error| error.to_string())?;
+    if deleted.rows_affected == 0 {
+        return Err(format!("Conversation {conversation_id} not found"));
+    }
+    let storage_paths = aqbot_core::repo::stored_file::delete_unreferenced_candidates(
+        &txn,
+        &candidate_ids,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    txn.commit().await.map_err(|error| error.to_string())?;
+
+    for storage_path in storage_paths {
+        file_store.delete_file(&storage_path).map_err(|error| {
+            format!(
+                "Conversation was deleted but backing file cleanup failed for {storage_path}: {error}"
+            )
+        })?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1543,6 +1793,7 @@ async fn consume_stream(
     Option<ChatStreamErrorEvent>,
     Option<f64>, // tokens_per_second
     Option<i64>, // first_token_latency_ms
+    Vec<aqbot_core::inline_media::CapturedInlineImage>,
 ) {
     use futures::StreamExt;
     let mut full_content = String::new();
@@ -1558,6 +1809,7 @@ async fn consume_stream(
     let mut thinking_block_start: Option<std::time::Instant> = None;
     let mut thinking_durations: Vec<u64> = Vec::new();
     let mut disabled_thinking_strip_state = DisabledThinkingStripState::default();
+    let mut inline_data_capture = aqbot_core::inline_media::InlineDataStreamCapture::default();
 
     let mut received_stream_packet = false;
     loop {
@@ -1669,7 +1921,47 @@ async fn consume_stream(
                     thinking_block_start = None;
                 }
 
-                full_content.push_str(&emit_content);
+                let mut captured_delta = match inline_data_capture.push(&emit_content) {
+                    Ok(delta) => delta,
+                    Err(error) => {
+                        stream_error = Some(build_stream_error_event(
+                            conversation_id,
+                            message_id,
+                            stream_id,
+                            model_id,
+                            provider_id,
+                            format!("Failed to stage generated image: {error}"),
+                            "media_stream_capture_error",
+                            None,
+                        ));
+                        break;
+                    }
+                };
+                if is_done {
+                    match inline_data_capture.finish() {
+                        Ok(trailing) => {
+                            captured_delta.content.push_str(&trailing.content);
+                            captured_delta
+                                .event_content
+                                .push_str(&trailing.event_content);
+                        }
+                        Err(error) => {
+                            stream_error = Some(build_stream_error_event(
+                                conversation_id,
+                                message_id,
+                                stream_id,
+                                model_id,
+                                provider_id,
+                                format!("Failed to finish generated image: {error}"),
+                                "media_stream_capture_error",
+                                None,
+                            ));
+                            break;
+                        }
+                    }
+                }
+                full_content.push_str(&captured_delta.content);
+                let filtered_emit_content = captured_delta.event_content;
 
                 if chunk.usage.is_some() {
                     final_usage.clone_from(&chunk.usage);
@@ -1700,16 +1992,16 @@ async fn consume_stream(
                 }
 
                 let mut emitted_chunk = ChatStreamChunk {
-                    content: if emit_content.is_empty() {
+                    content: if filtered_emit_content.is_empty() {
                         None
                     } else {
-                        Some(emit_content)
+                        Some(filtered_emit_content)
                     },
                     thinking: emit_thinking_signal,
                     done: is_done,
                     is_final: None,
                     usage: chunk.usage.clone(),
-                    tool_calls: chunk.tool_calls.clone(),
+                    tool_calls: filter_tool_calls_for_event(chunk.tool_calls.as_deref()),
                 };
                 if emitted_chunk.done && emitted_chunk.is_final.is_none() {
                     emitted_chunk.is_final = Some(
@@ -1757,6 +2049,60 @@ async fn consume_stream(
         }
     }
 
+    let capture_can_commit = stream_error.is_none()
+        && !cancel_flag.load(std::sync::atomic::Ordering::Relaxed);
+    let streamed_images = if capture_can_commit {
+        match inline_data_capture.finish() {
+            Ok(trailing) => {
+                full_content.push_str(&trailing.content);
+                if !trailing.event_content.is_empty() {
+                    let _ = app.emit(
+                        "chat-stream-chunk",
+                        ChatStreamEvent {
+                            conversation_id: conversation_id.to_string(),
+                            message_id: message_id.to_string(),
+                            stream_id: Some(stream_id.to_string()),
+                            model_id: Some(model_id.to_string()),
+                            provider_id: Some(provider_id.to_string()),
+                            chunk: ChatStreamChunk {
+                                content: Some(trailing.event_content),
+                                thinking: None,
+                                done: false,
+                                is_final: None,
+                                usage: None,
+                                tool_calls: None,
+                            },
+                        },
+                    );
+                }
+                inline_data_capture.take_images()
+            }
+            Err(error) => {
+                stream_error = Some(build_stream_error_event(
+                    conversation_id,
+                    message_id,
+                    stream_id,
+                    model_id,
+                    provider_id,
+                    format!("Failed to finish generated image: {error}"),
+                    "media_stream_capture_error",
+                    None,
+                ));
+                full_content = aqbot_core::inline_media::replace_pending_inline_media_tokens(
+                    &full_content,
+                    "[图片接收失败]",
+                );
+                Vec::new()
+            }
+        }
+    } else {
+        full_content = aqbot_core::inline_media::replace_pending_inline_media_tokens(
+            &full_content,
+            "[图片接收失败]",
+        );
+        Vec::new()
+    };
+
     // Close any dangling <think> block (e.g. stream cancelled mid-thinking)
     if in_thinking_block {
         let total_ms = thinking_block_start
@@ -1802,6 +2148,7 @@ async fn consume_stream(
         stream_error,
         tokens_per_second,
         first_token_latency_ms,
+        streamed_images,
     )
 }
 
@@ -2002,6 +2349,14 @@ fn clean_generated_title(content: &str) -> String {
     normalize_auto_conversation_title(content)
 }
 
+fn validated_generated_title(content: &str) -> Result<String, String> {
+    let title = clean_generated_title(content);
+    if aqbot_core::inline_media::contains_inline_image_data(&title) {
+        return Err("AI-generated title contains inline image data".to_string());
+    }
+    Ok(title)
+}
+
 pub(crate) fn normalize_auto_conversation_title(content: &str) -> String {
     let cleaned = content
         .split_whitespace()
@@ -2107,7 +2462,10 @@ fn clean_generated_search_query_response(response: &ChatResponse) -> Result<Stri
             response.usage.total_tokens,
         ));
     }
-    Ok(query)
+    if aqbot_core::inline_media::contains_inline_image_data(&query) {
+        return Err("generated search query contains inline image data".to_string());
+    }
+    Ok(truncate_chars(&query, SEARCH_QUERY_CURRENT_CHAR_LIMIT))
 }
 
 fn build_search_query_generation_messages_for_attempt(
@@ -2446,7 +2804,7 @@ async fn generate_ai_title_with(
     };
 
     let mut response = call_title_chat(adapter, ctx, request.clone()).await?;
-    let mut title = clean_generated_title(&response.content);
+    let mut title = validated_generated_title(&response.content)?;
     if title.is_empty()
         && request
             .max_tokens
@@ -2458,7 +2816,7 @@ async fn generate_ai_title_with(
             RETRY_TITLE_SUMMARY_MAX_TOKENS
         );
         response = call_title_chat(adapter, ctx, request).await?;
-        title = clean_generated_title(&response.content);
+        title = validated_generated_title(&response.content)?;
     }
 
     if title.is_empty() {
@@ -2830,6 +3188,34 @@ fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
     result
 }
 
+fn sanitize_rag_context_result(mut result: RagContextResult) -> RagContextResult {
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
+    for part in &mut result.context_parts {
+        *part = safe(part);
+    }
+    for source in &mut result.source_results {
+        source.source_type = safe(&source.source_type);
+        source.container_id = safe(&source.container_id);
+        for item in &mut source.items {
+            item.content = safe(&item.content);
+            item.document_id = safe(&item.document_id);
+            item.id = safe(&item.id);
+            item.document_name = item.document_name.as_deref().map(safe);
+        }
+    }
+    for error in &mut result.errors {
+        error.source_type = safe(&error.source_type);
+        error.container_id = safe(&error.container_id);
+        error.message = safe(&error.message);
+    }
+    for empty in &mut result.empty_results {
+        empty.source_type = safe(&empty.source_type);
+        empty.container_id = safe(&empty.container_id);
+        empty.reason = safe(&empty.reason);
+    }
+    result
+}
+
 fn rag_source_errors(kb_ids: &[String], mem_ids: &[String], message: &str) -> Vec<RagSourceError> {
     let mut errors = Vec::with_capacity(kb_ids.len() + mem_ids.len());
     let message = format_rag_failure_message(message);
@@ -2933,13 +3319,15 @@ async fn collect_and_emit_rag_context(
         &mem_ids,
     )
     .await;
+    let rag_result = sanitize_rag_context_result(rag_result);
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
 
     let _ = app.emit(
         "rag-context-retrieved",
         RagContextRetrievedEvent {
-            conversation_id: conversation_id.to_string(),
-            message_id: Some(assistant_message_id.to_string()),
-            stream_id: Some(stream_id.to_string()),
+            conversation_id: safe(conversation_id),
+            message_id: Some(safe(assistant_message_id)),
+            stream_id: Some(safe(stream_id)),
             sources: rag_result.source_results.clone(),
             errors: rag_result.errors.clone(),
             empty_results: rag_result.empty_results.clone(),
@@ -3027,6 +3415,7 @@ fn spawn_stream_task(
         let mut last_stream_error: Option<ChatStreamErrorEvent> = None;
         let mut final_tokens_per_second: Option<f64> = None;
         let mut final_first_token_latency_ms: Option<i64> = None;
+        let mut streamed_inline_images = Vec::new();
 
         // Early create: persist a placeholder message so it survives crash/refresh
         // Skip if the caller already created the placeholder before spawning.
@@ -3109,7 +3498,15 @@ fn spawn_stream_task(
             let mut stream = adapter.chat_stream(&ctx, request);
             let suppress_thinking = thinking_budget == Some(0)
                 || matches!(thinking_level.as_deref(), Some("off" | "none"));
-            let (content, usage, tool_calls, stream_error, iter_tps, iter_ttft) = consume_stream(
+            let (
+                content,
+                usage,
+                tool_calls,
+                stream_error,
+                iter_tps,
+                iter_ttft,
+                mut iteration_inline_images,
+            ) = consume_stream(
                 &app,
                 &mut stream,
                 &conversation_id,
@@ -3124,6 +3521,7 @@ fn spawn_stream_task(
             .await;
 
             total_content.push_str(&content);
+            streamed_inline_images.append(&mut iteration_inline_images);
             if usage.is_some() {
                 total_usage = usage;
             }
@@ -3157,7 +3555,9 @@ fn spawn_stream_task(
             };
 
             // Save the tool_calls JSON for the final message
-            let tc_json = serde_json::to_string(&tool_calls).ok();
+            let safe_tool_calls =
+                filter_tool_calls_for_event(Some(&tool_calls)).unwrap_or_default();
+            let tc_json = serde_json::to_string(&safe_tool_calls).ok();
             final_tool_calls_json = tc_json.clone();
 
             // Add assistant message with tool_calls to chat history for next round
@@ -3206,10 +3606,10 @@ fn spawn_stream_task(
 
                 // Emit :::mcp opener as stream chunk — frontend shows loading state
                 let metadata = serde_json::json!({
-                    "name": server_name,
-                    "tool": tc.function.name,
-                    "id": tc.id,
-                    "arguments": tc.function.arguments,
+                    "name": filter_complete_inline_data_event_text(&server_name),
+                    "tool": filter_complete_inline_data_event_text(&tc.function.name),
+                    "id": filter_complete_inline_data_event_text(&tc.id),
+                    "arguments": filter_complete_inline_data_event_text(&tc.function.arguments),
                 });
                 let mcp_opener = format!("\n\n:::mcp {}\n", metadata);
                 total_content.push_str(&mcp_opener);
@@ -3277,8 +3677,11 @@ fn spawn_stream_task(
                 }
 
                 // Emit :::mcp result + closer as stream chunk — frontend shows completed state
-                let mcp_closer = format!("{}\n:::\n\n", result_content);
-                total_content.push_str(&mcp_closer);
+                let safe_mcp_closer = format!(
+                    "{}\n:::\n\n",
+                    filter_complete_inline_data_event_text(&result_content)
+                );
+                total_content.push_str(&safe_mcp_closer);
                 let _ = app.emit(
                     "chat-stream-chunk",
                     ChatStreamEvent {
@@ -3288,7 +3691,7 @@ fn spawn_stream_task(
                         model_id: Some(model_id.clone()),
                         provider_id: Some(provider.id.clone()),
                         chunk: ChatStreamChunk {
-                            content: Some(mcp_closer.clone()),
+                            content: Some(safe_mcp_closer),
                             thinking: None,
                             done: false,
                             is_final: None,
@@ -3302,7 +3705,7 @@ fn spawn_stream_task(
                 let _ = aqbot_core::repo::message::create_tool_result_message(
                     &db,
                     &conversation_id,
-                    &tc.id,
+                    &filter_complete_inline_data_event_text(&tc.id),
                     &result_content,
                     &intermediate_msg_id,
                 )
@@ -3358,21 +3761,59 @@ fn spawn_stream_task(
         let prompt_tokens = total_usage.as_ref().map(|u| u.prompt_tokens);
         let completion_tokens = total_usage.as_ref().map(|u| u.completion_tokens);
         // Prepend memory retrieval tag (if any) so it persists in DB
-        let saved_content = if content_prefix.is_empty() {
+        let mut saved_content = if content_prefix.is_empty() {
             total_content.clone()
         } else {
             format!("{}{}", content_prefix, total_content)
         };
+        if had_stream_error || was_cancelled {
+            streamed_inline_images.clear();
+            saved_content = aqbot_core::inline_media::replace_pending_inline_media_tokens(
+                &saved_content,
+                "[图片接收失败]",
+            );
+        }
+        let file_store = aqbot_core::file_store::FileStore::new();
+        let media_result = if streamed_inline_images.is_empty() {
+            aqbot_core::inline_media::materialize_message_inline_images(
+                &db,
+                &file_store,
+                &assistant_message_id,
+                &saved_content,
+            )
+            .await
+        } else {
+            aqbot_core::inline_media::materialize_streamed_inline_images(
+                &db,
+                &file_store,
+                &assistant_message_id,
+                &saved_content,
+                &streamed_inline_images,
+            )
+            .await
+        };
+        let media_error = media_result.err().map(|error| error.to_string());
+        let persisted_status = if media_error.is_none() {
+            final_status
+        } else {
+            "error"
+        };
+        if let Some(error) = media_error.as_deref() {
+            tracing::error!(
+                message_id = %assistant_message_id,
+                error = %error,
+                "Failed to materialize assistant inline media; original message content was preserved"
+            );
+        }
         if let Err(e) = aqbot_core::entity::messages::Entity::update(
             aqbot_core::entity::messages::ActiveModel {
                 id: Set(assistant_message_id.clone()),
-                content: Set(saved_content),
                 token_count: Set(token_count.map(|v| v as i64)),
                 prompt_tokens: Set(prompt_tokens.map(|v| v as i64)),
                 completion_tokens: Set(completion_tokens.map(|v| v as i64)),
                 thinking: Set(None), // thinking is now embedded in content as <think> tags
                 tool_calls_json: Set(final_tool_calls_json),
-                status: Set(final_status.to_string()),
+                status: Set(persisted_status.to_string()),
                 tokens_per_second: Set(final_tokens_per_second),
                 first_token_latency_ms: Set(final_first_token_latency_ms),
                 ..Default::default()
@@ -3391,7 +3832,18 @@ fn spawn_stream_task(
             tracing::error!("Failed to increment message count: {}", e);
         }
 
-        let terminal_error_event = if had_stream_error {
+        let terminal_error_event = if let Some(error) = media_error {
+            Some(build_stream_error_event(
+                &conversation_id,
+                &assistant_message_id,
+                &stream_id,
+                &model_id,
+                &provider.id,
+                format!("Failed to store generated image: {error}"),
+                "media_persistence_error",
+                None,
+            ))
+        } else if had_stream_error {
             Some(last_stream_error.unwrap_or_else(|| {
                 build_stream_error_event(
                     &conversation_id,
@@ -3543,29 +3995,73 @@ pub async fn send_message(
     {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
     }
+    if content_prefix
+        .as_deref()
+        .is_some_and(aqbot_core::inline_media::contains_inline_image_data)
+    {
+        return Err("Assistant content prefix contains inline image data".to_string());
+    }
+    let prepared_inline_media =
+        aqbot_core::inline_media::prepare_message_inline_images(&content).map_err(|error| {
+            format!("Message content rejected before persistence: {error}")
+        })?;
     let cancel_flag = Arc::new(AtomicBool::new(false));
 
     let persisted_attachments = persist_attachments(&state, &conversation_id, &attachments)
         .await
         .map_err(|e| e.to_string())?;
+    let safe_content = prepared_inline_media
+        .as_ref()
+        .map(|prepared| prepared.safe_content())
+        .unwrap_or(&content);
 
     // 1. Save user message to DB
-    let user_message = aqbot_core::repo::message::create_message(
+    let user_message = match aqbot_core::repo::message::create_message(
         &state.sea_db,
         &conversation_id,
         MessageRole::User,
-        &content,
+        safe_content,
         &persisted_attachments,
         None,
         0,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    {
+        Ok(message) => message,
+        Err(error) => {
+            let cleanup_errors =
+                cleanup_new_message_attachments(&state.sea_db, &persisted_attachments).await;
+            return Err(format!(
+                "Message creation failed: {error}; attachment rollback errors: {}",
+                if cleanup_errors.is_empty() {
+                    "none".to_string()
+                } else {
+                    cleanup_errors.join(", ")
+                }
+            ));
+        }
+    };
+    let user_message = finalize_new_message_for_ipc(
+        &state.sea_db,
+        user_message,
+        prepared_inline_media.as_ref(),
+    )
+    .await?;
 
     // Increment the persisted message count
-    aqbot_core::repo::conversation::increment_message_count(&state.sea_db, &conversation_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Err(error) =
+        aqbot_core::repo::conversation::increment_message_count(&state.sea_db, &conversation_id)
+            .await
+    {
+        let rollback_errors =
+            rollback_new_message(&state.sea_db, &user_message.id, &user_message.attachments).await;
+        return Err(format_new_message_failure(
+            &user_message.id,
+            "message-count update failed",
+            error,
+            rollback_errors,
+        ));
+    }
 
     // 2. Get conversation details (provider_id, model_id)
     let conversation =
@@ -3670,7 +4166,7 @@ pub async fn send_message(
     )
     .await?;
 
-    let user_query_content = strip_search_enrichment(&content);
+    let user_query_content = strip_search_enrichment(&user_message.content);
 
     // RAG retrieval: search enabled knowledge bases and memory namespaces
     let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
@@ -4613,13 +5109,19 @@ pub async fn list_message_versions(
     conversation_id: String,
     parent_message_id: String,
 ) -> Result<Vec<Message>, String> {
-    aqbot_core::repo::message::list_message_versions(
+    let messages = aqbot_core::repo::message::list_message_versions(
         &state.sea_db,
         &conversation_id,
         &parent_message_id,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let messages = crate::commands::messages::materialize_messages_for_ipc(
+        &state.sea_db,
+        messages,
+    )
+    .await?;
+    Ok(messages)
 }
 
 #[tauri::command]
@@ -4628,13 +5130,21 @@ pub async fn list_message_versions_batch(
     conversation_id: String,
     parent_message_ids: Vec<String>,
 ) -> Result<HashMap<String, Vec<Message>>, String> {
-    aqbot_core::repo::message::list_message_versions_batch(
+    let mut versions = aqbot_core::repo::message::list_message_versions_batch(
         &state.sea_db,
         &conversation_id,
         &parent_message_ids,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    for messages in versions.values_mut() {
+        *messages = crate::commands::messages::materialize_messages_for_ipc(
+            &state.sea_db,
+            std::mem::take(messages),
+        )
+        .await?;
+    }
+    Ok(versions)
 }
 
 #[tauri::command]
@@ -4660,9 +5170,13 @@ pub async fn delete_message_group(
     conversation_id: String,
     user_message_id: String,
 ) -> Result<(), String> {
-    let deleted = aqbot_core::repo::message::delete_message_group(&state.sea_db, &user_message_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let file_store = aqbot_core::file_store::FileStore::new();
+    let deleted = crate::commands::messages::delete_message_group_with_media_cleanup(
+        &state.sea_db,
+        &file_store,
+        &user_message_id,
+    )
+    .await?;
     // Decrement message count by deleted count
     for _ in 0..deleted {
         aqbot_core::repo::conversation::decrement_message_count(&state.sea_db, &conversation_id)
@@ -4806,6 +5320,9 @@ async fn do_compress(
         .chat(&ctx, request)
         .await
         .map_err(|e| format!("Summary generation failed: {}", e))?;
+    if aqbot_core::inline_media::contains_inline_image_data(&response.content) {
+        return Err("Summary generation returned inline image data".to_string());
+    }
 
     let token_count = aqbot_core::token_counter::estimate_tokens(&response.content);
     let summary = aqbot_core::repo::conversation::upsert_summary(
@@ -4974,9 +5491,40 @@ pub async fn get_compression_summary(
     state: State<'_, AppState>,
     conversation_id: String,
 ) -> Result<Option<ConversationSummary>, String> {
-    aqbot_core::repo::conversation::get_summary(&state.sea_db, &conversation_id)
+    let summary = aqbot_core::repo::conversation::get_summary(&state.sea_db, &conversation_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if let Some(summary) = &summary {
+        ensure_conversation_summary_safe_for_ipc(summary)?;
+    }
+    Ok(summary)
+}
+
+fn ensure_conversation_summary_safe_for_ipc(summary: &ConversationSummary) -> Result<(), String> {
+    let has_inline = aqbot_core::inline_media::contains_inline_image_data;
+    let unsafe_field = [
+        ("id", Some(summary.id.as_str())),
+        ("conversation_id", Some(summary.conversation_id.as_str())),
+        ("summary_text", Some(summary.summary_text.as_str())),
+        (
+            "compressed_until_message_id",
+            summary.compressed_until_message_id.as_deref(),
+        ),
+        ("model_used", summary.model_used.as_deref()),
+    ]
+    .into_iter()
+    .find_map(|(field, value)| value.is_some_and(has_inline).then_some(field));
+    if let Some(field) = unsafe_field {
+        let safe_id = if has_inline(&summary.id) {
+            "<unsafe-id>"
+        } else {
+            &summary.id
+        };
+        return Err(format!(
+            "Conversation summary {safe_id} cannot be returned over IPC: unresolved inline media remains in {field}"
+        ));
+    }
+    Ok(())
 }
 
 /// Tauri command: return server-side context usage for a conversation.
@@ -5093,11 +5641,19 @@ pub async fn send_system_message(
     conversation_id: String,
     content: String,
 ) -> Result<Message, String> {
+    let prepared_inline_media =
+        aqbot_core::inline_media::prepare_message_inline_images(&content).map_err(|error| {
+            format!("System message content rejected before persistence: {error}")
+        })?;
+    let safe_content = prepared_inline_media
+        .as_ref()
+        .map(|prepared| prepared.safe_content())
+        .unwrap_or(&content);
     let msg = aqbot_core::repo::message::create_message(
         &state.sea_db,
         &conversation_id,
         MessageRole::System,
-        &content,
+        safe_content,
         &[],
         None,
         0,
@@ -5105,7 +5661,7 @@ pub async fn send_system_message(
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok(msg)
+    finalize_new_message_for_ipc(&state.sea_db, msg, prepared_inline_media.as_ref()).await
 }
 
 #[cfg(test)]
@@ -5118,6 +5674,34 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Mutex;
+
+    fn test_app_state(db: DatabaseConnection) -> crate::AppState {
+        let vector_store = Arc::new(aqbot_core::vector_store::VectorStore::new(db.clone()));
+        crate::AppState {
+            sea_db: db,
+            master_key: [0; 32],
+            gateway: Arc::new(Mutex::new(None)),
+            close_to_tray: Arc::new(AtomicBool::new(false)),
+            release_webview_on_tray: Arc::new(AtomicBool::new(false)),
+            main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
+            main_window_restoring: Arc::new(AtomicBool::new(false)),
+            is_quitting: Arc::new(AtomicBool::new(false)),
+            app_data_dir: std::env::temp_dir(),
+            db_path: "sqlite::memory:".to_string(),
+            auto_backup_handle: Arc::new(Mutex::new(None)),
+            webdav_sync_handle: Arc::new(Mutex::new(None)),
+            s3_sync_handle: Arc::new(Mutex::new(None)),
+            vector_store,
+            knowledge_index_scheduler: Arc::new(
+                crate::knowledge_index_scheduler::KnowledgeIndexScheduler::default(),
+            ),
+            stream_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            agent_cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
+            agent_permission_senders: Arc::new(Mutex::new(HashMap::new())),
+            agent_ask_senders: Arc::new(Mutex::new(HashMap::new())),
+            agent_always_allowed: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 
     fn test_conversation(
         temperature: Option<f32>,
@@ -5275,6 +5859,62 @@ mod tests {
         assert_eq!(result.errors[1].source_type, "memory");
         assert_eq!(result.errors[1].container_id, "mem-1");
         assert_eq!(result.errors[1].message, "检索失败：检索超时，已超过 60 秒");
+    }
+
+    #[test]
+    fn rag_event_and_persisted_display_tag_never_contain_inline_image_data() {
+        let raw = "data:image/png;base64,RAG_SECRET";
+        let result = sanitize_rag_context_result(RagContextResult {
+            context_parts: vec![raw.to_string()],
+            source_results: vec![RagSourceResult {
+                source_type: raw.to_string(),
+                container_id: raw.to_string(),
+                items: vec![RagRetrievedItem {
+                    content: raw.to_string(),
+                    score: 1.0,
+                    rerank_score: None,
+                    document_id: raw.to_string(),
+                    id: raw.to_string(),
+                    document_name: Some(raw.to_string()),
+                }],
+            }],
+            errors: vec![RagSourceError {
+                source_type: raw.to_string(),
+                container_id: raw.to_string(),
+                message: raw.to_string(),
+            }],
+            empty_results: vec![RagSourceEmptyResult {
+                source_type: raw.to_string(),
+                container_id: raw.to_string(),
+                reason: raw.to_string(),
+            }],
+        });
+        let event = RagContextRetrievedEvent {
+            conversation_id: "conversation".to_string(),
+            message_id: Some("message".to_string()),
+            stream_id: Some("stream".to_string()),
+            sources: result.source_results.clone(),
+            errors: result.errors.clone(),
+            empty_results: result.empty_results.clone(),
+        };
+        let serialized = serde_json::to_string(&event).unwrap();
+        let tag = build_memory_retrieval_tag(&result.source_results);
+
+        assert!(!serialized.to_ascii_lowercase().contains("data:image/"));
+        assert!(!tag.to_ascii_lowercase().contains("data:image/"));
+        assert!(!serialized.contains("RAG_SECRET"));
+        assert!(!tag.contains("RAG_SECRET"));
+    }
+
+    #[test]
+    fn compression_summary_ipc_gate_checks_every_string_field() {
+        let mut summary = test_summary(None);
+        summary.summary_text = "data:image/png;base64,SUMMARY_SECRET".to_string();
+
+        let error = ensure_conversation_summary_safe_for_ipc(&summary).unwrap_err();
+
+        assert!(error.contains(&summary.id));
+        assert!(!error.contains("SUMMARY_SECRET"));
     }
 
     #[tokio::test]
@@ -5487,6 +6127,66 @@ mod tests {
     }
 
     #[test]
+    fn terminal_stream_chunk_flushes_retained_text_before_done() {
+        let mut filter = aqbot_core::inline_media::InlineDataStreamFilter::default();
+
+        let first = filter_inline_data_stream_event_content(&mut filter, "before da", false);
+        let terminal = filter_inline_data_stream_event_content(&mut filter, "ta", true);
+
+        assert_eq!(first, "before ");
+        assert_eq!(terminal, "data");
+        assert!(filter.finish().is_empty());
+    }
+
+    #[test]
+    fn terminal_stream_chunk_suppresses_data_uri_before_done() {
+        let mut filter = aqbot_core::inline_media::InlineDataStreamFilter::default();
+
+        let first = filter_inline_data_stream_event_content(
+            &mut filter,
+            "![image](data:image/png;base64,iVBOR",
+            false,
+        );
+        let terminal = filter_inline_data_stream_event_content(&mut filter, "w0KGgo=)", true);
+
+        let emitted = format!("{first}{terminal}");
+        assert_eq!(emitted, "![image]([图片接收中])");
+        assert!(!emitted.contains("data:image"));
+        assert!(!emitted.contains("iVBOR"));
+    }
+
+    #[test]
+    fn streamed_tool_call_arguments_are_sanitized_without_mutating_backend_value() {
+        let raw = ToolCall {
+            id: "call-data:image/png;base64,ID".to_string(),
+            call_type: "function-data:image/png;base64,TYPE".to_string(),
+            function: ToolCallFunction {
+                name: "inspect-data:image/png;base64,NAME".to_string(),
+                arguments: r#"{"image":"data:image/png;base64,iVBORw0KGgo="}"#.to_string(),
+            },
+        };
+
+        let emitted = filter_tool_calls_for_event(Some(std::slice::from_ref(&raw))).unwrap();
+
+        assert!(!serde_json::to_string(&emitted).unwrap().contains("data:image"));
+        assert!(!serde_json::to_string(&emitted).unwrap().contains("iVBOR"));
+        assert!(raw.function.arguments.contains("data:image"));
+        assert!(raw.id.contains("data:image"));
+        assert!(raw.function.name.contains("data:image"));
+    }
+
+    #[test]
+    fn complete_mcp_result_filter_preserves_wrapper_after_placeholder() {
+        let filtered = format!(
+            "{}\n:::\n\n",
+            filter_complete_inline_data_event_text("data:image/png;base64,iVBORw0KGgo=")
+        );
+
+        assert_eq!(filtered, "[图片接收中]\n:::\n\n");
+        assert!(!filtered.contains("data:image"));
+    }
+
+    #[test]
     fn append_stream_error_keeps_partial_content_visible() {
         let content = append_stream_error_to_content(
             "已生成的前半段",
@@ -5552,6 +6252,24 @@ mod tests {
             clean_generated_title(title),
             title.chars().take(30).collect::<String>() + "..."
         );
+    }
+
+    #[test]
+    fn generated_title_rejects_inline_media_without_echoing_payload() {
+        let error = validated_generated_title("data:image/png;base64,TITLE_SECRET").unwrap_err();
+
+        assert!(error.contains("inline image data"));
+        assert!(!error.contains("TITLE_SECRET"));
+    }
+
+    #[test]
+    fn stream_error_event_sanitizes_every_string_field() {
+        let raw = "data:image/png;base64,EVENT_SECRET";
+        let event = build_stream_error_event(raw, raw, raw, raw, raw, raw.to_string(), raw, None);
+        let serialized = serde_json::to_string(&event).unwrap();
+
+        assert!(!serialized.to_ascii_lowercase().contains("data:image/"));
+        assert!(!serialized.contains("EVENT_SECRET"));
     }
 
     #[test]
@@ -6244,6 +6962,27 @@ mod tests {
     }
 
     #[test]
+    fn generated_search_query_rejects_inline_media_without_echoing_it() {
+        let response = ChatResponse {
+            id: "resp-media".to_string(),
+            model: "model".to_string(),
+            content: "data:image/png;base64,SEARCH_SECRET".to_string(),
+            thinking: None,
+            usage: TokenUsage {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                total_tokens: 2,
+            },
+            tool_calls: None,
+        };
+
+        let error = clean_generated_search_query_response(&response).unwrap_err();
+
+        assert!(error.contains("inline image data"));
+        assert!(!error.contains("SEARCH_SECRET"));
+    }
+
+    #[test]
     fn retry_search_query_prompt_requires_a_non_empty_query() {
         let messages = build_retry_search_query_generation_messages(
             &[
@@ -6687,6 +7426,166 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn branched_media_survives_source_deletion_until_last_reference() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_store =
+            aqbot_core::file_store::FileStore::with_root(temp_dir.path().to_path_buf());
+        let source = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "Media source",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let saved = file_store
+            .save_file(b"shared media", "inline.png", "image/png")
+            .unwrap();
+        let physical_path = temp_dir.path().join(&saved.storage_path);
+        aqbot_core::repo::stored_file::create_stored_file(
+            &db,
+            "source-file",
+            &saved.hash,
+            "inline.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            Some(&source.id),
+        )
+        .await
+        .unwrap();
+        let source_message = aqbot_core::repo::message::create_message(
+            &db,
+            &source.id,
+            MessageRole::Assistant,
+            "![preview](aqbot-media://stored/source-file)",
+            &[Attachment {
+                id: "source-file".to_string(),
+                file_type: "image/png".to_string(),
+                file_name: "inline.png".to_string(),
+                file_path: saved.storage_path.clone(),
+                file_size: saved.size_bytes as u64,
+                data: None,
+            }],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let branch = aqbot_core::repo::conversation::branch_conversation(
+            &db,
+            &source.id,
+            &source_message.id,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let branch_files =
+            aqbot_core::repo::stored_file::list_stored_files_by_conversation(&db, &branch.id)
+                .await
+                .unwrap();
+        assert_eq!(branch_files.len(), 1);
+        assert_ne!(branch_files[0].id, "source-file");
+        assert_eq!(branch_files[0].storage_path, saved.storage_path);
+        assert_eq!(branch_files[0].hash, saved.hash);
+        let branch_messages = aqbot_core::repo::message::list_messages(&db, &branch.id)
+            .await
+            .unwrap();
+        assert_eq!(branch_messages.len(), 1);
+        assert_eq!(branch_messages[0].attachments[0].id, branch_files[0].id);
+        assert_eq!(
+            branch_messages[0].content,
+            format!("![preview](aqbot-media://stored/{})", branch_files[0].id)
+        );
+
+        delete_conversation_with_attachments_using(&db, &file_store, &source.id)
+            .await
+            .unwrap();
+        assert!(physical_path.exists());
+        assert!(
+            aqbot_core::repo::stored_file::get_stored_file(&db, &branch_files[0].id)
+                .await
+                .is_ok()
+        );
+
+        delete_conversation_with_attachments_using(&db, &file_store, &branch.id)
+            .await
+            .unwrap();
+        assert!(!physical_path.exists());
+    }
+
+    #[tokio::test]
+    async fn deleting_conversation_preserves_media_referenced_by_drawing() {
+        use aqbot_core::repo::drawing::NewDrawingGeneration;
+
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_store =
+            aqbot_core::file_store::FileStore::with_root(temp_dir.path().to_path_buf());
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "Drawing reference owner",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let saved = file_store
+            .save_file(b"drawing reference", "reference.png", "image/png")
+            .unwrap();
+        let stored = aqbot_core::repo::stored_file::create_stored_file(
+            &db,
+            "drawing-reference-file",
+            &saved.hash,
+            "reference.png",
+            "image/png",
+            saved.size_bytes,
+            &saved.storage_path,
+            Some(&conversation.id),
+        )
+        .await
+        .unwrap();
+        let generation = aqbot_core::repo::drawing::create_generation(
+            &db,
+            NewDrawingGeneration {
+                parent_generation_id: None,
+                provider_id: "provider-1".into(),
+                key_id: "key-1".into(),
+                model_id: "gpt-image-2".into(),
+                action: "edit".into(),
+                prompt: "preserve".into(),
+                parameters_json: "{}".into(),
+                reference_file_ids_json: serde_json::to_string(&vec![stored.id.clone()]).unwrap(),
+                source_image_ids_json: "[]".into(),
+                mask_file_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        delete_conversation_with_attachments_using(&db, &file_store, &conversation.id)
+            .await
+            .unwrap();
+
+        assert!(aqbot_core::repo::conversation::get_conversation(&db, &conversation.id)
+            .await
+            .is_err());
+        assert!(aqbot_core::repo::stored_file::get_stored_file(&db, &stored.id)
+            .await
+            .is_ok());
+        assert!(file_store.read_file(&stored.storage_path).is_ok());
+        let fetched = aqbot_core::repo::drawing::get_generation(&db, &generation.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched.reference_files[0].id, stored.id);
+    }
+
+    #[tokio::test]
     async fn persist_attachments_registers_stored_files_for_files_page() {
         use base64::Engine;
 
@@ -6763,5 +7662,144 @@ mod tests {
         // Cleanup: remove file written to documents root
         let _ = aqbot_core::file_store::FileStore::new().delete_file(&persisted[0].file_path);
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn persist_attachments_rolls_back_rows_and_new_files_on_batch_failure() {
+        use base64::Engine;
+
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "Attachment rollback",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let state = test_app_state(db.clone());
+        let bytes = format!("unique-{}", aqbot_core::utils::gen_id()).into_bytes();
+        let file_name = format!("rollback-{}.png", aqbot_core::utils::gen_id());
+        let expected_path = aqbot_core::storage_paths::build_relative_path(
+            &file_name,
+            "image/png",
+            &aqbot_core::file_store::FileStore::hash_bytes(&bytes),
+        );
+        let attachments = vec![
+            AttachmentInput {
+                file_name,
+                file_type: "image/png".to_string(),
+                file_size: bytes.len() as u64,
+                data: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            },
+            AttachmentInput {
+                file_name: "invalid.png".to_string(),
+                file_type: "image/png".to_string(),
+                file_size: 1,
+                data: "%%%not-base64%%%".to_string(),
+            },
+        ];
+
+        let result = persist_attachments(&state, &conversation.id, &attachments).await;
+
+        assert!(result.is_err());
+        assert!(
+            aqbot_core::repo::stored_file::list_stored_files_by_conversation(
+                &db,
+                &conversation.id,
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
+        assert!(!aqbot_core::file_store::FileStore::new()
+            .resolve_path(&expected_path)
+            .exists());
+    }
+
+    #[tokio::test]
+    async fn attachment_metadata_is_rejected_before_any_file_or_row_is_created() {
+        use base64::Engine;
+
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "Attachment preflight",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let state = test_app_state(db.clone());
+        let bytes = format!("preflight-{}", aqbot_core::utils::gen_id()).into_bytes();
+        let expected_path = aqbot_core::storage_paths::build_relative_path(
+            "safe.png",
+            "image/png",
+            &aqbot_core::file_store::FileStore::hash_bytes(&bytes),
+        );
+        let attachments = vec![AttachmentInput {
+            file_name: "data:image/png;base64,SECRET".to_string(),
+            file_type: "image/png".to_string(),
+            file_size: bytes.len() as u64,
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        }];
+
+        let error = persist_attachments(&state, &conversation.id, &attachments)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("Attachment 0 metadata"));
+        assert!(!error.to_string().contains("SECRET"));
+        assert!(aqbot_core::repo::stored_file::list_stored_files_by_conversation(
+            &db,
+            &conversation.id,
+        )
+        .await
+        .unwrap()
+        .is_empty());
+        assert!(aqbot_core::repo::message::list_messages(&db, &conversation.id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(!aqbot_core::file_store::FileStore::new()
+            .resolve_path(&expected_path)
+            .exists());
+    }
+
+    #[tokio::test]
+    async fn new_message_ipc_failure_removes_the_unreturnable_row() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "IPC rollback",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let message = aqbot_core::repo::message::create_message(
+            &db,
+            &conversation.id,
+            MessageRole::User,
+            "plain data:image/png;base64,SECRET",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let error = finalize_new_message_for_ipc(&db, message.clone(), None)
+            .await
+            .unwrap_err();
+
+        assert!(error.contains(&message.id));
+        assert!(!error.contains("SECRET"));
+        assert!(aqbot_core::repo::message::get_message(&db, &message.id)
+            .await
+            .is_err());
     }
 }

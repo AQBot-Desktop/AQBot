@@ -4,8 +4,6 @@ use aqbot_core::repo::{backup, settings as settings_repo};
 use aqbot_core::s3_backup::{S3BackupClient, S3Config, S3FileInfo};
 use aqbot_core::webdav;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait, Statement};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tauri::State;
 
@@ -18,7 +16,6 @@ const S3_LAST_SYNC_STATUS_SETTING: &str = "s3_last_sync_status";
 #[derive(Default)]
 struct TempPathCleanup {
     files: Vec<PathBuf>,
-    dirs: Vec<PathBuf>,
 }
 
 impl TempPathCleanup {
@@ -26,18 +23,12 @@ impl TempPathCleanup {
         self.files.push(path.into());
     }
 
-    fn track_dir<P: Into<PathBuf>>(&mut self, path: P) {
-        self.dirs.push(path.into());
-    }
 }
 
 impl Drop for TempPathCleanup {
     fn drop(&mut self) {
         for path in &self.files {
             let _ = std::fs::remove_file(path);
-        }
-        for path in &self.dirs {
-            let _ = std::fs::remove_dir_all(path);
         }
     }
 }
@@ -104,73 +95,15 @@ pub async fn s3_restore(
         .await
         .map_err(|e| e.to_string())?;
 
-    let temp_dir = backup_dir.join("_s3_restore_temp");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    cleanup.track_dir(&temp_dir);
-    let contents = webdav::extract_backup_zip(&zip_path, &temp_dir).map_err(|e| e.to_string())?;
+    aqbot_core::pending_restore::queue_pending_restore(
+        &zip_path,
+        &state.app_data_dir,
+        &aqbot_core::storage_paths::default_documents_root(),
+    )
+    .map_err(|error| error.to_string())?;
+    drop(cleanup);
 
-    if let Some(expected) = contents
-        .metadata
-        .get("db_checksum")
-        .and_then(|v| v.as_str())
-    {
-        let ok =
-            webdav::verify_db_checksum(&contents.db_path, expected).map_err(|e| e.to_string())?;
-        if !ok {
-            return Err("Backup checksum verification failed — file may be corrupted".to_string());
-        }
-    }
-
-    let db_path = state
-        .db_path
-        .strip_prefix("sqlite:")
-        .unwrap_or(&state.db_path);
-    let safety_backup = backup_dir.join("_pre_s3_restore_safety.db");
-    let _ = std::fs::copy(db_path, &safety_backup);
-    let master_key_dest = state.app_data_dir.join("master.key");
-    let safety_key_backup = temp_dir.join("_pre_s3_restore_safety.key");
-    let _ = std::fs::copy(&master_key_dest, &safety_key_backup);
-    cleanup.track_file(&safety_key_backup);
-    #[cfg(unix)]
-    {
-        let perms = std::fs::Permissions::from_mode(0o600);
-        let _ = std::fs::set_permissions(&safety_key_backup, perms);
-    }
-
-    if let Some(ref key_path) = contents.master_key_path {
-        std::fs::copy(key_path, &master_key_dest)
-            .map_err(|e| format!("Failed to restore master.key: {}", e))?;
-        #[cfg(unix)]
-        {
-            let perms = std::fs::Permissions::from_mode(0o600);
-            let _ = std::fs::set_permissions(&master_key_dest, perms);
-        }
-    }
-
-    backup::restore_sqlite_backup(contents.db_path.to_str().unwrap_or(""), db_path)
-        .await
-        .map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(format!("{}-wal", db_path));
-    let _ = std::fs::remove_file(format!("{}-shm", db_path));
-
-    if contents.has_documents {
-        let docs_source = temp_dir.join("documents");
-        let docs_target = webdav::documents_sync_root();
-        if docs_source.exists() {
-            copy_directory(&docs_source, &docs_target)
-                .map_err(|e| format!("Failed to restore documents: {}", e))?;
-        }
-    }
-
-    if contents.has_workspace {
-        let ws_source = temp_dir.join("workspace");
-        let ws_target = state.app_data_dir.join("workspace");
-        if ws_source.exists() {
-            copy_directory(&ws_source, &ws_target)
-                .map_err(|e| format!("Failed to restore workspace: {}", e))?;
-        }
-    }
-
+    // Startup publishes DB/key/documents/workspace before opening SQLite.
     app.restart();
 
     #[allow(unreachable_code)]
@@ -384,6 +317,7 @@ async fn do_s3_backup_once(
     let _ = std::fs::remove_file(&temp_db_path);
     let mut cleanup = TempPathCleanup::default();
     cleanup.track_file(&temp_db_path);
+    let file_reference_guard = aqbot_core::repo::stored_file::lock_file_references().await;
 
     let db_str = temp_db_path.to_string_lossy().to_string();
     db.execute(Statement::from_string(
@@ -394,12 +328,26 @@ async fn do_s3_backup_once(
     .map_err(|e| format!("VACUUM INTO failed: {}", e))?;
 
     let object_counts = count_objects_json(db).await;
+    let documents_root = webdav::documents_sync_root();
     let documents_dir = if settings.s3_include_documents {
-        let docs_root = webdav::documents_sync_root();
+        let docs_root = documents_root.clone();
         docs_root.exists().then_some(docs_root)
     } else {
         None
     };
+    let required_media = aqbot_core::repo::stored_file::list_all_stored_files(db)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|file| {
+            Ok(aqbot_core::webdav::BackupMediaRequirement {
+                storage_path: file.storage_path,
+                sha256: file.hash,
+                size: u64::try_from(file.size_bytes)
+                    .map_err(|_| format!("Stored-file size is invalid for backup: {}", file.id))?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let workspace_root = app_data_dir.join("workspace");
     let workspace_dir = workspace_root.exists().then_some(workspace_root);
 
@@ -410,6 +358,8 @@ async fn do_s3_backup_once(
     webdav::create_backup_zip(
         &temp_db_path,
         documents_dir.as_deref(),
+        &documents_root,
+        &required_media,
         workspace_dir.as_deref(),
         Some(&master_key_path),
         &zip_path,
@@ -417,6 +367,7 @@ async fn do_s3_backup_once(
         &object_counts,
     )
     .map_err(|e| e.to_string())?;
+    drop(file_reference_guard);
 
     let client = S3BackupClient::new(config)
         .await
@@ -486,20 +437,6 @@ fn backup_file_names_to_delete(files: Vec<S3FileInfo>, max_per_host: u32) -> Vec
     }
     to_delete.sort();
     to_delete
-}
-
-fn copy_directory(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let target = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_directory(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
 }
 
 async fn record_s3_sync_status(db: &DatabaseConnection, status: &str) {

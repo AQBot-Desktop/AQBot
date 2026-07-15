@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; font-src 'self' data:; worker-src 'self' blob:"
+      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: aqbot-media: http://aqbot-media.localhost; connect-src 'self' https: aqbot-media: http://aqbot-media.localhost http://localhost:* http://127.0.0.1:*; font-src 'self' data:; worker-src 'self' blob:"
     }
   },
   "bundle": {

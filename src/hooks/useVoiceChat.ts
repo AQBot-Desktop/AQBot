@@ -5,6 +5,7 @@ import type { VoiceSessionState, RealtimeConfig } from '@/types';
 
 const VAD_THRESHOLD = 0.015;
 const VAD_SILENCE_MS = 1500;
+const CONNECTED_TO_SPEAKING_MS = 300;
 
 interface UseVoiceChatOptions {
   port?: number;
@@ -26,6 +27,10 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
   const [state, setState] = useState<VoiceSessionState>('Idle');
   const [isMuted, setIsMuted] = useState(false);
 
+  const mountedRef = useRef(false);
+  const generationRef = useRef(0);
+  const stateRef = useRef<VoiceSessionState>('Idle');
+  const isMutedRef = useRef(false);
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -33,9 +38,13 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
   const workletRef = useRef<AudioWorkletNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const vadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const cleanup = useCallback(() => {
+    generationRef.current += 1;
+    stateRef.current = 'Idle';
+
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -44,7 +53,16 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
       clearTimeout(vadTimerRef.current);
       vadTimerRef.current = null;
     }
-    workletRef.current?.disconnect();
+    if (speakingTimerRef.current !== null) {
+      clearTimeout(speakingTimerRef.current);
+      speakingTimerRef.current = null;
+    }
+
+    if (workletRef.current) {
+      workletRef.current.port.onmessage = null;
+      workletRef.current.port.close();
+      workletRef.current.disconnect();
+    }
     workletRef.current = null;
     sourceRef.current?.disconnect();
     sourceRef.current = null;
@@ -56,22 +74,46 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
       streamRef.current = null;
     }
     if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
+      const audioCtx = audioCtxRef.current;
+      void audioCtx.close().catch((error: unknown) => {
+        console.warn('Failed to close voice AudioContext', error);
+      });
     }
+    audioCtxRef.current = null;
     if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+      const ws = wsRef.current;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     }
+    wsRef.current = null;
   }, []);
 
-  const runVAD = useCallback(() => {
-    const analyser = analyserRef.current;
-    if (!analyser) return;
+  const setSessionState = useCallback((nextState: VoiceSessionState) => {
+    stateRef.current = nextState;
+    if (mountedRef.current) setState(nextState);
+  }, []);
 
-    const data = new Float32Array(analyser.fftSize);
+  const isCurrentGeneration = useCallback((generation: number) => (
+    mountedRef.current && generationRef.current === generation
+  ), []);
+
+  const runVAD = useCallback((generation: number) => {
+    if (!isCurrentGeneration(generation)) return;
+    const initialAnalyser = analyserRef.current;
+    if (!initialAnalyser) return;
+
+    const data = new Float32Array(initialAnalyser.fftSize);
 
     const tick = () => {
+      if (!isCurrentGeneration(generation)) return;
+      const analyser = analyserRef.current;
+      if (!analyser) return;
+
       analyser.getFloatTimeDomainData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) {
@@ -79,46 +121,51 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
       }
       const rms = Math.sqrt(sum / data.length);
 
-      setState((prev) => {
-        if (prev !== 'Speaking' && prev !== 'Listening') return prev;
-
+      const currentState = stateRef.current;
+      if (currentState === 'Speaking' || currentState === 'Listening') {
         if (rms > VAD_THRESHOLD) {
           if (vadTimerRef.current !== null) {
             clearTimeout(vadTimerRef.current);
             vadTimerRef.current = null;
           }
-          return 'Speaking';
-        }
-
-        if (prev === 'Speaking' && vadTimerRef.current === null) {
+          setSessionState('Speaking');
+        } else if (currentState === 'Speaking' && vadTimerRef.current === null) {
           vadTimerRef.current = setTimeout(() => {
             vadTimerRef.current = null;
-            setState('Listening');
+            if (isCurrentGeneration(generation)) setSessionState('Listening');
           }, VAD_SILENCE_MS);
         }
-        return prev;
-      });
+      }
 
-      rafRef.current = requestAnimationFrame(tick);
+      if (isCurrentGeneration(generation)) rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [isCurrentGeneration, setSessionState]);
 
   const start = useCallback(async () => {
-    if (state !== 'Idle') return;
-    setState('Connecting');
+    if (!mountedRef.current || stateRef.current !== 'Idle') return;
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    setSessionState('Connecting');
+
+    let stream: MediaStream | null = null;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { sampleRate: config.audio_format.sample_rate, channelCount: 1, echoCancellation: true },
       });
+      if (!isCurrentGeneration(generation)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
 
       const audioCtx = new AudioContext({ sampleRate: config.audio_format.sample_rate });
       audioCtxRef.current = audioCtx;
 
       await audioCtx.audioWorklet.addModule('/audio-processor.js');
+      if (!isCurrentGeneration(generation)) return;
 
       const source = audioCtx.createMediaStreamSource(stream);
       sourceRef.current = source;
@@ -138,62 +185,77 @@ export function useVoiceChat({ port = 8080, config }: UseVoiceChatOptions): UseV
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        if (!isCurrentGeneration(generation) || wsRef.current !== ws) return;
         ws.send(JSON.stringify({ type: 'session.config', config }));
-        setState('Connected');
-        setTimeout(() => setState('Speaking'), 300);
-        runVAD();
+        setSessionState('Connected');
+        speakingTimerRef.current = setTimeout(() => {
+          speakingTimerRef.current = null;
+          if (isCurrentGeneration(generation)) setSessionState('Speaking');
+        }, CONNECTED_TO_SPEAKING_MS);
+        runVAD(generation);
       };
 
       worklet.port.onmessage = (e: MessageEvent) => {
-        if (ws.readyState === WebSocket.OPEN && !isMuted) {
+        if (
+          isCurrentGeneration(generation)
+          && wsRef.current === ws
+          && ws.readyState === WebSocket.OPEN
+          && !isMutedRef.current
+        ) {
           ws.send(e.data as ArrayBuffer);
         }
       };
 
       ws.onmessage = (_e: MessageEvent) => {
+        if (!isCurrentGeneration(generation) || wsRef.current !== ws) return;
         // Audio playback from server would be handled here
       };
 
       ws.onerror = () => {
+        if (!isCurrentGeneration(generation) || wsRef.current !== ws) return;
         message.error(t('voice.connectionError'));
         cleanup();
-        setState('Idle');
+        setSessionState('Idle');
       };
 
       ws.onclose = () => {
+        if (!isCurrentGeneration(generation) || wsRef.current !== ws) return;
         cleanup();
-        setState('Idle');
+        setSessionState('Idle');
       };
     } catch (err) {
+      if (!isCurrentGeneration(generation)) return;
       const errMsg = err instanceof DOMException && err.name === 'NotAllowedError'
         ? t('voice.micPermissionDenied')
         : t('voice.micError');
       message.error(errMsg);
       cleanup();
-      setState('Idle');
+      setSessionState('Idle');
     }
-  }, [state, port, config, isMuted, cleanup, runVAD, message, t]);
+  }, [cleanup, config, isCurrentGeneration, message, port, runVAD, setSessionState, t]);
 
   const stop = useCallback(() => {
-    if (state === 'Idle' || state === 'Disconnecting') return;
-    setState('Disconnecting');
+    if (stateRef.current === 'Idle' || stateRef.current === 'Disconnecting') return;
+    setSessionState('Disconnecting');
     cleanup();
-    setState('Idle');
-  }, [state, cleanup]);
+    setSessionState('Idle');
+  }, [cleanup, setSessionState]);
 
   const toggleMute = useCallback(() => {
-    const newMuted = !isMuted;
+    const newMuted = !isMutedRef.current;
+    isMutedRef.current = newMuted;
     setIsMuted(newMuted);
     if (streamRef.current) {
       streamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !newMuted;
       });
     }
-  }, [isMuted]);
+  }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       cleanup();
     };
   }, [cleanup]);

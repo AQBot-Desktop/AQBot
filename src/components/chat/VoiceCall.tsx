@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Button, Typography, Spin } from 'antd';
 import { Mic, MicOff, Phone, Loader, Volume2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -84,10 +84,11 @@ export function VoiceCall({ visible, onClose, port, config }: VoiceCallProps) {
   const { t } = useTranslation();
   const { state, isMuted, start, stop, toggleMute } = useVoiceChat({ port, config });
 
-  // Auto-start when overlay becomes visible
-  if (visible && state === 'Idle') {
-    start();
-  }
+  useEffect(() => {
+    if (!visible) return;
+    void start();
+    return stop;
+  }, [start, stop, visible]);
 
   const handleEndCall = () => {
     stop();

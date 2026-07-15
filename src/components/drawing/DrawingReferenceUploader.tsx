@@ -2,18 +2,20 @@ import { App, Button, Image, Upload, theme } from 'antd';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDrawingStore } from '@/stores/drawingStore';
-import { invoke } from '@/lib/invoke';
+import { loadStoredMediaSource } from '@/lib/storedMedia';
 import { useEffect, useState } from 'react';
+import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 
-function ReferenceThumb({ storagePath }: { storagePath: string }) {
+function ReferenceThumb({ storedFileId, storagePath }: { storedFileId: string; storagePath: string }) {
   const [src, setSrc] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = usePageTransientOpenState();
   useEffect(() => {
     let cancelled = false;
-    invoke<string>('read_attachment_preview', { filePath: storagePath })
+    loadStoredMediaSource(storedFileId, storagePath)
       .then((data) => { if (!cancelled) setSrc(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [storagePath]);
+  }, [storagePath, storedFileId]);
   if (!src) return <div style={{ width: 48, height: 48 }} />;
   return (
     <Image
@@ -21,7 +23,12 @@ function ReferenceThumb({ storagePath }: { storagePath: string }) {
       width={48}
       height={48}
       style={{ objectFit: 'cover', borderRadius: 6 }}
-      preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+      preview={{
+        open: previewOpen,
+        onOpenChange: setPreviewOpen,
+        mask: { blur: true },
+        scaleStep: 0.5,
+      }}
     />
   );
 }
@@ -67,7 +74,7 @@ export function DrawingReferenceUploader() {
               className="flex items-center gap-2"
               style={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 8, padding: 6 }}
             >
-              <ReferenceThumb storagePath={item.storage_path} />
+              <ReferenceThumb storedFileId={item.id} storagePath={item.storage_path} />
               <div className="min-w-0 flex-1">
                 <div className="truncate" style={{ fontSize: 12 }}>{item.original_name}</div>
                 <div style={{ fontSize: 11, color: token.colorTextSecondary }}>

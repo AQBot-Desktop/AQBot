@@ -30,6 +30,9 @@ dist-ssr
 # Build outputs
 dist/
 target/
+test-results/
+playwright-report/
+.playwright-cli/
 
 # Secrets
 *.key

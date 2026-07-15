@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useDeferredValue } from 'react';
 import { ConfigProvider, App as AntdApp, Layout, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +18,7 @@ import { useProviderDeepLink } from '@/hooks/useProviderDeepLink';
 import { useShadcnTheme } from '@/theme/shadcnTheme';
 import { isTauri, invoke, listen } from '@/lib/invoke';
 import { preloadChatRenderers } from '@/lib/preloadChatRenderers';
+import { setupAgentEventListeners } from '@/stores/agentStore';
 import { enableD2, setDefaultI18nMap } from 'markstream-react';
 import './i18n';
 
@@ -41,10 +42,13 @@ function AppInner() {
   const { token } = useToken();
   const { t } = useTranslation();
   const { modal, message } = AntdApp.useApp();
+  const appRootRef = useRef<HTMLDivElement>(null);
   const activePage = useUIStore((s) => s.activePage);
+  const renderedActivePage = useDeferredValue(activePage);
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
-  const isInSettings = activePage === 'settings';
+  const isInSettings = renderedActivePage === 'settings';
   useProviderDeepLink({ modal, message });
+  useGlobalOverlayScrollbars(appRootRef);
 
   // Handle app close confirmation from backend
   const handleCloseRequested = useCallback(() => {
@@ -88,6 +92,8 @@ function AppInner() {
     return () => stopStreamListening();
   }, [startStreamListening, stopStreamListening]);
 
+  useEffect(() => setupAgentEventListeners(), []);
+
   // Auto-check for updates on startup and periodically
   const { checkForUpdate } = useUpdateChecker();
   const updateCheckInterval = useSettingsStore((s) => s.settings.update_check_interval ?? 60);
@@ -112,7 +118,11 @@ function AppInner() {
   }, [updateCheckInterval, checkForUpdate]);
 
   return (
-    <div className="flex flex-col h-screen" style={{ backgroundColor: token.colorBgContainer }}>
+    <div
+      ref={appRootRef}
+      className="flex flex-col h-screen"
+      style={{ backgroundColor: token.colorBgContainer }}
+    >
       <TitleBar />
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
       <GlobalCopyMenu />
@@ -129,7 +139,7 @@ function AppInner() {
           </Sider>
         )}
         <Content className="overflow-hidden">
-          <ContentArea activePage={activePage} />
+          <ContentArea activePage={renderedActivePage} />
         </Content>
       </Layout>
     </div>
@@ -151,10 +161,15 @@ function AppRoot() {
   const borderRadius = useSettingsStore((s) => s.settings.border_radius);
   const language = useSettingsStore((s) => s.settings.language);
   const isDark = useResolvedDarkMode(themeMode);
+  const direction = i18n.dir(i18n.language);
 
   useEffect(() => {
     document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
   }, [isDark]);
+
+  useEffect(() => {
+    document.documentElement.dir = direction;
+  }, [direction]);
 
   useEffect(() => {
     enableD2(() => import('@terrastruct/d2'));
@@ -163,7 +178,6 @@ function AppRoot() {
 
   useKeyboardShortcuts();
   useGlobalShortcutManager();
-  useGlobalOverlayScrollbars();
 
   // Load persisted settings from backend on startup, then apply native settings
   useEffect(() => {
@@ -264,6 +278,7 @@ function AppRoot() {
   return (
     <ConfigProvider
       locale={i18n.language === 'zh-CN' ? zhCN : undefined}
+      direction={direction}
       theme={themeConfig}
       modal={{ centered: true, styles: { mask: { backdropFilter: 'blur(4px)' } } }}
     >

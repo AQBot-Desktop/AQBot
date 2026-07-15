@@ -10,13 +10,11 @@ function isRerankModel(model: { model_id: string; model_type?: string }) {
 
 function useRerankModelOptions() {
   const providers = useProviderStore((s) => s.providers);
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+  const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
 
   useEffect(() => {
-    if (providers.length === 0) {
-      void fetchProviders();
-    }
-  }, [fetchProviders, providers.length]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   return useMemo(() => {
     return providers

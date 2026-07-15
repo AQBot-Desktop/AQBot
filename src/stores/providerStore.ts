@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
+import { isResourceFresh } from '@/lib/resourceState';
+import type {
+  EnsureLoadedOptions,
+  ResourceInvalidationReason,
+  ResourceMeta,
+} from '@/lib/resourceState';
 import type {
   ProviderConfig,
   CreateProviderInput,
@@ -13,10 +19,35 @@ import type {
   ProviderImportCandidate,
 } from '@/types';
 
+const PROVIDERS_RESOURCE_KEY = 'providers';
+let providersRequest: { revision: number; promise: Promise<void> } | null = null;
+
+function mutateProvidersMeta(meta: ResourceMeta): ResourceMeta {
+  const remainsComplete = meta.status === 'ready' && meta.key === PROVIDERS_RESOURCE_KEY;
+  return {
+    status: remainsComplete ? 'ready' : 'idle',
+    key: remainsComplete ? PROVIDERS_RESOURCE_KEY : null,
+    loadedAt: remainsComplete ? Date.now() : null,
+    revision: meta.revision + 1,
+  };
+}
+
+function replaceProvidersMeta(meta: ResourceMeta): ResourceMeta {
+  return {
+    status: 'ready',
+    key: PROVIDERS_RESOURCE_KEY,
+    loadedAt: Date.now(),
+    revision: meta.revision + 1,
+  };
+}
+
 interface ProviderState {
   providers: ProviderConfig[];
   loading: boolean;
   error: string | null;
+  providersMeta: ResourceMeta;
+  ensureProvidersLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
+  invalidateProviders: (reason: ResourceInvalidationReason) => void;
   fetchProviders: () => Promise<void>;
   createProvider: (input: CreateProviderInput) => Promise<ProviderConfig>;
   importProviderFromDeepLink: (input: DeepLinkProviderImportInput) => Promise<DeepLinkProviderImportResult>;
@@ -38,25 +69,99 @@ interface ProviderState {
   testModel: (providerId: string, modelId: string) => Promise<number>;
 }
 
-export const useProviderStore = create<ProviderState>((set) => ({
+export const useProviderStore = create<ProviderState>((set, get) => ({
   providers: [],
   loading: false,
   error: null,
+  providersMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
 
-  fetchProviders: async () => {
-    set({ loading: true });
-    try {
-      const providers = await invoke<ProviderConfig[]>('list_providers');
-      set({ providers, loading: false, error: null });
-    } catch (e) {
-      set({ error: String(e), loading: false });
+  ensureProvidersLoaded: async (options = {}) => {
+    const state = get();
+    if (!options.force && isResourceFresh(state.providersMeta, {
+      ...options,
+      key: PROVIDERS_RESOURCE_KEY,
+    })) return;
+
+    if (providersRequest?.revision === state.providersMeta.revision && !options.force) {
+      return providersRequest.promise;
     }
+    if (providersRequest) {
+      await providersRequest.promise;
+      return get().ensureProvidersLoaded(options);
+    }
+
+    const revision = state.providersMeta.revision;
+    set((current) => ({
+      loading: true,
+      providersMeta: {
+        ...current.providersMeta,
+        status: 'loading',
+        key: PROVIDERS_RESOURCE_KEY,
+      },
+    }));
+
+    let promise!: Promise<void>;
+    promise = (async () => {
+      let reloadAfterCompletion = false;
+      try {
+        const providers = await invoke<ProviderConfig[]>('list_providers');
+        if (get().providersMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set({
+            providers,
+            loading: false,
+            error: null,
+            providersMeta: {
+              status: 'ready',
+              key: PROVIDERS_RESOURCE_KEY,
+              loadedAt: Date.now(),
+              revision,
+            },
+          });
+        }
+      } catch (e) {
+        if (get().providersMeta.revision !== revision) {
+          reloadAfterCompletion = true;
+          set({ loading: false });
+        } else {
+          set((current) => ({
+            error: String(e),
+            loading: false,
+            providersMeta: { ...current.providersMeta, status: 'error' },
+          }));
+        }
+      } finally {
+        providersRequest = null;
+      }
+      if (reloadAfterCompletion) {
+        await get().ensureProvidersLoaded();
+      }
+    })();
+    providersRequest = { revision, promise };
+    return promise;
   },
+
+  invalidateProviders: (_reason) => set((state) => ({
+    providersMeta: {
+      status: 'idle',
+      key: null,
+      loadedAt: null,
+      revision: state.providersMeta.revision + 1,
+    },
+  })),
+
+  fetchProviders: () => get().ensureProvidersLoaded({ force: true }),
 
   createProvider: async (input) => {
     try {
       const provider = await invoke<ProviderConfig>('create_provider', { input });
-      set((s) => ({ providers: [...s.providers, provider], error: null }));
+      set((s) => ({
+        providers: [...s.providers, provider],
+        providersMeta: mutateProvidersMeta(s.providersMeta),
+        error: null,
+      }));
       return provider;
     } catch (e) {
       set({ error: String(e) });
@@ -67,7 +172,15 @@ export const useProviderStore = create<ProviderState>((set) => ({
   importProviderFromDeepLink: async (input) => {
     try {
       const result = await invoke<DeepLinkProviderImportResult>('import_provider_from_deep_link', { input });
-      set({ error: null });
+      set((state) => ({
+        error: null,
+        providersMeta: {
+          status: 'idle',
+          key: null,
+          loadedAt: null,
+          revision: state.providersMeta.revision + 1,
+        },
+      }));
       return result;
     } catch (e) {
       set({ error: String(e) });
@@ -92,7 +205,11 @@ export const useProviderStore = create<ProviderState>((set) => ({
         candidateIds,
       });
       const providers = await invoke<ProviderConfig[]>('list_providers');
-      set({ providers, error: null });
+      set((state) => ({
+        providers,
+        providersMeta: replaceProvidersMeta(state.providersMeta),
+        error: null,
+      }));
       return result;
     } catch (e) {
       set({ error: String(e) });
@@ -105,6 +222,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
       const updated = await invoke<ProviderConfig>('update_provider', { id, input });
       set((s) => ({
         providers: s.providers.map((p) => (p.id === id ? updated : p)),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -118,6 +236,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
       await invoke('delete_provider', { id });
       set((s) => ({
         providers: s.providers.filter((p) => p.id !== id),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -132,12 +251,17 @@ export const useProviderStore = create<ProviderState>((set) => ({
       if (id.startsWith('builtin_')) {
         // Virtual provider was materialized — refetch to get real ID
         const providers = await invoke<ProviderConfig[]>('list_providers');
-        set({ providers, error: null });
+        set((state) => ({
+          providers,
+          providersMeta: replaceProvidersMeta(state.providersMeta),
+          error: null,
+        }));
       } else {
         set((s) => ({
           providers: s.providers.map((p) =>
             p.id === id ? { ...p, enabled } : p,
           ),
+          providersMeta: mutateProvidersMeta(s.providersMeta),
           error: null,
         }));
       }
@@ -153,7 +277,10 @@ export const useProviderStore = create<ProviderState>((set) => ({
     if (hasVirtual) {
       // Virtual IDs were materialized — refetch to get real IDs
       const providers = await invoke<ProviderConfig[]>('list_providers');
-      set({ providers });
+      set((state) => ({
+        providers,
+        providersMeta: replaceProvidersMeta(state.providersMeta),
+      }));
     } else {
       set((s) => {
         const ordered = providerIds
@@ -162,7 +289,10 @@ export const useProviderStore = create<ProviderState>((set) => ({
             return p ? { ...p, sort_order: i } : null;
           })
           .filter(Boolean) as ProviderConfig[];
-        return { providers: ordered };
+        return {
+          providers: ordered,
+          providersMeta: mutateProvidersMeta(s.providersMeta),
+        };
       });
     }
   },
@@ -176,13 +306,18 @@ export const useProviderStore = create<ProviderState>((set) => ({
       if (providerId.startsWith('builtin_')) {
         // Virtual provider was materialized — refetch to get real ID
         const providers = await invoke<ProviderConfig[]>('list_providers');
-        set({ providers, error: null });
+        set((state) => ({
+          providers,
+          providersMeta: replaceProvidersMeta(state.providersMeta),
+          error: null,
+        }));
         return;
       }
       set((s) => ({
         providers: s.providers.map((p) =>
           p.id === providerId ? { ...p, keys: [...p.keys, key] } : p,
         ),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -202,6 +337,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
           ...p,
           keys: p.keys.map((k) => (k.id === keyId ? key : k)),
         })),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -218,6 +354,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
           ...p,
           keys: p.keys.filter((k) => k.id !== keyId),
         })),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -234,6 +371,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
           ...p,
           keys: p.keys.map((k) => (k.id === keyId ? { ...k, enabled } : k)),
         })),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -257,13 +395,18 @@ export const useProviderStore = create<ProviderState>((set) => ({
       if (providerId.startsWith('builtin_')) {
         // Virtual provider was materialized — refetch to get real ID
         const providers = await invoke<ProviderConfig[]>('list_providers');
-        set({ providers, error: null });
+        set((state) => ({
+          providers,
+          providersMeta: replaceProvidersMeta(state.providersMeta),
+          error: null,
+        }));
         return;
       }
       set((s) => ({
         providers: s.providers.map((p) =>
           p.id === providerId ? { ...p, models } : p,
         ),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
     } catch (e) {
@@ -290,6 +433,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
               }
             : p,
         ),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
       return model;
@@ -317,6 +461,7 @@ export const useProviderStore = create<ProviderState>((set) => ({
               }
             : p,
         ),
+        providersMeta: mutateProvidersMeta(s.providersMeta),
         error: null,
       }));
       return model;

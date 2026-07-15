@@ -5,11 +5,13 @@ import { useDrawingStore } from '@/stores/drawingStore';
 import type { DrawingImage } from '@/types';
 import type { DrawingSettings } from '../DrawingSettingsPanel';
 import { DrawingComposer } from '../DrawingComposer';
+import { clearStoredMediaSourceCache } from '@/lib/storedMedia';
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
+  isTauri: () => false,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -59,6 +61,7 @@ describe('DrawingComposer', () => {
       editPreviewUrl: null,
     });
     invokeMock.mockReset();
+    clearStoredMediaSourceCache();
   });
 
   it('submits a pending mask edit through editImageWithMask after the prompt is entered', async () => {

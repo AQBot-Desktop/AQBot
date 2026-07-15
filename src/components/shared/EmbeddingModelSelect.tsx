@@ -11,13 +11,11 @@ function isEmbeddingModel(model: { model_id: string; model_type?: string }) {
 /** Hook: returns grouped Select options filtered to embedding-capable models */
 function useEmbeddingModelOptions() {
   const providers = useProviderStore((s) => s.providers);
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+  const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
 
   useEffect(() => {
-    if (providers.length === 0) {
-      void fetchProviders();
-    }
-  }, [fetchProviders, providers.length]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   return useMemo(() => {
     return providers

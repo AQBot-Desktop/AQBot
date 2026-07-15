@@ -261,13 +261,15 @@ export function GatewayTemplates() {
     cliTools,
     cliToolsLoading,
     keys,
+    ensureStatusLoaded,
+    ensureKeysLoaded,
+    ensureCliToolStatusesLoaded,
     fetchStatus,
     fetchCliToolStatuses,
     connectCliTool,
     disconnectCliTool,
     repairCodexSessionVisibility,
     getCodexSessionVisibilityStatus,
-    fetchKeys,
   } = useGatewayStore();
   const [connecting, setConnecting] = useState<string | null>(null);
   const [repairing, setRepairing] = useState<string | null>(null);
@@ -298,10 +300,10 @@ export function GatewayTemplates() {
   const [selectedProtocol, setSelectedProtocol] = useState<QuickConnectProtocol | undefined>(undefined);
 
   useEffect(() => {
-    fetchStatus();
-    fetchCliToolStatuses();
-    fetchKeys();
-  }, [fetchStatus, fetchCliToolStatuses, fetchKeys]);
+    void ensureStatusLoaded({ maxAgeMs: 5_000 });
+    void ensureCliToolStatusesLoaded({ maxAgeMs: 30_000 });
+    void ensureKeysLoaded();
+  }, [ensureStatusLoaded, ensureKeysLoaded, ensureCliToolStatusesLoaded]);
 
   // Auto-select first key when keys load
   useEffect(() => {

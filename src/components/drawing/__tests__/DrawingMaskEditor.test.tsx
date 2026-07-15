@@ -2,6 +2,7 @@ import { App } from 'antd';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DrawingImage } from '@/types';
+import { clearStoredMediaSourceCache } from '@/lib/storedMedia';
 import {
   DrawingMaskEditor,
   getEraserFeedbackStyle,
@@ -13,6 +14,7 @@ const invokeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
+  isTauri: () => false,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -38,6 +40,7 @@ function imageFixture(): DrawingImage {
 describe('DrawingMaskEditor', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    clearStoredMediaSourceCache();
   });
 
   it('keeps the modal and image editor within the viewport margins', () => {

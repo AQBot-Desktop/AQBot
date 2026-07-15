@@ -1,4 +1,5 @@
 import { App } from 'antd';
+import { Activity } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,22 +100,22 @@ const searchState = {
       providerType: 'tavily',
     },
   ],
-  loadProviders: loadSearchProviders,
+  ensureProvidersLoaded: loadSearchProviders,
 };
 
 const mcpState = {
   servers: [],
-  loadServers: loadMcpServers,
+  ensureServersLoaded: loadMcpServers,
 };
 
 const knowledgeState = {
   bases: [],
-  loadBases: loadKnowledgeBases,
+  ensureBasesLoaded: loadKnowledgeBases,
 };
 
 const memoryState = {
   namespaces: [],
-  loadNamespaces: loadMemoryNamespaces,
+  ensureNamespacesLoaded: loadMemoryNamespaces,
 };
 
 vi.mock('react-i18next', () => ({
@@ -209,6 +210,27 @@ describe('InputArea', () => {
     new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
     });
+
+  it('preserves a new-conversation draft across an Activity suspend and resume', async () => {
+    conversationState.activeConversationId = null;
+    const user = userEvent.setup();
+    const renderInput = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <App>
+          <InputArea />
+        </App>
+      </Activity>
+    );
+    const view = render(renderInput('visible'));
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    await user.type(textarea, '保留未发送草稿');
+
+    view.rerender(renderInput('hidden'));
+    view.rerender(renderInput('visible'));
+
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('保留未发送草稿');
+  });
 
   it('focuses the chat textarea when the window regains focus without another active input', async () => {
     render(

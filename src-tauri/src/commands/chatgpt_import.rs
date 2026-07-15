@@ -1,5 +1,7 @@
 use crate::AppState;
-use aqbot_core::repo::chatgpt_import::{ChatGptImportResult, ChatGptImportSummary};
+use aqbot_core::repo::chatgpt_import::{
+    ChatGptImportResult, ChatGptImportSummary, ChatGptImportWarning,
+};
 use std::path::PathBuf;
 use tauri::State;
 
@@ -21,10 +23,31 @@ pub async fn import_chatgpt_export(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<ChatGptImportResult, String> {
-    aqbot_core::repo::chatgpt_import::import_chatgpt_export_from_path(
+    let before = super::import_media::pending_snapshot(&state.sea_db).await?;
+    let mut result = aqbot_core::repo::chatgpt_import::import_chatgpt_export_from_path(
         &state.sea_db,
         &PathBuf::from(path),
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    match super::import_media::materialize_new_candidates(&state.sea_db, &before).await {
+        Ok(report) => result
+            .warnings
+            .extend(
+                report
+                    .failures
+                    .into_iter()
+                    .map(|failure| ChatGptImportWarning {
+                        code: "inline_media_materialization_failed".to_string(),
+                        message: failure.error,
+                        source_id: Some(failure.message_id),
+                    }),
+            ),
+        Err(error) => result.warnings.push(ChatGptImportWarning {
+            code: "inline_media_materialization_failed".to_string(),
+            message: error,
+            source_id: None,
+        }),
+    }
+    Ok(result)
 }

@@ -1,10 +1,15 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { HtmlRenderNode } from '../HtmlRenderNode';
+import {
+  clearHtmlRenderCache,
+  getHtmlRenderCacheStats,
+  HtmlRenderNode,
+} from '../HtmlRenderNode';
 
 describe('HtmlRenderNode', () => {
   afterEach(() => {
+    clearHtmlRenderCache();
     vi.restoreAllMocks();
   });
 
@@ -172,5 +177,21 @@ describe('HtmlRenderNode', () => {
     const content = screen.getByTestId('html-render-content');
     expect(content).toHaveTextContent('safe');
     expect(content.innerHTML).not.toContain('<style');
+  });
+
+  it('bounds cached html by entry count and estimated bytes without retaining source in keys', () => {
+    const makeHtml = (index: number) => `<div data-index="${index}">${'x'.repeat(128 * 1024)}</div>`;
+    const { rerender } = render(
+      <HtmlRenderNode node={{ type: 'html-render', content: makeHtml(0) }} />,
+    );
+
+    for (let index = 1; index < 90; index += 1) {
+      rerender(<HtmlRenderNode node={{ type: 'html-render', content: makeHtml(index) }} />);
+    }
+
+    const stats = getHtmlRenderCacheStats();
+    expect(stats.entries).toBeLessThanOrEqual(80);
+    expect(stats.estimatedBytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect(stats.maxKeyLength).toBeLessThan(64);
   });
 });

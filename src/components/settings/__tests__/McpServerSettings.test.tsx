@@ -14,7 +14,7 @@ const discoverTools = vi.fn();
 type McpStoreMockState = {
   servers: McpServer[];
   toolDescriptors: Record<string, unknown[]>;
-  loadServers: typeof loadServers;
+  ensureServersLoaded: typeof loadServers;
   createServer: typeof createServer;
   updateServer: typeof updateServer;
   deleteServer: typeof deleteServer;
@@ -43,7 +43,7 @@ let mcpState: McpStoreMockState = {
     },
   ],
   toolDescriptors: {} as Record<string, unknown[]>,
-  loadServers,
+  ensureServersLoaded: loadServers,
   createServer,
   updateServer,
   deleteServer,
@@ -95,7 +95,7 @@ describe('McpServerSettings', () => {
         },
       ],
       toolDescriptors: {},
-      loadServers,
+      ensureServersLoaded: loadServers,
       createServer,
       updateServer,
       deleteServer,

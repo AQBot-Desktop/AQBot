@@ -793,6 +793,8 @@ export type FileSortKey = 'createdAt' | 'size' | 'name';
 
 export interface FileRow {
   id: string;
+  /** Raw stored_files.id used by the read-only aqbot-media protocol. */
+  storedFileId?: string;
   name: string;
   path: string;
   storagePath?: string;
@@ -806,6 +808,7 @@ export interface FileRow {
 
 export interface FilesPageEntry {
   id: string;
+  storedFileId?: string | null;
   sourceKind: string;
   category: FileCategory;
   displayName: string;

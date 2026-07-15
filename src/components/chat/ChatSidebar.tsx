@@ -4,7 +4,6 @@ import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pi
 import { getConvIcon } from '@/lib/convIcon'
 import { exportAsMarkdown, exportAsText, exportAsPNG, exportAsJSON } from '@/lib/exportChat'
 import { invoke } from '@/lib/invoke'
-import Conversations from '@ant-design/x/es/conversations'
 import type { ConversationItemType } from '@ant-design/x/es/conversations/interface'
 import { useTranslation } from 'react-i18next'
 import { useConversationStore, useProviderStore, useSettingsStore, useCategoryStore } from '@/stores'
@@ -15,6 +14,15 @@ import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc'
 import type { AvatarType } from '@/stores/userProfileStore'
 import { CategoryEditModal, type CategoryEditFormData } from './CategoryEditModal'
 import { ConversationModelIcon } from './ConversationModelIcon'
+import { ConversationList, type ConversationMenuFactory } from './ConversationList'
+import { ArchivedConversationList } from './ArchivedConversationList'
+import {
+  buildConversationRows,
+  filterConversationsWithParents,
+  getSearchExpandedParentIds,
+  type ConversationListRow,
+} from './conversationListModel'
+import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle'
 import {
   DndContext,
   closestCenter,
@@ -61,23 +69,6 @@ function ConversationTitleText({ title, className = '' }: { title: string; class
       {title}
     </span>
   )
-}
-
-function getDateGroup(timestamp: number): string {
-  const now = new Date()
-  const date = new Date(timestamp * 1000)
-
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const startOfYesterday = new Date(startOfToday.getTime() - 86400000)
-  const dayOfWeek = startOfToday.getDay()
-  const startOfWeek = new Date(startOfToday.getTime() - dayOfWeek * 86400000)
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-
-  if (date >= startOfToday) return 'today'
-  if (date >= startOfYesterday) return 'yesterday'
-  if (date >= startOfWeek) return 'thisWeek'
-  if (date >= startOfMonth) return 'thisMonth'
-  return 'earlier'
 }
 
 const CategoryIcon = memo(function CategoryIcon({ cat, size = 14 }: { cat: ConversationCategory; size?: number }) {
@@ -260,6 +251,9 @@ export function ChatSidebar() {
   const togglePin = useConversationStore((s) => s.togglePin)
   const toggleArchive = useConversationStore((s) => s.toggleArchive)
   const archivedConversations = useConversationStore((s) => s.archivedConversations)
+  const messagesLoading = useConversationStore((s) => s.loading)
+  const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages)
+  const hasNewerMessages = useConversationStore((s) => s.hasNewerMessages)
   const fetchArchivedConversations = useConversationStore((s) => s.fetchArchivedConversations)
   const batchDelete = useConversationStore((s) => s.batchDelete)
   const batchArchive = useConversationStore((s) => s.batchArchive)
@@ -272,11 +266,19 @@ export function ChatSidebar() {
   const settingsLoading = useSettingsStore((s) => s.loading)
 
   const categories = useCategoryStore((s) => s.categories)
-  const fetchCategories = useCategoryStore((s) => s.fetchCategories)
+  const ensureCategoriesLoaded = useCategoryStore((s) => s.ensureCategoriesLoaded)
   const createCategory = useCategoryStore((s) => s.createCategory)
   const updateCategory = useCategoryStore((s) => s.updateCategory)
   const deleteCategory = useCategoryStore((s) => s.deleteCategory)
   const setCollapsed = useCategoryStore((s) => s.setCollapsed)
+  const conversationById = useMemo(
+    () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
+    [conversations],
+  )
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories],
+  )
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   )
@@ -351,7 +353,16 @@ export function ChatSidebar() {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<ConversationCategory | null>(null)
   const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   const [directDeleteMode, setDirectDeleteMode] = useState(false)
+  const listScrollRef = useRef<HTMLDivElement>(null)
+
+  usePageSuspendCleanup(() => {
+    setCategoryModalOpen(false)
+    setEditingCategory(null)
+    setRightClickedConvId(null)
+    setDirectDeleteMode(false)
+  })
 
   useEffect(() => {
     const updateFromKeyboard = (event: KeyboardEvent) => {
@@ -372,17 +383,17 @@ export function ChatSidebar() {
   // Auto-expand parent when active conversation is a child
   useEffect(() => {
     if (!activeConversationId) return
-    const active = conversations.find((c) => c.id === activeConversationId)
+    const active = conversationById.get(activeConversationId)
     if (active?.parent_conversation_id && !expandedParentIds.has(active.parent_conversation_id)) {
       setExpandedParentIds((prev) => new Set(prev).add(active.parent_conversation_id!))
     }
-  }, [activeConversationId, conversations])
+  }, [activeConversationId, conversationById, expandedParentIds])
 
   // Auto-select conversation: restore last selected, or fall back to first
   useEffect(() => {
     if (!activeConversationId && conversations.length > 0 && !settingsLoading) {
       const lastId = settings.last_selected_conversation_id
-      const lastConv = lastId ? conversations.find((c) => c.id === lastId) : null
+      const lastConv = lastId ? conversationById.get(lastId) : null
       if (lastConv) {
         setActiveConversation(lastConv.id)
       } else {
@@ -393,7 +404,7 @@ export function ChatSidebar() {
         setActiveConversation(sorted[0].id)
       }
     }
-  }, [activeConversationId, conversations, setActiveConversation, settings.last_selected_conversation_id, settingsLoading])
+  }, [activeConversationId, conversationById, conversations, setActiveConversation, settings.last_selected_conversation_id, settingsLoading])
 
   // Persist last selected conversation
   useEffect(() => {
@@ -422,17 +433,22 @@ export function ChatSidebar() {
     }
   }, [activeConversationId, settings.last_selected_conversation_id])
 
-  useEffect(() => { void fetchCategories() }, [fetchCategories])
+  useEffect(() => {
+    void ensureCategoriesLoaded().catch((error) => {
+      console.error('[ChatSidebar] category load failed:', error)
+      messageApi.error(String(error))
+    })
+  }, [ensureCategoriesLoaded, messageApi])
 
   const activeConversation = useMemo(
-    () => conversations.find((c) => c.id === activeConversationId) ?? null,
-    [activeConversationId, conversations],
+    () => activeConversationId ? conversationById.get(activeConversationId) ?? null : null,
+    [activeConversationId, conversationById],
   )
 
   const activeConversationCategory = useMemo(() => {
     if (!activeConversation?.category_id) return null
-    return categories.find((cat) => cat.id === activeConversation.category_id) ?? null
-  }, [activeConversation?.category_id, categories])
+    return categoryById.get(activeConversation.category_id) ?? null
+  }, [activeConversation?.category_id, categoryById])
 
   const handleNewConversation = useCallback(async (categoryId?: string | null) => {
     let provider: typeof providers[0] | undefined
@@ -514,11 +530,7 @@ export function ChatSidebar() {
   )
 
   const filteredConversations = useMemo(() => {
-    let filtered = conversations
-    if (searchText.trim()) {
-      const query = searchText.toLowerCase()
-      filtered = filtered.filter((c: Conversation) => c.title.toLowerCase().includes(query))
-    }
+    const filtered = filterConversationsWithParents(conversations, searchText)
     // Categorized conversations first (by category sort_order), then uncategorized
     const categorized = filtered.filter((c) => c.category_id)
     const uncategorized = filtered.filter((c) => !c.category_id)
@@ -686,169 +698,128 @@ export function ChatSidebar() {
     setDirectDeleteMode((current) => (current === next ? current : next))
   }, [])
 
-  const conversationItems: ConversationItemType[] = useMemo(
-    () => {
-      const items: ConversationItemType[] = []
+  const expandedGroupKeySet = useMemo(() => new Set(expandedKeys), [expandedKeys])
+  const rowExpandedParentIds = useMemo(() => {
+    if (!searchText.trim()) return expandedParentIds
+    const next = new Set(expandedParentIds)
+    for (const parentId of getSearchExpandedParentIds(conversations, searchText)) {
+      next.add(parentId)
+    }
+    return next
+  }, [conversations, expandedParentIds, searchText])
+  const rowExpandedGroupKeySet = useMemo(() => {
+    if (!searchText.trim()) return expandedGroupKeySet
+    const next = new Set(expandedGroupKeySet)
+    for (const conversation of filteredConversations) {
+      if (conversation.category_id) next.add(`cat:${conversation.category_id}`)
+    }
+    return next
+  }, [expandedGroupKeySet, filteredConversations, searchText])
+  const conversationRows = useMemo(
+    () => buildConversationRows({
+      conversations: filteredConversations,
+      categories,
+      expandedParentIds: rowExpandedParentIds,
+      expandedGroupKeys: rowExpandedGroupKeySet,
+    }),
+    [categories, filteredConversations, rowExpandedGroupKeySet, rowExpandedParentIds],
+  )
 
-      // Build parent→children map (max 1 level nesting)
-      const childrenMap = new Map<string, Conversation[]>()
-      const topLevel: Conversation[] = []
-      filteredConversations.forEach((conv) => {
-        if (conv.parent_conversation_id) {
-          const arr = childrenMap.get(conv.parent_conversation_id) ?? []
-          arr.push(conv)
-          childrenMap.set(conv.parent_conversation_id, arr)
-        } else {
-          topLevel.push(conv)
-        }
-      })
-
-      // Group conversations by category_id for ordered insertion
-      const convsByCatId = new Map<string, Conversation[]>()
-      const uncategorizedConvs: Conversation[] = []
-      topLevel.forEach((conv) => {
-        if (conv.category_id) {
-          const arr = convsByCatId.get(conv.category_id) ?? []
-          arr.push(conv)
-          convsByCatId.set(conv.category_id, arr)
-        } else {
-          uncategorizedConvs.push(conv)
-        }
-      })
-
-      const hasChildren = (convId: string) => (childrenMap.get(convId)?.length ?? 0) > 0
-      const isExpanded = (convId: string) => expandedParentIds.has(convId)
-
-      const buildConvItem = (conv: Conversation, group: string, isChild = false): ConversationItemType => {
-        const icon = buildIcon(conv)
-        const childCount = childrenMap.get(conv.id)?.length ?? 0
-        const expanded = isExpanded(conv.id)
-        const isGeneratingTitle = titleGeneratingConversationId === conv.id
-
-        const pinNode = conv.is_pinned && !isChild
-          ? <Pin size={12} style={{ color: token.colorTextQuaternary, flexShrink: 0 }} />
-          : null
-        const generatingTitleNode = isGeneratingTitle ? (
-          <Tooltip title={t('chat.generatingTitle')}>
-            <span
-              className="aqbot-chat-conversation-title-generating"
-              role="status"
-              aria-label={t('chat.generatingTitle')}
-              style={{
-                color: token.colorPrimary,
-                width: 14,
-                height: 14,
-                minWidth: 14,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Loader size={12} aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }} />
-            </span>
-          </Tooltip>
-        ) : null
-        const expandToggleNode = childCount > 0 ? (
-          <span
-            onClick={(e) => {
-              e.stopPropagation()
-              setExpandedParentIds((prev) => {
-                const next = new Set(prev)
-                if (next.has(conv.id)) next.delete(conv.id)
-                else next.add(conv.id)
-                return next
-              })
-            }}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-          >
-            <ChevronRight
-              size={12}
-              style={{
-                color: token.colorTextQuaternary,
-                transition: 'transform 0.2s',
-                transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-              }}
-            />
-          </span>
-        ) : null
-        const label: React.ReactNode = (
-          <span className="aqbot-chat-conversation-label">
-            {expandToggleNode}
-            <ConversationTitleText title={conv.title} className="flex-1" />
-            {generatingTitleNode}
-            {pinNode}
-          </span>
-        )
-
-        if (multiSelectMode) {
-          return {
-            key: conv.id,
-            label,
-            icon: (
-              <span className="flex items-center gap-1.5">
-                <Checkbox
-                  checked={selectedIds.has(conv.id)}
-                  onChange={() => toggleSelect(conv.id)}
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                />
-                {icon}
-              </span>
-            ),
-            group,
-            'data-conv-id': conv.id,
-            ...(isChild ? { style: { paddingLeft: 20 } } : {}),
-          }
-        }
+  const getConversationItem = useCallback(
+    (row: Exclude<ConversationListRow, { type: 'groupHeader' }>): ConversationItemType => {
+      if (row.type === 'emptyCategory') {
         return {
-          key: conv.id,
-          label,
-          icon,
-          group,
-          'data-conv-id': conv.id,
-          ...(isChild ? { style: { paddingLeft: 20 } } : {}),
+          key: `__empty_cat_${row.category.id}`,
+          label: (
+            <span style={{ color: token.colorTextQuaternary, fontSize: 12, fontStyle: 'italic' }}>
+              {t('chat.noConversations')}
+            </span>
+          ),
+          icon: null,
+          group: row.group,
+          disabled: true,
+          style: { pointerEvents: 'none', minHeight: 28, opacity: 0.6 },
         }
       }
 
-      // Helper: push a conversation and its children (if expanded)
-      const pushConvWithChildren = (conv: Conversation, group: string) => {
-        items.push(buildConvItem(conv, group))
-        if (hasChildren(conv.id) && isExpanded(conv.id)) {
-          const children = childrenMap.get(conv.id)!
-          children.forEach((child) => items.push(buildConvItem(child, group, true)))
-        }
+      const { conversation: conv, isChild, childCount, expanded } = row
+      const icon = buildIcon(conv)
+      const isGeneratingTitle = titleGeneratingConversationId === conv.id
+      const pinNode = conv.is_pinned && !isChild
+        ? <Pin size={12} style={{ color: token.colorTextQuaternary, flexShrink: 0 }} />
+        : null
+      const generatingTitleNode = isGeneratingTitle ? (
+        <Tooltip title={t('chat.generatingTitle')}>
+          <span
+            className="aqbot-chat-conversation-title-generating"
+            role="status"
+            aria-label={t('chat.generatingTitle')}
+            style={{
+              color: token.colorPrimary,
+              width: 14,
+              height: 14,
+              minWidth: 14,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Loader size={12} aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }} />
+          </span>
+        </Tooltip>
+      ) : null
+      const expandToggleNode = childCount > 0 ? (
+        <span
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpandedParentIds((previous) => {
+              const next = new Set(previous)
+              if (next.has(conv.id)) next.delete(conv.id)
+              else next.add(conv.id)
+              return next
+            })
+          }}
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+        >
+          <ChevronRight
+            size={12}
+            style={{
+              color: token.colorTextQuaternary,
+              transition: 'transform 0.2s',
+              transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          />
+        </span>
+      ) : null
+      const label = (
+        <span className="aqbot-chat-conversation-label">
+          {expandToggleNode}
+          <ConversationTitleText title={conv.title} className="flex-1" />
+          {generatingTitleNode}
+          {pinNode}
+        </span>
+      )
+
+      return {
+        key: conv.id,
+        label,
+        icon: multiSelectMode ? (
+          <span className="flex items-center gap-1.5">
+            <Checkbox
+              checked={selectedIds.has(conv.id)}
+              onChange={() => toggleSelect(conv.id)}
+              onClick={(event: React.MouseEvent) => event.stopPropagation()}
+            />
+            {icon}
+          </span>
+        ) : icon,
+        group: row.group,
+        'data-conv-id': conv.id,
+        ...(isChild ? { style: { paddingInlineStart: 20 } } : {}),
       }
-
-      // Add category items in sort_order — ensures group rendering order matches drag order
-      categories.forEach((cat) => {
-        const catConvs = convsByCatId.get(cat.id)
-        if (catConvs && catConvs.length > 0) {
-          catConvs.forEach((conv) => pushConvWithChildren(conv, `cat:${cat.id}`))
-        } else {
-          items.push({
-            key: `__empty_cat_${cat.id}`,
-            label: (
-              <span style={{ color: token.colorTextQuaternary, fontSize: 12, fontStyle: 'italic' }}>
-                {t('chat.noConversations')}
-              </span>
-            ),
-            icon: null,
-            group: `cat:${cat.id}`,
-            disabled: true,
-            style: { pointerEvents: 'none', minHeight: 28, opacity: 0.6 },
-          })
-        }
-      })
-
-      // Add uncategorized conversations (pinned + time groups)
-      uncategorizedConvs.forEach((conv) => {
-        const group = conv.is_pinned ? 'pinned' : getDateGroup(conv.updated_at)
-        pushConvWithChildren(conv, group)
-      })
-
-      return items
     },
-    [filteredConversations, multiSelectMode, selectedIds, buildIcon, toggleSelect, token.colorTextQuaternary, token.colorPrimary, categories, t, expandedParentIds, titleGeneratingConversationId],
+    [buildIcon, multiSelectMode, selectedIds, t, titleGeneratingConversationId, toggleSelect, token.colorPrimary, token.colorTextQuaternary],
   )
 
   const groupLabels: Record<string, string> = useMemo(
@@ -868,9 +839,6 @@ export function ChatSidebar() {
     },
     [t, categories],
   )
-
-  // Local state for expanded group keys (drives the UI immediately)
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([])
 
   // Track known category IDs to detect new ones
   const knownCatIdsRef = useRef(new Set<string>())
@@ -897,13 +865,13 @@ export function ChatSidebar() {
   const initialExpandDoneRef = useRef(false)
   useEffect(() => {
     if (initialExpandDoneRef.current || !activeConversationId || categories.length === 0) return
-    const activeConv = conversations.find((c) => c.id === activeConversationId)
+    const activeConv = conversationById.get(activeConversationId)
     if (activeConv?.category_id) {
       const key = `cat:${activeConv.category_id}`
       setExpandedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]))
     }
     initialExpandDoneRef.current = true
-  }, [activeConversationId, conversations, categories])
+  }, [activeConversationId, categories, conversationById])
 
   // Guard to prevent menu clicks from triggering expand/collapse
   const menuActionRef = useRef(false)
@@ -925,6 +893,13 @@ export function ChatSidebar() {
     [categories, setCollapsed],
   )
 
+  const handleGroupToggle = useCallback((group: string) => {
+    const nextKeys = expandedKeys.includes(group)
+      ? expandedKeys.filter((key) => key !== group)
+      : [...expandedKeys, group]
+    handleGroupExpand(nextKeys)
+  }, [expandedKeys, handleGroupExpand])
+
   const handleDeleteCategory = useCallback(
     async (catId: string) => {
       modal.confirm({
@@ -944,7 +919,7 @@ export function ChatSidebar() {
     (group: string) => {
       if (group.startsWith('cat:')) {
         const catId = group.slice(4)
-        const cat = categories.find((c) => c.id === catId)
+        const cat = categoryById.get(catId)
         if (!cat) return group
 
         return (
@@ -965,7 +940,7 @@ export function ChatSidebar() {
       }
       return groupLabels[group] ?? group
     },
-    [categories, groupLabels, t, handleDeleteCategory, handleNewConversation],
+    [categoryById, groupLabels, t, handleDeleteCategory, handleNewConversation],
   )
 
   const groupableConfig = useMemo(
@@ -1030,7 +1005,7 @@ export function ChatSidebar() {
 
   const handleRename = useCallback(
     (item: ConversationItemType) => {
-      const conversation = conversations.find((c) => c.id === String(item.key))
+      const conversation = conversationById.get(String(item.key))
       let newTitle = conversation?.title ?? (typeof item.label === 'string' ? item.label : '')
       modal.confirm({
         title: t('chat.rename'),
@@ -1050,7 +1025,7 @@ export function ChatSidebar() {
         },
       })
     },
-    [conversations, updateConversation, t, modal],
+    [conversationById, updateConversation, t, modal],
   )
 
   const handleGenerateTitle = useCallback(
@@ -1062,11 +1037,19 @@ export function ChatSidebar() {
   )
 
   const buildExportChildren = useCallback(
-    (convId: string, title: string) => [
+    (convId: string, title: string) => {
+      const canExportRenderedPng = convId === activeConversationId
+        && !messagesLoading
+        && !hasOlderMessages
+        && !hasNewerMessages
+      return [
       {
         key: 'export-png',
-        label: t('chat.exportPng'),
+        label: canExportRenderedPng
+          ? t('chat.exportPng')
+          : <Tooltip title={t('chat.exportPngRequiresFullConversation', '仅当前完整加载的对话可导出 PNG')}>{t('chat.exportPng')}</Tooltip>,
         icon: <FileImage size={14} />,
+        disabled: !canExportRenderedPng,
         onClick: async () => {
           try {
             const el = document.querySelector('[data-message-area]') as HTMLElement
@@ -1127,18 +1110,20 @@ export function ChatSidebar() {
           }
         },
       },
-    ],
-    [t, messageApi],
+      ]
+    },
+    [activeConversationId, hasNewerMessages, hasOlderMessages, messageApi, messagesLoading, t],
   )
 
-  const menuConfig = useCallback(
-    (item: ConversationItemType) => {
+  const menuConfig = useCallback<ConversationMenuFactory>(
+    (item, options) => {
       if (multiSelectMode) return { items: [] }
-      const conv = conversations.find((c) => c.id === String(item.key))
+      const includeItems = options?.includeItems ?? true
+      const conv = conversationById.get(String(item.key))
       const isPinned = conv?.is_pinned ?? false
       const isGeneratingTitle = titleGeneratingConversationId === String(item.key)
       const categoryItems: any[] = []
-      if (categories.length > 0) {
+      if (includeItems && categories.length > 0) {
         const moveChildren = moveToCategoryMenuItems.filter(
           (mi) => mi.key !== `move-to-cat:${conv?.category_id}`,
         )
@@ -1179,7 +1164,7 @@ export function ChatSidebar() {
             </Tooltip>
           )
         },
-        items: directDeleteMode ? [] : [
+        items: directDeleteMode || !includeItems ? [] : [
           {
             key: 'pin',
             label: isPinned ? t('chat.unpin') : t('chat.pin'),
@@ -1233,7 +1218,7 @@ export function ChatSidebar() {
         },
       }
     },
-    [t, conversations, multiSelectMode, handleRename, handleGenerateTitle, handleDelete, togglePin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, directDeleteMode, directDeleteHint, titleGeneratingConversationId],
+    [t, conversationById, multiSelectMode, handleRename, handleGenerateTitle, handleDelete, togglePin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, directDeleteMode, directDeleteHint, titleGeneratingConversationId],
   )
 
   const handleConversationClick = useCallback((key: string) => {
@@ -1246,7 +1231,7 @@ export function ChatSidebar() {
 
   const rightClickMenuConfig = useMemo(() => {
     if (!rightClickedConvId) return { items: [] as any[] }
-    const conv = conversations.find((c) => c.id === rightClickedConvId)
+    const conv = conversationById.get(rightClickedConvId)
     if (!conv) return { items: [] as any[] }
     const isPinned = conv.is_pinned ?? false
     const isGeneratingTitle = titleGeneratingConversationId === conv.id
@@ -1310,7 +1295,7 @@ export function ChatSidebar() {
         }
       },
     }
-  }, [rightClickedConvId, conversations, t, togglePin, toggleArchive, handleRename, handleGenerateTitle, handleDelete, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, titleGeneratingConversationId])
+  }, [rightClickedConvId, conversationById, t, togglePin, toggleArchive, handleRename, handleGenerateTitle, handleDelete, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, titleGeneratingConversationId])
 
   return (
     <div className="flex flex-col h-full">
@@ -1367,6 +1352,7 @@ export function ChatSidebar() {
                   type="text"
                   icon={<Search size={16} />}
                   size="small"
+                  aria-label={t('chat.searchPlaceholder')}
                   onClick={() => setSearchVisible((v) => !v)}
                   style={{ color: searchVisible ? token.colorPrimary : undefined }}
                 />
@@ -1376,6 +1362,7 @@ export function ChatSidebar() {
                   type="text"
                   icon={<Archive size={16} />}
                   size="small"
+                  aria-label={t('chat.archived')}
                   onClick={handleShowArchived}
                 />
               </Tooltip>
@@ -1384,6 +1371,7 @@ export function ChatSidebar() {
                   type="text"
                   icon={<FolderPlus size={16} />}
                   size="small"
+                  aria-label={t('chat.createCategory')}
                   onClick={() => { setEditingCategory(null); setCategoryModalOpen(true) }}
                 />
               </Tooltip>
@@ -1400,6 +1388,7 @@ export function ChatSidebar() {
                       type="text"
                       icon={<MessageSquarePlus size={16} />}
                       size="small"
+                      aria-label={t('chat.newConversation')}
                     />
                   </Dropdown>
                 ) : (
@@ -1407,6 +1396,7 @@ export function ChatSidebar() {
                     type="text"
                     icon={<MessageSquarePlus size={16} />}
                     size="small"
+                    aria-label={t('chat.newConversation')}
                     onClick={() => { void handleNewConversation(null) }}
                   />
                 )}
@@ -1431,6 +1421,7 @@ export function ChatSidebar() {
                   type="text"
                   icon={<ListTodo size={16} />}
                   size="small"
+                  aria-label={t('chat.multiSelect')}
                   onClick={() => setArchivedMultiSelect(true)}
                 />
               </Tooltip>
@@ -1438,10 +1429,10 @@ export function ChatSidebar() {
           ) : multiSelectMode ? (
             <div className="flex items-center gap-1">
               <Tooltip title={t('chat.archive')}>
-                <Button type="text" icon={<Archive size={16} />} size="small" disabled={selectedIds.size === 0} onClick={handleBatchArchive} />
+                <Button type="text" icon={<Archive size={16} />} size="small" aria-label={t('chat.archive')} disabled={selectedIds.size === 0} onClick={handleBatchArchive} />
               </Tooltip>
               <Tooltip title={t('chat.delete')}>
-                <Button type="text" danger icon={<Trash2 size={16} />} size="small" disabled={selectedIds.size === 0} onClick={handleBatchDelete} />
+                <Button type="text" danger icon={<Trash2 size={16} />} size="small" aria-label={t('chat.delete')} disabled={selectedIds.size === 0} onClick={handleBatchDelete} />
               </Tooltip>
             </div>
           ) : (
@@ -1450,6 +1441,7 @@ export function ChatSidebar() {
                 type="text"
                 icon={<ListTodo size={16} />}
                 size="small"
+                aria-label={t('chat.multiSelect')}
                 onClick={() => setMultiSelectMode(true)}
               />
             </Tooltip>
@@ -1473,12 +1465,11 @@ export function ChatSidebar() {
       )}
 
       {showArchived ? (
-        <div className="flex-1 overflow-y-auto">
-          {archivedConversations.length > 0 ? (
-            <div style={{ padding: '4px 0' }}>
-              {archivedConversations.map((conv) => (
+        archivedConversations.length > 0 ? (
+          <ArchivedConversationList
+            conversations={archivedConversations}
+            renderConversation={(conv) => (
                 <div
-                  key={conv.id}
                   className="flex items-center gap-2 cursor-pointer"
                   style={{ padding: '8px 12px', borderRadius: 6, margin: '0 8px' }}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = token.colorFillContent }}
@@ -1524,21 +1515,20 @@ export function ChatSidebar() {
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-8" style={{ color: token.colorTextSecondary }}>
-              {t('chat.noArchivedConversations')}
-            </div>
-          )}
-        </div>
+            )}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center py-8" style={{ color: token.colorTextSecondary }}>
+            {t('chat.noArchivedConversations')}
+          </div>
+        )
       ) : (
         <Dropdown
           menu={rightClickMenuConfig}
           trigger={['contextMenu']}
           onOpenChange={(open) => { if (!open) setRightClickedConvId(null) }}
         >
-          <div className="flex-1 overflow-y-auto">
+          <div ref={listScrollRef} className="flex-1 overflow-y-auto">
             <div
               onMouseMove={syncDirectDeleteModeFromMouse}
               onContextMenu={(e) => {
@@ -1608,7 +1598,7 @@ export function ChatSidebar() {
                   to { transform: rotate(360deg); }
                 }
               `}</style>
-              {conversationItems.length > 0 ? (
+              {conversationRows.length > 0 ? (
                 <DndContext
                   sensors={dndSensors}
                   collisionDetection={closestCenter}
@@ -1617,16 +1607,20 @@ export function ChatSidebar() {
                   onDragEnd={handleCategoryDragEnd}
                   onDragCancel={handleCategoryDragCancel}
                 >
-                  <Conversations
-                    items={conversationItems}
+                  <ConversationList
+                    rows={conversationRows}
                     activeKey={multiSelectMode ? undefined : (activeConversationId ?? undefined)}
                     onActiveChange={handleConversationClick}
-                    groupable={groupableConfig}
+                    getItem={getConversationItem}
+                    renderGroupLabel={renderGroupLabel}
+                    onGroupToggle={handleGroupToggle}
+                    nativeGroupable={groupableConfig}
+                    scrollElementRef={listScrollRef}
                     menu={menuConfig}
                   />
                   <DragOverlay>
                     {activeDragCatId ? (() => {
-                      const cat = categories.find((c) => c.id === activeDragCatId)
+                      const cat = categoryById.get(activeDragCatId)
                       if (!cat) return null
                       return (
                         <div className="flex items-center gap-1" style={{ opacity: 0.8, cursor: 'grabbing', fontSize: 13 }}>

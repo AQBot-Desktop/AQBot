@@ -104,6 +104,7 @@ export interface AgentStreamThinkingEvent {
 // --- Frontend runtime state ---
 
 export interface ToolCallState {
+  conversationId: string;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;

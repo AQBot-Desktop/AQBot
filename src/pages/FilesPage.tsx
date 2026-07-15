@@ -21,6 +21,7 @@ export function FilesPage() {
         items={items}
         activeKey={activeKey}
         onChange={(key) => setActiveKey(key as FileCategory)}
+        destroyOnHidden
         className="flex-1"
         style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
         tabBarStyle={{ flexShrink: 0 }}
@@ -36,4 +37,3 @@ export function FilesPage() {
     </div>
   );
 }
-

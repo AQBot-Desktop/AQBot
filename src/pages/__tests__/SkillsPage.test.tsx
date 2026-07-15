@@ -5,6 +5,7 @@ import { SkillsPage } from '../SkillsPage';
 import type { Skill } from '@/types';
 
 const mocks = vi.hoisted(() => ({
+  ensureSkillsLoaded: vi.fn(),
   loadSkills: vi.fn(),
   getSkill: vi.fn(),
   toggleSkill: vi.fn(),
@@ -78,6 +79,7 @@ vi.mock('@/stores', () => ({
     loading: false,
     marketplaceLoading: false,
     selectedSkill: null,
+    ensureSkillsLoaded: mocks.ensureSkillsLoaded,
     loadSkills: mocks.loadSkills,
     getSkill: mocks.getSkill,
     toggleSkill: mocks.toggleSkill,

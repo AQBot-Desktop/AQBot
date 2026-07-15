@@ -283,14 +283,14 @@ function SearchProviderDetail({
 
 export default function SearchProviderSettings() {
   const { t } = useTranslation();
-  const { providers, loadProviders, createProvider } = useSearchStore();
+  const { providers, ensureProvidersLoaded, createProvider } = useSearchStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
-    loadProviders();
-  }, [loadProviders]);
+    void ensureProvidersLoaded();
+  }, [ensureProvidersLoaded]);
 
   // Auto-select first provider
   useEffect(() => {
