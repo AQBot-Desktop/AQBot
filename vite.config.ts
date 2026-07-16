@@ -70,9 +70,9 @@ export default defineConfig(async () => ({
   },
   clearScreen: false,
   server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
+    port: 1300,
+    strictPort: false,
+    host: host || '127.0.0.1',
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
   },

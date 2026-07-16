@@ -5,7 +5,7 @@
   "identifier": "top.aqbot.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1300",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
