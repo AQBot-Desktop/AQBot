@@ -1121,6 +1121,7 @@ function ToolCallNode(props: NodeComponentProps<{
                 {t('chat.inspector.toolOutput', '执行结果')}
               </summary>
               <pre
+                className="aqbot-chat-tool-output-pre"
                 style={{
                   margin: '4px 0 0',
                   padding: 8,
@@ -1128,10 +1129,9 @@ function ToolCallNode(props: NodeComponentProps<{
                   fontFamily: 'monospace',
                   backgroundColor: token.colorBgTextHover,
                   borderRadius: token.borderRadius,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  maxHeight: 200,
+                  whiteSpace: 'pre',
                   overflow: 'auto',
+                  maxHeight: 200,
                   color: tc.isError ? token.colorError : undefined,
                 }}
               >

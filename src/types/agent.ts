@@ -101,6 +101,14 @@ export interface AgentStreamThinkingEvent {
   thinking: string;
 }
 
+export interface ToolOutputEvent {
+  conversationId: string;
+  assistantMessageId: string;
+  toolUseId: string;
+  toolName: string;
+  content: string;
+}
+
 // --- Frontend runtime state ---
 
 export interface ToolCallState {

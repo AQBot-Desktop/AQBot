@@ -10,6 +10,8 @@ import type {
   AskUserEvent,
   AgentStatusEvent,
   AgentDoneEvent,
+  ToolOutputEvent,
+  AgentErrorEvent,
 } from '@/types/agent';
 import type { ToolExecution } from '@/types/mcp';
 
@@ -55,6 +57,7 @@ interface AgentStore {
   handleToolUse: (event: ToolUseEvent) => void;
   handleToolStart: (event: ToolStartEvent) => void;
   handleToolResult: (event: ToolResultEvent) => void;
+  handleToolOutput: (event: ToolOutputEvent) => void;
   handlePermissionRequest: (event: PermissionRequestEvent) => void;
   handlePermissionResolved: (toolUseId: string, decision: string) => void;
   handleAskUser: (event: AskUserEvent) => void;
@@ -389,6 +392,27 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
+  handleToolOutput: (event) => {
+    set((s) => {
+      const existing = s.toolCalls[event.toolUseId];
+      if (!existing) return s;
+      const updated: ToolCallState = {
+        ...existing,
+        output: event.content,
+      };
+      const updates: Record<string, ToolCallState> = {
+        [event.toolUseId]: updated,
+      };
+      const execId = s.sdkIdToExecId[event.toolUseId];
+      if (execId) {
+        updates[execId] = updated;
+      }
+      return withAgentCacheLimits(s, event.conversationId, {
+        toolCalls: { ...s.toolCalls, ...updates },
+      });
+    });
+  },
+
   handlePermissionRequest: (event) => {
     set((s) => withAgentCacheLimits(s, event.conversationId, {
       pendingPermissions: { ...s.pendingPermissions, [event.toolUseId]: event },
@@ -449,6 +473,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   handleStatus: (conversationId, message) => {
+    if (!message) {
+      // Empty message from backend → clear status bar
+      set((s) => {
+        const { [conversationId]: _removed, ...rest } = s.agentStatus;
+        return withAgentCacheLimits(s, conversationId, { agentStatus: rest });
+      });
+      return;
+    }
     set((s) => withAgentCacheLimits(s, conversationId, {
       agentStatus: { ...s.agentStatus, [conversationId]: message },
     }));
@@ -709,6 +741,18 @@ export function setupAgentEventListeners(): () => void {
     listen<AgentDoneEvent>('agent-done', (event) => {
       store.clearStatus(event.payload.conversationId);
       store.handleDone(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<ToolOutputEvent>('agent-tool-output', (event) => {
+      store.handleToolOutput(event.payload);
+    }),
+  );
+
+  unlisteners.push(
+    listen<AgentErrorEvent>('agent-error', (event) => {
+      store.clearStatus(event.payload.conversationId);
     }),
   );
 

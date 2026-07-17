@@ -273,6 +273,29 @@ html[data-theme="dark"] .chat-scroll-indicator-track.is-dragging .chat-scroll-in
   background: rgba(255, 255, 255, 0.28);
 }
 
+.aqbot-chat-tool-output-pre {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+.aqbot-chat-tool-output-pre::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.aqbot-chat-tool-output-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.aqbot-chat-tool-output-pre::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+}
+
+html[data-theme="dark"] .aqbot-chat-tool-output-pre::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 .drawing-image-strip {
   scrollbar-width: thin !important;
   scrollbar-color: rgba(0, 0, 0, 0.22) transparent;

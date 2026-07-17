@@ -483,6 +483,19 @@ pub struct AgentToolResultPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentToolOutputPayload {
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
+    #[serde(rename = "assistantMessageId")]
+    pub assistant_message_id: String,
+    #[serde(rename = "toolUseId")]
+    pub tool_use_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentPermissionRequestPayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
@@ -594,7 +607,8 @@ fn truncate_preview(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}…", &s[..max_len.min(s.len())])
+        let truncated: String = s.chars().take(max_len).collect();
+        format!("{}…", truncated)
     }
 }
 
@@ -1609,6 +1623,26 @@ pub async fn agent_query(
                             },
                         );
                     }
+                }
+                SDKMessage::ToolOutput {
+                    tool_use_id,
+                    tool_name,
+                    content,
+                } => {
+                    let (safe_tool_use_id, safe_tool_name) =
+                        filter_agent_tool_identity(&tool_use_id, &tool_name);
+                    let _ = app.emit(
+                        "agent-tool-output",
+                        AgentToolOutputPayload {
+                            conversation_id: conv_id.clone(),
+                            assistant_message_id: current_assistant_msg_id
+                                .clone()
+                                .unwrap_or_default(),
+                            tool_use_id: safe_tool_use_id,
+                            tool_name: safe_tool_name,
+                            content: filter_complete_agent_event_text(&content),
+                        },
+                    );
                 }
                 _ => {
                     tracing::debug!("[agent] unhandled SDKMessage: {:?}", msg);
