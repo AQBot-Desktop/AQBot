@@ -1,3 +1,4 @@
+use sea_orm::prelude::Expr;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -38,6 +39,15 @@ pub struct DrawingGeneration {
     pub error_message: Option<String>,
     pub response_id: Option<String>,
     pub usage_json: Option<String>,
+    pub adapter_id: Option<String>,
+    pub adapter_config_snapshot: Option<String>,
+    pub remote_task_id: Option<String>,
+    pub remote_status: Option<String>,
+    pub opaque_state_json: Option<String>,
+    pub poll_count: i32,
+    pub consecutive_errors: i32,
+    pub last_polled_at: Option<i64>,
+    pub deadline_at: Option<i64>,
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub images: Vec<DrawingImage>,
@@ -60,6 +70,9 @@ pub struct NewDrawingGeneration {
     pub reference_file_ids_json: String,
     pub source_image_ids_json: String,
     pub mask_file_id: Option<String>,
+    pub adapter_id: Option<String>,
+    pub adapter_config_snapshot: Option<String>,
+    pub deadline_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +137,15 @@ fn generation_from_entity(
         error_message: model.error_message,
         response_id: model.response_id,
         usage_json: model.usage_json,
+        adapter_id: model.adapter_id,
+        adapter_config_snapshot: model.adapter_config_snapshot,
+        remote_task_id: model.remote_task_id,
+        remote_status: model.remote_status,
+        opaque_state_json: model.opaque_state_json,
+        poll_count: model.poll_count.unwrap_or_default(),
+        consecutive_errors: model.consecutive_errors.unwrap_or_default(),
+        last_polled_at: model.last_polled_at,
+        deadline_at: model.deadline_at,
         created_at: model.created_at,
         completed_at: model.completed_at,
         images,
@@ -387,6 +409,15 @@ pub async fn create_generation(
         error_message: Set(None),
         response_id: Set(None),
         usage_json: Set(None),
+        adapter_id: Set(input.adapter_id),
+        adapter_config_snapshot: Set(input.adapter_config_snapshot),
+        remote_task_id: Set(None),
+        remote_status: Set(None),
+        opaque_state_json: Set(None),
+        poll_count: Set(Some(0)),
+        consecutive_errors: Set(Some(0)),
+        last_polled_at: Set(None),
+        deadline_at: Set(input.deadline_at),
         created_at: Set(now),
         completed_at: Set(None),
     }
@@ -423,18 +454,32 @@ pub async fn mark_generation_succeeded(
     response_id: Option<String>,
     usage_json: Option<String>,
 ) -> Result<()> {
-    let row = drawing_generations::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AQBotError::NotFound(format!("DrawingGeneration {}", id)))?;
-    let mut am: drawing_generations::ActiveModel = row.into();
-    am.status = Set("succeeded".to_string());
-    am.error_message = Set(None);
-    am.response_id = Set(response_id);
-    am.usage_json = Set(usage_json);
-    am.completed_at = Set(Some(now_ts()));
-    am.update(db).await?;
-    Ok(())
+    let result = drawing_generations::Entity::update_many()
+        .col_expr(
+            drawing_generations::Column::Status,
+            Expr::value("succeeded"),
+        )
+        .col_expr(
+            drawing_generations::Column::ErrorMessage,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            drawing_generations::Column::ResponseId,
+            Expr::value(response_id),
+        )
+        .col_expr(
+            drawing_generations::Column::UsageJson,
+            Expr::value(usage_json),
+        )
+        .col_expr(
+            drawing_generations::Column::CompletedAt,
+            Expr::value(Some(now_ts())),
+        )
+        .filter(drawing_generations::Column::Id.eq(id))
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .exec(db)
+        .await?;
+    ensure_generation_transition_target(db, id, result.rows_affected).await
 }
 
 pub async fn mark_generation_failed(
@@ -442,16 +487,136 @@ pub async fn mark_generation_failed(
     id: &str,
     error_message: String,
 ) -> Result<()> {
-    let row = drawing_generations::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AQBotError::NotFound(format!("DrawingGeneration {}", id)))?;
-    let mut am: drawing_generations::ActiveModel = row.into();
-    am.status = Set("failed".to_string());
-    am.error_message = Set(Some(error_message));
-    am.completed_at = Set(Some(now_ts()));
-    am.update(db).await?;
-    Ok(())
+    let result = drawing_generations::Entity::update_many()
+        .col_expr(drawing_generations::Column::Status, Expr::value("failed"))
+        .col_expr(
+            drawing_generations::Column::ErrorMessage,
+            Expr::value(Some(error_message)),
+        )
+        .col_expr(
+            drawing_generations::Column::CompletedAt,
+            Expr::value(Some(now_ts())),
+        )
+        .filter(drawing_generations::Column::Id.eq(id))
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .exec(db)
+        .await?;
+    ensure_generation_transition_target(db, id, result.rows_affected).await
+}
+
+pub async fn mark_generation_pending(
+    db: &DatabaseConnection,
+    id: &str,
+    remote_task_id: String,
+    remote_status: Option<String>,
+    opaque_state_json: Option<String>,
+) -> Result<()> {
+    let result = drawing_generations::Entity::update_many()
+        .col_expr(
+            drawing_generations::Column::RemoteTaskId,
+            Expr::value(Some(remote_task_id)),
+        )
+        .col_expr(
+            drawing_generations::Column::RemoteStatus,
+            Expr::value(remote_status),
+        )
+        .col_expr(
+            drawing_generations::Column::OpaqueStateJson,
+            Expr::value(opaque_state_json),
+        )
+        .col_expr(drawing_generations::Column::PollCount, Expr::value(Some(0)))
+        .col_expr(
+            drawing_generations::Column::ConsecutiveErrors,
+            Expr::value(Some(0)),
+        )
+        .filter(drawing_generations::Column::Id.eq(id))
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .exec(db)
+        .await?;
+    ensure_generation_transition_target(db, id, result.rows_affected).await
+}
+
+pub async fn mark_generation_cancelled(db: &DatabaseConnection, id: &str) -> Result<()> {
+    let result = drawing_generations::Entity::update_many()
+        .col_expr(
+            drawing_generations::Column::Status,
+            Expr::value("cancelled"),
+        )
+        .col_expr(
+            drawing_generations::Column::RemoteStatus,
+            Expr::value(Some("cancelled".to_string())),
+        )
+        .col_expr(
+            drawing_generations::Column::CompletedAt,
+            Expr::value(Some(now_ts())),
+        )
+        .filter(drawing_generations::Column::Id.eq(id))
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .exec(db)
+        .await?;
+    ensure_generation_transition_target(db, id, result.rows_affected).await
+}
+
+pub async fn update_generation_poll(
+    db: &DatabaseConnection,
+    id: &str,
+    remote_status: Option<String>,
+    opaque_state_json: Option<String>,
+    poll_count: i32,
+    consecutive_errors: i32,
+) -> Result<()> {
+    let result = drawing_generations::Entity::update_many()
+        .col_expr(
+            drawing_generations::Column::RemoteStatus,
+            Expr::value(remote_status),
+        )
+        .col_expr(
+            drawing_generations::Column::OpaqueStateJson,
+            Expr::value(opaque_state_json),
+        )
+        .col_expr(
+            drawing_generations::Column::PollCount,
+            Expr::value(Some(poll_count)),
+        )
+        .col_expr(
+            drawing_generations::Column::ConsecutiveErrors,
+            Expr::value(Some(consecutive_errors)),
+        )
+        .col_expr(
+            drawing_generations::Column::LastPolledAt,
+            Expr::value(Some(now_ts())),
+        )
+        .filter(drawing_generations::Column::Id.eq(id))
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .exec(db)
+        .await?;
+    ensure_generation_transition_target(db, id, result.rows_affected).await
+}
+
+async fn ensure_generation_transition_target(
+    db: &DatabaseConnection,
+    id: &str,
+    rows_affected: u64,
+) -> Result<()> {
+    if rows_affected > 0
+        || drawing_generations::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .is_some()
+    {
+        Ok(())
+    } else {
+        Err(AQBotError::NotFound(format!("DrawingGeneration {}", id)))
+    }
+}
+
+pub async fn list_running_generations(db: &DatabaseConnection) -> Result<Vec<DrawingGeneration>> {
+    let rows = drawing_generations::Entity::find()
+        .filter(drawing_generations::Column::Status.eq("running"))
+        .order_by_asc(drawing_generations::Column::CreatedAt)
+        .all(db)
+        .await?;
+    hydrate_generation_batch(db, rows).await
 }
 
 pub async fn get_image(db: &DatabaseConnection, id: &str) -> Result<DrawingImage> {
@@ -543,6 +708,15 @@ mod tests {
             error_message: None,
             response_id: None,
             usage_json: None,
+            adapter_id: Some("openai_images".into()),
+            adapter_config_snapshot: None,
+            remote_task_id: None,
+            remote_status: None,
+            opaque_state_json: None,
+            poll_count: Some(0),
+            consecutive_errors: Some(0),
+            last_polled_at: None,
+            deadline_at: None,
             created_at,
             completed_at: Some(created_at + 1),
         }
@@ -573,6 +747,57 @@ mod tests {
             conversation_id: None,
             created_at: "2026-07-15T00:00:00Z".into(),
         }
+    }
+
+    fn new_generation() -> NewDrawingGeneration {
+        NewDrawingGeneration {
+            parent_generation_id: None,
+            provider_id: "provider-1".into(),
+            key_id: "key-1".into(),
+            model_id: "gpt-image-2".into(),
+            action: "generate".into(),
+            prompt: "prompt".into(),
+            parameters_json: "{}".into(),
+            reference_file_ids_json: "[]".into(),
+            source_image_ids_json: "[]".into(),
+            mask_file_id: None,
+            adapter_id: Some("openai_images".into()),
+            adapter_config_snapshot: Some("{}".into()),
+            deadline_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_generation_rejects_late_terminal_and_poll_updates() {
+        let h = create_test_pool().await.unwrap();
+        let generation = create_generation(&h.conn, new_generation()).await.unwrap();
+
+        mark_generation_cancelled(&h.conn, &generation.id)
+            .await
+            .unwrap();
+        mark_generation_succeeded(&h.conn, &generation.id, Some("late".into()), None)
+            .await
+            .unwrap();
+        mark_generation_failed(&h.conn, &generation.id, "late failure".into())
+            .await
+            .unwrap();
+        update_generation_poll(
+            &h.conn,
+            &generation.id,
+            Some("done".into()),
+            Some("{}".into()),
+            9,
+            1,
+        )
+        .await
+        .unwrap();
+
+        let persisted = get_generation(&h.conn, &generation.id).await.unwrap();
+        assert_eq!(persisted.status, "cancelled");
+        assert_eq!(persisted.remote_status.as_deref(), Some("cancelled"));
+        assert!(persisted.response_id.is_none());
+        assert!(persisted.error_message.is_none());
+        assert_eq!(persisted.poll_count, 0);
     }
 
     #[tokio::test]
@@ -708,6 +933,9 @@ mod tests {
                 reference_file_ids_json: "[]".into(),
                 source_image_ids_json: "[]".into(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await
@@ -741,6 +969,9 @@ mod tests {
                 source_image_ids_json: serde_json::to_string(&vec![source_image.id.clone()])
                     .unwrap(),
                 mask_file_id: Some(mask_file.id.clone()),
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await
@@ -774,6 +1005,9 @@ mod tests {
                 reference_file_ids_json: "[]".into(),
                 source_image_ids_json: "[]".into(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await

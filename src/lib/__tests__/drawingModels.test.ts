@@ -141,6 +141,34 @@ describe('drawing model/provider filtering', () => {
     expect(getDrawingProvidersForModel(providers, 'gpt-image-2').map((item) => item.id)).toEqual(['openai-1']);
   });
 
+  it('exposes an enabled custom Image model for issue 125', () => {
+    const providers: ProviderConfig[] = [
+      providerFixture({
+        id: 'custom-xai',
+        name: 'Custom xAI',
+        provider_type: 'custom',
+        models: [
+          {
+            provider_id: 'custom-xai',
+            model_id: 'grok-imagine-image',
+            name: 'grok-imagine-image',
+            group_name: 'grok-imagine',
+            model_type: 'Image',
+            capabilities: [],
+            max_tokens: null,
+            enabled: true,
+            param_overrides: null,
+          },
+        ],
+      }),
+    ];
+
+    expect(getDrawingModelOptions(providers).map((item) => item.value)).toContain('grok-imagine-image');
+    expect(
+      getDrawingProvidersForModel(providers, 'grok-imagine-image' as never).map((item) => item.id),
+    ).toEqual(['custom-xai']);
+  });
+
   it('returns localized drawing parameter options', () => {
     const labels: Record<string, string> = {
       'drawing.option.auto': '自动',
@@ -191,8 +219,8 @@ describe('drawing model/provider filtering', () => {
 
     expect(config.id).toBe('gpt-image');
     expect(basic?.fields.map((field) => field.id)).toEqual([
-      'model',
       'provider',
+      'model',
       'size',
       'quality',
       'outputFormat',

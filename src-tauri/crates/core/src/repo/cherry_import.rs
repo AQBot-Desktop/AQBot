@@ -808,6 +808,7 @@ where
             enabled: Set(1),
             param_overrides: Set(empty_param_overrides_for_import(&provider_type)
                 .and_then(|value| serde_json::to_string(&value).ok())),
+            image_config_json: Set(None),
         })
         .on_conflict(
             OnConflict::columns([models::Column::ProviderId, models::Column::ModelId])

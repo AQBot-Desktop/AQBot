@@ -132,6 +132,7 @@ impl BuiltinModel {
             max_tokens: self.max_tokens,
             enabled: self.enabled,
             param_overrides: self.param_overrides.clone(),
+            image_config: None,
         }
     }
 }

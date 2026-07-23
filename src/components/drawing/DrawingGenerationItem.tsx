@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DrawingGeneration, DrawingImage } from '@/types';
 import { describeDrawingSize } from '@/lib/drawingModels';
+import { getDrawingParameterValueLabel } from '@/lib/drawingParameterPresentation';
 import { CopyButton } from '@/components/common/CopyButton';
 import { invoke } from '@/lib/invoke';
 import { copyChatImage, saveChatImage } from '@/lib/chatImageActions';
@@ -14,8 +15,8 @@ import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 
 interface Props {
   generation: DrawingGeneration;
-  onEdit: (image: DrawingImage) => void;
-  onMaskEdit: (image: DrawingImage) => void;
+  onEdit?: (image: DrawingImage) => void;
+  onMaskEdit?: (image: DrawingImage) => void;
   onRetry: (generation: DrawingGeneration) => void;
   onStop?: (id: string) => void;
   onDelete: (id: string, deleteResources: boolean) => void;
@@ -29,23 +30,6 @@ function parseParams(generation: DrawingGeneration): Record<string, any> {
   } catch {
     return {};
   }
-}
-
-function describeQuality(value: string | undefined, t: (key: string, fallback: string) => string) {
-  if (value === 'low') return t('drawing.option.quality.low', '低');
-  if (value === 'medium') return t('drawing.option.quality.medium', '中');
-  if (value === 'high') return t('drawing.option.quality.high', '高');
-  return t('drawing.option.auto', '自动');
-}
-
-function describeFormat(value: string | undefined) {
-  return (value || 'png').toUpperCase();
-}
-
-function describeBackground(value: string | undefined, t: (key: string, fallback: string) => string) {
-  if (value === 'opaque') return t('drawing.option.background.opaque', '不透明');
-  if (value === 'transparent') return t('drawing.option.background.transparent', '透明');
-  return t('drawing.option.auto', '自动');
 }
 
 function describeAction(action: DrawingGeneration['action'], t: (key: string, fallback: string) => string) {
@@ -171,7 +155,7 @@ export function DrawingGenerationItem({
   const firstImage = generation.images[0];
   const hasGeneratedImages = generation.images.length > 0;
   const isRunning = generation.status === 'running';
-  const isStopped = generation.status === 'stopped';
+  const isStopped = generation.status === 'stopped' || generation.status === 'cancelled';
   const placeholderCount = Number(params.n || generation.images.length || 1);
   const hasMultipleImages = generation.images.length > 1;
   const imageMenuItems = useMemo(() => generation.images.map((image, index) => ({
@@ -207,9 +191,18 @@ export function DrawingGenerationItem({
     { label: t('drawing.meta.action', '类型'), value: describeAction(generation.action, t) },
     { label: t('drawing.meta.model', '模型'), value: generation.model_id },
     { label: t('drawing.meta.size', '尺寸'), value: describeSize(params.size, t) },
-    { label: t('drawing.meta.quality', '质量'), value: describeQuality(params.quality, t) },
-    { label: t('drawing.meta.format', '格式'), value: describeFormat(params.output_format) },
-    { label: t('drawing.meta.background', '背景'), value: describeBackground(params.background, t) },
+    {
+      label: t('drawing.meta.quality', '质量'),
+      value: getDrawingParameterValueLabel('quality', params.quality ?? 'auto', t),
+    },
+    {
+      label: t('drawing.meta.format', '格式'),
+      value: getDrawingParameterValueLabel('output_format', params.output_format ?? 'png', t),
+    },
+    {
+      label: t('drawing.meta.background', '背景'),
+      value: getDrawingParameterValueLabel('background', params.background ?? 'auto', t),
+    },
     { label: t('drawing.meta.count', '张数'), value: String(placeholderCount) },
   ];
 
@@ -524,13 +517,13 @@ export function DrawingGenerationItem({
               onSelect: handleUseAsReference,
             })
           )}
-          {renderImageAction({
+          {onEdit && renderImageAction({
             title: t('drawing.reEdit', '重新编辑'),
             ariaLabel: t('drawing.reEdit', '重新编辑'),
             icon: <Pencil size={15} />,
             onSelect: onEdit,
           })}
-          {renderImageAction({
+          {onMaskEdit && renderImageAction({
             title: t('drawing.maskEdit', '区域编辑'),
             ariaLabel: t('drawing.maskEdit', '区域编辑'),
             icon: <Focus size={15} />,

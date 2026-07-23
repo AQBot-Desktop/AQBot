@@ -5,6 +5,7 @@ pub mod custom_openai;
 pub mod deepseek;
 pub mod gemini;
 pub mod glm;
+pub mod image_adapters;
 pub mod jina;
 pub mod openai;
 pub mod openai_compat;

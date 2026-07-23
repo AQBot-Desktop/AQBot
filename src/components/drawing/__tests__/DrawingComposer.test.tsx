@@ -176,4 +176,29 @@ describe('DrawingComposer', () => {
     await waitFor(() => expect(onHeightChange).toHaveBeenCalledWith(232));
     rectSpy.mockRestore();
   });
+
+  it('disables submission when references require an unsupported edit operation', () => {
+    useDrawingStore.setState({
+      references: [{
+        id: 'reference-1',
+        original_name: 'reference.png',
+        mime_type: 'image/png',
+        size_bytes: 128,
+        storage_path: 'images/reference.png',
+      }],
+    });
+
+    const { container } = render(
+      <App>
+        <DrawingComposer
+          settings={settingsFixture}
+          prompt="需要参考图"
+          onPromptChange={() => {}}
+          supportedOperations={['generate']}
+        />
+      </App>,
+    );
+
+    expect(container.querySelector('.ant-btn-primary')).toBeDisabled();
+  });
 });

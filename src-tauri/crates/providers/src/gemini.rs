@@ -769,6 +769,7 @@ impl ProviderAdapter for GeminiAdapter {
                     max_tokens: None,
                     enabled: true,
                     param_overrides: None,
+                    image_config: None,
                 }
             })
             .collect())

@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "Envoyé",
     "askUserSupplementPlaceholder": "Précision supplémentaire (facultatif)..."
   },
+  "imageProtocol": {
+    "title": "Protocole d’image",
+    "grokAutoDetectDescription": "Le modèle actuel utilise xAI Images par défaut. Vous pouvez le remplacer ci-dessous.",
+    "autoDetectDescription": "La détection automatique choisit un adaptateur intégré selon le fournisseur et l’ID du modèle.",
+    "adapterProfile": "Profil d’adaptateur",
+    "autoDetect": "Détection automatique",
+    "capabilityOverrides": "Remplacement des capacités (laisser vide pour utiliser les valeurs du profil)",
+    "operation": {
+      "generate": "Générer",
+      "edit": "Modifier",
+      "maskEdit": "Modifier une zone"
+    },
+    "generationEndpoint": "Point de terminaison de génération",
+    "generationEndpointPlaceholder": "/images/generations ou URL complète",
+    "editEndpoint": "Point de terminaison de modification",
+    "pollEndpoint": "Point de terminaison d’interrogation",
+    "cancelEndpoint": "Point de terminaison d’annulation",
+    "authMode": "Authentification",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "En-tête de clé API",
+      "query": "Paramètre de requête",
+      "none": "Aucune"
+    },
+    "authHeaderName": "Nom de l’en-tête d’authentification",
+    "pollIntervalSeconds": "Intervalle d’interrogation (secondes)",
+    "timeoutSeconds": "Délai total (secondes)",
+    "extraBody": "Corps supplémentaire (objet JSON)",
+    "fieldResponseMapping": "Mappage des champs et réponses (objet JSON)",
+    "jsonObjectRequired": "Doit être un objet JSON",
+    "invalidJson": "JSON du protocole d’image non valide"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "Rapport d’aspect",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "Aucun fournisseur ne dispose d’un modèle d’image configuré. Configurez-en un dans les paramètres du fournisseur.",
+    "openProviderSettings": "Ouvrir les paramètres du fournisseur",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "Automatique",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "Standard",
+        "hd": "Haute définition",
+        "low": "Faible",
+        "medium": "Moyenne",
+        "high": "Élevée"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1538,10 +1575,15 @@
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "Tableau d’objets",
+        "string": "Tableau de chaînes"
       }
     },
     "deleteConfirmTitle": "Supprimer cet enregistrement de dessin ?",
     "referenceImageMode": "Transport de l'image de référence",
+    "referenceImageFormat": "Format de l'image de référence",
     "stopConfirmContent": "Cet enregistrement sera marqué comme arrêté par l'utilisateur.",
     "stopConfirmTitle": "Arrêter la génération ?",
     "stopped": "Arrêté par l'utilisateur"

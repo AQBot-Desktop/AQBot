@@ -173,7 +173,8 @@ describe('drawingStore', () => {
       reference_file_ids: [],
     });
 
-    expect(invokeMock).toHaveBeenCalledWith('generate_drawing_images', {
+    expect(invokeMock).toHaveBeenCalledWith('create_drawing_generation', {
+      operation: 'generate',
       input: expect.objectContaining({ n: 10 }),
     });
   });
@@ -274,11 +275,62 @@ describe('drawingStore', () => {
     expect(useDrawingStore.getState().generations[0].id).toBe('generation-1');
   });
 
-  it('marks a running optimistic generation as stopped and ignores a late backend result', async () => {
+  it('keeps a terminal event update when the create command resolves later', async () => {
     let resolveGeneration: (value: any) => void = () => {};
     invokeMock.mockReturnValueOnce(new Promise((resolve) => {
       resolveGeneration = resolve;
     }));
+    const { useDrawingStore } = await import('../drawingStore');
+
+    const promise = useDrawingStore.getState().generateImages({
+      provider_id: 'provider-1',
+      model_id: 'gpt-image-2',
+      prompt: '事件先于命令返回',
+      size: '1024x1024',
+      quality: 'auto',
+      output_format: 'png',
+      background: 'auto',
+      n: 1,
+      reference_image_mode: 'base64',
+      reference_image_format: 'object',
+      reference_image_param_name: 'images',
+      reference_file_ids: [],
+    });
+    const optimistic = useDrawingStore.getState().generations[0];
+    const terminal = {
+      ...optimistic,
+      id: 'generation-race',
+      status: 'succeeded' as const,
+      completed_at: 2,
+    };
+    useDrawingStore.getState().applyGenerationUpdate(terminal);
+    resolveGeneration({
+      ...terminal,
+      status: 'running',
+      completed_at: null,
+    });
+    await promise;
+
+    expect(useDrawingStore.getState().generations).toHaveLength(1);
+    expect(useDrawingStore.getState().generations[0]).toMatchObject({
+      id: 'generation-race',
+      status: 'succeeded',
+      completed_at: 2,
+    });
+  });
+
+  it('cancels the real backend generation when stop is requested before its id arrives', async () => {
+    let resolveGeneration: (value: any) => void = () => {};
+    invokeMock
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveGeneration = resolve;
+      }))
+      .mockResolvedValueOnce({
+        id: 'generation-from-backend',
+        status: 'cancelled',
+        completed_at: 3,
+        images: [],
+      });
     const { useDrawingStore } = await import('../drawingStore');
 
     const promise = useDrawingStore.getState().generateImages({
@@ -310,16 +362,19 @@ describe('drawingStore', () => {
     resolveGeneration({
       ...optimistic,
       id: 'generation-from-backend',
-      status: 'succeeded',
-      completed_at: 2,
-      images: [{ id: 'image-1' }],
+      status: 'running',
+      completed_at: null,
+      images: [],
     });
     await promise;
 
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'cancel_drawing_generation', {
+      id: 'generation-from-backend',
+    });
     expect(useDrawingStore.getState().generations).toHaveLength(1);
     expect(useDrawingStore.getState().generations[0]).toMatchObject({
-      id: optimistic.id,
-      status: 'stopped',
+      id: 'generation-from-backend',
+      status: 'cancelled',
       images: [],
     });
   });
@@ -457,7 +512,8 @@ describe('drawingStore', () => {
       reference_file_ids: [],
     });
 
-    expect(invokeMock).toHaveBeenCalledWith('edit_drawing_image_with_mask', {
+    expect(invokeMock).toHaveBeenCalledWith('create_drawing_generation', {
+      operation: 'mask_edit',
       input: expect.objectContaining({
         source_image_id: 'image-1',
         mask_file_id: 'mask-1',
@@ -504,7 +560,8 @@ describe('drawingStore', () => {
       images: [],
     }, 'base64');
 
-    expect(invokeMock).toHaveBeenCalledWith('generate_drawing_images', {
+    expect(invokeMock).toHaveBeenCalledWith('create_drawing_generation', {
+      operation: 'generate',
       input: expect.objectContaining({
         reference_image_mode: 'base64',
         reference_image_format: 'object',

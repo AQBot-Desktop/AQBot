@@ -34,8 +34,17 @@ export interface DrawingModelOption {
 type DrawingTranslate = (key: string, fallback: string) => string;
 const DRAWING_PARAM_CONFIGS: DrawingParamConfig[] = [GPT_IMAGE_PARAM_CONFIG];
 
-function isOpenAIImagesCompatible(provider: ProviderConfig): boolean {
-  return provider.provider_type === 'openai' || provider.provider_type === 'custom';
+const IMAGE_PROVIDER_TYPES = new Set<ProviderConfig['provider_type']>([
+  'openai',
+  'custom',
+  'xai',
+  'glm',
+  'siliconflow',
+  'gemini',
+]);
+
+function isImageProviderCompatible(provider: ProviderConfig): boolean {
+  return IMAGE_PROVIDER_TYPES.has(provider.provider_type);
 }
 
 function hasEnabledImageModel(provider: ProviderConfig, modelId: DrawingModelId): boolean {
@@ -46,8 +55,23 @@ function hasEnabledImageModel(provider: ProviderConfig, modelId: DrawingModelId)
   );
 }
 
-export function getDrawingModelOptions(_providers?: ProviderConfig[]): DrawingModelOption[] {
-  return DRAWING_MODELS.map((model) => ({ label: model.name, value: model.id }));
+export function getDrawingModelOptions(providers: ProviderConfig[] = []): DrawingModelOption[] {
+  const options = new Map<DrawingModelId, DrawingModelOption>(
+    DRAWING_MODELS.map((model) => [model.id, { label: model.name, value: model.id }]),
+  );
+
+  for (const provider of providers) {
+    if (!provider.enabled || !isImageProviderCompatible(provider)) continue;
+    for (const model of provider.models) {
+      if (!model.enabled || model.model_type !== 'Image') continue;
+      options.set(model.model_id, {
+        label: model.name || model.model_id,
+        value: model.model_id,
+      });
+    }
+  }
+
+  return Array.from(options.values());
 }
 
 export function getDrawingParamConfig(modelId: DrawingModelId): DrawingParamConfig {
@@ -61,7 +85,7 @@ export function getDrawingProvidersForModel(
 ): ProviderConfig[] {
   return providers.filter((provider) =>
     provider.enabled
-    && isOpenAIImagesCompatible(provider)
+    && isImageProviderCompatible(provider)
     && hasEnabledImageModel(provider, modelId),
   );
 }

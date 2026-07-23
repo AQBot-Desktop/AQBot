@@ -176,6 +176,42 @@ export interface Model {
   max_tokens: number | null;
   enabled: boolean;
   param_overrides: ModelParamOverrides | null;
+  image_config?: ImageAdapterConfig | null;
+}
+
+export type ImageOperation = 'generate' | 'edit' | 'mask_edit';
+export type ImageParameterKind = 'string' | 'number' | 'boolean' | 'select';
+
+export interface ImageParameterDescriptor {
+  key: string;
+  kind: ImageParameterKind;
+  default: unknown;
+  options: unknown[];
+  min: number | null;
+  max: number | null;
+}
+
+export interface ImageModelDescriptor {
+  adapter_id: string;
+  operations: ImageOperation[];
+  parameters: ImageParameterDescriptor[];
+  max_batch_size: number;
+  max_reference_images: number;
+}
+
+export interface ImageAdapterConfig {
+  adapter_id?: string | null;
+  endpoint?: string | null;
+  edit_endpoint?: string | null;
+  poll_endpoint?: string | null;
+  cancel_endpoint?: string | null;
+  auth_mode?: 'bearer' | 'api_key_header' | 'query' | 'none';
+  auth_header?: string | null;
+  extra_body?: Record<string, unknown>;
+  mapping?: Record<string, unknown>;
+  poll_interval_secs?: number;
+  timeout_secs?: number;
+  operation_overrides?: ImageOperation[] | null;
 }
 
 export interface ModelParamOverrides {
@@ -689,10 +725,10 @@ export interface RealtimeConfig {
 export type PageKey = 'chat' | 'drawing' | 'knowledge' | 'memory' | 'gateway' | 'files' | 'settings' | 'skills' | 'roles';
 
 // === Drawing ===
-export type DrawingModelId = 'gpt-image-2' | 'gpt-image-1.5' | 'gpt-image-1' | 'gpt-image-1-mini';
+export type DrawingModelId = string;
 export type DrawingAction = 'generate' | 'reference_generate' | 'edit' | 'mask_edit';
-export type DrawingStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
-export type DrawingQuality = 'low' | 'medium' | 'high' | 'auto';
+export type DrawingStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'stopped';
+export type DrawingQuality = 'low' | 'medium' | 'high' | 'standard' | 'hd' | 'auto';
 export type DrawingOutputFormat = 'png' | 'jpeg' | 'webp';
 export type DrawingBackground = 'auto' | 'opaque' | 'transparent';
 export type DrawingReferenceImageMode = 'multipart' | 'base64';
@@ -712,6 +748,22 @@ export interface DrawingSettings {
   n: number;
   generationApiPath: string;
   editApiPath: string;
+  parameters?: Record<string, unknown>;
+  parametersByTarget?: Record<string, Record<string, unknown>>;
+}
+
+export interface DrawingTarget {
+  provider_id: string;
+  provider_name: string;
+  model_id: string;
+  model_name: string;
+  adapter_id: string;
+  descriptor: ImageModelDescriptor;
+}
+
+export interface DrawingTargetCatalog {
+  targets: DrawingTarget[];
+  unavailable_reasons: string[];
 }
 
 export interface DrawingStoredFile {
@@ -751,6 +803,15 @@ export interface DrawingGeneration {
   error_message: string | null;
   response_id: string | null;
   usage_json: string | null;
+  adapter_id?: string | null;
+  adapter_config_snapshot?: string | null;
+  remote_task_id?: string | null;
+  remote_status?: string | null;
+  opaque_state_json?: string | null;
+  poll_count?: number;
+  consecutive_errors?: number;
+  last_polled_at?: number | null;
+  deadline_at?: number | null;
   created_at: number;
   completed_at: number | null;
   images: DrawingImage[];
@@ -775,6 +836,7 @@ export interface DrawingGenerateInput {
   generation_api_path?: string;
   edit_api_path?: string;
   reference_file_ids: string[];
+  parameters?: Record<string, unknown>;
 }
 
 export interface DrawingEditInput extends DrawingGenerateInput {

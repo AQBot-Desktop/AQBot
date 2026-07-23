@@ -21,7 +21,11 @@ vi.mock('@/lib/chatImageActions', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string) => ({
+      'drawing.option.auto': '自动',
+      'drawing.option.quality.hd': '高清',
+      'drawing.option.quality.standard': '标准',
+    }[key] ?? fallback ?? key),
   }),
 }));
 
@@ -279,6 +283,35 @@ describe('DrawingGenerationItem', () => {
     expect(screen.getByText('尺寸')).toBeDefined();
     expect(screen.getAllByText('自动').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('auto')).toBeNull();
+  });
+
+  it('localizes hd and standard quality values in generation metadata', () => {
+    const renderItem = (quality: string) => (
+      <DrawingGenerationItem
+        generation={generationFixture({
+          parameters_json: JSON.stringify({
+            n: 1,
+            size: '1024x1024',
+            quality,
+            output_format: 'png',
+            background: 'auto',
+          }),
+        })}
+        onEdit={() => {}}
+        onMaskEdit={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
+        onUsePrompt={() => {}}
+      />
+    );
+    const { rerender } = render(renderItem('hd'));
+
+    expect(screen.getByText('高清')).toBeDefined();
+    expect(screen.queryByText('hd')).toBeNull();
+
+    rerender(renderItem('standard'));
+    expect(screen.getByText('标准')).toBeDefined();
+    expect(screen.queryByText('standard')).toBeNull();
   });
 
   it('shows failed generation errors with a copy action', () => {

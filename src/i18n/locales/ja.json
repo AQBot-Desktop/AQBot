@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "送信済み",
     "askUserSupplementPlaceholder": "補足（任意）..."
   },
+  "imageProtocol": {
+    "title": "画像プロトコル",
+    "grokAutoDetectDescription": "現在のモデルは既定で xAI Images として認識されます。下で明示的に変更できます。",
+    "autoDetectDescription": "自動検出は、プロバイダーの種類とモデル ID から組み込みアダプターを選択します。",
+    "adapterProfile": "アダプタープロファイル",
+    "autoDetect": "自動検出",
+    "capabilityOverrides": "機能の上書き（空欄の場合はプロファイルの既定値を使用）",
+    "operation": {
+      "generate": "生成",
+      "edit": "編集",
+      "maskEdit": "範囲編集"
+    },
+    "generationEndpoint": "生成エンドポイント",
+    "generationEndpointPlaceholder": "/images/generations または完全な URL",
+    "editEndpoint": "編集エンドポイント",
+    "pollEndpoint": "ポーリングエンドポイント",
+    "cancelEndpoint": "キャンセルエンドポイント",
+    "authMode": "認証方式",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API キーヘッダー",
+      "query": "クエリパラメーター",
+      "none": "認証なし"
+    },
+    "authHeaderName": "認証ヘッダー名",
+    "pollIntervalSeconds": "ポーリング間隔（秒）",
+    "timeoutSeconds": "合計タイムアウト（秒）",
+    "extraBody": "追加リクエスト本文（JSON オブジェクト）",
+    "fieldResponseMapping": "フィールドとレスポンスのマッピング（JSON オブジェクト）",
+    "jsonObjectRequired": "JSON オブジェクトである必要があります",
+    "invalidJson": "画像プロトコルの JSON が無効です"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "アスペクト比",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "描画モデルが設定されたプロバイダーがありません。プロバイダー設定ページで設定してください。",
+    "openProviderSettings": "プロバイダー設定を開く",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "自動",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "標準",
+        "hd": "高画質",
+        "low": "低",
+        "medium": "中",
+        "high": "高"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1532,16 +1569,21 @@
         "webp": "WEBP"
       },
       "background": {
-        "opaque": "Opaque",
-        "transparent": "Transparent"
+        "opaque": "不透明",
+        "transparent": "透明"
       },
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "オブジェクト配列",
+        "string": "文字列配列"
       }
     },
     "deleteConfirmTitle": "この描画記録を削除しますか？",
     "referenceImageMode": "参照画像の送信方式",
+    "referenceImageFormat": "参照画像形式",
     "stopConfirmContent": "停止すると、この記録はユーザーによる停止としてマークされます。",
     "stopConfirmTitle": "生成を停止しますか？",
     "stopped": "ユーザーが停止"

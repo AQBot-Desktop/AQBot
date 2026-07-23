@@ -69,6 +69,9 @@ fn model_from_entity(m: models::Model) -> Model {
         param_overrides: m
             .param_overrides
             .and_then(|s| serde_json::from_str(&s).ok()),
+        image_config: m
+            .image_config_json
+            .and_then(|value| serde_json::from_str(&value).ok()),
     }
 }
 
@@ -610,6 +613,7 @@ where
             .param_overrides
             .as_ref()
             .map(|po| serde_json::to_string(po).unwrap_or_else(|_| "null".to_string()));
+        let image_config_json = model.image_config.as_ref().map(|config| config.to_string());
 
         models::ActiveModel {
             provider_id: Set(provider_id.to_string()),
@@ -621,6 +625,7 @@ where
             max_tokens: Set(model.max_tokens.map(|v| v as i64)),
             enabled: Set(if model.enabled { 1 } else { 0 }),
             param_overrides: Set(param_overrides),
+            image_config_json: Set(image_config_json),
         }
         .insert(conn)
         .await?;
@@ -672,11 +677,8 @@ pub async fn save_models_from_user_selection(
         return save_models(db, provider_id, input_models).await;
     };
 
-    let builtin_model_ids: HashSet<&str> = builtin
-        .models
-        .iter()
-        .map(|model| model.model_id)
-        .collect();
+    let builtin_model_ids: HashSet<&str> =
+        builtin.models.iter().map(|model| model.model_id).collect();
     let before_model_ids: HashSet<String> = provider
         .models
         .iter()
@@ -1021,6 +1023,7 @@ mod tests {
                 max_tokens: Some(1_000_000),
                 enabled: true,
                 param_overrides: None,
+                image_config: None,
             }],
         )
         .await
@@ -1046,6 +1049,58 @@ mod tests {
                 .as_ref()
                 .and_then(|params| params.use_max_completion_tokens),
             Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn image_adapter_config_round_trips_with_model() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let provider = create_provider(
+            db,
+            CreateProviderInput {
+                name: "Custom xAI".into(),
+                provider_type: ProviderType::Custom,
+                api_host: "https://api.x.ai".into(),
+                api_path: Some("/v1/images/generations".into()),
+                enabled: true,
+                builtin_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        save_models(
+            db,
+            &provider.id,
+            &[Model {
+                provider_id: provider.id.clone(),
+                model_id: "grok-imagine-image".into(),
+                name: "Grok Imagine".into(),
+                group_name: None,
+                model_type: ModelType::Image,
+                capabilities: Vec::new(),
+                max_tokens: None,
+                enabled: true,
+                param_overrides: None,
+                image_config: Some(serde_json::json!({
+                    "adapter_id": "xai_images",
+                    "timeout_secs": 3600
+                })),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let model = get_model(db, &provider.id, "grok-imagine-image")
+            .await
+            .unwrap();
+        assert_eq!(
+            model
+                .image_config
+                .as_ref()
+                .and_then(|value| value.get("adapter_id"))
+                .and_then(serde_json::Value::as_str),
+            Some("xai_images")
         );
     }
 

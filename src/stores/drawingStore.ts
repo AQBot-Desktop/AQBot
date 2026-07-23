@@ -42,7 +42,8 @@ interface DrawingState {
     generation: DrawingGeneration,
     referenceImageMode?: DrawingReferenceImageMode,
   ) => Promise<DrawingGeneration>;
-  stopGeneration: (id: string) => void;
+  stopGeneration: (id: string) => Promise<void>;
+  applyGenerationUpdate: (generation: DrawingGeneration) => void;
   deleteGeneration: (id: string, deleteResources?: boolean) => Promise<void>;
   selectImageForEdit: (image: DrawingImage | null, maskFile?: DrawingStoredFile | null, previewUrl?: string | null) => void;
   useImageAsReference: (image: DrawingImage) => DrawingStoredFile;
@@ -52,6 +53,7 @@ interface DrawingState {
 }
 
 const historyLoads = new Map<string, Promise<void>>();
+const optimisticCancellationRequests = new Set<string>();
 let historyLoadSequence = 0;
 
 async function fileToBase64(file: File): Promise<string> {
@@ -84,10 +86,16 @@ function replaceOptimisticGeneration(
   optimisticId: string,
   next: DrawingGeneration,
 ): DrawingGeneration[] {
-  if (!generations.some((item) => item.id === optimisticId)) {
-    return appendOrReplace(generations, next);
-  }
-  return sortGenerations(generations.map((item) => (item.id === optimisticId ? next : item)));
+  const eventGeneration = generations.find((item) => item.id === next.id);
+  const preferred = eventGeneration
+    && eventGeneration.status !== 'running'
+    && next.status === 'running'
+    ? eventGeneration
+    : next;
+  const withoutDuplicates = generations.filter(
+    (item) => item.id !== optimisticId && item.id !== next.id,
+  );
+  return appendOrReplace(withoutDuplicates, preferred);
 }
 
 function markOptimisticGenerationFailed(
@@ -338,7 +346,23 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('generate_drawing_images', { input: request });
+      const generation = await invoke<DrawingGeneration>('create_drawing_generation', {
+        operation: 'generate',
+        input: request,
+      });
+      if (optimisticCancellationRequests.delete(optimistic.id)) {
+        set((s) => ({
+          generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
+        }));
+        const cancelled = await invoke<DrawingGeneration>('cancel_drawing_generation', {
+          id: generation.id,
+        });
+        set((s) => ({
+          generations: appendOrReplace(s.generations, cancelled),
+          submitting: false,
+        }));
+        return cancelled;
+      }
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -351,6 +375,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       }));
       return generation;
     } catch (e) {
+      optimisticCancellationRequests.delete(optimistic.id);
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -375,7 +400,23 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('edit_drawing_image', { input: request });
+      const generation = await invoke<DrawingGeneration>('create_drawing_generation', {
+        operation: 'edit',
+        input: request,
+      });
+      if (optimisticCancellationRequests.delete(optimistic.id)) {
+        set((s) => ({
+          generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
+        }));
+        const cancelled = await invoke<DrawingGeneration>('cancel_drawing_generation', {
+          id: generation.id,
+        });
+        set((s) => ({
+          generations: appendOrReplace(s.generations, cancelled),
+          submitting: false,
+        }));
+        return cancelled;
+      }
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -388,6 +429,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       }));
       return generation;
     } catch (e) {
+      optimisticCancellationRequests.delete(optimistic.id);
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -413,7 +455,23 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       error: null,
     }));
     try {
-      const generation = await invoke<DrawingGeneration>('edit_drawing_image_with_mask', { input: request });
+      const generation = await invoke<DrawingGeneration>('create_drawing_generation', {
+        operation: 'mask_edit',
+        input: request,
+      });
+      if (optimisticCancellationRequests.delete(optimistic.id)) {
+        set((s) => ({
+          generations: replaceOptimisticGeneration(s.generations, optimistic.id, generation),
+        }));
+        const cancelled = await invoke<DrawingGeneration>('cancel_drawing_generation', {
+          id: generation.id,
+        });
+        set((s) => ({
+          generations: appendOrReplace(s.generations, cancelled),
+          submitting: false,
+        }));
+        return cancelled;
+      }
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -426,6 +484,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       }));
       return generation;
     } catch (e) {
+      optimisticCancellationRequests.delete(optimistic.id);
       const stopped = findStoppedGeneration(get().generations, optimistic.id);
       if (stopped) return stopped;
       set((s) => ({
@@ -451,11 +510,27 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
     return get().generateImages(params);
   },
 
-  stopGeneration: (id) => set((s) => ({
-    generations: markGenerationStopped(s.generations, id),
-    submitting: s.generations.some((item) => item.id === id && item.status === 'running')
-      ? false
-      : s.submitting,
+  stopGeneration: async (id) => {
+    const current = get().generations.find((generation) => generation.id === id);
+    if (!current || current.status !== 'running') return;
+    if (id.startsWith('optimistic-')) {
+      optimisticCancellationRequests.add(id);
+      set((state) => ({
+        generations: markGenerationStopped(state.generations, id),
+        submitting: false,
+      }));
+      return;
+    }
+    const cancelled = await invoke<DrawingGeneration>('cancel_drawing_generation', { id });
+    set((state) => ({
+      generations: appendOrReplace(state.generations, cancelled),
+      submitting: false,
+    }));
+  },
+
+  applyGenerationUpdate: (generation) => set((state) => ({
+    generations: appendOrReplace(state.generations, generation),
+    submitting: generation.status === 'running' ? state.submitting : false,
   })),
 
   deleteGeneration: async (id, deleteResources = false) => {

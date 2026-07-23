@@ -3,13 +3,14 @@ import { OverlayScrollbars } from 'overlayscrollbars';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDrawingSettingsStore, useDrawingStore, useProviderStore } from '@/stores';
-import type { DrawingImage } from '@/types';
+import type { DrawingGeneration, DrawingImage, DrawingTargetCatalog } from '@/types';
 import { DrawingGenerationList } from '@/components/drawing/DrawingGenerationList';
 import { DrawingSettingsPanel } from '@/components/drawing/DrawingSettingsPanel';
 import { DrawingComposer } from '@/components/drawing/DrawingComposer';
 import { DrawingMaskEditor } from '@/components/drawing/DrawingMaskEditor';
 import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
-import { getDrawingModelOptions, getDrawingProvidersForModel } from '@/lib/drawingModels';
+import { getDrawingModelOptions } from '@/lib/drawingModels';
+import { invoke, listen } from '@/lib/invoke';
 
 const HISTORY_BOTTOM_THRESHOLD = 48;
 
@@ -40,6 +41,7 @@ export function DrawingPage() {
   const error = useDrawingStore((s) => s.error);
   const generations = useDrawingStore((s) => s.generations);
   const selectImageForEdit = useDrawingStore((s) => s.selectImageForEdit);
+  const applyGenerationUpdate = useDrawingStore((s) => s.applyGenerationUpdate);
   const historyScrollRef = useRef<HTMLDivElement>(null);
   const historyContentRef = useRef<HTMLDivElement>(null);
   const historyScrollFrameRef = useRef<number | null>(null);
@@ -48,9 +50,13 @@ export function DrawingPage() {
   const [prompt, setPrompt] = useState('');
   const [maskImage, setMaskImage] = useState<DrawingImage | null>(null);
   const [composerHeight, setComposerHeight] = useState(176);
+  const [targetCatalog, setTargetCatalog] = useState<DrawingTargetCatalog | null>(null);
   const settings = useDrawingSettingsStore((s) => s.settings);
   const setSettings = useDrawingSettingsStore((s) => s.setSettings);
   const latestGeneration = generations[generations.length - 1];
+  const selectedTarget = targetCatalog?.targets.find((target) =>
+    target.provider_id === settings.providerId && target.model_id === settings.modelId,
+  );
   const latestGenerationScrollKey = latestGeneration
     ? [
       latestGeneration.id,
@@ -63,15 +69,39 @@ export function DrawingPage() {
 
   usePageSuspendCleanup(() => Modal.destroyAll());
 
-  const drawingModelOptions = useMemo(() => getDrawingModelOptions(), []);
+  const drawingModelOptions = useMemo(() => getDrawingModelOptions(providers), [providers]);
 
   useEffect(() => {
     void ensureProvidersLoaded();
   }, [ensureProvidersLoaded]);
 
   useEffect(() => {
+    let active = true;
+    void invoke<DrawingTargetCatalog>('list_drawing_targets')
+      .then((catalog) => {
+        if (active) setTargetCatalog(catalog);
+      })
+      .catch(() => {
+        if (active) setTargetCatalog(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [providers]);
+
+  useEffect(() => {
     ensureHistoryLoaded().catch((e) => message.error(String(e)));
   }, [ensureHistoryLoaded, message]);
+
+  useEffect(() => {
+    const unlisten = listen<DrawingGeneration>(
+      'drawing-generation-updated',
+      (event) => applyGenerationUpdate(event.payload),
+    );
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [applyGenerationUpdate]);
 
   useEffect(() => {
     return () => setMaskImage(null);
@@ -190,15 +220,40 @@ export function DrawingPage() {
 
   useEffect(() => {
     setSettings((current) => {
-      const nextModelId = drawingModelOptions.some((model) => model.value === current.modelId)
-        ? current.modelId
-        : drawingModelOptions[0]?.value ?? current.modelId;
-      const nextProviders = getDrawingProvidersForModel(providers, nextModelId);
+      if (targetCatalog) {
+        const providerId = targetCatalog.targets.some(
+          (target) => target.provider_id === current.providerId,
+        )
+          ? current.providerId
+          : targetCatalog.targets[0]?.provider_id ?? current.providerId;
+        const modelId = targetCatalog.targets.some(
+          (target) =>
+            target.provider_id === providerId && target.model_id === current.modelId,
+        )
+          ? current.modelId
+          : targetCatalog.targets.find((target) => target.provider_id === providerId)?.model_id
+            ?? current.modelId;
+        return providerId === current.providerId && modelId === current.modelId
+          ? current
+          : { ...current, providerId, modelId };
+      }
+      const imageProviders = providers.filter((provider) =>
+        provider.enabled
+        && provider.models.some((model) => model.enabled && model.model_type === 'Image'),
+      );
       const nextProviderId = providers.length === 0
         ? current.providerId
-        : nextProviders.some((provider) => provider.id === current.providerId)
+        : imageProviders.some((provider) => provider.id === current.providerId)
           ? current.providerId
-          : nextProviders[0]?.id ?? '';
+          : imageProviders[0]?.id ?? '';
+      const providerModels = imageProviders
+        .find((provider) => provider.id === nextProviderId)
+        ?.models.filter((model) => model.enabled && model.model_type === 'Image') ?? [];
+      const nextModelId = providerModels.some((model) => model.model_id === current.modelId)
+        ? current.modelId
+        : providerModels[0]?.model_id
+          ?? drawingModelOptions[0]?.value
+          ?? current.modelId;
 
       if (nextModelId === current.modelId && nextProviderId === current.providerId) {
         return current;
@@ -210,7 +265,15 @@ export function DrawingPage() {
         providerId: nextProviderId,
       };
     });
-  }, [drawingModelOptions, providers, setSettings]);
+  }, [drawingModelOptions, providers, setSettings, targetCatalog]);
+
+  useEffect(() => {
+    if (!selectedTarget) return;
+    setSettings((current) => {
+      const n = Math.min(current.n, selectedTarget.descriptor.max_batch_size);
+      return n === current.n ? current : { ...current, n };
+    });
+  }, [selectedTarget, setSettings]);
 
   const handleMaskEdit = (image: DrawingImage) => {
     setMaskImage(image);
@@ -233,7 +296,13 @@ export function DrawingPage() {
 
   return (
     <div className="flex h-full" style={{ background: token.colorBgLayout }}>
-      <DrawingSettingsPanel settings={settings} providers={providers} onChange={setSettings} />
+      <DrawingSettingsPanel
+        settings={settings}
+        providers={providers}
+        targets={targetCatalog?.targets}
+        unavailableReasons={targetCatalog?.unavailable_reasons}
+        onChange={setSettings}
+      />
       <main className="relative min-w-0 flex-1 overflow-hidden" style={{ background: token.colorBgContainer }}>
         <div
           className="absolute left-0 right-0 top-0"
@@ -258,6 +327,7 @@ export function DrawingPage() {
                 onMaskEdit={handleMaskEdit}
                 onUsePrompt={handleUsePrompt}
                 referenceImageMode={settings.referenceImageMode}
+                supportedOperations={selectedTarget?.descriptor.operations}
               />
             </div>
           </div>
@@ -267,6 +337,8 @@ export function DrawingPage() {
           prompt={prompt}
           onPromptChange={setPrompt}
           onHeightChange={setComposerHeight}
+          supportedOperations={selectedTarget?.descriptor.operations}
+          targetAvailable={targetCatalog === null || Boolean(selectedTarget)}
         />
       </main>
       <DrawingMaskEditor

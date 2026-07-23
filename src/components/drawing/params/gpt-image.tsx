@@ -58,8 +58,8 @@ const REFERENCE_IMAGE_MODE_OPTIONS: Array<DrawingParamOption & { value: DrawingR
 ];
 
 const REFERENCE_IMAGE_FORMAT_OPTIONS: Array<DrawingParamOption & { value: DrawingReferenceImageFormat }> = [
-  { labelKey: 'drawing.referenceImageFormat.object', fallbackLabel: '对象数组', value: 'object' },
-  { labelKey: 'drawing.referenceImageFormat.string', fallbackLabel: '字符串数组', value: 'string' },
+  { labelKey: 'drawing.option.referenceImageFormat.object', fallbackLabel: '对象数组', value: 'object' },
+  { labelKey: 'drawing.option.referenceImageFormat.string', fallbackLabel: '字符串数组', value: 'string' },
 ];
 
 export function isGptImageTransparentBackgroundSupported(modelId?: DrawingModelId): boolean {
@@ -132,6 +132,13 @@ function normalizeGptImageSettings(settings: DrawingSettings): DrawingSettings {
 
 const basicFields: DrawingParamField[] = [
   {
+    id: 'provider',
+    key: 'providerId',
+    type: 'providerSelect',
+    labelKey: 'drawing.provider',
+    fallbackLabel: 'Provider',
+  },
+  {
     id: 'model',
     key: 'modelId',
     type: 'modelSelect',
@@ -145,13 +152,6 @@ const basicFields: DrawingParamField[] = [
         : nextProviders[0]?.id ?? '';
       return { modelId, providerId };
     },
-  },
-  {
-    id: 'provider',
-    key: 'providerId',
-    type: 'providerSelect',
-    labelKey: 'drawing.provider',
-    fallbackLabel: 'Provider',
   },
   {
     id: 'size',

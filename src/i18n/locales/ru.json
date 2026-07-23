@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "Отправлено",
     "askUserSupplementPlaceholder": "Дополнительный ввод (необязательно)..."
   },
+  "imageProtocol": {
+    "title": "Протокол изображений",
+    "grokAutoDetectDescription": "Для текущей модели по умолчанию используется xAI Images. Это можно изменить ниже.",
+    "autoDetectDescription": "Автоопределение выбирает встроенный адаптер по типу поставщика и ID модели.",
+    "adapterProfile": "Профиль адаптера",
+    "autoDetect": "Автоопределение",
+    "capabilityOverrides": "Переопределение возможностей (оставьте пустым для значений профиля)",
+    "operation": {
+      "generate": "Создание",
+      "edit": "Редактирование",
+      "maskEdit": "Редактирование области"
+    },
+    "generationEndpoint": "Эндпоинт создания",
+    "generationEndpointPlaceholder": "/images/generations или полный URL",
+    "editEndpoint": "Эндпоинт редактирования",
+    "pollEndpoint": "Эндпоинт опроса",
+    "cancelEndpoint": "Эндпоинт отмены",
+    "authMode": "Аутентификация",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "Заголовок API-ключа",
+      "query": "Параметр запроса",
+      "none": "Нет"
+    },
+    "authHeaderName": "Имя заголовка аутентификации",
+    "pollIntervalSeconds": "Интервал опроса (секунды)",
+    "timeoutSeconds": "Общий тайм-аут (секунды)",
+    "extraBody": "Дополнительное тело (объект JSON)",
+    "fieldResponseMapping": "Сопоставление полей и ответов (объект JSON)",
+    "jsonObjectRequired": "Требуется объект JSON",
+    "invalidJson": "Недопустимый JSON протокола изображений"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "Соотношение сторон",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "Нет поставщиков с настроенной моделью изображений. Настройте её на странице параметров поставщика.",
+    "openProviderSettings": "Открыть настройки поставщика",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "Автоматически",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "Стандартное",
+        "hd": "Высокое качество",
+        "low": "Низкое",
+        "medium": "Среднее",
+        "high": "Высокое"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1532,16 +1569,21 @@
         "webp": "WEBP"
       },
       "background": {
-        "opaque": "Opaque",
-        "transparent": "Transparent"
+        "opaque": "Непрозрачный",
+        "transparent": "Прозрачный"
       },
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "Массив объектов",
+        "string": "Массив строк"
       }
     },
     "deleteConfirmTitle": "Удалить эту запись рисунка?",
     "referenceImageMode": "Способ передачи эталонного изображения",
+    "referenceImageFormat": "Формат эталонного изображения",
     "stopConfirmContent": "Запись будет помечена как остановленная пользователем.",
     "stopConfirmTitle": "Остановить генерацию?",
     "stopped": "Остановлено пользователем"

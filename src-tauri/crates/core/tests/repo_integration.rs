@@ -227,6 +227,7 @@ async fn test_provider_model_operations() {
         max_tokens: Some(4096),
         enabled: true,
         param_overrides: None,
+        image_config: None,
     }];
 
     // save models

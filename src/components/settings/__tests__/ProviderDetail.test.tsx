@@ -1,5 +1,5 @@
 import { App } from 'antd';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderConfig, ProviderKey } from '@/types';
@@ -77,7 +77,8 @@ let provider: ProviderConfig = createProviderFixture();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string, fallback?: string | Record<string, unknown>) =>
+      typeof fallback === 'string' ? fallback : key,
   }),
 }));
 
@@ -185,6 +186,27 @@ describe('ProviderDetail', () => {
     expect(row).not.toBeNull();
     const buttons = within(row as HTMLElement).getAllByRole('button');
     await userEvent.click(buttons[0]);
+    return screen.findByRole('dialog');
+  }
+
+  async function openBatchEdit(container: HTMLElement, modelNames: string[]) {
+    const batchModeButton = container
+      .querySelector('.lucide-list-checks')
+      ?.closest('button');
+    expect(batchModeButton).not.toBeNull();
+    await userEvent.click(batchModeButton as HTMLButtonElement);
+
+    for (const modelName of modelNames) {
+      const modelRow = screen.getByText(modelName).closest('[data-index]');
+      expect(modelRow).not.toBeNull();
+      await userEvent.click(within(modelRow as HTMLElement).getByRole('checkbox'));
+    }
+
+    const batchEditButton = container
+      .querySelector('.lucide-pencil')
+      ?.closest('button');
+    expect(batchEditButton).not.toBeNull();
+    await userEvent.click(batchEditButton as HTMLButtonElement);
     return screen.findByRole('dialog');
   }
 
@@ -437,6 +459,244 @@ describe('ProviderDetail', () => {
       topP: null,
       maxTokens: null,
       frequencyPenalty: null,
+    });
+  });
+
+  it('hides chat parameters when editing an image model', async () => {
+    provider.models[0] = {
+      ...provider.models[0],
+      model_type: 'Image',
+      capabilities: [],
+      max_tokens: 32000,
+      param_overrides: { temperature: 0.2 },
+      image_config: { adapter_id: 'openai_images' },
+    };
+
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openFirstModelSettings();
+    expect(within(dialog).getByText('图片协议')).toBeInTheDocument();
+    expect(within(dialog).queryByText('settings.modelParams')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('settings.contextWindow')).not.toBeInTheDocument();
+    expect(mocks.modelParamSliders).not.toHaveBeenCalled();
+  });
+
+  it('preserves persisted chat parameters without validating hidden fields when switching to Image', async () => {
+    const persistedOverrides = {
+      temperature: 0.2,
+      extra_body: { enable_thinking: true },
+    };
+    provider.models[0] = {
+      ...provider.models[0],
+      capabilities: ['TextChat', 'Reasoning'],
+      max_tokens: 32000,
+      param_overrides: persistedOverrides,
+    };
+
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openFirstModelSettings();
+    fireEvent.change(within(dialog).getByLabelText('settings.extraBody'), {
+      target: { value: '["invalid hidden value"]' },
+    });
+    await userEvent.click(within(dialog).getByText('settings.modelType.Image'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'gpt-5.4',
+            model_type: 'Image',
+            capabilities: [],
+            max_tokens: 32000,
+            param_overrides: persistedOverrides,
+          }),
+        ]),
+      );
+    });
+    expect(mocks.updateModelParams).not.toHaveBeenCalled();
+  });
+
+  it('hides batch capabilities and chat parameters when every selected model is Image', async () => {
+    provider.models[0] = {
+      ...provider.models[0],
+      model_type: 'Image',
+      capabilities: [],
+      image_config: { adapter_id: 'openai_images' },
+    };
+
+    const { container } = render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openBatchEdit(container, ['GPT 5.4']);
+    expect(within(dialog).queryByText('settings.modelAbilities')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('settings.contextWindow')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('settings.modelParams')).not.toBeInTheDocument();
+    expect(mocks.modelParamSliders).not.toHaveBeenCalled();
+  });
+
+  it('shows and applies chat parameters when image models are converted to Chat in batch', async () => {
+    provider.models[0] = {
+      ...provider.models[0],
+      model_type: 'Image',
+      capabilities: [],
+      max_tokens: 16000,
+      param_overrides: { temperature: 0.2 },
+    };
+
+    const { container } = render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openBatchEdit(container, ['GPT 5.4']);
+    await userEvent.click(within(dialog).getAllByRole('switch')[0]);
+    expect(within(dialog).getByText('settings.modelParams')).toBeInTheDocument();
+
+    const sliderCalls = mocks.modelParamSliders.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0] as {
+      onChange: (value: { temperature: number }) => void;
+    };
+    act(() => sliderProps.onChange({ temperature: 0.8 }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'settings.batchApply' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'gpt-5.4',
+            model_type: 'Chat',
+            param_overrides: expect.objectContaining({ temperature: 0.8 }),
+          }),
+        ]),
+      );
+    });
+  });
+
+  it('ignores hidden batch chat parameters when mixed models are converted to Image', async () => {
+    provider.models = [
+      {
+        ...provider.models[0],
+        name: 'Image Model',
+        model_id: 'image-model',
+        model_type: 'Image',
+        capabilities: [],
+        max_tokens: 16000,
+        param_overrides: { temperature: 0.2 },
+      },
+      {
+        ...provider.models[0],
+        name: 'Chat Model',
+        model_id: 'chat-model',
+        max_tokens: 32000,
+        param_overrides: { temperature: 0.4 },
+      },
+    ];
+
+    const { container } = render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openBatchEdit(container, ['Image Model', 'Chat Model']);
+    const sliderCalls = mocks.modelParamSliders.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0] as {
+      onChange: (value: { temperature: number }) => void;
+    };
+    act(() => sliderProps.onChange({ temperature: 0.9 }));
+    await userEvent.click(within(dialog).getAllByRole('switch')[0]);
+    await userEvent.click(within(dialog).getByText('settings.modelType.Image'));
+
+    expect(within(dialog).queryByText('settings.modelParams')).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'settings.batchApply' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'image-model',
+            model_type: 'Image',
+            capabilities: [],
+            max_tokens: 16000,
+            param_overrides: { temperature: 0.2 },
+          }),
+          expect.objectContaining({
+            model_id: 'chat-model',
+            model_type: 'Image',
+            capabilities: [],
+            max_tokens: 32000,
+            param_overrides: { temperature: 0.4 },
+          }),
+        ]),
+      );
+    });
+  });
+
+  it('applies mixed batch chat parameters only to final non-Image models', async () => {
+    provider.models = [
+      {
+        ...provider.models[0],
+        name: 'Image Model',
+        model_id: 'image-model',
+        model_type: 'Image',
+        capabilities: [],
+        max_tokens: 16000,
+        param_overrides: { temperature: 0.2 },
+      },
+      {
+        ...provider.models[0],
+        name: 'Chat Model',
+        model_id: 'chat-model',
+        max_tokens: 32000,
+        param_overrides: { temperature: 0.4 },
+      },
+    ];
+
+    const { container } = render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openBatchEdit(container, ['Image Model', 'Chat Model']);
+    const sliderCalls = mocks.modelParamSliders.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0] as {
+      onChange: (value: { temperature: number }) => void;
+    };
+    act(() => sliderProps.onChange({ temperature: 0.9 }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'settings.batchApply' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'image-model',
+            param_overrides: { temperature: 0.2 },
+          }),
+          expect.objectContaining({
+            model_id: 'chat-model',
+            param_overrides: expect.objectContaining({ temperature: 0.9 }),
+          }),
+        ]),
+      );
     });
   });
 

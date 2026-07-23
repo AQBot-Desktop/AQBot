@@ -37,6 +37,7 @@ mod m20260627_000001_add_roles;
 mod m20260628_000001_repair_roles_schema;
 mod m20260701_000001_add_chat_perf_indexes;
 mod m20260702_000001_add_inline_media_failures;
+mod m20260723_000001_add_image_adapter_support;
 
 pub struct Migrator;
 
@@ -81,6 +82,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260628_000001_repair_roles_schema::Migration),
             Box::new(m20260701_000001_add_chat_perf_indexes::Migration),
             Box::new(m20260702_000001_add_inline_media_failures::Migration),
+            Box::new(m20260723_000001_add_image_adapter_support::Migration),
         ]
     }
 }
@@ -154,6 +156,40 @@ mod tests {
             assert!(
                 manager.has_table(table).await.expect("check drawing table"),
                 "missing table {table}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_image_adapter_columns_on_sqlite() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let manager = SchemaManager::new(&db);
+        assert!(manager
+            .has_column("models", "image_config_json")
+            .await
+            .expect("check models.image_config_json"));
+        for column in [
+            "adapter_id",
+            "adapter_config_snapshot",
+            "remote_task_id",
+            "remote_status",
+            "opaque_state_json",
+            "poll_count",
+            "consecutive_errors",
+            "last_polled_at",
+            "deadline_at",
+        ] {
+            assert!(
+                manager
+                    .has_column("drawing_generations", column)
+                    .await
+                    .expect("check drawing generation column"),
+                "missing drawing_generations.{column}"
             );
         }
     }

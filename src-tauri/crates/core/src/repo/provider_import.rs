@@ -222,6 +222,7 @@ async fn merge_candidate_models(
             max_tokens: None,
             enabled: true,
             param_overrides: empty_param_overrides_for_import(&provider_config.provider_type),
+            image_config: None,
         });
     }
 

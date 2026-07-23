@@ -36,6 +36,24 @@ describe('drawingSettingsStore', () => {
     });
   });
 
+  it('persists arbitrary Image model identifiers', async () => {
+    const { useDrawingSettingsStore } = await import('../drawingSettingsStore');
+
+    useDrawingSettingsStore.getState().patchSettings({
+      providerId: 'custom-xai',
+      modelId: 'grok-imagine-image',
+    });
+
+    vi.resetModules();
+    const { useDrawingSettingsStore: reloadedStore } =
+      await import('../drawingSettingsStore');
+
+    expect(reloadedStore.getState().settings).toMatchObject({
+      providerId: 'custom-xai',
+      modelId: 'grok-imagine-image',
+    });
+  });
+
   it('normalizes unsupported persisted values before exposing them to the page', async () => {
     localStorage.setItem('aqbot_drawing_settings', JSON.stringify({
       state: {

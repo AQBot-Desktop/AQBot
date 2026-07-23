@@ -766,6 +766,9 @@ mod media_lifecycle_tests {
                 reference_file_ids_json: r#"["branch-file"]"#.to_string(),
                 source_image_ids_json: "[]".to_string(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await

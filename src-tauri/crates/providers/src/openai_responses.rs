@@ -1013,6 +1013,7 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
                     max_tokens: None,
                     enabled: true,
                     param_overrides: None,
+                    image_config: None,
                 }
             })
             .collect())

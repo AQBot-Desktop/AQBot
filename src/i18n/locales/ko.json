@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "제출됨",
     "askUserSupplementPlaceholder": "추가 설명(선택)..."
   },
+  "imageProtocol": {
+    "title": "이미지 프로토콜",
+    "grokAutoDetectDescription": "현재 모델은 기본적으로 xAI Images로 인식됩니다. 아래에서 명시적으로 변경할 수 있습니다.",
+    "autoDetectDescription": "자동 감지는 제공업체 유형과 모델 ID에 따라 기본 제공 어댑터를 선택합니다.",
+    "adapterProfile": "어댑터 프로필",
+    "autoDetect": "자동 감지",
+    "capabilityOverrides": "기능 재정의(비워 두면 프로필 기본값 사용)",
+    "operation": {
+      "generate": "생성",
+      "edit": "편집",
+      "maskEdit": "영역 편집"
+    },
+    "generationEndpoint": "생성 엔드포인트",
+    "generationEndpointPlaceholder": "/images/generations 또는 전체 URL",
+    "editEndpoint": "편집 엔드포인트",
+    "pollEndpoint": "폴링 엔드포인트",
+    "cancelEndpoint": "취소 엔드포인트",
+    "authMode": "인증 방식",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API 키 헤더",
+      "query": "쿼리 매개변수",
+      "none": "인증 없음"
+    },
+    "authHeaderName": "인증 헤더 이름",
+    "pollIntervalSeconds": "폴링 간격(초)",
+    "timeoutSeconds": "전체 제한 시간(초)",
+    "extraBody": "추가 요청 본문(JSON 객체)",
+    "fieldResponseMapping": "필드 및 응답 매핑(JSON 객체)",
+    "jsonObjectRequired": "JSON 객체여야 합니다",
+    "invalidJson": "이미지 프로토콜 JSON이 올바르지 않습니다"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "가로세로 비율",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "그림 모델이 구성된 제공업체가 없습니다. 제공업체 설정 페이지에서 구성하세요.",
+    "openProviderSettings": "제공업체 설정 열기",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "자동",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "표준",
+        "hd": "고화질",
+        "low": "낮음",
+        "medium": "중간",
+        "high": "높음"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1532,16 +1569,21 @@
         "webp": "WEBP"
       },
       "background": {
-        "opaque": "Opaque",
-        "transparent": "Transparent"
+        "opaque": "불투명",
+        "transparent": "투명"
       },
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "객체 배열",
+        "string": "문자열 배열"
       }
     },
     "deleteConfirmTitle": "이 그림 기록을 삭제할까요?",
     "referenceImageMode": "참조 이미지 전송 방식",
+    "referenceImageFormat": "참조 이미지 형식",
     "stopConfirmContent": "중지하면 이 기록이 사용자 중지로 표시됩니다.",
     "stopConfirmTitle": "생성을 중지할까요?",
     "stopped": "사용자가 중지함"

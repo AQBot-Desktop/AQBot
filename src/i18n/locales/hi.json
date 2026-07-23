@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "सबमिट किया गया",
     "askUserSupplementPlaceholder": "अतिरिक्त इनपुट (वैकल्पिक)..."
   },
+  "imageProtocol": {
+    "title": "इमेज प्रोटोकॉल",
+    "grokAutoDetectDescription": "वर्तमान मॉडल डिफ़ॉल्ट रूप से xAI Images का उपयोग करता है। इसे नीचे बदला जा सकता है।",
+    "autoDetectDescription": "स्वचालित पहचान प्रदाता प्रकार और मॉडल ID के आधार पर अंतर्निहित अडैप्टर चुनती है।",
+    "adapterProfile": "अडैप्टर प्रोफ़ाइल",
+    "autoDetect": "स्वचालित पहचान",
+    "capabilityOverrides": "क्षमता ओवरराइड (प्रोफ़ाइल डिफ़ॉल्ट के लिए खाली छोड़ें)",
+    "operation": {
+      "generate": "जनरेट करें",
+      "edit": "संपादित करें",
+      "maskEdit": "क्षेत्र संपादित करें"
+    },
+    "generationEndpoint": "जनरेशन एंडपॉइंट",
+    "generationEndpointPlaceholder": "/images/generations या पूरा URL",
+    "editEndpoint": "एडिट एंडपॉइंट",
+    "pollEndpoint": "पोलिंग एंडपॉइंट",
+    "cancelEndpoint": "कैंसलेशन एंडपॉइंट",
+    "authMode": "प्रमाणीकरण",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API कुंजी Header",
+      "query": "क्वेरी पैरामीटर",
+      "none": "कोई नहीं"
+    },
+    "authHeaderName": "प्रमाणीकरण Header नाम",
+    "pollIntervalSeconds": "पोलिंग अंतराल (सेकंड)",
+    "timeoutSeconds": "कुल समय सीमा (सेकंड)",
+    "extraBody": "अतिरिक्त अनुरोध बॉडी (JSON ऑब्जेक्ट)",
+    "fieldResponseMapping": "फ़ील्ड और प्रतिक्रिया मैपिंग (JSON ऑब्जेक्ट)",
+    "jsonObjectRequired": "JSON ऑब्जेक्ट होना चाहिए",
+    "invalidJson": "इमेज प्रोटोकॉल JSON अमान्य है"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "आस्पेक्ट रेशियो",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "किसी भी प्रदाता में ड्रॉइंग मॉडल कॉन्फ़िगर नहीं है। प्रदाता सेटिंग पेज पर जाकर कॉन्फ़िगर करें।",
+    "openProviderSettings": "प्रदाता सेटिंग खोलें",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "स्वचालित",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "मानक",
+        "hd": "उच्च गुणवत्ता",
+        "low": "निम्न",
+        "medium": "मध्यम",
+        "high": "उच्च"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1532,16 +1569,21 @@
         "webp": "WEBP"
       },
       "background": {
-        "opaque": "Opaque",
-        "transparent": "Transparent"
+        "opaque": "अपारदर्शी",
+        "transparent": "पारदर्शी"
       },
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "ऑब्जेक्ट सरणी",
+        "string": "स्ट्रिंग सरणी"
       }
     },
     "deleteConfirmTitle": "यह ड्रॉइंग रिकॉर्ड हटाएँ?",
     "referenceImageMode": "संदर्भ छवि परिवहन",
+    "referenceImageFormat": "संदर्भ छवि प्रारूप",
     "stopConfirmContent": "यह रिकॉर्ड उपयोगकर्ता द्वारा रोका गया चिह्नित होगा।",
     "stopConfirmTitle": "जनरेशन रोकें?",
     "stopped": "उपयोगकर्ता द्वारा रोका गया"

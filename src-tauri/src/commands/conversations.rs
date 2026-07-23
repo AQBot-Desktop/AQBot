@@ -7563,6 +7563,9 @@ mod tests {
                 reference_file_ids_json: serde_json::to_string(&vec![stored.id.clone()]).unwrap(),
                 source_image_ids_json: "[]".into(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await

@@ -1494,6 +1494,38 @@
     "askUserSubmit": "Submit",
     "askUserSubmitted": "Submitted"
   },
+  "imageProtocol": {
+    "title": "Image protocol",
+    "grokAutoDetectDescription": "The current model defaults to xAI Images. You can override it below.",
+    "autoDetectDescription": "Auto detect selects a built-in adapter from the provider type and model ID.",
+    "adapterProfile": "Adapter profile",
+    "autoDetect": "Auto detect",
+    "capabilityOverrides": "Capability overrides (leave empty to use profile defaults)",
+    "operation": {
+      "generate": "Generate",
+      "edit": "Edit",
+      "maskEdit": "Mask edit"
+    },
+    "generationEndpoint": "Generation endpoint",
+    "generationEndpointPlaceholder": "/images/generations or full URL",
+    "editEndpoint": "Edit endpoint",
+    "pollEndpoint": "Polling endpoint",
+    "cancelEndpoint": "Cancellation endpoint",
+    "authMode": "Authentication",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API key header",
+      "query": "Query parameter",
+      "none": "None"
+    },
+    "authHeaderName": "Authentication header name",
+    "pollIntervalSeconds": "Polling interval (seconds)",
+    "timeoutSeconds": "Total timeout (seconds)",
+    "extraBody": "Extra body (JSON object)",
+    "fieldResponseMapping": "Field and response mapping (JSON object)",
+    "jsonObjectRequired": "Must be a JSON object",
+    "invalidJson": "Invalid image protocol JSON"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1502,6 +1534,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "Aspect ratio",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1509,9 +1542,12 @@
     "compression": "Compression",
     "references": "Reference Images",
     "referenceImageMode": "Reference transport",
+    "referenceImageFormat": "Reference image format",
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "No providers have an image model configured. Go to Provider Settings to configure one.",
+    "openProviderSettings": "Open provider settings",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1568,6 +1604,8 @@
     "option": {
       "auto": "Auto",
       "quality": {
+        "standard": "Standard",
+        "hd": "HD",
         "low": "Low",
         "medium": "Medium",
         "high": "High"
@@ -1584,6 +1622,10 @@
       "referenceImageMode": {
         "multipart": "Multipart",
         "base64": "Base64"
+      },
+      "referenceImageFormat": {
+        "object": "Object array",
+        "string": "String array"
       }
     }
   }

@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "تم الإرسال",
     "askUserSupplementPlaceholder": "إدخال إضافي (اختياري)..."
   },
+  "imageProtocol": {
+    "title": "بروتوكول الصور",
+    "grokAutoDetectDescription": "يستخدم النموذج الحالي xAI Images افتراضيًا، ويمكن تغييره أدناه.",
+    "autoDetectDescription": "يختار الاكتشاف التلقائي محوّلًا مدمجًا حسب نوع الموفّر ومعرّف النموذج.",
+    "adapterProfile": "ملف المحوّل",
+    "autoDetect": "اكتشاف تلقائي",
+    "capabilityOverrides": "تجاوز الإمكانات (اتركه فارغًا لاستخدام قيم الملف الافتراضية)",
+    "operation": {
+      "generate": "إنشاء",
+      "edit": "تحرير",
+      "maskEdit": "تحرير منطقة"
+    },
+    "generationEndpoint": "نقطة نهاية الإنشاء",
+    "generationEndpointPlaceholder": "/images/generations أو عنوان URL كامل",
+    "editEndpoint": "نقطة نهاية التحرير",
+    "pollEndpoint": "نقطة نهاية الاستطلاع",
+    "cancelEndpoint": "نقطة نهاية الإلغاء",
+    "authMode": "المصادقة",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "ترويسة مفتاح API",
+      "query": "معامل الاستعلام",
+      "none": "بدون"
+    },
+    "authHeaderName": "اسم ترويسة المصادقة",
+    "pollIntervalSeconds": "فاصل الاستطلاع (بالثواني)",
+    "timeoutSeconds": "المهلة الإجمالية (بالثواني)",
+    "extraBody": "نص طلب إضافي (كائن JSON)",
+    "fieldResponseMapping": "ربط الحقول والاستجابات (كائن JSON)",
+    "jsonObjectRequired": "يجب أن يكون كائن JSON",
+    "invalidJson": "JSON بروتوكول الصور غير صالح"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "Select drawing model",
     "size": "Size",
+    "aspectRatio": "نسبة العرض إلى الارتفاع",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "لا يوجد موفّر تم إعداد نموذج رسم له. انتقل إلى صفحة إعدادات الموفّر لإعداده.",
+    "openProviderSettings": "فتح إعدادات الموفّر",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "Use prompt",
@@ -1520,11 +1555,13 @@
       "maskEdit": "Area edit"
     },
     "option": {
-      "auto": "Auto",
+      "auto": "تلقائي",
       "quality": {
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High"
+        "standard": "قياسي",
+        "hd": "دقة عالية",
+        "low": "منخفضة",
+        "medium": "متوسطة",
+        "high": "عالية"
       },
       "outputFormat": {
         "png": "PNG",
@@ -1532,16 +1569,21 @@
         "webp": "WEBP"
       },
       "background": {
-        "opaque": "Opaque",
-        "transparent": "Transparent"
+        "opaque": "معتم",
+        "transparent": "شفاف"
       },
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "مصفوفة كائنات",
+        "string": "مصفوفة نصوص"
       }
     },
     "deleteConfirmTitle": "حذف سجل الرسم هذا؟",
     "referenceImageMode": "طريقة إرسال صورة المرجع",
+    "referenceImageFormat": "تنسيق صورة المرجع",
     "stopConfirmContent": "سيُعلَّم هذا السجل بأنه أُوقف من المستخدم.",
     "stopConfirmTitle": "إيقاف التوليد؟",
     "stopped": "أوقفه المستخدم"

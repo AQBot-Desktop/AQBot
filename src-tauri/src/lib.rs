@@ -17,6 +17,7 @@ pub struct StreamCancelEntry {
     pub flag: Arc<AtomicBool>,
 }
 
+#[derive(Clone)]
 pub struct AppState {
     pub sea_db: DatabaseConnection,
     pub master_key: [u8; 32],
@@ -245,11 +246,14 @@ pub fn run() {
         commands::providers::test_model,
         commands::providers::reorder_providers,
         // drawing
+        commands::drawing::list_drawing_targets,
         commands::drawing::list_drawing_generations,
         commands::drawing::upload_drawing_reference,
+        commands::drawing::create_drawing_generation,
         commands::drawing::generate_drawing_images,
         commands::drawing::edit_drawing_image,
         commands::drawing::edit_drawing_image_with_mask,
+        commands::drawing::cancel_drawing_generation,
         commands::drawing::delete_drawing_generation,
         // conversations
         commands::conversations::list_conversations,
@@ -769,6 +773,15 @@ pub fn run() {
                 agent_ask_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
             });
+
+            {
+                let drawing_state = app.state::<AppState>().inner().clone();
+                let drawing_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::drawing::recover_drawing_generations(drawing_app, drawing_state)
+                        .await;
+                });
+            }
 
             // Reset any agent sessions that were running when app crashed/closed
             {

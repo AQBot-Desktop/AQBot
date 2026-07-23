@@ -1,4 +1,4 @@
-import { Form, Input, InputNumber, Select, Slider, Switch, Typography, theme } from 'antd';
+import { Alert, Button, Form, theme } from 'antd';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,8 +9,12 @@ import {
   normalizeDrawingSettingsByConfig,
 } from '@/lib/drawingModels';
 import { SmartProviderIcon } from '@/lib/providerIcons';
-import type { DrawingSettings, ProviderConfig } from '@/types';
-import { DrawingReferenceUploader } from './DrawingReferenceUploader';
+import { useUIStore } from '@/stores/uiStore';
+import type { DrawingSettings, DrawingTarget, ProviderConfig } from '@/types';
+import {
+  DrawingDynamicParameters,
+  DrawingParameterField,
+} from './DrawingParameterControls';
 import type {
   DrawingParamField,
   DrawingParamOption,
@@ -22,28 +26,55 @@ export type { DrawingSettings };
 interface Props {
   settings: DrawingSettings;
   providers: ProviderConfig[];
+  targets?: DrawingTarget[];
+  unavailableReasons?: string[];
   onChange: (settings: DrawingSettings) => void;
 }
 
-export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
+export function DrawingSettingsPanel({
+  settings,
+  providers,
+  targets,
+  onChange,
+}: Props) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const setActivePage = useUIStore((state) => state.setActivePage);
+  const setSettingsSection = useUIStore((state) => state.setSettingsSection);
   const translateOption = (key: string, fallback: string) => t(key, fallback);
   const paramConfig = getDrawingParamConfig(settings.modelId);
   const basicFields = paramConfig.groups.find((group) => group.id === 'basic')?.fields ?? [];
   const advancedFields = paramConfig.groups.find((group) => group.id === 'advanced')?.fields ?? [];
-  const modelOptions = getDrawingModelOptions();
-  const compatibleProviders = getDrawingProvidersForModel(providers, settings.modelId);
+  const selectedProvider = providers.find((provider) => provider.id === settings.providerId);
+  const selectedTarget = targets?.find((target) =>
+    target.provider_id === settings.providerId && target.model_id === settings.modelId,
+  );
+  const targetProviderIds = new Set(targets?.map((target) => target.provider_id));
+  const availableProviders = providers.filter((provider) =>
+    provider.enabled
+    && provider.models.some((model) => model.enabled && model.model_type === 'Image')
+    && (targets === undefined || targetProviderIds.has(provider.id)),
+  );
+  const modelOptions = targets === undefined
+    ? getDrawingModelOptions(providers).filter((option) =>
+      !selectedProvider
+      || selectedProvider.models.some((model) =>
+        model.enabled && model.model_type === 'Image' && model.model_id === option.value,
+      ),
+    )
+    : targets
+      .filter((target) => target.provider_id === settings.providerId)
+      .map((target) => ({ label: target.model_name, value: target.model_id }));
   const paramModelOptions: DrawingParamOption[] = modelOptions.map((option) => ({
     fallbackLabel: option.label,
     value: option.value,
   }));
-  const paramProviderOptions: DrawingParamOption[] = compatibleProviders.map((provider) => ({
+  const paramProviderOptions: DrawingParamOption[] = availableProviders.map((provider) => ({
     fallbackLabel: provider.name,
     value: provider.id,
   }));
-  const providerSelectOptions = compatibleProviders.map((provider) => ({
+  const providerSelectOptions = availableProviders.map((provider) => ({
     label: (
       <span className="inline-flex items-center gap-2">
         <SmartProviderIcon provider={provider} size={18} type="avatar" />
@@ -62,11 +93,43 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
     getProvidersForModel: (modelId) => getDrawingProvidersForModel(providers, modelId),
   };
 
-  const visibleBasicFields = basicFields.filter((field) => isFieldVisible(field, renderContext));
-  const visibleAdvancedFields = advancedFields.filter((field) => isFieldVisible(field, renderContext));
+  const visibleBasicFields = basicFields.filter((field) =>
+    isFieldVisible(field, renderContext)
+    && isDescriptorFieldVisible(field, selectedTarget),
+  );
+  const visibleAdvancedFields = advancedFields.filter((field) =>
+    isFieldVisible(field, renderContext)
+    && isDescriptorFieldVisible(field, selectedTarget),
+  );
+  const dynamicFields = selectedTarget?.descriptor.parameters.filter(
+    (parameter) => !['size', 'quality', 'output_format', 'background', 'n'].includes(parameter.key),
+  ) ?? [];
+  const targetKey = `${settings.providerId}::${settings.modelId}`;
+  const targetParameters = settings.parametersByTarget?.[targetKey] ?? settings.parameters ?? {};
 
   const patch = (next: Partial<DrawingSettings>) => {
-    onChange(normalizeDrawingSettingsByConfig({ ...settings, ...next }));
+    const providerId = next.providerId ?? settings.providerId;
+    const modelId = next.modelId ?? settings.modelId;
+    const selectionChanged = providerId !== settings.providerId || modelId !== settings.modelId;
+    const nextParameters = selectionChanged
+      ? settings.parametersByTarget?.[`${providerId}::${modelId}`] ?? {}
+      : next.parameters ?? settings.parameters;
+    onChange(normalizeDrawingSettingsByConfig({
+      ...settings,
+      ...next,
+      parameters: nextParameters,
+    }));
+  };
+
+  const patchTargetParameter = (key: string, value: unknown) => {
+    const parameters = { ...targetParameters, [key]: value };
+    patch({
+      parameters,
+      parametersByTarget: {
+        ...settings.parametersByTarget,
+        [targetKey]: parameters,
+      },
+    });
   };
 
   const patchField = (field: DrawingParamField, value: unknown) => {
@@ -78,103 +141,33 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
     patch(next);
   };
 
-  const renderField = (field: DrawingParamField) => {
-    const label = t(field.labelKey, field.fallbackLabel);
-    switch (field.type) {
-      case 'modelSelect':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <Select
-              value={settings.modelId}
-              options={toSelectOptions(paramModelOptions, translateOption)}
-              placeholder={t('drawing.selectModel', '选择绘图模型')}
-              onChange={(modelId) => patchField(field, modelId)}
-            />
-          </Form.Item>
-        );
-      case 'providerSelect':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <Select
-              value={settings.providerId || undefined}
-              placeholder={t('drawing.selectProvider', '选择服务商')}
-              options={providerSelectOptions}
-              optionLabelProp="label"
-              onChange={(providerId) => patchField(field, providerId)}
-            />
-          </Form.Item>
-        );
-      case 'select':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <Select
-              value={field.key ? settings[field.key] : undefined}
-              options={toSelectOptions(resolveOptions(field, renderContext), translateOption)}
-              onChange={(value) => patchField(field, value)}
-            />
-          </Form.Item>
-        );
-      case 'number':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <InputNumber
-              min={field.min}
-              max={field.max}
-              value={field.key ? Number(settings[field.key]) : field.defaultValue}
-              style={{ width: '100%' }}
-              onChange={(value) => patchField(field, value ?? field.defaultValue ?? field.min ?? 0)}
-            />
-          </Form.Item>
-        );
-      case 'text':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <Input
-              value={field.key ? String(settings[field.key] ?? '') : ''}
-              placeholder={field.placeholder}
-              onChange={(event) => patchField(field, event.target.value)}
-            />
-            {field.fallbackHint && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {t(field.hintKey ?? field.id, field.fallbackHint)}
-              </Typography.Text>
-            )}
-          </Form.Item>
-        );
-      case 'compression':
-        return (
-          <Form.Item key={field.id} label={label}>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={settings.outputCompression !== undefined}
-                onChange={(checked) => patchField(field, checked ? field.defaultValue ?? 90 : undefined)}
-              />
-              <Slider
-                min={field.min ?? 0}
-                max={field.max ?? 100}
-                disabled={settings.outputCompression === undefined}
-                value={settings.outputCompression ?? field.defaultValue ?? 90}
-                onChange={(outputCompression) => patchField(field, outputCompression)}
-                style={{ flex: 1 }}
-              />
-            </div>
-          </Form.Item>
-        );
-      case 'referenceUploader':
-        return (
-          <div key={field.id}>
-            <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-              {label}
-            </Typography.Text>
-            <div className="mb-4 mt-2">
-              <DrawingReferenceUploader />
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+  const renderField = (field: DrawingParamField) => (
+    <DrawingParameterField
+      key={field.id}
+      field={field}
+      settings={settings}
+      context={renderContext}
+      target={selectedTarget}
+      providerOptions={providerSelectOptions}
+      secondaryTextColor={token.colorTextSecondary}
+      translate={translateOption}
+      onChange={patchField}
+      onProviderChange={(providerId) => {
+        const targetModelId = targets?.find(
+          (target) => target.provider_id === providerId,
+        )?.model_id;
+        const provider = providers.find((item) => item.id === providerId);
+        const imageModels = provider?.models.filter(
+          (model) => model.enabled && model.model_type === 'Image',
+        ) ?? [];
+        const modelId = targetModelId
+          ?? (imageModels.some((model) => model.model_id === settings.modelId)
+            ? settings.modelId
+            : imageModels[0]?.model_id ?? settings.modelId);
+        patch({ providerId, modelId });
+      }}
+    />
+  );
 
   return (
     <aside
@@ -187,7 +180,44 @@ export function DrawingSettingsPanel({ settings, providers, onChange }: Props) {
       }}
     >
       <Form layout="vertical">
+        {targets?.length === 0 && (
+          <Alert
+            type="warning"
+            style={{ marginBottom: 16, padding: 12, borderRadius: 8 }}
+            description={(
+              <div className="flex min-w-0 flex-col items-start gap-2">
+                <span
+                  className="w-full break-words [overflow-wrap:anywhere]"
+                  style={{ fontSize: 13, lineHeight: '20px' }}
+                >
+                  {t(
+                    'drawing.noConfiguredImageProvider',
+                    '暂无任何配置绘画模型类型的服务商，请前往服务商设置页进行配置',
+                  )}
+                </span>
+                <Button
+                  size="small"
+                  color="orange"
+                  variant="filled"
+                  style={{ fontSize: 13 }}
+                  onClick={() => {
+                    setSettingsSection('providers');
+                    setActivePage('settings');
+                  }}
+                >
+                  {t('drawing.openProviderSettings', '打开服务商设置')}
+                </Button>
+              </div>
+            )}
+          />
+        )}
         {visibleBasicFields.map(renderField)}
+        <DrawingDynamicParameters
+          parameters={dynamicFields}
+          values={targetParameters}
+          translate={translateOption}
+          onChange={patchTargetParameter}
+        />
       </Form>
       {visibleAdvancedFields.length > 0 && (
         <>
@@ -237,17 +267,22 @@ function isFieldVisible(field: DrawingParamField, context: DrawingParamRenderCon
   return field.visibleWhen ? field.visibleWhen(context) : true;
 }
 
-function resolveOptions(
+function isDescriptorFieldVisible(
   field: DrawingParamField,
-  context: DrawingParamRenderContext,
-): readonly DrawingParamOption[] {
-  if (!field.options) return [];
-  return typeof field.options === 'function' ? field.options(context) : field.options;
-}
-
-function toSelectOptions(options: readonly DrawingParamOption[], t: (key: string, fallback: string) => string) {
-  return options.map((option) => ({
-    label: option.labelKey ? t(option.labelKey, option.fallbackLabel) : option.fallbackLabel,
-    value: option.value,
-  }));
+  target: DrawingTarget | undefined,
+): boolean {
+  if (!target) return true;
+  const keys = new Set(target.descriptor.parameters.map((parameter) => parameter.key));
+  if (field.type === 'referenceUploader' || field.id.startsWith('referenceImage')) {
+    return target.descriptor.max_reference_images > 0;
+  }
+  const descriptorKeys: Partial<Record<string, string>> = {
+    size: 'size',
+    quality: 'quality',
+    outputFormat: 'output_format',
+    background: 'background',
+    batchCount: 'n',
+  };
+  const descriptorKey = descriptorKeys[field.id];
+  return descriptorKey ? keys.has(descriptorKey) : true;
 }

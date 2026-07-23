@@ -156,6 +156,8 @@ pub struct Model {
     pub max_tokens: Option<u32>,
     pub enabled: bool,
     pub param_overrides: Option<ModelParamOverrides>,
+    #[serde(default)]
+    pub image_config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

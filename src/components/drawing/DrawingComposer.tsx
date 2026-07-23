@@ -6,13 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { loadStoredMediaSource } from '@/lib/storedMedia';
 import { useDrawingStore } from '@/stores/drawingStore';
 import { usePageTransientOpenState } from '@/components/layout/PageLifecycle';
-import type { DrawingImage, DrawingSettings } from '@/types';
+import type { DrawingImage, DrawingSettings, ImageOperation } from '@/types';
 
 interface Props {
   settings: DrawingSettings;
   prompt: string;
   onPromptChange: (value: string) => void;
   onHeightChange?: (height: number) => void;
+  supportedOperations?: ImageOperation[];
+  targetAvailable?: boolean;
 }
 
 const TEXTAREA_MIN_HEIGHT = 72;
@@ -104,7 +106,14 @@ function DrawingEditPreview({ image, previewUrl }: { image: DrawingImage; previe
   );
 }
 
-export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChange }: Props) {
+export function DrawingComposer({
+  settings,
+  prompt,
+  onPromptChange,
+  onHeightChange,
+  supportedOperations,
+  targetAvailable = true,
+}: Props) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { message } = App.useApp();
@@ -123,6 +132,14 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
   const [resizing, setResizing] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const requestedOperation: ImageOperation = editMaskFileId
+    ? 'mask_edit'
+    : editSourceImage || references.length > 0
+      ? 'edit'
+      : 'generate';
+  const operationSupported = supportedOperations === undefined
+    || supportedOperations.includes(requestedOperation);
+  const submissionAvailable = targetAvailable && operationSupported;
 
   const handleResizeStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -174,6 +191,13 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
   }, [onHeightChange, textareaHeight, editSourceImage, editMaskFileId]);
 
   const handleSubmit = async () => {
+    if (!submissionAvailable) {
+      message.warning(t(
+        'drawing.operationUnavailable',
+        '当前模型不支持这项图片操作，请更换模型或移除参考图。',
+      ));
+      return;
+    }
     if (!settings.providerId) {
       message.warning(t('drawing.selectProvider', '选择 OpenAI Provider'));
       return;
@@ -200,6 +224,7 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
         reference_file_ids: references.map((item) => item.id),
         generation_api_path: settings.generationApiPath,
         edit_api_path: settings.editApiPath,
+        parameters: settings.parameters,
       };
       onPromptChange('');
       if (editSourceImage && editMaskFileId) {
@@ -319,7 +344,7 @@ export function DrawingComposer({ settings, prompt, onPromptChange, onHeightChan
             size="small"
             icon={<ArrowUp size={14} />}
             loading={submitting}
-            disabled={!prompt.trim()}
+            disabled={!prompt.trim() || !submissionAvailable}
             onClick={handleSubmit}
           />
         </div>

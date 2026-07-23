@@ -2,31 +2,28 @@ use crate::AppState;
 use aqbot_core::file_store::FileStore;
 use aqbot_core::repo::drawing::{DrawingGeneration, DrawingImage, NewDrawingGeneration};
 use aqbot_core::repo::stored_file::StoredFile;
-use aqbot_core::types::{ProviderConfig, ProviderProxyConfig, ProviderType};
-use aqbot_providers::openai_images::{
-    ImageEditImageFormat, ImageEditRequest, ImageEditTransferMode, ImageGenerateRequest,
-    ImageUpload, OpenAIImagesClient,
+#[cfg(test)]
+use aqbot_core::types::ProviderType;
+use aqbot_core::types::{Model, ModelType, ProviderConfig, ProviderProxyConfig};
+use aqbot_providers::image_adapters::{
+    ImageAdapter, ImageAdapterConfig, ImageAdapterRegistry, ImageAdapterRequest,
+    ImageModelDescriptor, ImageOperation, ImagePollResult, ImageSubmission, PendingImageSubmission,
 };
+use aqbot_providers::openai_images::ImageUpload;
 use aqbot_providers::{resolve_base_url_for_type, ProviderRequestContext};
 use base64::Engine;
 use image::GenericImageView;
+use sea_orm::prelude::Expr;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use std::sync::Arc;
+use tauri::{Emitter, State};
 
 const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_REFERENCE_IMAGES: usize = 16;
 const MAX_BATCH_IMAGES: u8 = 10;
+#[cfg(test)]
 const OPENAI_IMAGE_EDIT_PATH: &str = "/images/edits";
-const OPENAI_JSON_IMAGE_PARAM_NAME: &str = "images";
-const OPENAI_MULTIPART_IMAGE_PARAM_NAME: &str = "image[]";
-const IMAGE_MODELS: &[&str] = &[
-    "gpt-image-2",
-    "gpt-image-1.5",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-];
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingGenerateInput {
     pub provider_id: String,
@@ -50,6 +47,8 @@ pub struct DrawingGenerateInput {
     pub generation_api_path: String,
     #[serde(default)]
     pub edit_api_path: String,
+    #[serde(default)]
+    pub parameters: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +75,8 @@ pub struct DrawingEditInput {
     pub generation_api_path: String,
     #[serde(default)]
     pub edit_api_path: String,
+    #[serde(default)]
+    pub parameters: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +104,8 @@ pub struct DrawingMaskEditInput {
     pub generation_api_path: String,
     #[serde(default)]
     pub edit_api_path: String,
+    #[serde(default)]
+    pub parameters: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -118,15 +121,6 @@ impl Default for DrawingReferenceImageMode {
     }
 }
 
-impl From<DrawingReferenceImageMode> for ImageEditTransferMode {
-    fn from(value: DrawingReferenceImageMode) -> Self {
-        match value {
-            DrawingReferenceImageMode::Multipart => ImageEditTransferMode::Multipart,
-            DrawingReferenceImageMode::Base64 => ImageEditTransferMode::Base64,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawingReferenceImageFormat {
@@ -137,15 +131,6 @@ pub enum DrawingReferenceImageFormat {
 impl Default for DrawingReferenceImageFormat {
     fn default() -> Self {
         Self::Object
-    }
-}
-
-impl From<DrawingReferenceImageFormat> for ImageEditImageFormat {
-    fn from(value: DrawingReferenceImageFormat) -> Self {
-        match value {
-            DrawingReferenceImageFormat::Object => ImageEditImageFormat::Object,
-            DrawingReferenceImageFormat::String => ImageEditImageFormat::String,
-        }
     }
 }
 
@@ -163,6 +148,22 @@ pub struct DrawingStoredFile {
     pub mime_type: String,
     pub size_bytes: i64,
     pub storage_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DrawingTarget {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model_id: String,
+    pub model_name: String,
+    pub adapter_id: String,
+    pub descriptor: ImageModelDescriptor,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DrawingTargetCatalog {
+    pub targets: Vec<DrawingTarget>,
+    pub unavailable_reasons: Vec<String>,
 }
 
 fn drawing_stored_file_from_repo(file: StoredFile) -> DrawingStoredFile {
@@ -188,6 +189,286 @@ pub async fn list_drawing_generations(
 }
 
 #[tauri::command]
+pub async fn cancel_drawing_generation(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<DrawingGeneration, String> {
+    let generation = aqbot_core::repo::drawing::get_generation(&state.sea_db, &id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if generation.status != "running" {
+        return Ok(generation);
+    }
+    aqbot_core::repo::drawing::mark_generation_cancelled(&state.sea_db, &id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let cancelled = aqbot_core::repo::drawing::get_generation(&state.sea_db, &id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let _ = app.emit("drawing-generation-updated", cancelled.clone());
+    if let (Some(adapter_id), Some(remote_task_id)) = (
+        generation.adapter_id.as_deref(),
+        generation.remote_task_id.as_deref(),
+    ) {
+        try_cancel_remote_generation(&state, &generation, adapter_id, remote_task_id).await;
+    }
+    Ok(cancelled)
+}
+
+async fn try_cancel_remote_generation(
+    state: &AppState,
+    generation: &DrawingGeneration,
+    adapter_id: &str,
+    remote_task_id: &str,
+) {
+    let operation = operation_from_action(&generation.action);
+    let Some(snapshot) = generation.adapter_config_snapshot.as_deref() else {
+        return;
+    };
+    let Ok(config) = serde_json::from_str(snapshot) else {
+        return;
+    };
+    let Ok(target) = build_image_context_from_snapshot(
+        state,
+        &generation.provider_id,
+        &generation.model_id,
+        operation,
+        adapter_id,
+        config,
+    )
+    .await
+    else {
+        return;
+    };
+    let pending = PendingImageSubmission {
+        remote_task_id: remote_task_id.to_string(),
+        remote_status: generation.remote_status.clone(),
+        opaque_state: generation
+            .opaque_state_json
+            .as_deref()
+            .and_then(|value| serde_json::from_str(value).ok()),
+    };
+    if let Err(error) = target
+        .adapter
+        .cancel(&target.ctx, &pending, &target.config)
+        .await
+    {
+        tracing::warn!(
+            generation_id = generation.id,
+            adapter_id,
+            error = %error,
+            "Remote image cancellation failed; local task will still be cancelled"
+        );
+    }
+}
+
+fn operation_from_action(action: &str) -> ImageOperation {
+    match action {
+        "edit" | "reference_generate" => ImageOperation::Edit,
+        "mask_edit" => ImageOperation::MaskEdit,
+        _ => ImageOperation::Generate,
+    }
+}
+
+pub async fn recover_drawing_generations(app: tauri::AppHandle, state: AppState) {
+    let generations = match aqbot_core::repo::drawing::list_running_generations(&state.sea_db).await
+    {
+        Ok(generations) => generations,
+        Err(error) => {
+            tracing::warn!(error = %error, "Failed to inspect running drawing generations");
+            return;
+        }
+    };
+    for generation in generations {
+        let Some(remote_task_id) = generation.remote_task_id.clone() else {
+            fail_unrecoverable_generation(
+                &app,
+                &state,
+                &generation.id,
+                "The interrupted image request has no remote task id and cannot be resumed",
+            )
+            .await;
+            continue;
+        };
+        let Some(adapter_id) = generation.adapter_id.clone() else {
+            fail_unrecoverable_generation(
+                &app,
+                &state,
+                &generation.id,
+                "The interrupted image request has no adapter snapshot and cannot be resumed",
+            )
+            .await;
+            continue;
+        };
+        let Some(snapshot) = generation.adapter_config_snapshot.as_deref() else {
+            fail_unrecoverable_generation(
+                &app,
+                &state,
+                &generation.id,
+                "The interrupted image request has no adapter snapshot and cannot be resumed",
+            )
+            .await;
+            continue;
+        };
+        let Ok(config) = serde_json::from_str::<ImageAdapterConfig>(snapshot) else {
+            fail_unrecoverable_generation(
+                &app,
+                &state,
+                &generation.id,
+                "The image adapter snapshot is invalid and cannot be resumed",
+            )
+            .await;
+            continue;
+        };
+        let Ok(target) = build_image_context_from_snapshot(
+            &state,
+            &generation.provider_id,
+            &generation.model_id,
+            operation_from_action(&generation.action),
+            &adapter_id,
+            config,
+        )
+        .await
+        else {
+            fail_unrecoverable_generation(
+                &app,
+                &state,
+                &generation.id,
+                "The image provider, model, or key is no longer available",
+            )
+            .await;
+            continue;
+        };
+        let output_format = generation_output_format(&generation);
+        let pending = PendingImageSubmission {
+            remote_task_id,
+            remote_status: generation.remote_status.clone(),
+            opaque_state: generation
+                .opaque_state_json
+                .as_deref()
+                .and_then(|value| serde_json::from_str(value).ok()),
+        };
+        let task_state = state.clone();
+        let task_app = app.clone();
+        let generation_id = generation.id.clone();
+        tauri::async_runtime::spawn(async move {
+            let outcome = poll_adapter_request(
+                &task_state,
+                PollExecution {
+                    generation,
+                    target,
+                    output_format,
+                },
+                pending,
+            )
+            .await;
+            emit_generation_outcome(&task_app, &task_state, &generation_id, outcome).await;
+        });
+    }
+}
+
+fn generation_output_format(generation: &DrawingGeneration) -> String {
+    serde_json::from_str::<serde_json::Value>(&generation.parameters_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("output_format")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "png".to_string())
+}
+
+async fn fail_unrecoverable_generation(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    generation_id: &str,
+    message: &str,
+) {
+    let _ = aqbot_core::repo::drawing::mark_generation_failed(
+        &state.sea_db,
+        generation_id,
+        message.to_string(),
+    )
+    .await;
+    if let Ok(generation) =
+        aqbot_core::repo::drawing::get_generation(&state.sea_db, generation_id).await
+    {
+        let _ = app.emit("drawing-generation-updated", generation);
+    }
+}
+
+#[tauri::command]
+pub async fn list_drawing_targets(
+    state: State<'_, AppState>,
+) -> Result<DrawingTargetCatalog, String> {
+    let providers = aqbot_core::repo::provider::list_providers_merged(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut targets = Vec::new();
+    let mut unavailable_reasons = Vec::new();
+    for provider in providers {
+        if !provider.enabled {
+            unavailable_reasons.push(format!("{}: provider is disabled", provider.name));
+            continue;
+        }
+        for model in &provider.models {
+            if let Some(target) = build_drawing_target(&provider, model) {
+                targets.push(target);
+            } else if model.model_type == ModelType::Image {
+                unavailable_reasons.push(format!(
+                    "{} / {}: model is disabled or its image adapter is unavailable",
+                    provider.name, model.name
+                ));
+            }
+        }
+    }
+    Ok(DrawingTargetCatalog {
+        targets,
+        unavailable_reasons,
+    })
+}
+
+fn build_drawing_target(provider: &ProviderConfig, model: &Model) -> Option<DrawingTarget> {
+    if !provider.enabled
+        || !model.enabled
+        || model.model_type != ModelType::Image
+        || model.provider_id != provider.id
+    {
+        return None;
+    }
+    let config = parse_image_adapter_config(model).ok()?;
+    let adapter = ImageAdapterRegistry::new().resolve(
+        &provider.provider_type,
+        &model.model_id,
+        Some(&config),
+    )?;
+    let descriptor = adapter.descriptor(&model.model_id, &config);
+    if descriptor.operations.is_empty() {
+        return None;
+    }
+    Some(DrawingTarget {
+        provider_id: provider.id.clone(),
+        provider_name: provider.name.clone(),
+        model_id: model.model_id.clone(),
+        model_name: model.name.clone(),
+        adapter_id: adapter.id().to_string(),
+        descriptor,
+    })
+}
+
+fn parse_image_adapter_config(model: &Model) -> Result<ImageAdapterConfig, String> {
+    model
+        .image_config
+        .clone()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("Invalid image adapter configuration: {error}"))
+        .map(|config| config.unwrap_or_default())
+}
+
+#[tauri::command]
 pub async fn upload_drawing_reference(
     state: State<'_, AppState>,
     input: DrawingUploadInput,
@@ -208,7 +489,31 @@ pub async fn upload_drawing_reference(
 }
 
 #[tauri::command]
+pub async fn create_drawing_generation(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    operation: ImageOperation,
+    input: serde_json::Value,
+) -> Result<DrawingGeneration, String> {
+    match operation {
+        ImageOperation::Generate => {
+            let input = serde_json::from_value(input).map_err(|error| error.to_string())?;
+            generate_drawing_images(app, state, input).await
+        }
+        ImageOperation::Edit => {
+            let input = serde_json::from_value(input).map_err(|error| error.to_string())?;
+            edit_drawing_image(app, state, input).await
+        }
+        ImageOperation::MaskEdit => {
+            let input = serde_json::from_value(input).map_err(|error| error.to_string())?;
+            edit_drawing_image_with_mask(app, state, input).await
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn generate_drawing_images(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: DrawingGenerateInput,
 ) -> Result<DrawingGeneration, String> {
@@ -222,12 +527,19 @@ pub async fn generate_drawing_images(
         input.reference_file_ids.len(),
         &input.size,
     )?;
-    let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
-    let edit_path = if input.reference_file_ids.is_empty() {
-        None
+    let operation = if input.reference_file_ids.is_empty() {
+        ImageOperation::Generate
     } else {
-        resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?
+        ImageOperation::Edit
     };
+    let mut target =
+        build_image_context(&state, &input.provider_id, &input.model_id, operation).await?;
+    validate_target_limits(&target, input.n, input.reference_file_ids.len())?;
+    apply_legacy_image_paths(
+        &mut target,
+        &input.generation_api_path,
+        &input.edit_api_path,
+    );
     let action = if input.reference_file_ids.is_empty() {
         "generate"
     } else {
@@ -236,8 +548,10 @@ pub async fn generate_drawing_images(
     let generation = create_running_generation(
         &state,
         &input.provider_id,
-        &key_id,
+        &target.key_id,
         &input.model_id,
+        target.adapter.id(),
+        &target.config,
         action,
         &input.prompt,
         &input,
@@ -248,64 +562,37 @@ pub async fn generate_drawing_images(
     )
     .await?;
 
-    let generation_path = if input.generation_api_path.is_empty() {
-        None
-    } else {
-        Some(input.generation_api_path.as_str())
-    };
-    let result = if input.reference_file_ids.is_empty() {
-        OpenAIImagesClient::new()
-            .generate(
-                &ctx,
-                ImageGenerateRequest {
-                    model: input.model_id.clone(),
-                    prompt: input.prompt.trim().to_string(),
-                    n: input.n,
-                    size: input.size.clone(),
-                    quality: input.quality.clone(),
-                    output_format: input.output_format.clone(),
-                    background: input.background.clone(),
-                    output_compression: input.output_compression,
+    let returned_generation = generation.clone();
+    let generation_id = generation.id.clone();
+    let task_state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let outcome = async {
+            let uploads = if input.reference_file_ids.is_empty() {
+                Vec::new()
+            } else {
+                load_reference_uploads(&task_state, &input.reference_file_ids).await?
+            };
+            let request = adapter_request_from_generate(&input, operation, uploads);
+            execute_adapter_request(
+                &task_state,
+                AdapterExecution {
+                    generation,
+                    target,
+                    request,
+                    output_format: input.output_format,
                 },
-                generation_path,
             )
             .await
-    } else {
-        let uploads = load_reference_uploads(&state, &input.reference_file_ids).await?;
-        let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
-            &provider,
-            input.reference_image_mode,
-            input.reference_image_format,
-            &input.reference_image_param_name,
-        );
-        OpenAIImagesClient::new()
-            .edit(
-                &ctx,
-                ImageEditRequest {
-                    model: input.model_id.clone(),
-                    prompt: input.prompt.trim().to_string(),
-                    n: input.n,
-                    size: input.size.clone(),
-                    quality: input.quality.clone(),
-                    output_format: input.output_format.clone(),
-                    background: input.background.clone(),
-                    output_compression: input.output_compression,
-                    transfer_mode,
-                    image_format,
-                    image_param_name,
-                    images: uploads,
-                    mask: None,
-                },
-                edit_path.as_deref(),
-            )
-            .await
-    };
-
-    persist_api_result(&state, generation, result, &input.output_format, &provider).await
+        }
+        .await;
+        emit_generation_outcome(&app, &task_state, &generation_id, outcome).await;
+    });
+    Ok(returned_generation)
 }
 
 #[tauri::command]
 pub async fn edit_drawing_image(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: DrawingEditInput,
 ) -> Result<DrawingGeneration, String> {
@@ -319,16 +606,29 @@ pub async fn edit_drawing_image(
         input.reference_file_ids.len(),
         &input.size,
     )?;
-    let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
-    let edit_path = resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?;
+    let mut target = build_image_context(
+        &state,
+        &input.provider_id,
+        &input.model_id,
+        ImageOperation::Edit,
+    )
+    .await?;
+    validate_target_limits(&target, input.n, input.reference_file_ids.len() + 1)?;
+    apply_legacy_image_paths(
+        &mut target,
+        &input.generation_api_path,
+        &input.edit_api_path,
+    );
     let source = aqbot_core::repo::drawing::get_image(&state.sea_db, &input.source_image_id)
         .await
         .map_err(|e| e.to_string())?;
     let generation = create_running_generation(
         &state,
         &input.provider_id,
-        &key_id,
+        &target.key_id,
         &input.model_id,
+        target.adapter.id(),
+        &target.config,
         "edit",
         &input.prompt,
         &input,
@@ -338,41 +638,34 @@ pub async fn edit_drawing_image(
         None,
     )
     .await?;
-    let mut uploads = vec![load_drawing_image_upload(&state, &source).await?];
-    uploads.extend(load_reference_uploads(&state, &input.reference_file_ids).await?);
-    let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
-        &provider,
-        input.reference_image_mode,
-        input.reference_image_format,
-        &input.reference_image_param_name,
-    );
-    let result = OpenAIImagesClient::new()
-        .edit(
-            &ctx,
-            ImageEditRequest {
-                model: input.model_id.clone(),
-                prompt: input.prompt.trim().to_string(),
-                n: input.n,
-                size: input.size.clone(),
-                quality: input.quality.clone(),
-                output_format: input.output_format.clone(),
-                background: input.background.clone(),
-                output_compression: input.output_compression,
-                transfer_mode,
-                image_format,
-                image_param_name,
-                images: uploads,
-                mask: None,
-            },
-            edit_path.as_deref(),
-        )
+    let returned_generation = generation.clone();
+    let generation_id = generation.id.clone();
+    let task_state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let outcome = async {
+            let mut uploads = vec![load_drawing_image_upload(&task_state, &source).await?];
+            uploads.extend(load_reference_uploads(&task_state, &input.reference_file_ids).await?);
+            let request = adapter_request_from_edit(&input, ImageOperation::Edit, uploads, None);
+            execute_adapter_request(
+                &task_state,
+                AdapterExecution {
+                    generation,
+                    target,
+                    request,
+                    output_format: input.output_format,
+                },
+            )
+            .await
+        }
         .await;
-
-    persist_api_result(&state, generation, result, &input.output_format, &provider).await
+        emit_generation_outcome(&app, &task_state, &generation_id, outcome).await;
+    });
+    Ok(returned_generation)
 }
 
 #[tauri::command]
 pub async fn edit_drawing_image_with_mask(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: DrawingMaskEditInput,
 ) -> Result<DrawingGeneration, String> {
@@ -386,8 +679,19 @@ pub async fn edit_drawing_image_with_mask(
         input.reference_file_ids.len(),
         &input.size,
     )?;
-    let (ctx, provider, key_id) = build_image_context(&state, &input.provider_id).await?;
-    let edit_path = resolve_edit_api_path(provider.provider_type.clone(), &input.edit_api_path)?;
+    let mut target = build_image_context(
+        &state,
+        &input.provider_id,
+        &input.model_id,
+        ImageOperation::MaskEdit,
+    )
+    .await?;
+    validate_target_limits(&target, input.n, input.reference_file_ids.len() + 1)?;
+    apply_legacy_image_paths(
+        &mut target,
+        &input.generation_api_path,
+        &input.edit_api_path,
+    );
     let source = aqbot_core::repo::drawing::get_image(&state.sea_db, &input.source_image_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -404,8 +708,10 @@ pub async fn edit_drawing_image_with_mask(
     let generation = create_running_generation(
         &state,
         &input.provider_id,
-        &key_id,
+        &target.key_id,
         &input.model_id,
+        target.adapter.id(),
+        &target.config,
         "mask_edit",
         &input.prompt,
         &input,
@@ -415,38 +721,30 @@ pub async fn edit_drawing_image_with_mask(
         Some(input.mask_file_id.clone()),
     )
     .await?;
-    let mut uploads = vec![load_drawing_image_upload(&state, &source).await?];
-    uploads.extend(load_reference_uploads(&state, &input.reference_file_ids).await?);
-    let mask = Some(load_stored_file_upload(&state, &mask_file).await?);
-    let (transfer_mode, image_format, image_param_name) = resolve_image_edit_wire_options(
-        &provider,
-        input.reference_image_mode,
-        input.reference_image_format,
-        &input.reference_image_param_name,
-    );
-    let result = OpenAIImagesClient::new()
-        .edit(
-            &ctx,
-            ImageEditRequest {
-                model: input.model_id.clone(),
-                prompt: input.prompt.trim().to_string(),
-                n: input.n,
-                size: input.size.clone(),
-                quality: input.quality.clone(),
-                output_format: input.output_format.clone(),
-                background: input.background.clone(),
-                output_compression: input.output_compression,
-                transfer_mode,
-                image_format,
-                image_param_name,
-                images: uploads,
-                mask,
-            },
-            edit_path.as_deref(),
-        )
+    let returned_generation = generation.clone();
+    let generation_id = generation.id.clone();
+    let task_state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let outcome = async {
+            let mut uploads = vec![load_drawing_image_upload(&task_state, &source).await?];
+            uploads.extend(load_reference_uploads(&task_state, &input.reference_file_ids).await?);
+            let mask = Some(load_stored_file_upload(&task_state, &mask_file).await?);
+            let request = adapter_request_from_mask_edit(&input, uploads, mask);
+            execute_adapter_request(
+                &task_state,
+                AdapterExecution {
+                    generation,
+                    target,
+                    request,
+                    output_format: input.output_format,
+                },
+            )
+            .await
+        }
         .await;
-
-    persist_api_result(&state, generation, result, &input.output_format, &provider).await
+        emit_generation_outcome(&app, &task_state, &generation_id, outcome).await;
+    });
+    Ok(returned_generation)
 }
 
 #[tauri::command]
@@ -631,10 +929,71 @@ fn parse_drawing_dependency_ids(
     })
 }
 
+struct ResolvedImageTarget {
+    ctx: ProviderRequestContext,
+    provider: ProviderConfig,
+    key_id: String,
+    adapter: Arc<dyn ImageAdapter>,
+    config: ImageAdapterConfig,
+}
+
+struct AdapterExecution {
+    generation: DrawingGeneration,
+    target: ResolvedImageTarget,
+    request: ImageAdapterRequest,
+    output_format: String,
+}
+
+struct PollExecution {
+    generation: DrawingGeneration,
+    target: ResolvedImageTarget,
+    output_format: String,
+}
+
 async fn build_image_context(
     state: &AppState,
     provider_id: &str,
-) -> Result<(ProviderRequestContext, ProviderConfig, String), String> {
+    model_id: &str,
+    operation: ImageOperation,
+) -> Result<ResolvedImageTarget, String> {
+    let (provider, model, ctx, key_id) =
+        load_image_target_base(state, provider_id, model_id).await?;
+    let mut config = parse_image_adapter_config(&model)?;
+    if config.endpoint.is_none()
+        && provider
+            .api_path
+            .as_deref()
+            .is_some_and(|path| path.contains("images"))
+    {
+        config.endpoint = provider.api_path.clone();
+    }
+    let adapter = ImageAdapterRegistry::new()
+        .resolve(&provider.provider_type, model_id, Some(&config))
+        .ok_or_else(|| "The selected image adapter is unavailable".to_string())?;
+    build_resolved_image_target(provider, model, ctx, key_id, adapter, config, operation)
+}
+
+async fn build_image_context_from_snapshot(
+    state: &AppState,
+    provider_id: &str,
+    model_id: &str,
+    operation: ImageOperation,
+    adapter_id: &str,
+    config: ImageAdapterConfig,
+) -> Result<ResolvedImageTarget, String> {
+    let (provider, model, ctx, key_id) =
+        load_image_target_base(state, provider_id, model_id).await?;
+    let adapter = ImageAdapterRegistry::new()
+        .get(adapter_id)
+        .ok_or_else(|| "The saved image adapter is no longer available".to_string())?;
+    build_resolved_image_target(provider, model, ctx, key_id, adapter, config, operation)
+}
+
+async fn load_image_target_base(
+    state: &AppState,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<(ProviderConfig, Model, ProviderRequestContext, String), String> {
     let real_provider_id =
         aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, provider_id)
             .await
@@ -645,15 +1004,15 @@ async fn build_image_context(
     if !provider.enabled {
         return Err("Provider is disabled".to_string());
     }
-    if !matches!(
-        provider.provider_type,
-        ProviderType::OpenAI | ProviderType::Custom
-    ) {
-        return Err("Drawing only supports OpenAI-compatible providers".to_string());
+    let model = aqbot_core::repo::provider::get_model(&state.sea_db, &real_provider_id, model_id)
+        .await
+        .map_err(|_| "The selected image model does not belong to this provider".to_string())?;
+    if !model.enabled || model.model_type != ModelType::Image || model.provider_id != provider.id {
+        return Err("The selected model is disabled or is not an Image model".to_string());
     }
     let key = aqbot_core::repo::provider::get_active_key(&state.sea_db, &real_provider_id)
         .await
-        .map_err(|_| "Please configure an active OpenAI API key first".to_string())?;
+        .map_err(|_| "Please configure an active API key first".to_string())?;
     let decrypted = aqbot_core::crypto::decrypt_key(&key.key_encrypted, &state.master_key)
         .map_err(|e| e.to_string())?;
     let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
@@ -675,9 +1034,35 @@ async fn build_image_context(
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok()),
     };
-    Ok((ctx, provider, key.id))
+    Ok((provider, model, ctx, key.id))
 }
 
+fn build_resolved_image_target(
+    provider: ProviderConfig,
+    model: Model,
+    ctx: ProviderRequestContext,
+    key_id: String,
+    adapter: Arc<dyn ImageAdapter>,
+    config: ImageAdapterConfig,
+    operation: ImageOperation,
+) -> Result<ResolvedImageTarget, String> {
+    let descriptor = adapter.descriptor(&model.model_id, &config);
+    if !descriptor.operations.contains(&operation) {
+        return Err(format!(
+            "{} does not support the requested image operation",
+            adapter.id()
+        ));
+    }
+    Ok(ResolvedImageTarget {
+        ctx,
+        provider,
+        key_id,
+        adapter,
+        config,
+    })
+}
+
+#[cfg(test)]
 fn resolve_edit_api_path(
     provider_type: ProviderType,
     edit_api_path: &str,
@@ -697,30 +1082,146 @@ fn resolve_edit_api_path(
     Ok(Some(trimmed.to_string()))
 }
 
-fn resolve_image_edit_wire_options(
-    provider: &ProviderConfig,
-    reference_image_mode: DrawingReferenceImageMode,
-    reference_image_format: DrawingReferenceImageFormat,
-    reference_image_param_name: &str,
-) -> (ImageEditTransferMode, ImageEditImageFormat, String) {
-    let transfer_mode = ImageEditTransferMode::from(reference_image_mode);
-    if provider.provider_type == ProviderType::OpenAI {
-        let image_param_name = match transfer_mode {
-            ImageEditTransferMode::Multipart => OPENAI_MULTIPART_IMAGE_PARAM_NAME,
-            ImageEditTransferMode::Base64 => OPENAI_JSON_IMAGE_PARAM_NAME,
-        };
-        return (
-            transfer_mode,
-            ImageEditImageFormat::Object,
-            image_param_name.to_string(),
-        );
+fn apply_legacy_image_paths(
+    target: &mut ResolvedImageTarget,
+    generation_path: &str,
+    edit_path: &str,
+) {
+    if matches!(target.adapter.id(), "gemini_images" | "generic_json") {
+        return;
     }
+    if target.config.endpoint.is_none() && !generation_path.trim().is_empty() {
+        target.config.endpoint = Some(generation_path.trim().to_string());
+    }
+    if target.config.edit_endpoint.is_none() && !edit_path.trim().is_empty() {
+        target.config.edit_endpoint = Some(edit_path.trim().to_string());
+    }
+}
 
-    (
-        transfer_mode,
-        ImageEditImageFormat::from(reference_image_format),
-        reference_image_param_name.to_string(),
-    )
+fn validate_target_limits(
+    target: &ResolvedImageTarget,
+    batch_size: u8,
+    reference_count: usize,
+) -> Result<(), String> {
+    let descriptor = target.adapter.descriptor("", &target.config);
+    if batch_size > descriptor.max_batch_size {
+        return Err(format!(
+            "{} supports at most {} image(s) per request",
+            target.adapter.id(),
+            descriptor.max_batch_size
+        ));
+    }
+    if reference_count > descriptor.max_reference_images as usize {
+        return Err(format!(
+            "{} supports at most {} reference image(s)",
+            target.adapter.id(),
+            descriptor.max_reference_images
+        ));
+    }
+    Ok(())
+}
+
+fn adapter_request_from_generate(
+    input: &DrawingGenerateInput,
+    operation: ImageOperation,
+    images: Vec<ImageUpload>,
+) -> ImageAdapterRequest {
+    let mut parameters = input.parameters.clone();
+    parameters.insert(
+        "_aqbot_reference_mode".into(),
+        serde_json::json!(input.reference_image_mode),
+    );
+    parameters.insert(
+        "_aqbot_reference_format".into(),
+        serde_json::json!(input.reference_image_format),
+    );
+    parameters.insert(
+        "_aqbot_reference_param".into(),
+        input.reference_image_param_name.clone().into(),
+    );
+    ImageAdapterRequest {
+        operation,
+        model: input.model_id.clone(),
+        prompt: input.prompt.trim().to_string(),
+        n: input.n,
+        size: input.size.clone(),
+        quality: input.quality.clone(),
+        output_format: input.output_format.clone(),
+        background: input.background.clone(),
+        output_compression: input.output_compression,
+        images,
+        mask: None,
+        parameters,
+    }
+}
+
+fn adapter_request_from_edit(
+    input: &DrawingEditInput,
+    operation: ImageOperation,
+    images: Vec<ImageUpload>,
+    mask: Option<ImageUpload>,
+) -> ImageAdapterRequest {
+    let mut parameters = input.parameters.clone();
+    parameters.insert(
+        "_aqbot_reference_mode".into(),
+        serde_json::json!(input.reference_image_mode),
+    );
+    parameters.insert(
+        "_aqbot_reference_format".into(),
+        serde_json::json!(input.reference_image_format),
+    );
+    parameters.insert(
+        "_aqbot_reference_param".into(),
+        input.reference_image_param_name.clone().into(),
+    );
+    ImageAdapterRequest {
+        operation,
+        model: input.model_id.clone(),
+        prompt: input.prompt.trim().to_string(),
+        n: input.n,
+        size: input.size.clone(),
+        quality: input.quality.clone(),
+        output_format: input.output_format.clone(),
+        background: input.background.clone(),
+        output_compression: input.output_compression,
+        images,
+        mask,
+        parameters,
+    }
+}
+
+fn adapter_request_from_mask_edit(
+    input: &DrawingMaskEditInput,
+    images: Vec<ImageUpload>,
+    mask: Option<ImageUpload>,
+) -> ImageAdapterRequest {
+    let mut parameters = input.parameters.clone();
+    parameters.insert(
+        "_aqbot_reference_mode".into(),
+        serde_json::json!(input.reference_image_mode),
+    );
+    parameters.insert(
+        "_aqbot_reference_format".into(),
+        serde_json::json!(input.reference_image_format),
+    );
+    parameters.insert(
+        "_aqbot_reference_param".into(),
+        input.reference_image_param_name.clone().into(),
+    );
+    ImageAdapterRequest {
+        operation: ImageOperation::MaskEdit,
+        model: input.model_id.clone(),
+        prompt: input.prompt.trim().to_string(),
+        n: input.n,
+        size: input.size.clone(),
+        quality: input.quality.clone(),
+        output_format: input.output_format.clone(),
+        background: input.background.clone(),
+        output_compression: input.output_compression,
+        images,
+        mask,
+        parameters,
+    }
 }
 
 async fn create_running_generation<T: Serialize>(
@@ -728,6 +1229,8 @@ async fn create_running_generation<T: Serialize>(
     provider_id: &str,
     key_id: &str,
     model_id: &str,
+    adapter_id: &str,
+    adapter_config: &ImageAdapterConfig,
     action: &str,
     prompt: &str,
     parameters: &T,
@@ -750,7 +1253,7 @@ async fn create_running_generation<T: Serialize>(
         mask_file_id.as_deref(),
     )
     .await?;
-    aqbot_core::repo::drawing::create_generation(
+    let generation = aqbot_core::repo::drawing::create_generation(
         &state.sea_db,
         NewDrawingGeneration {
             parent_generation_id,
@@ -763,10 +1266,26 @@ async fn create_running_generation<T: Serialize>(
             reference_file_ids_json,
             source_image_ids_json,
             mask_file_id,
+            adapter_id: Some(adapter_id.to_string()),
+            adapter_config_snapshot: Some(
+                serde_json::to_string(adapter_config).map_err(|error| error.to_string())?,
+            ),
+            deadline_at: Some(
+                aqbot_core::utils::now_ts() + adapter_config.normalized_timeout() as i64,
+            ),
         },
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    tracing::info!(
+        generation_id = generation.id,
+        provider_id,
+        model_id,
+        adapter_id,
+        action,
+        "Created drawing generation"
+    );
+    Ok(generation)
 }
 
 async fn validate_drawing_generation_references(
@@ -841,6 +1360,11 @@ async fn persist_api_result(
                                 generation.id
                             ))
                         })?;
+                if generation_row.status != "running" {
+                    return Err(aqbot_core::error::AQBotError::Validation(
+                        "Drawing generation is no longer running".into(),
+                    ));
+                }
                 let mut persisted_images = Vec::with_capacity(output.images.len());
                 for (index, image) in output.images.into_iter().enumerate() {
                     let ext = output_format_to_extension(output_format);
@@ -892,14 +1416,36 @@ async fn persist_api_result(
                 }
 
                 let completed_at = aqbot_core::utils::now_ts();
-                let mut update: aqbot_core::entity::drawing_generations::ActiveModel =
-                    generation_row.into();
-                update.status = Set("succeeded".to_string());
-                update.error_message = Set(None);
-                update.response_id = Set(response_id.clone());
-                update.usage_json = Set(usage_json.clone());
-                update.completed_at = Set(Some(completed_at));
-                update.update(&txn).await?;
+                let update = aqbot_core::entity::drawing_generations::Entity::update_many()
+                    .col_expr(
+                        aqbot_core::entity::drawing_generations::Column::Status,
+                        Expr::value("succeeded"),
+                    )
+                    .col_expr(
+                        aqbot_core::entity::drawing_generations::Column::ErrorMessage,
+                        Expr::value(Option::<String>::None),
+                    )
+                    .col_expr(
+                        aqbot_core::entity::drawing_generations::Column::ResponseId,
+                        Expr::value(response_id.clone()),
+                    )
+                    .col_expr(
+                        aqbot_core::entity::drawing_generations::Column::UsageJson,
+                        Expr::value(usage_json.clone()),
+                    )
+                    .col_expr(
+                        aqbot_core::entity::drawing_generations::Column::CompletedAt,
+                        Expr::value(Some(completed_at)),
+                    )
+                    .filter(aqbot_core::entity::drawing_generations::Column::Id.eq(&generation.id))
+                    .filter(aqbot_core::entity::drawing_generations::Column::Status.eq("running"))
+                    .exec(&txn)
+                    .await?;
+                if update.rows_affected == 0 {
+                    return Err(aqbot_core::error::AQBotError::Validation(
+                        "Drawing generation is no longer running".into(),
+                    ));
+                }
 
                 let mut persisted_generation = generation.clone();
                 persisted_generation.status = "succeeded".to_string();
@@ -966,6 +1512,237 @@ async fn persist_api_result(
             Err(sanitized)
         }
     }
+}
+
+async fn emit_generation_outcome(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    generation_id: &str,
+    outcome: Result<DrawingGeneration, String>,
+) {
+    if let Err(error) = outcome {
+        let cancelled = aqbot_core::repo::drawing::get_generation(&state.sea_db, generation_id)
+            .await
+            .is_ok_and(|generation| matches!(generation.status.as_str(), "cancelled" | "stopped"));
+        if !cancelled {
+            let _ = aqbot_core::repo::drawing::mark_generation_failed(
+                &state.sea_db,
+                generation_id,
+                error,
+            )
+            .await;
+        }
+    }
+    match aqbot_core::repo::drawing::get_generation(&state.sea_db, generation_id).await {
+        Ok(generation) => {
+            let _ = app.emit("drawing-generation-updated", generation);
+        }
+        Err(error) => tracing::warn!(
+            generation_id,
+            error = %error,
+            "Failed to emit drawing generation update"
+        ),
+    }
+}
+
+async fn execute_adapter_request(
+    state: &AppState,
+    execution: AdapterExecution,
+) -> Result<DrawingGeneration, String> {
+    let AdapterExecution {
+        generation,
+        target,
+        mut request,
+        output_format,
+    } = execution;
+    if target.provider.provider_type == aqbot_core::types::ProviderType::OpenAI {
+        request
+            .parameters
+            .insert("_aqbot_reference_mode".into(), serde_json::json!("base64"));
+        request.parameters.insert(
+            "_aqbot_reference_format".into(),
+            serde_json::json!("object"),
+        );
+        request
+            .parameters
+            .insert("_aqbot_reference_param".into(), serde_json::json!("images"));
+    }
+    let result = target
+        .adapter
+        .submit(&target.ctx, request, &target.config)
+        .await;
+    let current = aqbot_core::repo::drawing::get_generation(&state.sea_db, &generation.id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if matches!(current.status.as_str(), "cancelled" | "stopped") {
+        return Ok(current);
+    }
+    match result {
+        Ok(ImageSubmission::Completed(output)) => {
+            persist_api_result(
+                state,
+                generation,
+                Ok(output),
+                &output_format,
+                &target.provider,
+            )
+            .await
+        }
+        Ok(ImageSubmission::Pending(pending)) => {
+            persist_pending(state, &generation.id, &pending).await?;
+            poll_adapter_request(
+                state,
+                PollExecution {
+                    generation,
+                    target,
+                    output_format,
+                },
+                pending,
+            )
+            .await
+        }
+        Err(error) => Err(sanitize_error(&error.to_string(), &target.provider)),
+    }
+}
+
+async fn persist_pending(
+    state: &AppState,
+    generation_id: &str,
+    pending: &PendingImageSubmission,
+) -> Result<(), String> {
+    tracing::info!(
+        generation_id,
+        remote_status = pending.remote_status.as_deref().unwrap_or("pending"),
+        "Drawing generation is pending remotely"
+    );
+    aqbot_core::repo::drawing::mark_generation_pending(
+        &state.sea_db,
+        generation_id,
+        pending.remote_task_id.clone(),
+        pending.remote_status.clone(),
+        pending
+            .opaque_state
+            .as_ref()
+            .map(serde_json::Value::to_string),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+async fn poll_adapter_request(
+    state: &AppState,
+    execution: PollExecution,
+    mut pending: PendingImageSubmission,
+) -> Result<DrawingGeneration, String> {
+    let generation_id = execution.generation.id.clone();
+    let deadline = execution
+        .generation
+        .deadline_at
+        .unwrap_or_else(|| aqbot_core::utils::now_ts() + 60 * 60);
+    let mut poll_count = execution.generation.poll_count;
+    let mut consecutive_errors = execution.generation.consecutive_errors;
+    loop {
+        if aqbot_core::utils::now_ts() >= deadline {
+            return Err("Image generation timed out".into());
+        }
+        let current = aqbot_core::repo::drawing::get_generation(&state.sea_db, &generation_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        if matches!(current.status.as_str(), "cancelled" | "stopped") {
+            return Ok(current);
+        }
+        let delay = poll_delay(&execution.target.config, consecutive_errors);
+        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        let current = aqbot_core::repo::drawing::get_generation(&state.sea_db, &generation_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        if matches!(current.status.as_str(), "cancelled" | "stopped") {
+            return Ok(current);
+        }
+        poll_count += 1;
+        match execution
+            .target
+            .adapter
+            .poll(&execution.target.ctx, &pending, &execution.target.config)
+            .await
+        {
+            Ok(ImagePollResult::Completed(output)) => {
+                return persist_api_result(
+                    state,
+                    execution.generation,
+                    Ok(output),
+                    &execution.output_format,
+                    &execution.target.provider,
+                )
+                .await;
+            }
+            Ok(ImagePollResult::Pending(next)) => {
+                consecutive_errors = 0;
+                pending = next;
+                update_poll_state(
+                    state,
+                    &generation_id,
+                    &pending,
+                    poll_count,
+                    consecutive_errors,
+                )
+                .await?;
+            }
+            Ok(ImagePollResult::Failed(error)) => return Err(error),
+            Err(error) => {
+                consecutive_errors += 1;
+                update_poll_state(
+                    state,
+                    &generation_id,
+                    &pending,
+                    poll_count,
+                    consecutive_errors,
+                )
+                .await?;
+                if consecutive_errors >= 5 {
+                    return Err(format!("Image polling failed after 5 attempts: {error}"));
+                }
+            }
+        }
+    }
+}
+
+async fn update_poll_state(
+    state: &AppState,
+    generation_id: &str,
+    pending: &PendingImageSubmission,
+    poll_count: i32,
+    consecutive_errors: i32,
+) -> Result<(), String> {
+    tracing::debug!(
+        generation_id,
+        remote_status = pending.remote_status.as_deref().unwrap_or("pending"),
+        poll_count,
+        consecutive_errors,
+        "Updated drawing generation polling state"
+    );
+    aqbot_core::repo::drawing::update_generation_poll(
+        &state.sea_db,
+        generation_id,
+        pending.remote_status.clone(),
+        pending
+            .opaque_state
+            .as_ref()
+            .map(serde_json::Value::to_string),
+        poll_count,
+        consecutive_errors,
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+fn poll_delay(config: &ImageAdapterConfig, consecutive_errors: i32) -> u64 {
+    let base = config.normalized_poll_interval();
+    if consecutive_errors <= 0 {
+        return base;
+    }
+    base.saturating_mul(1_u64 << consecutive_errors.min(4))
+        .min(30)
 }
 
 async fn cleanup_unregistered_drawing_file(
@@ -1163,8 +1940,8 @@ fn validate_common(
     if prompt.trim().is_empty() {
         return Err("Prompt must not be empty".to_string());
     }
-    if !IMAGE_MODELS.contains(&model_id) {
-        return Err(format!("Unsupported drawing model: {}", model_id));
+    if model_id.trim().is_empty() {
+        return Err("Drawing model must not be empty".to_string());
     }
     if n == 0 || n > MAX_BATCH_IMAGES {
         return Err(format!(
@@ -1299,6 +2076,13 @@ fn sanitize_error(raw: &str, provider: &ProviderConfig) -> String {
     let mut sanitized = raw.to_string();
     if let Some(headers) = &provider.custom_headers {
         sanitized = sanitized.replace(headers, "[redacted_headers]");
+        if let Ok(values) =
+            serde_json::from_str::<std::collections::HashMap<String, String>>(headers)
+        {
+            for value in values.values().filter(|value| !value.is_empty()) {
+                sanitized = sanitized.replace(value, "[REDACTED]");
+            }
+        }
     }
     sanitized
 }
@@ -1308,6 +2092,43 @@ mod tests {
     use super::*;
     use aqbot_core::repo::drawing::{NewDrawingGeneration, NewDrawingImage};
     use tempfile::tempdir;
+
+    #[test]
+    fn custom_grok_image_model_builds_an_xai_drawing_target() {
+        let provider = ProviderConfig {
+            id: "custom-xai".into(),
+            name: "Custom xAI".into(),
+            provider_type: ProviderType::Custom,
+            api_host: "https://api.x.ai".into(),
+            api_path: None,
+            enabled: true,
+            models: vec![Model {
+                provider_id: "custom-xai".into(),
+                model_id: "grok-imagine-image".into(),
+                name: "Grok Imagine".into(),
+                group_name: None,
+                model_type: ModelType::Image,
+                capabilities: Vec::new(),
+                max_tokens: None,
+                enabled: true,
+                param_overrides: None,
+                image_config: None,
+            }],
+            keys: Vec::new(),
+            proxy_config: None,
+            custom_headers: None,
+            icon: None,
+            builtin_id: None,
+            sort_order: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let target = build_drawing_target(&provider, &provider.models[0])
+            .expect("custom grok image model should be available");
+        assert_eq!(target.adapter_id, "xai_images");
+        assert_eq!(target.model_id, "grok-imagine-image");
+    }
 
     #[test]
     fn validates_batch_count_at_api_maximum() {
@@ -1333,6 +2154,21 @@ mod tests {
             "1024x1024",
         )
         .is_err());
+    }
+
+    #[test]
+    fn common_validation_accepts_dynamic_image_model_ids() {
+        assert!(validate_common(
+            "prompt",
+            "grok-imagine-image",
+            "png",
+            Some("auto"),
+            None,
+            1,
+            0,
+            "1024x1024",
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1413,6 +2249,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn polling_policy_clamps_intervals_and_uses_bounded_backoff() {
+        let mut config = ImageAdapterConfig {
+            poll_interval_secs: 0,
+            timeout_secs: 1,
+            ..Default::default()
+        };
+        assert_eq!(config.normalized_poll_interval(), 1);
+        assert_eq!(config.normalized_timeout(), 60);
+        assert_eq!(poll_delay(&config, 0), 1);
+        assert_eq!(poll_delay(&config, 4), 16);
+
+        config.poll_interval_secs = 30;
+        config.timeout_secs = 100_000;
+        assert_eq!(poll_delay(&config, 4), 30);
+        assert_eq!(config.normalized_timeout(), 86_400);
+    }
+
+    #[test]
+    fn drawing_errors_redact_custom_header_values() {
+        let provider = ProviderConfig {
+            id: "custom".into(),
+            name: "Custom".into(),
+            provider_type: ProviderType::Custom,
+            api_host: "https://example.com".into(),
+            api_path: None,
+            enabled: true,
+            models: Vec::new(),
+            keys: Vec::new(),
+            proxy_config: None,
+            custom_headers: Some(r#"{"x-secret":"header-secret"}"#.into()),
+            icon: None,
+            builtin_id: None,
+            sort_order: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let sanitized = sanitize_error("request failed with x-secret=header-secret", &provider);
+        assert!(!sanitized.contains("header-secret"));
+        assert!(sanitized.contains("[REDACTED]"));
+    }
+
     #[tokio::test]
     async fn refuses_both_deletion_modes_while_a_later_generation_uses_the_output() {
         let dir = tempdir().unwrap();
@@ -1446,6 +2325,9 @@ mod tests {
                 reference_file_ids_json: "[]".into(),
                 source_image_ids_json: "[]".into(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await
@@ -1477,6 +2359,9 @@ mod tests {
                 reference_file_ids_json: serde_json::to_string(&vec![stored.id.clone()]).unwrap(),
                 source_image_ids_json: serde_json::to_string(&vec![image_a.id.clone()]).unwrap(),
                 mask_file_id: Some(stored.id.clone()),
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await
@@ -1563,6 +2448,9 @@ mod tests {
                 reference_file_ids_json: "[]".into(),
                 source_image_ids_json: "[]".into(),
                 mask_file_id: None,
+                adapter_id: None,
+                adapter_config_snapshot: None,
+                deadline_at: None,
             },
         )
         .await
@@ -1586,12 +2474,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(aqbot_core::repo::drawing::get_generation(&db.conn, &generation.id)
-            .await
-            .is_err());
-        assert!(aqbot_core::repo::stored_file::get_stored_file(&db.conn, &stored.id)
-            .await
-            .is_ok());
+        assert!(
+            aqbot_core::repo::drawing::get_generation(&db.conn, &generation.id)
+                .await
+                .is_err()
+        );
+        assert!(
+            aqbot_core::repo::stored_file::get_stored_file(&db.conn, &stored.id)
+                .await
+                .is_ok()
+        );
         assert!(file_store.read_file(&stored.storage_path).is_ok());
     }
 }

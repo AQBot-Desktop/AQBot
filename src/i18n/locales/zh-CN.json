@@ -1494,6 +1494,38 @@
     "askUserSubmit": "提交",
     "askUserSubmitted": "已提交"
   },
+  "imageProtocol": {
+    "title": "图片协议",
+    "grokAutoDetectDescription": "当前模型默认识别为 xAI Images，可在下方显式覆盖。",
+    "autoDetectDescription": "自动识别会根据服务商类型和模型 ID 选择内置适配器。",
+    "adapterProfile": "适配器预设",
+    "autoDetect": "自动识别",
+    "capabilityOverrides": "能力覆盖（留空使用适配器预设值）",
+    "operation": {
+      "generate": "生成",
+      "edit": "编辑",
+      "maskEdit": "区域编辑"
+    },
+    "generationEndpoint": "生成端点",
+    "generationEndpointPlaceholder": "/images/generations 或完整 URL",
+    "editEndpoint": "编辑端点",
+    "pollEndpoint": "轮询端点",
+    "cancelEndpoint": "取消端点",
+    "authMode": "认证方式",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API 密钥 Header",
+      "query": "查询参数",
+      "none": "无认证"
+    },
+    "authHeaderName": "认证 Header 名称",
+    "pollIntervalSeconds": "轮询间隔（秒）",
+    "timeoutSeconds": "总时限（秒）",
+    "extraBody": "附加请求体（JSON 对象）",
+    "fieldResponseMapping": "字段与响应映射（JSON 对象）",
+    "jsonObjectRequired": "必须是 JSON 对象",
+    "invalidJson": "图片协议 JSON 无效"
+  },
   "drawing": {
     "title": "绘画",
     "settings": "绘画设置",
@@ -1502,6 +1534,7 @@
     "model": "模型",
     "selectModel": "选择绘图模型",
     "size": "尺寸",
+    "aspectRatio": "宽高比",
     "quality": "质量",
     "outputFormat": "输出格式",
     "background": "背景",
@@ -1509,9 +1542,12 @@
     "compression": "压缩",
     "references": "参考图",
     "referenceImageMode": "参考图发送方式",
+    "referenceImageFormat": "参考图格式",
     "referenceUpload": "上传参考图",
     "history": "历史记录",
     "empty": "暂无绘画记录",
+    "noConfiguredImageProvider": "暂无任何配置绘画模型类型的服务商，请前往服务商设置页进行配置",
+    "openProviderSettings": "打开服务商设置",
     "promptPlaceholder": "输入你想生成的画面",
     "promptRequired": "请输入提示词",
     "usePrompt": "使用提示词",
@@ -1568,6 +1604,8 @@
     "option": {
       "auto": "自动",
       "quality": {
+        "standard": "标准",
+        "hd": "高清",
         "low": "低",
         "medium": "中",
         "high": "高"
@@ -1584,6 +1622,10 @@
       "referenceImageMode": {
         "multipart": "Multipart",
         "base64": "Base64"
+      },
+      "referenceImageFormat": {
+        "object": "对象数组",
+        "string": "字符串数组"
       }
     }
   }

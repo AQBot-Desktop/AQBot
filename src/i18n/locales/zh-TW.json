@@ -1453,6 +1453,38 @@
     "askUserSubmitted": "已提交",
     "askUserSupplementPlaceholder": "補充說明（可選）..."
   },
+  "imageProtocol": {
+    "title": "圖片協議",
+    "grokAutoDetectDescription": "目前模型預設識別為 xAI Images，可在下方明確覆寫。",
+    "autoDetectDescription": "自動識別會根據服務商類型和模型 ID 選擇內建轉接器。",
+    "adapterProfile": "轉接器預設",
+    "autoDetect": "自動識別",
+    "capabilityOverrides": "能力覆寫（留空使用轉接器預設值）",
+    "operation": {
+      "generate": "生成",
+      "edit": "編輯",
+      "maskEdit": "區域編輯"
+    },
+    "generationEndpoint": "生成端點",
+    "generationEndpointPlaceholder": "/images/generations 或完整 URL",
+    "editEndpoint": "編輯端點",
+    "pollEndpoint": "輪詢端點",
+    "cancelEndpoint": "取消端點",
+    "authMode": "驗證方式",
+    "auth": {
+      "bearer": "Bearer Token",
+      "apiKeyHeader": "API 金鑰 Header",
+      "query": "查詢參數",
+      "none": "無驗證"
+    },
+    "authHeaderName": "驗證 Header 名稱",
+    "pollIntervalSeconds": "輪詢間隔（秒）",
+    "timeoutSeconds": "總時限（秒）",
+    "extraBody": "附加請求內容（JSON 物件）",
+    "fieldResponseMapping": "欄位與回應映射（JSON 物件）",
+    "jsonObjectRequired": "必須是 JSON 物件",
+    "invalidJson": "圖片協議 JSON 無效"
+  },
   "drawing": {
     "title": "Drawing",
     "settings": "Drawing Settings",
@@ -1461,6 +1493,7 @@
     "model": "Model",
     "selectModel": "選擇繪圖模型",
     "size": "Size",
+    "aspectRatio": "寬高比",
     "quality": "Quality",
     "outputFormat": "Output Format",
     "background": "Background",
@@ -1470,6 +1503,8 @@
     "referenceUpload": "Upload references",
     "history": "History",
     "empty": "No drawing history",
+    "noConfiguredImageProvider": "暫無任何已設定繪圖模型類型的服務商，請前往服務商設定頁進行設定",
+    "openProviderSettings": "開啟服務商設定",
     "promptPlaceholder": "Describe the image you want to create",
     "promptRequired": "Enter a prompt",
     "usePrompt": "使用提示詞",
@@ -1522,6 +1557,8 @@
     "option": {
       "auto": "自動",
       "quality": {
+        "standard": "標準",
+        "hd": "高清",
         "low": "低",
         "medium": "中",
         "high": "高"
@@ -1538,10 +1575,15 @@
       "referenceImageMode": {
         "base64": "Base64",
         "multipart": "Multipart"
+      },
+      "referenceImageFormat": {
+        "object": "物件陣列",
+        "string": "字串陣列"
       }
     },
     "deleteConfirmTitle": "刪除這條繪畫記錄？",
     "referenceImageMode": "參考圖發送方式",
+    "referenceImageFormat": "參考圖格式",
     "stopConfirmContent": "停止後這條記錄會標記為主動停止。",
     "stopConfirmTitle": "停止生成？",
     "stopped": "主動停止"
