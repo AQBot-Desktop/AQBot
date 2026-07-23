@@ -419,9 +419,9 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
                 </Tag>
               </Tooltip>
             ))}
-            {model?.max_tokens != null && model.max_tokens > 0 && (
+            {model?.context_window != null && model.context_window > 0 && (
               <Tag bordered={false} color="default" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                {formatTokenCount(model.max_tokens)}
+                {formatTokenCount(model.context_window)}
               </Tag>
             )}
           </div>

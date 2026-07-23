@@ -45,7 +45,7 @@ function createProviderFixture(): ProviderConfig {
         group_name: 'gpt-5.4',
         model_type: 'Chat',
         capabilities: ['TextChat'],
-        max_tokens: null,
+        context_window: null,
         enabled: true,
         param_overrides: null,
       },
@@ -160,7 +160,17 @@ describe('ProviderDetail', () => {
     vi.clearAllMocks();
     provider = createProviderFixture();
     mocks.saveModels.mockResolvedValue(undefined);
-    mocks.fetchRemoteModels.mockResolvedValue([]);
+    mocks.fetchRemoteModels.mockResolvedValue({
+      models: [],
+      catalog: {
+        source: 'unavailable',
+        freshness: 'unknown',
+        matched_context_windows: 0,
+        total_chat_models: 0,
+        checked_at: null,
+        warning: null,
+      },
+    });
     mocks.updateProviderKey.mockResolvedValue(undefined);
     mocks.invoke.mockResolvedValue('sk-test-secret');
 
@@ -440,6 +450,96 @@ describe('ProviderDetail', () => {
     });
   });
 
+  it('clears an existing context window from model settings', async () => {
+    provider.models[0].context_window = 16_000;
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openFirstModelSettings();
+    const contextSwitch = within(dialog).getByRole('switch', {
+      name: 'settings.contextWindow',
+    });
+    expect(contextSwitch).toBeChecked();
+    await userEvent.click(contextSwitch);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'gpt-5.4',
+            context_window: null,
+          }),
+        ]),
+      );
+    });
+  });
+
+  it('uses 128K only after enabling an unknown context window', async () => {
+    provider.models[0].context_window = null;
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openFirstModelSettings();
+    const contextSwitch = within(dialog).getByRole('switch', {
+      name: 'settings.contextWindow',
+    });
+    expect(contextSwitch).not.toBeChecked();
+    await userEvent.click(contextSwitch);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining([
+          expect.objectContaining({
+            model_id: 'gpt-5.4',
+            context_window: 128_000,
+          }),
+        ]),
+      );
+    });
+  });
+
+  it('keeps model sync usable when the online catalog is unavailable', async () => {
+    mocks.fetchRemoteModels.mockResolvedValue({
+      models: provider.models,
+      catalog: {
+        source: 'unavailable',
+        freshness: 'unknown',
+        matched_context_windows: 0,
+        total_chat_models: 1,
+        checked_at: null,
+        warning: 'offline',
+      },
+    });
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'settings.syncModels' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('settings.modelCatalogWarning')).toBeInTheDocument();
+    expect(within(dialog).getByText('settings.modelCatalogSource.unavailable')).toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'settings.applyModelSync' }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.saveModels).toHaveBeenCalledWith('provider-1', provider.models);
+    });
+  });
+
   it('syncs remote models without overwriting existing local model settings', async () => {
     provider.models = [
       {
@@ -449,9 +549,20 @@ describe('ProviderDetail', () => {
         group_name: 'local-group',
         model_type: 'Chat',
         capabilities: ['TextChat', 'Reasoning'],
-        max_tokens: 16000,
+        context_window: 16000,
         enabled: false,
         param_overrides: { temperature: 0.1, top_p: 0.8 },
+      },
+      {
+        provider_id: 'provider-1',
+        model_id: 'gpt-5.4-empty',
+        name: 'Local GPT 5.4 Empty',
+        group_name: 'local-group',
+        model_type: 'Chat',
+        capabilities: ['TextChat'],
+        context_window: null,
+        enabled: true,
+        param_overrides: null,
       },
       {
         provider_id: 'provider-1',
@@ -460,36 +571,57 @@ describe('ProviderDetail', () => {
         group_name: 'legacy',
         model_type: 'Chat',
         capabilities: ['TextChat'],
-        max_tokens: 4000,
+        context_window: 4000,
         enabled: true,
         param_overrides: null,
       },
     ];
 
-    mocks.fetchRemoteModels.mockResolvedValue([
-      {
-        provider_id: 'provider-1',
-        model_id: 'gpt-5.4',
-        name: 'Remote GPT 5.4',
-        group_name: 'remote-group',
-        model_type: 'Chat',
-        capabilities: ['TextChat'],
-        max_tokens: 32000,
-        enabled: true,
-        param_overrides: null,
+    mocks.fetchRemoteModels.mockResolvedValue({
+      models: [
+        {
+          provider_id: 'provider-1',
+          model_id: 'gpt-5.4',
+          name: 'Remote GPT 5.4',
+          group_name: 'remote-group',
+          model_type: 'Chat',
+          capabilities: ['TextChat'],
+          context_window: 32000,
+          enabled: true,
+          param_overrides: null,
+        },
+        {
+          provider_id: 'provider-1',
+          model_id: 'gpt-5.4-empty',
+          name: 'Remote GPT 5.4 Empty',
+          group_name: 'remote-group',
+          model_type: 'Chat',
+          capabilities: ['TextChat'],
+          context_window: 64000,
+          enabled: true,
+          param_overrides: null,
+        },
+        {
+          provider_id: 'provider-1',
+          model_id: 'gpt-5.4-mini',
+          name: 'Remote GPT 5.4 Mini',
+          group_name: 'remote-group',
+          model_type: 'Chat',
+          capabilities: ['TextChat'],
+          context_window: 8000,
+          enabled: true,
+          param_overrides: null,
+        },
+      ],
+      catalog: {
+        source: 'network',
+        freshness: 'fresh',
+        matched_context_windows: 3,
+        total_chat_models: 3,
+        checked_at: 100000,
+        warning: null,
       },
-      {
-        provider_id: 'provider-1',
-        model_id: 'gpt-5.4-mini',
-        name: 'Remote GPT 5.4 Mini',
-        group_name: 'remote-group',
-        model_type: 'Chat',
-        capabilities: ['TextChat'],
-        max_tokens: 8000,
-        enabled: true,
-        param_overrides: null,
-      },
-    ]);
+    });
 
     render(
       <App>
@@ -500,7 +632,11 @@ describe('ProviderDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'settings.syncModels' }));
 
     const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('settings.modelCatalogMatched: 3/3'),
+    ).toBeInTheDocument();
     expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4' })).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4-empty' })).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'legacy-model' })).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4-mini' })).not.toBeChecked();
     expect(within(dialog).getByText('settings.remoteMissing')).toBeInTheDocument();
@@ -516,8 +652,15 @@ describe('ProviderDetail', () => {
             model_id: 'gpt-5.4',
             name: 'Local GPT 5.4',
             group_name: 'local-group',
+            context_window: 16000,
             enabled: false,
             param_overrides: { temperature: 0.1, top_p: 0.8 },
+          }),
+          expect.objectContaining({
+            model_id: 'gpt-5.4-empty',
+            name: 'Local GPT 5.4 Empty',
+            group_name: 'local-group',
+            context_window: 64000,
           }),
           expect.objectContaining({
             model_id: 'legacy-model',
@@ -528,6 +671,7 @@ describe('ProviderDetail', () => {
             model_id: 'gpt-5.4-mini',
             name: 'Remote GPT 5.4 Mini',
             group_name: 'remote-group',
+            context_window: 8000,
           }),
         ]),
       );

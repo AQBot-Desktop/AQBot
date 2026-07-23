@@ -723,13 +723,9 @@ mod tests {
         request: Request<Body>,
     ) -> Response<Body> {
         let bytes = to_bytes(request.into_body(), usize::MAX).await.unwrap();
-        state
-            .captures
-            .lock()
-            .unwrap()
-            .push(CapturedChatRequest {
-                body: serde_json::from_slice(&bytes).unwrap(),
-            });
+        state.captures.lock().unwrap().push(CapturedChatRequest {
+            body: serde_json::from_slice(&bytes).unwrap(),
+        });
 
         let mut response = Response::builder().status(StatusCode::OK);
         for (name, value) in state.headers.iter() {
@@ -798,7 +794,7 @@ mod tests {
                     group_name: None,
                     model_type: ModelType::Chat,
                     capabilities: vec![ModelCapability::TextChat],
-                    max_tokens: Some(4096),
+                    context_window: Some(4096),
                     enabled: true,
                     param_overrides: None,
                 }],
@@ -962,7 +958,7 @@ mod tests {
                     group_name: None,
                     model_type: ModelType::Chat,
                     capabilities: vec![],
-                    max_tokens: None,
+                    context_window: None,
                     enabled: true,
                     param_overrides: None,
                 })

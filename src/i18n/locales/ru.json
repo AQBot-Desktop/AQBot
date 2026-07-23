@@ -666,6 +666,16 @@
     "temperature": "Температура",
     "maxTokens": "Макс. токены",
     "contextWindow": "Окно контекста",
+    "modelCatalogMatched": "Совпадения каталога контекста",
+    "modelCatalogNeverChecked": "Ещё не проверено",
+    "modelCatalogCheckedAt": "Последняя проверка",
+    "modelCatalogSource": {
+      "network": "Онлайн",
+      "cache": "Кэш",
+      "unavailable": "Недоступно"
+    },
+    "modelCatalogStale": "Кэш каталога устарел",
+    "modelCatalogWarning": "Не удалось обновить каталог моделей",
     "topP": "Top P",
     "frequencyPenalty": "Штраф за повторения",
     "useMaxCompletionTokens": "Использовать max_completion_tokens",

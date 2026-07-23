@@ -797,14 +797,14 @@ export function InputArea() {
         getContextUsage(activeConversationId).then((usage) => {
           perfTraceDuration('chat.contextUsage', startedAt, { conversationId: activeConversationId });
           if (cancelled) return;
-          if (!usage?.max_tokens) {
+          if (!usage?.context_window) {
             setServerContextUsage(null);
             return;
           }
           setServerContextUsage({
             usedTokens: usage.used_tokens,
-            maxTokens: usage.max_tokens,
-            percent: Math.min(Math.round((usage.used_tokens / usage.max_tokens) * 100), 100),
+            maxTokens: usage.context_window,
+            percent: Math.min(Math.round((usage.used_tokens / usage.context_window) * 100), 100),
           });
         });
       };
@@ -830,7 +830,7 @@ export function InputArea() {
   const contextTokenUsage = useMemo(() => {
     if (serverContextUsage) return serverContextUsage;
 
-    const maxTokens = currentModel?.max_tokens;
+    const maxTokens = currentModel?.context_window;
     if (!maxTokens) return null;
 
     // Count message tokens (only after last marker)
@@ -851,7 +851,7 @@ export function InputArea() {
 
     const percent = Math.min(Math.round((usedTokens / maxTokens) * 100), 100);
     return { usedTokens, maxTokens, percent };
-  }, [messages, currentModel?.max_tokens, activeConversation?.system_prompt, serverContextUsage]);
+  }, [messages, currentModel?.context_window, activeConversation?.system_prompt, serverContextUsage]);
 
   const { hasRealtimeVoice, hasReasoning, hasVision } = React.useMemo(() => ({
     hasRealtimeVoice: activeConversation

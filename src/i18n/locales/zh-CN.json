@@ -700,6 +700,16 @@
     "temperature": "温度",
     "maxTokens": "最大 Tokens",
     "contextWindow": "上下文窗口",
+    "modelCatalogMatched": "上下文目录已识别",
+    "modelCatalogNeverChecked": "尚未检查",
+    "modelCatalogCheckedAt": "最近检查",
+    "modelCatalogSource": {
+      "network": "在线",
+      "cache": "缓存",
+      "unavailable": "不可用"
+    },
+    "modelCatalogStale": "目录缓存已过期",
+    "modelCatalogWarning": "模型目录刷新失败",
     "topP": "Top P",
     "frequencyPenalty": "频率惩罚",
     "useMaxCompletionTokens": "使用 max_completion_tokens",

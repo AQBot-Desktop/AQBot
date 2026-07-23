@@ -666,6 +666,16 @@
     "temperature": "Temperatura",
     "maxTokens": "Máximo de tokens",
     "contextWindow": "Ventana de contexto",
+    "modelCatalogMatched": "Coincidencias del catálogo de contexto",
+    "modelCatalogNeverChecked": "Aún no comprobado",
+    "modelCatalogCheckedAt": "Última comprobación",
+    "modelCatalogSource": {
+      "network": "En línea",
+      "cache": "Caché",
+      "unavailable": "No disponible"
+    },
+    "modelCatalogStale": "El catálogo en caché está desactualizado",
+    "modelCatalogWarning": "No se pudo actualizar el catálogo",
     "topP": "Top P",
     "frequencyPenalty": "Penalización de frecuencia",
     "useMaxCompletionTokens": "Usar max_completion_tokens",

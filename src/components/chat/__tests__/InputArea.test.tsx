@@ -76,7 +76,7 @@ const providerState = {
           model_type: 'Chat',
           enabled: true,
           capabilities: [] as string[],
-          max_tokens: 128000,
+          context_window: 128000,
           param_overrides: null,
         },
       ],
@@ -345,7 +345,7 @@ describe('InputArea', () => {
   it('shows backend context usage instead of a loaded-message estimate', async () => {
     getContextUsage.mockResolvedValueOnce({
       used_tokens: 720000,
-      max_tokens: 1000000,
+      context_window: 1000000,
       threshold_tokens: 700000,
       has_summary: true,
       compressed_until_message_id: 'msg-1',
@@ -371,7 +371,7 @@ describe('InputArea', () => {
       conversationState.messages = [];
       getContextUsage.mockResolvedValue({
         used_tokens: 12,
-        max_tokens: 100,
+        context_window: 100,
         threshold_tokens: 70,
         has_summary: false,
         compressed_until_message_id: null,

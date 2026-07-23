@@ -1010,7 +1010,7 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
                     group_name: None,
                     model_type,
                     capabilities: caps,
-                    max_tokens: None,
+                    context_window: None,
                     enabled: true,
                     param_overrides: None,
                 }

@@ -12,6 +12,7 @@ import type {
   UpdateProviderInput,
   ProviderKey,
   Model,
+  RemoteModelSyncResult,
   ModelParamOverrides,
   DeepLinkProviderImportInput,
   DeepLinkProviderImportResult,
@@ -65,7 +66,7 @@ interface ProviderState {
   saveModels: (providerId: string, models: Model[]) => Promise<void>;
   toggleModel: (providerId: string, modelId: string, enabled: boolean) => Promise<Model>;
   updateModelParams: (providerId: string, modelId: string, overrides: ModelParamOverrides) => Promise<Model>;
-  fetchRemoteModels: (providerId: string) => Promise<Model[]>;
+  fetchRemoteModels: (providerId: string) => Promise<RemoteModelSyncResult>;
   testModel: (providerId: string, modelId: string) => Promise<number>;
 }
 
@@ -473,7 +474,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
   fetchRemoteModels: async (providerId) => {
     try {
-      return await invoke<Model[]>('fetch_remote_models', { providerId });
+      return await invoke<RemoteModelSyncResult>('fetch_remote_models', { providerId });
     } catch (e) {
       set({ error: String(e) });
       throw e;

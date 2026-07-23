@@ -65,7 +65,7 @@ describe('providerStore', () => {
         group_name: null,
         model_type: 'Chat',
         capabilities: ['TextChat'],
-        max_tokens: 1000000,
+        context_window: 1000000,
         enabled: true,
         param_overrides: null,
       },

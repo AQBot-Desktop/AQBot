@@ -504,7 +504,11 @@ fn local_tool_call_id(response_id: Option<&str>, index: usize) -> String {
     }
 }
 
-fn normalize_response_tool_call_id(id: Option<&str>, response_id: Option<&str>, index: usize) -> String {
+fn normalize_response_tool_call_id(
+    id: Option<&str>,
+    response_id: Option<&str>,
+    index: usize,
+) -> String {
     id.map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string)
@@ -647,7 +651,9 @@ fn convert_messages(
             match msg.role.as_str() {
                 "tool" => OpenAIMessage {
                     role: "tool".to_string(),
-                    content: Some(serde_json::Value::String(extract_text_content(&msg.content))),
+                    content: Some(serde_json::Value::String(extract_text_content(
+                        &msg.content,
+                    ))),
                     reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: msg.tool_call_id.clone(),
@@ -669,12 +675,16 @@ fn convert_messages(
                                             serde_json::Value::String(part.r#type.clone()),
                                         );
                                         if let Some(text) = &part.text {
-                                            value.insert("text".to_string(), serde_json::Value::String(text.clone()));
+                                            value.insert(
+                                                "text".to_string(),
+                                                serde_json::Value::String(text.clone()),
+                                            );
                                         }
                                         if let Some(image_url) = &part.image_url {
                                             value.insert(
                                                 "image_url".to_string(),
-                                                serde_json::to_value(image_url).unwrap_or(serde_json::Value::Null),
+                                                serde_json::to_value(image_url)
+                                                    .unwrap_or(serde_json::Value::Null),
                                             );
                                         }
                                         serde_json::Value::Object(value)
@@ -690,7 +700,7 @@ fn convert_messages(
                         tool_calls: serialized_tool_calls,
                         tool_call_id: None,
                     }
-                },
+                }
                 _ => {
                     let content = match &msg.content {
                         ChatContent::Text(text) => serde_json::Value::String(text.clone()),
@@ -704,12 +714,16 @@ fn convert_messages(
                                         serde_json::Value::String(part.r#type.clone()),
                                     );
                                     if let Some(text) = &part.text {
-                                        value.insert("text".to_string(), serde_json::Value::String(text.clone()));
+                                        value.insert(
+                                            "text".to_string(),
+                                            serde_json::Value::String(text.clone()),
+                                        );
                                     }
                                     if let Some(image_url) = &part.image_url {
                                         value.insert(
                                             "image_url".to_string(),
-                                            serde_json::to_value(image_url).unwrap_or(serde_json::Value::Null),
+                                            serde_json::to_value(image_url)
+                                                .unwrap_or(serde_json::Value::Null),
                                         );
                                     }
                                     serde_json::Value::Object(value)
@@ -745,10 +759,7 @@ fn normalized_max_completion_tokens<P: OpenAICompatPolicy>(
     })
 }
 
-fn merge_model_extra_body(
-    extra: &mut Map<String, Value>,
-    custom: Option<&Map<String, Value>>,
-) {
+fn merge_model_extra_body(extra: &mut Map<String, Value>, custom: Option<&Map<String, Value>>) {
     let Some(custom) = custom else {
         return;
     };
@@ -1169,7 +1180,10 @@ mod tests {
             serialized["messages"][0]["reasoning_content"],
             json!("hidden thinking")
         );
-        assert_eq!(serialized["messages"][0]["tool_calls"][0]["id"], json!("call-1"));
+        assert_eq!(
+            serialized["messages"][0]["tool_calls"][0]["id"],
+            json!("call-1")
+        );
     }
 
     #[test]
@@ -1195,7 +1209,10 @@ mod tests {
         let body = build_request(&DeepSeekPolicy, &request, &request.messages, true);
         let serialized = serde_json::to_value(body).expect("request json");
 
-        assert_eq!(serialized["messages"][0]["content"], json!("visible answer"));
+        assert_eq!(
+            serialized["messages"][0]["content"],
+            json!("visible answer")
+        );
         assert!(serialized["messages"][0].get("reasoning_content").is_none());
         assert!(serialized["messages"][0].get("tool_calls").is_none());
     }
@@ -1273,9 +1290,11 @@ mod tests {
         .expect("response");
         let message = response.choices[0].message.as_ref().unwrap();
 
-        let tool_calls =
-            normalize_response_tool_calls(message.tool_calls.as_ref().unwrap(), response.id.as_deref())
-                .unwrap();
+        let tool_calls = normalize_response_tool_calls(
+            message.tool_calls.as_ref().unwrap(),
+            response.id.as_deref(),
+        )
+        .unwrap();
 
         assert_eq!(tool_calls[0].id, "call_aqbot_resp-abc_0");
         assert_eq!(tool_calls[0].function.name, "read_file");
@@ -1651,7 +1670,7 @@ where
                                 .message
                                 .as_ref()
                                 .and_then(|message| message.tool_calls.as_ref())
-                    });
+                        });
                     if let Some(tc_deltas) = tool_call_deltas {
                         for tc in tc_deltas {
                             merge_stream_tool_call_delta(&mut pending_tool_calls, tc);
@@ -1855,7 +1874,7 @@ where
                         group_name: None,
                         model_type,
                         capabilities: caps,
-                        max_tokens: None,
+                        context_window: None,
                         enabled: true,
                         param_overrides: None,
                     }

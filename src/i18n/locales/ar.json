@@ -666,6 +666,16 @@
     "temperature": "الحرارة",
     "maxTokens": "الحد الأقصى للرموز",
     "contextWindow": "نافذة السياق",
+    "modelCatalogMatched": "مطابقات دليل السياق",
+    "modelCatalogNeverChecked": "لم يتم التحقق بعد",
+    "modelCatalogCheckedAt": "آخر تحقق",
+    "modelCatalogSource": {
+      "network": "عبر الإنترنت",
+      "cache": "ذاكرة التخزين المؤقت",
+      "unavailable": "غير متاح"
+    },
+    "modelCatalogStale": "ذاكرة دليل النماذج قديمة",
+    "modelCatalogWarning": "تعذر تحديث دليل النماذج",
     "topP": "Top P",
     "frequencyPenalty": "عقوبة التكرار",
     "useMaxCompletionTokens": "استخدام max_completion_tokens",

@@ -133,7 +133,7 @@ pub struct CompressionEvent {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ContextUsage {
     used_tokens: u32,
-    max_tokens: Option<u32>,
+    context_window: Option<u32>,
     threshold_tokens: Option<u32>,
     has_summary: bool,
     compressed_until_message_id: Option<String>,
@@ -411,8 +411,7 @@ fn filter_tool_calls_for_event(tool_calls: Option<&[ToolCall]>) -> Option<Vec<To
             .cloned()
             .map(|mut tool_call| {
                 tool_call.id = filter_complete_inline_data_event_text(&tool_call.id);
-                tool_call.call_type =
-                    filter_complete_inline_data_event_text(&tool_call.call_type);
+                tool_call.call_type = filter_complete_inline_data_event_text(&tool_call.call_type);
                 tool_call.function.name =
                     filter_complete_inline_data_event_text(&tool_call.function.name);
                 tool_call.function.arguments =
@@ -699,8 +698,7 @@ async fn finalize_new_message_for_ipc(
     };
     rollback_attachments = finalized.attachments.clone();
     if let Err(error) = crate::commands::messages::ensure_message_safe_for_ipc(&finalized) {
-        let rollback_errors =
-            rollback_new_message(db, &message_id, &rollback_attachments).await;
+        let rollback_errors = rollback_new_message(db, &message_id, &rollback_attachments).await;
         return Err(format_new_message_failure(
             &message_id,
             "IPC validation failed",
@@ -1716,12 +1714,10 @@ async fn delete_conversation_with_attachments_using(
     if deleted.rows_affected == 0 {
         return Err(format!("Conversation {conversation_id} not found"));
     }
-    let storage_paths = aqbot_core::repo::stored_file::delete_unreferenced_candidates(
-        &txn,
-        &candidate_ids,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    let storage_paths =
+        aqbot_core::repo::stored_file::delete_unreferenced_candidates(&txn, &candidate_ids)
+            .await
+            .map_err(|error| error.to_string())?;
     txn.commit().await.map_err(|error| error.to_string())?;
 
     for storage_path in storage_paths {
@@ -2049,8 +2045,8 @@ async fn consume_stream(
         }
     }
 
-    let capture_can_commit = stream_error.is_none()
-        && !cancel_flag.load(std::sync::atomic::Ordering::Relaxed);
+    let capture_can_commit =
+        stream_error.is_none() && !cancel_flag.load(std::sync::atomic::Ordering::Relaxed);
     let streamed_images = if capture_can_commit {
         match inline_data_capture.finish() {
             Ok(trailing) => {
@@ -4002,9 +3998,8 @@ pub async fn send_message(
         return Err("Assistant content prefix contains inline image data".to_string());
     }
     let prepared_inline_media =
-        aqbot_core::inline_media::prepare_message_inline_images(&content).map_err(|error| {
-            format!("Message content rejected before persistence: {error}")
-        })?;
+        aqbot_core::inline_media::prepare_message_inline_images(&content)
+            .map_err(|error| format!("Message content rejected before persistence: {error}"))?;
     let cancel_flag = Arc::new(AtomicBool::new(false));
 
     let persisted_attachments = persist_attachments(&state, &conversation_id, &attachments)
@@ -4041,12 +4036,9 @@ pub async fn send_message(
             ));
         }
     };
-    let user_message = finalize_new_message_for_ipc(
-        &state.sea_db,
-        user_message,
-        prepared_inline_media.as_ref(),
-    )
-    .await?;
+    let user_message =
+        finalize_new_message_for_ipc(&state.sea_db, user_message, prepared_inline_media.as_ref())
+            .await?;
 
     // Increment the persisted message count
     if let Err(error) =
@@ -4111,7 +4103,7 @@ pub async fn send_message(
     let reasoning_profile = model_param_overrides
         .as_ref()
         .and_then(|p| p.reasoning_profile.clone());
-    let model_context_window = resolved_model.as_ref().and_then(|m| m.max_tokens);
+    let model_context_window = resolved_model.as_ref().and_then(|m| m.context_window);
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .unwrap_or_default();
@@ -4531,7 +4523,7 @@ pub async fn regenerate_message(
     )
     .await
     .ok();
-    let model_context_window = resolved_regen_model.as_ref().and_then(|m| m.max_tokens);
+    let model_context_window = resolved_regen_model.as_ref().and_then(|m| m.context_window);
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // 6. Rebuild chat messages (active messages only — old inactive versions excluded)
@@ -4835,7 +4827,9 @@ pub async fn regenerate_with_model(
     )
     .await
     .ok();
-    let model_context_window = resolved_target_model.as_ref().and_then(|m| m.max_tokens);
+    let model_context_window = resolved_target_model
+        .as_ref()
+        .and_then(|m| m.context_window);
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // Build context messages (same logic as regenerate_message)
@@ -5116,11 +5110,8 @@ pub async fn list_message_versions(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let messages = crate::commands::messages::materialize_messages_for_ipc(
-        &state.sea_db,
-        messages,
-    )
-    .await?;
+    let messages =
+        crate::commands::messages::materialize_messages_for_ipc(&state.sea_db, messages).await?;
     Ok(messages)
 }
 
@@ -5544,7 +5535,7 @@ pub async fn get_context_usage(
     )
     .await
     .ok();
-    let model_context_window = resolved_model.as_ref().and_then(|m| m.max_tokens);
+    let model_context_window = resolved_model.as_ref().and_then(|m| m.context_window);
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .unwrap_or_default();
@@ -5598,7 +5589,7 @@ pub async fn get_context_usage(
 
     Ok(ContextUsage {
         used_tokens,
-        max_tokens: model_context_window,
+        context_window: model_context_window,
         threshold_tokens,
         has_summary: effective_existing_summary.is_some(),
         compressed_until_message_id: effective_existing_summary
@@ -5641,10 +5632,10 @@ pub async fn send_system_message(
     conversation_id: String,
     content: String,
 ) -> Result<Message, String> {
-    let prepared_inline_media =
-        aqbot_core::inline_media::prepare_message_inline_images(&content).map_err(|error| {
-            format!("System message content rejected before persistence: {error}")
-        })?;
+    let prepared_inline_media = aqbot_core::inline_media::prepare_message_inline_images(&content)
+        .map_err(|error| {
+        format!("System message content rejected before persistence: {error}")
+    })?;
     let safe_content = prepared_inline_media
         .as_ref()
         .map(|prepared| prepared.safe_content())
@@ -5686,6 +5677,10 @@ mod tests {
             main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
             main_window_restoring: Arc::new(AtomicBool::new(false)),
             is_quitting: Arc::new(AtomicBool::new(false)),
+            model_catalog: Arc::new(crate::model_catalog::ModelCatalogService::new(
+                std::env::temp_dir().join("aqbot-test-model-metadata"),
+                crate::model_catalog::ModelCatalogConfig::default(),
+            )),
             app_data_dir: std::env::temp_dir(),
             db_path: "sqlite::memory:".to_string(),
             auto_backup_handle: Arc::new(Mutex::new(None)),
@@ -6168,7 +6163,9 @@ mod tests {
 
         let emitted = filter_tool_calls_for_event(Some(std::slice::from_ref(&raw))).unwrap();
 
-        assert!(!serde_json::to_string(&emitted).unwrap().contains("data:image"));
+        assert!(!serde_json::to_string(&emitted)
+            .unwrap()
+            .contains("data:image"));
         assert!(!serde_json::to_string(&emitted).unwrap().contains("iVBOR"));
         assert!(raw.function.arguments.contains("data:image"));
         assert!(raw.id.contains("data:image"));
@@ -7572,12 +7569,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(aqbot_core::repo::conversation::get_conversation(&db, &conversation.id)
-            .await
-            .is_err());
-        assert!(aqbot_core::repo::stored_file::get_stored_file(&db, &stored.id)
-            .await
-            .is_ok());
+        assert!(
+            aqbot_core::repo::conversation::get_conversation(&db, &conversation.id)
+                .await
+                .is_err()
+        );
+        assert!(
+            aqbot_core::repo::stored_file::get_stored_file(&db, &stored.id)
+                .await
+                .is_ok()
+        );
         assert!(file_store.read_file(&stored.storage_path).is_ok());
         let fetched = aqbot_core::repo::drawing::get_generation(&db, &generation.id)
             .await
@@ -7615,6 +7616,10 @@ mod tests {
             main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
             main_window_restoring: Arc::new(AtomicBool::new(false)),
             is_quitting: Arc::new(AtomicBool::new(false)),
+            model_catalog: Arc::new(crate::model_catalog::ModelCatalogService::new(
+                temp_dir.join("model_metadata"),
+                crate::model_catalog::ModelCatalogConfig::default(),
+            )),
             app_data_dir: temp_dir.clone(),
             db_path: "sqlite::memory:".to_string(),
             auto_backup_handle: Arc::new(Mutex::new(None)),
@@ -7759,10 +7764,12 @@ mod tests {
         .await
         .unwrap()
         .is_empty());
-        assert!(aqbot_core::repo::message::list_messages(&db, &conversation.id)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            aqbot_core::repo::message::list_messages(&db, &conversation.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(!aqbot_core::file_store::FileStore::new()
             .resolve_path(&expected_path)
             .exists());

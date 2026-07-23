@@ -224,7 +224,7 @@ async fn test_provider_model_operations() {
         group_name: Some("claude-3".into()),
         model_type: ModelType::Chat,
         capabilities: vec![ModelCapability::TextChat],
-        max_tokens: Some(4096),
+        context_window: Some(4096),
         enabled: true,
         param_overrides: None,
     }];

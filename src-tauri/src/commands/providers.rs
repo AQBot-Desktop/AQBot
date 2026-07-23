@@ -4,6 +4,40 @@ use aqbot_core::types::*;
 use std::time::Instant;
 use tauri::State;
 
+fn provider_registry_key(provider_type: &ProviderType) -> &'static str {
+    match provider_type {
+        ProviderType::OpenAI => "openai",
+        ProviderType::OpenAIResponses => "openai_responses",
+        ProviderType::DeepSeek => "deepseek",
+        ProviderType::XAI => "xai",
+        ProviderType::GLM => "glm",
+        ProviderType::SiliconFlow => "siliconflow",
+        ProviderType::Anthropic => "anthropic",
+        ProviderType::Gemini => "gemini",
+        ProviderType::Jina => "jina",
+        ProviderType::Cohere => "cohere",
+        ProviderType::Voyage => "voyage",
+        ProviderType::Custom => "custom",
+    }
+}
+
+async fn load_model_catalog(
+    state: &AppState,
+    settings: &AppSettings,
+    now: i64,
+) -> crate::model_catalog::CatalogLoadResult {
+    let proxy = ProviderProxyConfig::resolve(&None, settings);
+    match aqbot_providers::build_http_client(proxy.as_ref()) {
+        Ok(client) => state.model_catalog.load(&client, now).await,
+        Err(error) => {
+            state
+                .model_catalog
+                .load_cached_only(now, format!("Failed to build LiteLLM HTTP client: {error}"))
+                .await
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn list_providers(state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
     aqbot_core::repo::provider::list_providers_merged(&state.sea_db)
@@ -184,20 +218,7 @@ pub async fn validate_provider_key(
         .map_err(|e| e.to_string())?;
     // Use the registry to validate by listing models
     let registry = aqbot_providers::registry::ProviderRegistry::create_default();
-    let provider_type_str = match provider.provider_type {
-        ProviderType::OpenAI => "openai",
-        ProviderType::OpenAIResponses => "openai_responses",
-        ProviderType::DeepSeek => "deepseek",
-        ProviderType::XAI => "xai",
-        ProviderType::GLM => "glm",
-        ProviderType::SiliconFlow => "siliconflow",
-        ProviderType::Anthropic => "anthropic",
-        ProviderType::Gemini => "gemini",
-        ProviderType::Jina => "jina",
-        ProviderType::Cohere => "cohere",
-        ProviderType::Voyage => "voyage",
-        ProviderType::Custom => "custom",
-    };
+    let provider_type_str = provider_registry_key(&provider.provider_type);
     let adapter = registry
         .get(provider_type_str)
         .ok_or_else(|| format!("No adapter for provider type: {}", provider_type_str))?;
@@ -287,7 +308,7 @@ pub async fn update_model_params(
 pub async fn fetch_remote_models(
     state: State<'_, AppState>,
     provider_id: String,
-) -> Result<Vec<Model>, String> {
+) -> Result<crate::model_catalog::RemoteModelSyncResult, String> {
     let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -301,20 +322,7 @@ pub async fn fetch_remote_models(
     let decrypted = aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
         .map_err(|e| e.to_string())?;
     let registry = aqbot_providers::registry::ProviderRegistry::create_default();
-    let provider_type_str = match provider.provider_type {
-        ProviderType::OpenAI => "openai",
-        ProviderType::OpenAIResponses => "openai_responses",
-        ProviderType::DeepSeek => "deepseek",
-        ProviderType::XAI => "xai",
-        ProviderType::GLM => "glm",
-        ProviderType::SiliconFlow => "siliconflow",
-        ProviderType::Anthropic => "anthropic",
-        ProviderType::Gemini => "gemini",
-        ProviderType::Jina => "jina",
-        ProviderType::Cohere => "cohere",
-        ProviderType::Voyage => "voyage",
-        ProviderType::Custom => "custom",
-    };
+    let provider_type_str = provider_registry_key(&provider.provider_type);
     let adapter = registry
         .get(provider_type_str)
         .ok_or_else(|| format!("No adapter for provider type: {}", provider_type_str))?;
@@ -338,7 +346,13 @@ pub async fn fetch_remote_models(
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok()),
     };
-    adapter.list_models(&ctx).await.map_err(|e| e.to_string())
+    let now = chrono::Utc::now().timestamp();
+    let catalog_future = load_model_catalog(state.inner(), &global_settings, now);
+    let (models, catalog) = tokio::join!(adapter.list_models(&ctx), catalog_future);
+    let models = models.map_err(|error| error.to_string())?;
+    Ok(crate::model_catalog::enrich_models(
+        &provider, models, catalog,
+    ))
 }
 
 /// Test a single model's availability by sending the minimal native request.
@@ -361,20 +375,7 @@ pub async fn test_model(
     let decrypted = aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
         .map_err(|e| e.to_string())?;
     let registry = aqbot_providers::registry::ProviderRegistry::create_default();
-    let provider_type_str = match provider.provider_type {
-        ProviderType::OpenAI => "openai",
-        ProviderType::OpenAIResponses => "openai_responses",
-        ProviderType::DeepSeek => "deepseek",
-        ProviderType::XAI => "xai",
-        ProviderType::GLM => "glm",
-        ProviderType::SiliconFlow => "siliconflow",
-        ProviderType::Anthropic => "anthropic",
-        ProviderType::Gemini => "gemini",
-        ProviderType::Jina => "jina",
-        ProviderType::Cohere => "cohere",
-        ProviderType::Voyage => "voyage",
-        ProviderType::Custom => "custom",
-    };
+    let provider_type_str = provider_registry_key(&provider.provider_type);
     let adapter = registry
         .get(provider_type_str)
         .ok_or_else(|| format!("No adapter for provider type: {}", provider_type_str))?;

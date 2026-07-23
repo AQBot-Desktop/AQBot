@@ -719,7 +719,11 @@ impl ProviderAdapter for GeminiAdapter {
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {
-        let url = format!("{}?key={}", crate::resolve_models_url(&Self::base_url(ctx)), ctx.api_key);
+        let url = format!(
+            "{}?key={}",
+            crate::resolve_models_url(&Self::base_url(ctx)),
+            ctx.api_key
+        );
 
         let resp = crate::apply_request_headers(self.get_client(ctx)?.get(&url), ctx)
             .send()
@@ -766,7 +770,7 @@ impl ProviderAdapter for GeminiAdapter {
                     group_name: None,
                     model_type,
                     capabilities: caps,
-                    max_tokens: None,
+                    context_window: None,
                     enabled: true,
                     param_overrides: None,
                 }

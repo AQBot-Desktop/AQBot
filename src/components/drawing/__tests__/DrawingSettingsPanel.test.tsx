@@ -46,7 +46,7 @@ const providersFixture: ProviderConfig[] = [{
     name: 'gpt-image-2',
     model_type: 'Image',
     capabilities: [],
-    max_tokens: null,
+    context_window: null,
     enabled: true,
     param_overrides: null,
   }],

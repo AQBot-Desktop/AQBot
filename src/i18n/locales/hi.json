@@ -666,6 +666,16 @@
     "temperature": "तापमान",
     "maxTokens": "अधिकतम टोकन",
     "contextWindow": "संदर्भ विंडो",
+    "modelCatalogMatched": "संदर्भ कैटलॉग मिलान",
+    "modelCatalogNeverChecked": "अभी जाँचा नहीं गया",
+    "modelCatalogCheckedAt": "अंतिम जाँच",
+    "modelCatalogSource": {
+      "network": "ऑनलाइन",
+      "cache": "कैश",
+      "unavailable": "अनुपलब्ध"
+    },
+    "modelCatalogStale": "कैटलॉग कैश पुराना है",
+    "modelCatalogWarning": "मॉडल कैटलॉग रीफ़्रेश विफल",
     "topP": "Top P",
     "frequencyPenalty": "आवृत्ति दंड",
     "useMaxCompletionTokens": "max_completion_tokens उपयोग करें",

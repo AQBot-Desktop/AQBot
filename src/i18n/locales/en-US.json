@@ -700,6 +700,16 @@
     "temperature": "Temperature",
     "maxTokens": "Max Tokens",
     "contextWindow": "Context Window",
+    "modelCatalogMatched": "Context catalog matched",
+    "modelCatalogNeverChecked": "Not checked yet",
+    "modelCatalogCheckedAt": "Last checked",
+    "modelCatalogSource": {
+      "network": "Online",
+      "cache": "Cache",
+      "unavailable": "Unavailable"
+    },
+    "modelCatalogStale": "Cached catalog is stale",
+    "modelCatalogWarning": "Model catalog refresh failed",
     "topP": "Top P",
     "frequencyPenalty": "Frequency Penalty",
     "useMaxCompletionTokens": "Use max_completion_tokens",

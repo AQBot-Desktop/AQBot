@@ -58,7 +58,6 @@ pub struct BuiltinModel {
     pub group_name: Option<&'static str>,
     pub model_type: Option<ModelType>,
     pub capabilities: Vec<ModelCapability>,
-    pub max_tokens: Option<u32>,
     pub enabled: bool,
     pub param_overrides: Option<ModelParamOverrides>,
 }
@@ -68,7 +67,6 @@ impl BuiltinModel {
         model_id: &'static str,
         name: &'static str,
         capabilities: Vec<ModelCapability>,
-        max_tokens: Option<u32>,
     ) -> Self {
         Self {
             model_id,
@@ -76,7 +74,6 @@ impl BuiltinModel {
             group_name: None,
             model_type: Some(ModelType::Chat),
             capabilities,
-            max_tokens,
             enabled: true,
             param_overrides: None,
         }
@@ -89,7 +86,6 @@ impl BuiltinModel {
             group_name: Some("gpt-image"),
             model_type: Some(ModelType::Image),
             capabilities: vec![],
-            max_tokens: None,
             enabled: true,
             param_overrides: None,
         }
@@ -102,7 +98,6 @@ impl BuiltinModel {
             group_name: None,
             model_type: Some(ModelType::Rerank),
             capabilities: vec![],
-            max_tokens: None,
             enabled: true,
             param_overrides: None,
         }
@@ -129,7 +124,7 @@ impl BuiltinModel {
                 .clone()
                 .unwrap_or_else(|| ModelType::detect(self.model_id)),
             capabilities: self.capabilities.clone(),
-            max_tokens: self.max_tokens,
+            context_window: None,
             enabled: self.enabled,
             param_overrides: self.param_overrides.clone(),
         }
@@ -186,28 +181,24 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "gpt-5.5",
                     "GPT-5.5",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(openai_reasoning_profile()),
                 BuiltinModel::chat(
                     "gpt-5.4",
                     "GPT-5.4",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(openai_reasoning_profile()),
                 BuiltinModel::chat(
                     "gpt-5.4-mini",
                     "GPT-5.4 Mini",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(400_000),
                 )
                 .with_param_overrides(openai_reasoning_profile()),
                 BuiltinModel::chat(
                     "gpt-5.4-nano",
                     "GPT-5.4 Nano",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(400_000),
                 )
                 .with_param_overrides(openai_reasoning_profile())
                 .disabled(),
@@ -215,47 +206,32 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "gpt-4.1",
                     "GPT-4.1",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1_047_576),
                 ),
                 BuiltinModel::chat(
                     "gpt-4.1-mini",
                     "GPT-4.1 Mini",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1_047_576),
                 ),
                 BuiltinModel::chat(
                     "gpt-4.1-nano",
                     "GPT-4.1 Nano",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1_047_576),
                 )
                 .disabled(),
-                BuiltinModel::chat(
-                    "gpt-4o",
-                    "GPT-4o",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(128_000),
-                )
-                .disabled(),
+                BuiltinModel::chat("gpt-4o", "GPT-4o", vec![TextChat, Vision, FunctionCalling])
+                    .disabled(),
                 BuiltinModel::chat(
                     "gpt-4o-mini",
                     "GPT-4o Mini",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(128_000),
                 )
                 .disabled(),
-                BuiltinModel::chat(
-                    "o3",
-                    "o3",
-                    vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200_000),
-                )
-                .with_param_overrides(openai_reasoning_profile()),
+                BuiltinModel::chat("o3", "o3", vec![TextChat, Reasoning, FunctionCalling])
+                    .with_param_overrides(openai_reasoning_profile()),
                 BuiltinModel::chat(
                     "o4-mini",
                     "o4-mini",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200_000),
                 )
                 .with_param_overrides(openai_reasoning_profile()),
                 BuiltinModel::image("gpt-image-2", "gpt-image-2"),
@@ -274,55 +250,39 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "gpt-5.5",
                     "GPT-5.5",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
                 BuiltinModel::chat(
                     "gpt-5.4",
                     "GPT-5.4",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
                 BuiltinModel::chat(
                     "gpt-5.4-mini",
                     "GPT-5.4 Mini",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(400_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
                 BuiltinModel::chat(
                     "gpt-4.1",
                     "GPT-4.1",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1_047_576),
                 ),
-                BuiltinModel::chat(
-                    "gpt-4o",
-                    "GPT-4o",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(128_000),
-                )
-                .disabled(),
+                BuiltinModel::chat("gpt-4o", "GPT-4o", vec![TextChat, Vision, FunctionCalling])
+                    .disabled(),
                 BuiltinModel::chat(
                     "gpt-4o-mini",
                     "GPT-4o Mini",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(128_000),
                 )
                 .disabled(),
-                BuiltinModel::chat(
-                    "o3",
-                    "o3",
-                    vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200_000),
-                )
-                .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
+                BuiltinModel::chat("o3", "o3", vec![TextChat, Reasoning, FunctionCalling])
+                    .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
                 BuiltinModel::chat(
                     "o4-mini",
                     "o4-mini",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(200_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_responses_reasoning")),
             ],
@@ -337,42 +297,36 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "gemini-3.1-pro-preview",
                     "Gemini 3.1 Pro Preview",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_048_576),
                 )
                 .with_param_overrides(reasoning_profile("gemini_thinking_level")),
                 BuiltinModel::chat(
                     "gemini-3.1-flash-lite-preview",
                     "Gemini 3.1 Flash-Lite Preview",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_048_576),
                 )
                 .with_param_overrides(reasoning_profile("gemini_thinking_level")),
                 BuiltinModel::chat(
                     "gemini-2.5-pro",
                     "Gemini 2.5 Pro",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_048_576),
                 )
                 .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
                 BuiltinModel::chat(
                     "gemini-2.5-flash",
                     "Gemini 2.5 Flash",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_048_576),
                 )
                 .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
                 BuiltinModel::chat(
                     "gemini-2.5-flash-lite",
                     "Gemini 2.5 Flash-Lite",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(1_048_576),
                 )
                 .with_param_overrides(reasoning_profile("gemini_thinking_budget")),
                 BuiltinModel::chat(
                     "gemini-2.0-flash",
                     "Gemini 2.0 Flash",
                     vec![TextChat, Vision, FunctionCalling],
-                    Some(1_048_576),
                 )
                 .disabled(),
             ],
@@ -387,21 +341,18 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "claude-opus-4-7-20260127",
                     "Claude Opus 4.7",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(200_000),
                 )
                 .with_param_overrides(reasoning_profile("anthropic_adaptive")),
                 BuiltinModel::chat(
                     "claude-sonnet-4-6-20251117",
                     "Claude Sonnet 4.6",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(200_000),
                 )
                 .with_param_overrides(reasoning_profile("anthropic_adaptive")),
                 BuiltinModel::chat(
                     "claude-haiku-4-5-20251001",
                     "Claude Haiku 4.5",
                     vec![TextChat, Vision, FunctionCalling, Reasoning],
-                    Some(200_000),
                 )
                 .with_param_overrides(reasoning_profile("anthropic_budget_tokens")),
             ],
@@ -416,28 +367,24 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "deepseek-v4-flash",
                     "DeepSeek v4 Flash",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
                 BuiltinModel::chat(
                     "deepseek-v4-pro",
                     "DeepSeek v4 Pro",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(1_000_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
                 BuiltinModel::chat(
                     "deepseek-chat",
                     "DeepSeek Chat",
                     vec![TextChat, FunctionCalling],
-                    Some(64_000),
                 )
                 .disabled(),
                 BuiltinModel::chat(
                     "deepseek-reasoner",
                     "DeepSeek Reasoner",
                     vec![TextChat, Reasoning],
-                    Some(64_000),
                 )
                 .with_param_overrides(reasoning_profile("openai_reasoning_effort"))
                 .disabled(),
@@ -453,21 +400,14 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "grok-4.3",
                     "Grok 4.3",
                     vec![TextChat, Vision, Reasoning, FunctionCalling],
-                    None,
                 )
                 .with_param_overrides(reasoning_profile("openai_reasoning_effort")),
-                BuiltinModel::chat(
-                    "grok-3",
-                    "Grok 3",
-                    vec![TextChat, Vision, FunctionCalling],
-                    Some(131_072),
-                )
-                .disabled(),
+                BuiltinModel::chat("grok-3", "Grok 3", vec![TextChat, Vision, FunctionCalling])
+                    .disabled(),
                 BuiltinModel::chat(
                     "grok-3-mini",
                     "Grok 3 Mini",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(131_072),
                 )
                 .with_param_overrides(reasoning_profile("none"))
                 .disabled(),
@@ -483,21 +423,18 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "glm-5.1",
                     "GLM-5.1",
                     vec![TextChat, Vision, Reasoning, FunctionCalling],
-                    Some(200_000),
                 )
                 .with_param_overrides(reasoning_profile("glm_thinking")),
                 BuiltinModel::chat(
                     "glm-5",
                     "GLM-5",
                     vec![TextChat, Vision, Reasoning, FunctionCalling],
-                    Some(128_000),
                 )
                 .with_param_overrides(reasoning_profile("glm_thinking")),
                 BuiltinModel::chat(
                     "glm-4.6",
                     "GLM-4.6",
                     vec![TextChat, Vision, Reasoning, FunctionCalling],
-                    Some(128_000),
                 )
                 .with_param_overrides(reasoning_profile("glm_thinking"))
                 .disabled(),
@@ -513,27 +450,23 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "deepseek-ai/DeepSeek-V3.2-Exp",
                     "DeepSeek-V3.2-Exp",
                     vec![TextChat, FunctionCalling],
-                    Some(64_000),
                 ),
                 BuiltinModel::chat(
                     "deepseek-ai/DeepSeek-R1",
                     "DeepSeek-R1",
                     vec![TextChat, Reasoning],
-                    Some(64_000),
                 )
                 .with_param_overrides(reasoning_profile("siliconflow_enable_thinking")),
                 BuiltinModel::chat(
                     "Qwen/Qwen3-235B-A22B",
                     "Qwen3-235B-A22B",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(262_144),
                 )
                 .with_param_overrides(reasoning_profile("siliconflow_enable_thinking")),
                 BuiltinModel::chat(
                     "Qwen/Qwen3-Coder-480B-A35B-Instruct",
                     "Qwen3-Coder-480B-A35B-Instruct",
                     vec![TextChat, FunctionCalling],
-                    Some(262_144),
                 ),
             ],
         },
@@ -547,21 +480,18 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
                     "MiniMax-M2.7",
                     "MiniMax-M2.7",
                     vec![TextChat, FunctionCalling],
-                    Some(250_000),
                 )
                 .with_param_overrides(minimax_m2_profile()),
                 BuiltinModel::chat(
                     "MiniMax-M2.5",
                     "MiniMax-M2.5",
                     vec![TextChat, FunctionCalling],
-                    Some(250_000),
                 )
                 .with_param_overrides(minimax_m2_profile()),
                 BuiltinModel::chat(
                     "MiniMax-M1",
                     "MiniMax-M1",
                     vec![TextChat, Reasoning, FunctionCalling],
-                    Some(1_000_000),
                 )
                 .disabled(),
             ],
@@ -627,13 +557,11 @@ mod tests {
                 .expect("missing rerank provider");
 
             assert_eq!(provider.provider_type, provider_type);
-            assert!(
-                provider
-                    .models
-                    .iter()
-                    .any(|model| model.model_id == model_id
-                        && model.model_type.as_ref() == Some(&ModelType::Rerank))
-            );
+            assert!(provider
+                .models
+                .iter()
+                .any(|model| model.model_id == model_id
+                    && model.model_type.as_ref() == Some(&ModelType::Rerank)));
         }
     }
 
@@ -657,8 +585,13 @@ mod tests {
     }
 
     #[test]
-    fn builtin_models_include_current_reasoning_params() {
+    fn builtin_models_leave_context_windows_for_online_catalog() {
         let providers = get_builtin_providers();
+        assert!(providers
+            .iter()
+            .flat_map(|provider| provider.models.iter())
+            .map(|model| model.to_model("provider"))
+            .all(|model| model.context_window.is_none()));
         let provider = providers
             .iter()
             .find(|provider| provider.builtin_id == "deepseek")
@@ -670,7 +603,6 @@ mod tests {
             .expect("missing DeepSeek v4 Flash model");
 
         assert!(model.capabilities.contains(&ModelCapability::Reasoning));
-        assert_eq!(model.max_tokens, Some(1_000_000));
         assert_eq!(
             model
                 .param_overrides

@@ -173,9 +173,26 @@ export interface Model {
   group_name?: string | null;
   model_type: ModelType;
   capabilities: ModelCapability[];
-  max_tokens: number | null;
+  context_window: number | null;
   enabled: boolean;
   param_overrides: ModelParamOverrides | null;
+}
+
+export type ModelCatalogSource = 'network' | 'cache' | 'unavailable';
+export type ModelCatalogFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface ModelCatalogStatus {
+  source: ModelCatalogSource;
+  freshness: ModelCatalogFreshness;
+  matched_context_windows: number;
+  total_chat_models: number;
+  checked_at: number | null;
+  warning: string | null;
+}
+
+export interface RemoteModelSyncResult {
+  models: Model[];
+  catalog: ModelCatalogStatus;
 }
 
 export interface ModelParamOverrides {
@@ -352,7 +369,7 @@ export interface CompressionEvent {
 
 export interface ContextUsage {
   used_tokens: number;
-  max_tokens: number | null;
+  context_window: number | null;
   threshold_tokens: number | null;
   has_summary: boolean;
   compressed_until_message_id: string | null;

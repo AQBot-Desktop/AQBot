@@ -153,7 +153,8 @@ pub struct Model {
     pub group_name: Option<String>,
     pub model_type: ModelType,
     pub capabilities: Vec<ModelCapability>,
-    pub max_tokens: Option<u32>,
+    #[serde(alias = "max_tokens")]
+    pub context_window: Option<u32>,
     pub enabled: bool,
     pub param_overrides: Option<ModelParamOverrides>,
 }
@@ -224,6 +225,7 @@ impl std::str::FromStr for ModelType {
 #[cfg(test)]
 mod model_type_tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn detect_identifies_rerank_models() {
@@ -231,6 +233,27 @@ mod model_type_tests {
         assert_eq!(ModelType::detect("rerank-v4.0-pro"), ModelType::Rerank);
         assert_eq!(ModelType::detect("voyage-rerank-2.5"), ModelType::Rerank);
         assert_eq!(ModelType::detect("jina-colbert-v2"), ModelType::Rerank);
+    }
+
+    #[test]
+    fn model_context_window_serializes_new_name_and_accepts_legacy_alias() {
+        let model: Model = serde_json::from_value(json!({
+            "provider_id": "provider",
+            "model_id": "gpt-4o",
+            "name": "GPT-4o",
+            "group_name": null,
+            "model_type": "Chat",
+            "capabilities": [],
+            "max_tokens": 128000,
+            "enabled": true,
+            "param_overrides": null
+        }))
+        .unwrap();
+
+        assert_eq!(model.context_window, Some(128_000));
+        let serialized = serde_json::to_value(model).unwrap();
+        assert_eq!(serialized["context_window"], json!(128_000));
+        assert!(serialized.get("max_tokens").is_none());
     }
 }
 
@@ -1062,12 +1085,21 @@ mod app_settings_tests {
         assert_eq!(settings.chat_font_family, "");
         assert_eq!(settings.chat_font_weight, 400);
         assert_eq!(settings.chat_user_message_area_style, "none");
-        assert_eq!(settings.chat_user_message_area_light_color, "rgba(0, 0, 0, 0)");
-        assert_eq!(settings.chat_user_message_area_dark_color, "rgba(0, 0, 0, 0)");
+        assert_eq!(
+            settings.chat_user_message_area_light_color,
+            "rgba(0, 0, 0, 0)"
+        );
+        assert_eq!(
+            settings.chat_user_message_area_dark_color,
+            "rgba(0, 0, 0, 0)"
+        );
         assert_eq!(settings.chat_user_message_area_border_width, 1);
         assert_eq!(settings.chat_ai_message_area_style, "none");
         assert_eq!(settings.chat_ai_message_area_light_color, "#f5f5f5");
-        assert_eq!(settings.chat_ai_message_area_dark_color, "rgba(255, 255, 255, 0.06)");
+        assert_eq!(
+            settings.chat_ai_message_area_dark_color,
+            "rgba(255, 255, 255, 0.06)"
+        );
         assert_eq!(settings.chat_ai_message_area_border_width, 1);
 
         let settings: AppSettings = serde_json::from_value(json!({
@@ -1091,12 +1123,21 @@ mod app_settings_tests {
         assert_eq!(settings.chat_font_family, "Inter");
         assert_eq!(settings.chat_font_weight, 500);
         assert_eq!(settings.chat_user_message_area_style, "border");
-        assert_eq!(settings.chat_user_message_area_light_color, "rgba(1, 2, 3, 0.4)");
-        assert_eq!(settings.chat_user_message_area_dark_color, "rgba(4, 5, 6, 0.5)");
+        assert_eq!(
+            settings.chat_user_message_area_light_color,
+            "rgba(1, 2, 3, 0.4)"
+        );
+        assert_eq!(
+            settings.chat_user_message_area_dark_color,
+            "rgba(4, 5, 6, 0.5)"
+        );
         assert_eq!(settings.chat_user_message_area_border_width, 3);
         assert_eq!(settings.chat_ai_message_area_style, "background");
         assert_eq!(settings.chat_ai_message_area_light_color, "#eeeeee");
-        assert_eq!(settings.chat_ai_message_area_dark_color, "rgba(255, 255, 255, 0.1)");
+        assert_eq!(
+            settings.chat_ai_message_area_dark_color,
+            "rgba(255, 255, 255, 0.1)"
+        );
         assert_eq!(settings.chat_ai_message_area_border_width, 2);
 
         let settings: AppSettings =
@@ -1106,12 +1147,21 @@ mod app_settings_tests {
         assert_eq!(settings.chat_font_family, "");
         assert_eq!(settings.chat_font_weight, 400);
         assert_eq!(settings.chat_user_message_area_style, "none");
-        assert_eq!(settings.chat_user_message_area_light_color, "rgba(0, 0, 0, 0)");
-        assert_eq!(settings.chat_user_message_area_dark_color, "rgba(0, 0, 0, 0)");
+        assert_eq!(
+            settings.chat_user_message_area_light_color,
+            "rgba(0, 0, 0, 0)"
+        );
+        assert_eq!(
+            settings.chat_user_message_area_dark_color,
+            "rgba(0, 0, 0, 0)"
+        );
         assert_eq!(settings.chat_user_message_area_border_width, 1);
         assert_eq!(settings.chat_ai_message_area_style, "none");
         assert_eq!(settings.chat_ai_message_area_light_color, "#f5f5f5");
-        assert_eq!(settings.chat_ai_message_area_dark_color, "rgba(255, 255, 255, 0.06)");
+        assert_eq!(
+            settings.chat_ai_message_area_dark_color,
+            "rgba(255, 255, 255, 0.06)"
+        );
         assert_eq!(settings.chat_ai_message_area_border_width, 1);
     }
 

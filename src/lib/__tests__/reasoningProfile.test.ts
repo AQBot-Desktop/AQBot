@@ -9,7 +9,7 @@ function model(modelId: string, overrides: Model['param_overrides'] = null): Mod
     name: modelId,
     model_type: 'Chat',
     capabilities: ['Reasoning'],
-    max_tokens: 128000,
+    context_window: 128000,
     enabled: true,
     param_overrides: overrides,
   };

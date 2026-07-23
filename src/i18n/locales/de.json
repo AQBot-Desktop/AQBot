@@ -666,6 +666,16 @@
     "temperature": "Temperatur",
     "maxTokens": "Maximale Token",
     "contextWindow": "Kontextfenster",
+    "modelCatalogMatched": "Treffer im Kontextkatalog",
+    "modelCatalogNeverChecked": "Noch nicht geprüft",
+    "modelCatalogCheckedAt": "Zuletzt geprüft",
+    "modelCatalogSource": {
+      "network": "Online",
+      "cache": "Cache",
+      "unavailable": "Nicht verfügbar"
+    },
+    "modelCatalogStale": "Der Katalog-Cache ist veraltet",
+    "modelCatalogWarning": "Katalog konnte nicht aktualisiert werden",
     "topP": "Top P",
     "frequencyPenalty": "Häufigkeitsstrafe",
     "useMaxCompletionTokens": "max_completion_tokens verwenden",

@@ -666,6 +666,16 @@
     "temperature": "温度",
     "maxTokens": "最大トークン数",
     "contextWindow": "コンテキストウィンドウ",
+    "modelCatalogMatched": "コンテキストカタログ一致",
+    "modelCatalogNeverChecked": "未確認",
+    "modelCatalogCheckedAt": "最終確認",
+    "modelCatalogSource": {
+      "network": "オンライン",
+      "cache": "キャッシュ",
+      "unavailable": "利用不可"
+    },
+    "modelCatalogStale": "カタログキャッシュが古くなっています",
+    "modelCatalogWarning": "モデルカタログの更新に失敗しました",
     "topP": "Top P",
     "frequencyPenalty": "頻度ペナルティ",
     "useMaxCompletionTokens": "max_completion_tokensを使用",

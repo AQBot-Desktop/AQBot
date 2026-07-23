@@ -64,7 +64,7 @@ fn model_from_entity(m: models::Model) -> Model {
         group_name: m.group_name,
         model_type: m.model_type.parse().unwrap_or_default(),
         capabilities: serde_json::from_str(&m.capabilities).unwrap_or_default(),
-        max_tokens: m.max_tokens.map(|v| v as u32),
+        context_window: m.max_tokens.map(|v| v as u32),
         enabled: m.enabled != 0,
         param_overrides: m
             .param_overrides
@@ -618,7 +618,7 @@ where
             group_name: Set(model.group_name.clone()),
             model_type: Set(model.model_type.to_string()),
             capabilities: Set(capabilities),
-            max_tokens: Set(model.max_tokens.map(|v| v as i64)),
+            max_tokens: Set(model.context_window.map(|v| v as i64)),
             enabled: Set(if model.enabled { 1 } else { 0 }),
             param_overrides: Set(param_overrides),
         }
@@ -672,11 +672,8 @@ pub async fn save_models_from_user_selection(
         return save_models(db, provider_id, input_models).await;
     };
 
-    let builtin_model_ids: HashSet<&str> = builtin
-        .models
-        .iter()
-        .map(|model| model.model_id)
-        .collect();
+    let builtin_model_ids: HashSet<&str> =
+        builtin.models.iter().map(|model| model.model_id).collect();
     let before_model_ids: HashSet<String> = provider
         .models
         .iter()
@@ -1018,7 +1015,7 @@ mod tests {
                 group_name: None,
                 model_type: ModelType::Chat,
                 capabilities: vec![ModelCapability::TextChat],
-                max_tokens: Some(1_000_000),
+                context_window: Some(1_000_000),
                 enabled: true,
                 param_overrides: None,
             }],

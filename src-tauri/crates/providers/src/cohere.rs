@@ -1,11 +1,11 @@
 use aqbot_core::error::{AQBotError, Result};
 use aqbot_core::types::*;
 use async_trait::async_trait;
-use futures::{Stream, stream};
+use futures::{stream, Stream};
 use serde::Deserialize;
 use std::pin::Pin;
 
-use crate::{ProviderAdapter, ProviderRequestContext, build_http_client};
+use crate::{build_http_client, ProviderAdapter, ProviderRequestContext};
 
 const DEFAULT_BASE_URL: &str = "https://api.cohere.com/v2";
 
@@ -51,7 +51,7 @@ pub(crate) fn cohere_models(provider_id: &str) -> Vec<Model> {
             group_name: None,
             model_type: ModelType::Rerank,
             capabilities: vec![],
-            max_tokens: None,
+            context_window: None,
             enabled: true,
             param_overrides: None,
         })

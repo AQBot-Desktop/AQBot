@@ -677,6 +677,16 @@
     "temperature": "溫度",
     "maxTokens": "最大 Tokens",
     "contextWindow": "上下文視窗",
+    "modelCatalogMatched": "上下文目錄已識別",
+    "modelCatalogNeverChecked": "尚未檢查",
+    "modelCatalogCheckedAt": "最近檢查",
+    "modelCatalogSource": {
+      "network": "線上",
+      "cache": "快取",
+      "unavailable": "無法使用"
+    },
+    "modelCatalogStale": "目錄快取已過期",
+    "modelCatalogWarning": "模型目錄重新整理失敗",
     "topP": "Top P",
     "frequencyPenalty": "頻率懲罰",
     "useMaxCompletionTokens": "使用 max_completion_tokens",

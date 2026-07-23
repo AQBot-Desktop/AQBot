@@ -8,8 +8,8 @@ use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 use crate::{
-    build_http_client, parse_base64_data_url, resolve_chat_url, resolve_models_url, ProviderAdapter,
-    ProviderRequestContext,
+    build_http_client, parse_base64_data_url, resolve_chat_url, resolve_models_url,
+    ProviderAdapter, ProviderRequestContext,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
@@ -844,7 +844,7 @@ impl ProviderAdapter for AnthropicAdapter {
                     group_name: None,
                     model_type,
                     capabilities: caps,
-                    max_tokens: None,
+                    context_window: None,
                     enabled: true,
                     param_overrides: None,
                 }

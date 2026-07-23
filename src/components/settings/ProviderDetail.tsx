@@ -34,9 +34,17 @@ import { SmartProviderIcon } from '@/lib/providerIcons';
 import { getEditableCapabilities, getVisibleModelCapabilities, sanitizeModelCapabilities } from '@/lib/modelCapabilities';
 import { IconEditor } from '@/components/shared/IconEditor';
 import { DynamicLobeIcon } from '@/components/shared/DynamicLobeIcon';
-import type { Model, ModelCapability, ModelType, ModelParamOverrides, ProviderType } from '@/types';
+import type {
+  Model,
+  ModelCapability,
+  ModelCatalogStatus,
+  ModelType,
+  ModelParamOverrides,
+  ProviderType,
+} from '@/types';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { CopyButton } from '@/components/common/CopyButton';
+import { ModelCatalogStatusBar } from './ModelCatalogStatusBar';
 
 const { Text, Title } = Typography;
 
@@ -257,7 +265,12 @@ function buildModelSyncEntries(localModels: Model[], remoteModels: Model[]): Mod
     .map((modelId) => {
       const localModel = localById.get(modelId) ?? null;
       const remoteModel = remoteById.get(modelId) ?? null;
-      const model = localModel ?? remoteModel!;
+      const model = localModel && remoteModel
+        ? {
+            ...localModel,
+            context_window: localModel.context_window ?? remoteModel.context_window,
+          }
+        : localModel ?? remoteModel!;
       const status: ModelSyncStatus = localModel && remoteModel
         ? 'synced'
         : localModel
@@ -327,7 +340,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [editCapabilities, setEditCapabilities] = useState<ModelCapability[]>([]);
   const [editModelType, setEditModelType] = useState<ModelType>('Chat');
-  const [editMaxTokens, setEditMaxTokens] = useState<number | null>(null);
+  const [editContextWindow, setEditContextWindow] = useState<number | null>(null);
   const [editTemperature, setEditTemperature] = useState<number | null>(null);
   const [editMaxTokensParam, setEditMaxTokensParam] = useState<number | null>(null);
   const [editTopP, setEditTopP] = useState<number | null>(null);
@@ -357,6 +370,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [singleTestLoading, setSingleTestLoading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerModels, setPickerModels] = useState<ModelSyncEntry[]>([]);
+  const [pickerCatalog, setPickerCatalog] = useState<ModelCatalogStatus | null>(null);
   const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set());
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerCollapsed, setPickerCollapsed] = useState<Set<string>>(new Set());
@@ -373,8 +387,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [batchModelTypeEnabled, setBatchModelTypeEnabled] = useState(false);
   const [batchCapabilities, setBatchCapabilities] = useState<ModelCapability[]>(['TextChat']);
   const [batchCapabilitiesEnabled, setBatchCapabilitiesEnabled] = useState(false);
-  const [batchMaxTokens, setBatchMaxTokens] = useState<number>(128000);
-  const [batchMaxTokensEnabled, setBatchMaxTokensEnabled] = useState(false);
+  const [batchContextWindow, setBatchContextWindow] = useState<number>(128000);
+  const [batchContextWindowEnabled, setBatchContextWindowEnabled] = useState(false);
   const [batchTemperature, setBatchTemperature] = useState<number>(0.7);
   const [batchTemperatureEnabled, setBatchTemperatureEnabled] = useState(false);
   const [batchTopP, setBatchTopP] = useState<number>(1.0);
@@ -626,10 +640,11 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const handleRefreshModels = useCallback(async () => {
     setRefreshing(true);
     try {
-      const remoteModels = await fetchRemoteModels(providerId);
+      const result = await fetchRemoteModels(providerId);
       const localModels = provider?.models ?? [];
-      const syncEntries = buildModelSyncEntries(localModels, remoteModels);
+      const syncEntries = buildModelSyncEntries(localModels, result.models);
       setPickerModels(syncEntries);
+      setPickerCatalog(result.catalog);
       setPickerSelected(new Set(localModels.map((m) => m.model_id)));
       setPickerSearch('');
       setPickerCollapsed(new Set());
@@ -649,7 +664,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const handlePickerConfirm = useCallback(async () => {
     const selectedModels = pickerModels
       .filter(({ model }) => pickerSelected.has(model.model_id))
-      .map((entry) => entry.localModel ?? entry.remoteModel ?? entry.model);
+      .map((entry) => entry.model);
     if (selectedModels.length === 0) {
       setPickerOpen(false);
       return;
@@ -737,7 +752,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       group_name: manualGroupName || deriveModelGroupName(nextModelId),
       model_type: addModelType,
       capabilities: getDefaultCapabilitiesForType(addModelType),
-      max_tokens: null,
+      context_window: null,
       enabled: true,
       param_overrides: null,
     };
@@ -760,7 +775,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       const nextModelType = model.model_type || 'Chat';
       setEditCapabilities(sanitizeModelCapabilities(nextModelType, model.capabilities));
       setEditModelType(nextModelType);
-      setEditMaxTokens(model.max_tokens ?? 128000);
+      setEditContextWindow(model.context_window);
       setEditTemperature(model.param_overrides?.temperature ?? null);
       setEditMaxTokensParam(model.param_overrides?.max_tokens ?? null);
       setEditTopP(model.param_overrides?.top_p ?? null);
@@ -803,7 +818,13 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       // Update capabilities locally via saveModels
       const updatedModels = (provider?.models ?? []).map((m) =>
         m.model_id === editingModel.model_id
-          ? { ...m, capabilities: nextCapabilities, model_type: editModelType, param_overrides: values, max_tokens: editMaxTokens }
+          ? {
+            ...m,
+            capabilities: nextCapabilities,
+            context_window: editContextWindow,
+            model_type: editModelType,
+            param_overrides: values,
+          }
           : m,
       );
       await saveModels(providerId, updatedModels);
@@ -812,7 +833,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [editingModel, editCapabilities, editModelType, editMaxTokens, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editForceMaxTokens, editThinkingParamStyle, editExtraBody, providerId, updateModelParams, saveModels, provider?.models, message, t]);
+  }, [editingModel, editCapabilities, editContextWindow, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editForceMaxTokens, editThinkingParamStyle, editExtraBody, providerId, updateModelParams, saveModels, provider?.models, message, t]);
 
   const handleApiHostChange = useCallback(
     (value: string) => {
@@ -913,8 +934,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     setBatchModelTypeEnabled(false);
     setBatchCapabilities(['TextChat']);
     setBatchCapabilitiesEnabled(false);
-    setBatchMaxTokens(128000);
-    setBatchMaxTokensEnabled(false);
+    setBatchContextWindow(128000);
+    setBatchContextWindowEnabled(false);
     setBatchTemperature(0.7);
     setBatchTemperatureEnabled(false);
     setBatchTopP(1.0);
@@ -946,8 +967,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       if (batchCapabilitiesEnabled && !batchModelTypeEnabled) {
         updated.capabilities = sanitizeModelCapabilities(updated.model_type || 'Chat', batchCapabilities);
       }
-      if (batchMaxTokensEnabled) {
-        updated.max_tokens = batchMaxTokens;
+      if (batchContextWindowEnabled) {
+        updated.context_window = batchContextWindow;
       }
       const overrides: ModelParamOverrides = { ...(updated.param_overrides ?? {}) };
       if (batchTemperatureEnabled) overrides.temperature = batchTemperature;
@@ -973,7 +994,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [batchSelected, provider?.models, providerId, saveModels, message, t, batchModelType, batchModelTypeEnabled, batchCapabilities, batchCapabilitiesEnabled, batchMaxTokens, batchMaxTokensEnabled, batchTemperature, batchTemperatureEnabled, batchTopP, batchTopPEnabled, batchMaxTokensParam, batchMaxTokensParamEnabled, batchFreqPenalty, batchFreqPenaltyEnabled, batchUseMaxCompletionTokens, batchUseMaxCompletionTokensEnabled, batchNoSystemRole, batchNoSystemRoleEnabled, batchForceMaxTokens, batchForceMaxTokensEnabled, batchThinkingParamStyle, batchThinkingParamStyleEnabled]);
+  }, [batchSelected, provider?.models, providerId, saveModels, message, t, batchModelType, batchModelTypeEnabled, batchCapabilities, batchCapabilitiesEnabled, batchContextWindow, batchContextWindowEnabled, batchTemperature, batchTemperatureEnabled, batchTopP, batchTopPEnabled, batchMaxTokensParam, batchMaxTokensParamEnabled, batchFreqPenalty, batchFreqPenaltyEnabled, batchUseMaxCompletionTokens, batchUseMaxCompletionTokensEnabled, batchNoSystemRole, batchNoSystemRoleEnabled, batchForceMaxTokens, batchForceMaxTokensEnabled, batchThinkingParamStyle, batchThinkingParamStyleEnabled]);
 
   const groupedModels = useMemo(() => {
     const groups: Record<string, Model[]> = {};
@@ -1587,9 +1608,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                             </Tag>
                           </Tooltip>
                         ))}
-                        {model.max_tokens != null && model.max_tokens > 0 && (
+                        {model.context_window != null && model.context_window > 0 && (
                           <Tag bordered={false} color="default" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                            {formatTokenCount(model.max_tokens)}
+                            {formatTokenCount(model.context_window)}
                           </Tag>
                         )}
                       </div>
@@ -1941,26 +1962,39 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 <div>
                   <div className="flex items-center justify-between" style={{ padding: '8px 0' }}>
                     <span className="text-sm shrink-0" style={{ color: token.colorText }}>{t('settings.contextWindow')}</span>
-                    <InputNumber
-                      value={editMaxTokens}
-                      onChange={(v) => v != null && setEditMaxTokens(v)}
-                      min={1024}
-                      step={1024}
-                      style={{ width: 110 }}
+                    <Switch
                       size="small"
-                      formatter={(v) => v ? `${Number(v).toLocaleString()}` : ''}
+                      aria-label={t('settings.contextWindow')}
+                      checked={editContextWindow != null}
+                      onChange={(enabled) => setEditContextWindow(enabled ? 128000 : null)}
                     />
                   </div>
-                  <div style={{ paddingBottom: 8 }}>
-                    <Slider
-                      min={1024}
-                      max={1048576}
-                      step={1024}
-                      marks={{ 1024: '', 32768: '32K', 131072: '128K', 524288: '512K', 1048576: '1M' }}
-                      value={Math.min(editMaxTokens ?? 128000, 1048576)}
-                      onChange={(v) => setEditMaxTokens(v)}
-                    />
-                  </div>
+                  {editContextWindow != null && (
+                    <>
+                      <div className="flex justify-end" style={{ paddingBottom: 4 }}>
+                        <InputNumber
+                          value={editContextWindow}
+                          onChange={(value) => value != null && setEditContextWindow(value)}
+                          min={1024}
+                          max={10000000}
+                          step={1024}
+                          style={{ width: 110 }}
+                          size="small"
+                          formatter={(value) => value ? `${Number(value).toLocaleString()}` : ''}
+                        />
+                      </div>
+                      <div style={{ paddingBottom: 8 }}>
+                        <Slider
+                          min={1024}
+                          max={1048576}
+                          step={1024}
+                          marks={{ 1024: '', 32768: '32K', 131072: '128K', 524288: '512K', 1048576: '1M' }}
+                          value={Math.min(editContextWindow, 1048576)}
+                          onChange={setEditContextWindow}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <ModelParamSliders
@@ -2046,7 +2080,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         cancelText={t('common.cancel')}
         width={520}
         destroyOnHidden
-        okButtonProps={{ disabled: ![batchModelTypeEnabled, batchCapabilitiesEnabled, batchMaxTokensEnabled, batchTemperatureEnabled, batchTopPEnabled, batchMaxTokensParamEnabled, batchFreqPenaltyEnabled, batchUseMaxCompletionTokensEnabled, batchNoSystemRoleEnabled, batchForceMaxTokensEnabled, batchThinkingParamStyleEnabled].some(Boolean) }}
+        okButtonProps={{ disabled: ![batchModelTypeEnabled, batchCapabilitiesEnabled, batchContextWindowEnabled, batchTemperatureEnabled, batchTopPEnabled, batchMaxTokensParamEnabled, batchFreqPenaltyEnabled, batchUseMaxCompletionTokensEnabled, batchNoSystemRoleEnabled, batchForceMaxTokensEnabled, batchThinkingParamStyleEnabled].some(Boolean) }}
       >
         <div data-os-scrollbar style={{ maxHeight: '70vh', overflowY: 'auto', paddingRight: 4 }}>
         <div className="space-y-3">
@@ -2117,14 +2151,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="font-medium" style={{ fontSize: 13 }}>{t('settings.contextWindow')}</span>
-              <Switch size="small" checked={batchMaxTokensEnabled} onChange={setBatchMaxTokensEnabled} />
+              <Switch size="small" checked={batchContextWindowEnabled} onChange={setBatchContextWindowEnabled} />
             </div>
-            <div style={{ opacity: batchMaxTokensEnabled ? 1 : 0.4, pointerEvents: batchMaxTokensEnabled ? 'auto' : 'none' }}>
+            <div style={{ opacity: batchContextWindowEnabled ? 1 : 0.4, pointerEvents: batchContextWindowEnabled ? 'auto' : 'none' }}>
               <div className="flex items-center justify-between" style={{ padding: '4px 0' }}>
                 <InputNumber
-                  value={batchMaxTokens}
-                  onChange={(v) => v != null && setBatchMaxTokens(v)}
+                  value={batchContextWindow}
+                  onChange={(v) => v != null && setBatchContextWindow(v)}
                   min={1024}
+                  max={10000000}
                   step={1024}
                   style={{ width: 110 }}
                   size="small"
@@ -2136,8 +2171,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 max={1048576}
                 step={1024}
                 marks={{ 1024: '', 32768: '32K', 131072: '128K', 524288: '512K', 1048576: '1M' }}
-                value={Math.min(batchMaxTokens, 1048576)}
-                onChange={(v) => setBatchMaxTokens(v)}
+                value={Math.min(batchContextWindow, 1048576)}
+                onChange={setBatchContextWindow}
               />
             </div>
           </div>
@@ -2336,6 +2371,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   />
                 </Tooltip>
               </div>
+              {pickerCatalog && <ModelCatalogStatusBar status={pickerCatalog} />}
               <div
                 ref={pickerListParentRef}
                 className="model-picker-list"
@@ -2436,6 +2472,11 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                               {item.status === 'local-only' && (
                                 <Tag color={MODEL_SYNC_STATUS_CONFIG['local-only'].color} style={{ marginInlineStart: 4 }}>
                                   {t(MODEL_SYNC_STATUS_CONFIG['local-only'].labelKey)}
+                                </Tag>
+                              )}
+                              {m.context_window != null && (
+                                <Tag bordered={false} style={{ marginInlineStart: 4 }}>
+                                  {formatTokenCount(m.context_window)}
                                 </Tag>
                               )}
                             </div>

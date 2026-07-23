@@ -212,9 +212,8 @@ fn convert_request(
     }
     final_messages.extend(messages);
 
-    let force_model_max_tokens = model_param_overrides
-        .and_then(|overrides| overrides.force_max_tokens)
-        == Some(true);
+    let force_model_max_tokens =
+        model_param_overrides.and_then(|overrides| overrides.force_max_tokens) == Some(true);
     let max_tokens = if request.max_tokens > 0 {
         Some(request.max_tokens as u32)
     } else if force_model_max_tokens {

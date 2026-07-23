@@ -26,6 +26,7 @@ pub struct AppState {
     pub main_window_released_to_tray: Arc<AtomicBool>,
     pub main_window_restoring: Arc<AtomicBool>,
     pub is_quitting: Arc<AtomicBool>,
+    pub(crate) model_catalog: Arc<model_catalog::ModelCatalogService>,
     pub app_data_dir: PathBuf,
     pub db_path: String,
     pub auto_backup_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -52,6 +53,7 @@ pub mod knowledge_index_scheduler;
 #[cfg(any(target_os = "linux", test))]
 mod linux_webkit;
 mod media_protocol;
+mod model_catalog;
 mod paths;
 mod startup_diagnostics;
 mod tray;
@@ -754,6 +756,10 @@ pub fn run() {
                 main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
                 main_window_restoring: Arc::new(AtomicBool::new(false)),
                 is_quitting: Arc::new(AtomicBool::new(false)),
+                model_catalog: Arc::new(model_catalog::ModelCatalogService::new(
+                    app_dir.join("model_metadata"),
+                    model_catalog::ModelCatalogConfig::default(),
+                )),
                 app_data_dir: app_dir.clone(),
                 db_path: db_path,
                 auto_backup_handle: Arc::new(Mutex::new(None)),
