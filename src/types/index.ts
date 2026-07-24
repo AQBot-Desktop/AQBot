@@ -214,10 +214,12 @@ export interface ImageAdapterConfig {
   operation_overrides?: ImageOperation[] | null;
 }
 
-export type ModelCatalogSource = 'network' | 'cache' | 'unavailable';
+export type ModelCatalogSourcePreference = 'builtin' | 'online';
+export type ModelCatalogSource = 'builtin' | 'network' | 'cache' | 'unavailable';
 export type ModelCatalogFreshness = 'fresh' | 'stale' | 'unknown';
 
 export interface ModelCatalogStatus {
+  configured_source: ModelCatalogSourcePreference;
   source: ModelCatalogSource;
   freshness: ModelCatalogFreshness;
   matched_context_windows: number;
@@ -587,6 +589,7 @@ export interface AppSettings {
   compression_top_p: number | null;
   compression_frequency_penalty: number | null;
   compression_prompt: string | null;
+  model_catalog_source: ModelCatalogSourcePreference;
   proxy_type: string | null;
   proxy_address: string | null;
   proxy_port: number | null;

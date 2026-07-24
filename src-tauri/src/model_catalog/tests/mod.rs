@@ -105,3 +105,4 @@ fn test_config(source_url: String) -> ModelCatalogConfig {
 
 mod metadata;
 mod service;
+mod snapshot;

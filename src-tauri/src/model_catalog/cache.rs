@@ -43,10 +43,14 @@ fn validate_cache(cache: &CatalogCache) -> Result<(), String> {
             cache.schema_version
         ));
     }
-    if cache.entries.is_empty() {
+    validate_entries(&cache.entries)
+}
+
+pub(super) fn validate_entries(entries: &BTreeMap<String, CatalogEntry>) -> Result<(), String> {
+    if entries.is_empty() {
         return Err("LiteLLM cache contains no model entries".to_string());
     }
-    if cache.entries.values().any(invalid_entry) {
+    if entries.values().any(invalid_entry) {
         return Err("LiteLLM cache contains invalid model metadata".to_string());
     }
     Ok(())

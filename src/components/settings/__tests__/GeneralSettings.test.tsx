@@ -21,6 +21,11 @@ vi.mock('react-i18next', () => ({
       const labels: Record<string, string> = {
         'settings.groupLanguage': '语言',
         'settings.language': '语言',
+        'settings.groupModelCatalog': '模型目录',
+        'settings.modelCatalogSetting': '模型元数据来源',
+        'settings.modelCatalogSettingHint': '将在下次同步模型时生效',
+        'settings.modelCatalogBuiltinOption': '内置（推荐，离线可用）',
+        'settings.modelCatalogOnlineOption': '在线（LiteLLM，24 小时缓存）',
         'settings.groupStartup': '启动',
         'settings.autoStart': '开机自启动',
         'settings.showOnStart': '启动时显示窗口',
@@ -96,6 +101,30 @@ vi.mock('@/stores', () => ({
   }),
 }));
 
+vi.mock('../SettingsSelect', () => ({
+  SettingsSelect: ({
+    value,
+    onChange,
+    options,
+  }: {
+    value?: string;
+    onChange?: (value: string) => void;
+    options: Array<{ label: React.ReactNode; value: string }>;
+  }) => (
+    <select
+      aria-label={options.map((option) => option.value).join('-')}
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {typeof option.label === 'string' ? option.label : option.value}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+
 function releaseWebviewSwitch() {
   const row = screen.getByText('释放界面进程').parentElement;
   expect(row).not.toBeNull();
@@ -113,6 +142,7 @@ describe('GeneralSettings', () => {
       always_on_top: false,
       start_minimized: false,
       release_webview_on_tray: false,
+      model_catalog_source: 'builtin',
     };
   });
 
@@ -150,5 +180,18 @@ describe('GeneralSettings', () => {
     const toggle = releaseWebviewSwitch();
     expect(toggle).toBeDisabled();
     expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('defaults to the built-in catalog and saves the online preference', () => {
+    render(<GeneralSettings />);
+
+    const select = screen.getByRole('combobox', { name: 'builtin-online' });
+    expect(select).toHaveValue('builtin');
+
+    fireEvent.change(select, { target: { value: 'online' } });
+
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      model_catalog_source: 'online',
+    });
   });
 });

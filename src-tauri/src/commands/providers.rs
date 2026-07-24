@@ -26,9 +26,12 @@ async fn load_model_catalog(
     settings: &AppSettings,
     now: i64,
 ) -> crate::model_catalog::CatalogLoadResult {
+    if settings.model_catalog_source == ModelCatalogSourcePreference::Builtin {
+        return state.model_catalog.load_builtin();
+    }
     let proxy = ProviderProxyConfig::resolve(&None, settings);
     match aqbot_providers::build_http_client(proxy.as_ref()) {
-        Ok(client) => state.model_catalog.load(&client, now).await,
+        Ok(client) => state.model_catalog.load_online(&client, now).await,
         Err(error) => {
             state
                 .model_catalog

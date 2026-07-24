@@ -177,6 +177,7 @@ fn enrichment_updates_only_empty_chat_context_windows() {
     let catalog = CatalogLoadResult {
         entries: Arc::new(entries),
         status: CatalogStatus {
+            configured_source: ModelCatalogSourcePreference::Online,
             source: CatalogSource::Network,
             freshness: CatalogFreshness::Fresh,
             matched_context_windows: 0,
@@ -212,6 +213,7 @@ fn enrichment_updates_only_empty_chat_context_windows() {
 fn enrichment_does_not_guess_unknown_provider_models() {
     let entries = parse_catalog(SAMPLE_CATALOG.as_bytes()).unwrap();
     let status = CatalogStatus {
+        configured_source: ModelCatalogSourcePreference::Online,
         source: CatalogSource::Cache,
         freshness: CatalogFreshness::Fresh,
         matched_context_windows: 0,
@@ -250,6 +252,7 @@ fn unavailable_catalog_leaves_provider_models_usable() {
     let catalog = CatalogLoadResult {
         entries: Arc::new(Default::default()),
         status: CatalogStatus {
+            configured_source: ModelCatalogSourcePreference::Online,
             source: CatalogSource::Unavailable,
             freshness: CatalogFreshness::Unknown,
             matched_context_windows: 0,

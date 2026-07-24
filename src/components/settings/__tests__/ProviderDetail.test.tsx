@@ -164,6 +164,7 @@ describe('ProviderDetail', () => {
     mocks.fetchRemoteModels.mockResolvedValue({
       models: [],
       catalog: {
+        configured_source: 'builtin',
         source: 'unavailable',
         freshness: 'unknown',
         matched_context_windows: 0,
@@ -772,6 +773,7 @@ describe('ProviderDetail', () => {
     mocks.fetchRemoteModels.mockResolvedValue({
       models: provider.models,
       catalog: {
+        configured_source: 'online',
         source: 'unavailable',
         freshness: 'unknown',
         matched_context_windows: 0,
@@ -874,6 +876,7 @@ describe('ProviderDetail', () => {
         },
       ],
       catalog: {
+        configured_source: 'online',
         source: 'network',
         freshness: 'fresh',
         matched_context_windows: 3,

@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   compression_top_p: null,
   compression_frequency_penalty: null,
   compression_prompt: null,
+  model_catalog_source: 'builtin',
   proxy_type: null,
   proxy_address: null,
   proxy_port: null,

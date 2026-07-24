@@ -55,6 +55,8 @@ pub mod knowledge_index_scheduler;
 mod linux_webkit;
 mod media_protocol;
 mod model_catalog;
+#[doc(hidden)]
+pub mod model_catalog_tools;
 mod paths;
 mod startup_diagnostics;
 mod tray;

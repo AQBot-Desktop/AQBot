@@ -5,6 +5,7 @@ import type { ModelCatalogStatus } from '@/types';
 const { Text } = Typography;
 
 const SOURCE_COLORS: Record<ModelCatalogStatus['source'], string> = {
+  builtin: 'default',
   network: 'green',
   cache: 'blue',
   unavailable: 'default',
@@ -16,9 +17,24 @@ interface ModelCatalogStatusBarProps {
 
 export function ModelCatalogStatusBar({ status }: ModelCatalogStatusBarProps) {
   const { t } = useTranslation();
-  const checkedAt = status.checked_at
-    ? new Date(status.checked_at * 1000).toLocaleString()
-    : t('settings.modelCatalogNeverChecked');
+  const sourceKey = status.source === 'builtin' && status.configured_source === 'online'
+    ? 'settings.modelCatalogBuiltinFallback'
+    : `settings.modelCatalogSource.${status.source}`;
+  const sourceTag = (
+    <Tag color={SOURCE_COLORS[status.source]} style={{ margin: 0 }}>
+      {t(sourceKey)}
+    </Tag>
+  );
+  const detail = (
+    <>
+      {status.checked_at && (
+        <div>
+          {t('settings.modelCatalogCheckedAt')}: {new Date(status.checked_at * 1000).toLocaleString()}
+        </div>
+      )}
+      {status.warning && <div>{status.warning}</div>}
+    </>
+  );
 
   return (
     <div
@@ -31,19 +47,17 @@ export function ModelCatalogStatusBar({ status }: ModelCatalogStatusBarProps) {
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t('settings.modelCatalogMatched')}: {status.matched_context_windows}/{status.total_chat_models}
         </Text>
-        <Tooltip title={`${t('settings.modelCatalogCheckedAt')}: ${checkedAt}`}>
-          <Tag color={SOURCE_COLORS[status.source]} style={{ margin: 0 }}>
-            {t(`settings.modelCatalogSource.${status.source}`)}
-          </Tag>
-        </Tooltip>
+        {status.checked_at || status.warning
+          ? <Tooltip title={detail}>{sourceTag}</Tooltip>
+          : sourceTag}
         {status.freshness === 'stale' && (
           <Tag color="orange" style={{ margin: 0 }}>
             {t('settings.modelCatalogStale')}
           </Tag>
         )}
-        {status.warning && (
+        {status.warning && status.source === 'unavailable' && (
           <Tooltip title={status.warning}>
-            <Text type="warning" ellipsis style={{ maxWidth: 260, fontSize: 12 }}>
+            <Text type="danger" ellipsis style={{ maxWidth: 260, fontSize: 12 }}>
               {t('settings.modelCatalogWarning')}
             </Text>
           </Tooltip>

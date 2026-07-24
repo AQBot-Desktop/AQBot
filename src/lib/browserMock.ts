@@ -374,6 +374,7 @@ const DEFAULT_SETTINGS = {
   release_webview_on_tray: false,
   send_on_enter: true,
   stream_response: true,
+  model_catalog_source: 'builtin',
   global_shortcut: 'CmdOrCtrl+Shift+A',
   shortcut_toggle_current_window: 'CmdOrCtrl+Shift+A',
   shortcut_toggle_all_windows: 'CmdOrCtrl+Shift+Alt+A',
@@ -641,6 +642,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       return {
         models: target?.models ?? [],
         catalog: {
+          configured_source: 'builtin',
           source: 'unavailable',
           freshness: 'unknown',
           matched_context_windows: 0,

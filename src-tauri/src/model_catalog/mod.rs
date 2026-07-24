@@ -1,11 +1,14 @@
 mod cache;
 mod metadata;
+mod snapshot;
 mod types;
 
+use aqbot_core::types::ModelCatalogSourcePreference;
 use cache::{read_cache, write_cache_atomic, CatalogCache};
 pub use metadata::enrich_models;
 use metadata::{parse_catalog, CatalogEntry};
 use reqwest::header::{ETAG, IF_NONE_MATCH, USER_AGENT};
+pub(crate) use snapshot::build_snapshot;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,6 +26,7 @@ pub const DEFAULT_SOURCE_URL: &str =
 pub struct ModelCatalogService {
     cache_path: PathBuf,
     config: ModelCatalogConfig,
+    builtin_entries: Result<Arc<BTreeMap<String, CatalogEntry>>, String>,
     memory: RwLock<Option<CatalogCache>>,
     last_refresh: RwLock<Option<CatalogLoadResult>>,
     refresh_generation: AtomicU64,
@@ -39,9 +43,21 @@ enum FetchResult {
 
 impl ModelCatalogService {
     pub fn new(cache_dir: impl AsRef<Path>, config: ModelCatalogConfig) -> Self {
+        let builtin_entries = snapshot::load_builtin_entries()
+            .map(Arc::new)
+            .map_err(|error| format!("Failed to load built-in LiteLLM catalog: {error}"));
+        Self::new_with_builtin(cache_dir, config, builtin_entries)
+    }
+
+    fn new_with_builtin(
+        cache_dir: impl AsRef<Path>,
+        config: ModelCatalogConfig,
+        builtin_entries: Result<Arc<BTreeMap<String, CatalogEntry>>, String>,
+    ) -> Self {
         Self {
             cache_path: cache_dir.as_ref().join(CACHE_FILE_NAME),
             config,
+            builtin_entries,
             memory: RwLock::new(None),
             last_refresh: RwLock::new(None),
             refresh_generation: AtomicU64::new(0),
@@ -49,7 +65,11 @@ impl ModelCatalogService {
         }
     }
 
-    pub async fn load(&self, client: &reqwest::Client, now: i64) -> CatalogLoadResult {
+    pub fn load_builtin(&self) -> CatalogLoadResult {
+        self.builtin_result(ModelCatalogSourcePreference::Builtin, None)
+    }
+
+    pub async fn load_online(&self, client: &reqwest::Client, now: i64) -> CatalogLoadResult {
         let observed_generation = self.refresh_generation.load(Ordering::Acquire);
         let (cached, first_warning) = self.load_cached().await;
         if let Some(cache) = cached.as_ref().filter(|cache| self.is_fresh(cache, now)) {
@@ -72,10 +92,10 @@ impl ModelCatalogService {
             Ok(result) => self.apply_fetch_result(result, cached, now).await,
             Err(error) => match cached {
                 Some(cache) => result_from_cache(&cache, CatalogFreshness::Stale, Some(error)),
-                None => unavailable_result(combine_warnings(
-                    first_warning.or(second_warning),
-                    Some(error),
-                )),
+                None => self.builtin_result(
+                    ModelCatalogSourcePreference::Online,
+                    combine_warnings(first_warning.or(second_warning), Some(error)),
+                ),
             },
         };
         *self.last_refresh.write().await = Some(result.clone());
@@ -87,7 +107,7 @@ impl ModelCatalogService {
         let (cached, cache_warning) = self.load_cached().await;
         let warning = combine_warnings(cache_warning, Some(warning));
         let Some(cache) = cached else {
-            return unavailable_result(warning);
+            return self.builtin_result(ModelCatalogSourcePreference::Online, warning);
         };
         let freshness = if self.is_fresh(&cache, now) {
             CatalogFreshness::Fresh
@@ -110,9 +130,10 @@ impl ModelCatalogService {
             ),
             FetchResult::NotModified => {
                 let Some(mut cache) = cached else {
-                    return unavailable_result(Some(
-                        "LiteLLM returned 304 without a local cache".to_string(),
-                    ));
+                    return self.builtin_result(
+                        ModelCatalogSourcePreference::Online,
+                        Some("LiteLLM returned 304 without a local cache".to_string()),
+                    );
                 };
                 cache.checked_at = now;
                 (cache, CatalogSource::Cache)
@@ -188,6 +209,34 @@ impl ModelCatalogService {
         }
         Ok(FetchResult::Modified { entries, etag })
     }
+
+    fn builtin_result(
+        &self,
+        configured_source: ModelCatalogSourcePreference,
+        warning: Option<String>,
+    ) -> CatalogLoadResult {
+        match &self.builtin_entries {
+            Ok(entries) => {
+                log_warning(CatalogSource::Builtin, warning.as_deref());
+                CatalogLoadResult {
+                    entries: entries.clone(),
+                    status: CatalogStatus {
+                        configured_source,
+                        source: CatalogSource::Builtin,
+                        freshness: CatalogFreshness::Unknown,
+                        matched_context_windows: 0,
+                        total_chat_models: 0,
+                        checked_at: None,
+                        warning,
+                    },
+                }
+            }
+            Err(error) => unavailable_result(
+                configured_source,
+                combine_warnings(warning, Some(error.clone())),
+            ),
+        }
+    }
 }
 
 fn validate_response_size(response: &reqwest::Response, limit: usize) -> Result<(), String> {
@@ -246,9 +295,11 @@ fn result_from_valid_cache(
     freshness: CatalogFreshness,
     warning: Option<String>,
 ) -> CatalogLoadResult {
+    log_warning(source, warning.as_deref());
     CatalogLoadResult {
         entries: Arc::new(cache.entries.clone()),
         status: CatalogStatus {
+            configured_source: ModelCatalogSourcePreference::Online,
             source,
             freshness,
             matched_context_windows: 0,
@@ -259,10 +310,15 @@ fn result_from_valid_cache(
     }
 }
 
-fn unavailable_result(warning: Option<String>) -> CatalogLoadResult {
+fn unavailable_result(
+    configured_source: ModelCatalogSourcePreference,
+    warning: Option<String>,
+) -> CatalogLoadResult {
+    log_warning(CatalogSource::Unavailable, warning.as_deref());
     CatalogLoadResult {
         entries: Arc::new(BTreeMap::new()),
         status: CatalogStatus {
+            configured_source,
             source: CatalogSource::Unavailable,
             freshness: CatalogFreshness::Unknown,
             matched_context_windows: 0,
@@ -270,6 +326,12 @@ fn unavailable_result(warning: Option<String>) -> CatalogLoadResult {
             checked_at: None,
             warning,
         },
+    }
+}
+
+fn log_warning(source: CatalogSource, warning: Option<&str>) {
+    if let Some(warning) = warning {
+        tracing::warn!(catalog_source = ?source, %warning, "Model catalog loaded with a warning");
     }
 }
 

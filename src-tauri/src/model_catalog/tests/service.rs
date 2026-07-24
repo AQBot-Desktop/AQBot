@@ -2,13 +2,30 @@ use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+#[test]
+fn builtin_load_uses_embedded_catalog_without_touching_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = ModelCatalogService::new(temp.path(), ModelCatalogConfig::default());
+
+    let result = service.load_builtin();
+
+    assert_eq!(
+        result.status.configured_source,
+        ModelCatalogSourcePreference::Builtin
+    );
+    assert_eq!(result.status.source, CatalogSource::Builtin);
+    assert_eq!(result.status.warning, None);
+    assert!(result.entries.len() > 2_000);
+    assert!(!temp.path().join("litellm.json").exists());
+}
+
 #[tokio::test]
 async fn successful_download_is_normalized_and_cached() {
     let temp = tempfile::tempdir().unwrap();
     let (source_url, request_rx) =
         spawn_http_server("200 OK", SAMPLE_CATALOG, Some("\"catalog-v1\"")).await;
     let service = ModelCatalogService::new(temp.path(), test_config(source_url));
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
 
     assert_eq!(result.status.source, CatalogSource::Network);
     assert_eq!(result.status.freshness, CatalogFreshness::Fresh);
@@ -41,7 +58,7 @@ async fn fresh_cache_skips_network() {
         test_config("http://127.0.0.1:9/unreachable".into()),
     );
 
-    let result = service.load(&reqwest::Client::new(), 10_001).await;
+    let result = service.load_online(&reqwest::Client::new(), 10_001).await;
     assert_eq!(result.status.source, CatalogSource::Cache);
     assert_eq!(result.status.freshness, CatalogFreshness::Fresh);
     assert_eq!(result.status.warning, None);
@@ -59,7 +76,7 @@ async fn stale_cache_uses_etag_and_304_refreshes_checked_at() {
     let (source_url, request_rx) = spawn_http_server("304 Not Modified", "", None).await;
     let service = ModelCatalogService::new(temp.path(), test_config(source_url));
 
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
     assert_eq!(result.status.source, CatalogSource::Cache);
     assert_eq!(result.status.freshness, CatalogFreshness::Fresh);
     assert_eq!(result.status.checked_at, Some(100_000));
@@ -92,7 +109,7 @@ async fn failed_refresh_falls_back_to_stale_cache() {
         test_config("http://127.0.0.1:9/unreachable".into()),
     );
 
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
     assert_eq!(result.status.source, CatalogSource::Cache);
     assert_eq!(result.status.freshness, CatalogFreshness::Stale);
     assert!(result.status.warning.is_some());
@@ -103,18 +120,40 @@ async fn failed_refresh_falls_back_to_stale_cache() {
 }
 
 #[tokio::test]
-async fn failed_first_download_returns_unavailable_catalog() {
+async fn failed_first_download_falls_back_to_builtin_catalog() {
     let temp = tempfile::tempdir().unwrap();
     let service = ModelCatalogService::new(
         temp.path(),
         test_config("http://127.0.0.1:9/unreachable".into()),
     );
 
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
-    assert_eq!(result.status.source, CatalogSource::Unavailable);
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
+    assert_eq!(
+        result.status.configured_source,
+        ModelCatalogSourcePreference::Online
+    );
+    assert_eq!(result.status.source, CatalogSource::Builtin);
     assert_eq!(result.status.freshness, CatalogFreshness::Unknown);
-    assert!(result.entries.is_empty());
+    assert!(!result.entries.is_empty());
     assert!(result.status.warning.is_some());
+}
+
+#[tokio::test]
+async fn unavailable_is_reported_only_when_online_and_builtin_sources_fail() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = ModelCatalogService::new_with_builtin(
+        temp.path(),
+        test_config("http://127.0.0.1:9/unreachable".into()),
+        Err("invalid embedded snapshot".into()),
+    );
+
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
+
+    assert_eq!(result.status.source, CatalogSource::Unavailable);
+    assert!(result.entries.is_empty());
+    let warning = result.status.warning.unwrap();
+    assert!(warning.contains("Failed to refresh LiteLLM catalog"));
+    assert!(warning.contains("invalid embedded snapshot"));
 }
 
 #[tokio::test]
@@ -125,7 +164,7 @@ async fn corrupted_cache_is_replaced_after_successful_download() {
     let (source_url, _) = spawn_http_server("200 OK", SAMPLE_CATALOG, Some("\"recovered\"")).await;
     let service = ModelCatalogService::new(temp.path(), test_config(source_url));
 
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
 
     assert_eq!(result.status.source, CatalogSource::Network);
     let recovered = read_cache(&cache_path).unwrap();
@@ -164,6 +203,23 @@ async fn cached_only_load_reports_client_configuration_error() {
 }
 
 #[tokio::test]
+async fn cached_only_without_cache_falls_back_to_builtin() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = ModelCatalogService::new(temp.path(), ModelCatalogConfig::default());
+
+    let result = service
+        .load_cached_only(100_000, "invalid proxy configuration".into())
+        .await;
+
+    assert_eq!(result.status.source, CatalogSource::Builtin);
+    assert!(!result.entries.is_empty());
+    assert_eq!(
+        result.status.warning.as_deref(),
+        Some("invalid proxy configuration")
+    );
+}
+
+#[tokio::test]
 async fn oversized_download_does_not_replace_stale_cache() {
     let temp = tempfile::tempdir().unwrap();
     let entries = parse_catalog(SAMPLE_CATALOG.as_bytes()).unwrap();
@@ -177,7 +233,7 @@ async fn oversized_download_does_not_replace_stale_cache() {
     config.max_response_bytes = SAMPLE_CATALOG.len() - 1;
     let service = ModelCatalogService::new(temp.path(), config);
 
-    let result = service.load(&reqwest::Client::new(), 100_000).await;
+    let result = service.load_online(&reqwest::Client::new(), 100_000).await;
     assert_eq!(result.status.source, CatalogSource::Cache);
     assert_eq!(result.status.freshness, CatalogFreshness::Stale);
     assert!(result.status.warning.unwrap().contains("exceeds"));
@@ -218,8 +274,8 @@ async fn concurrent_first_loads_share_one_network_request() {
     let client = reqwest::Client::new();
 
     let (first, second) = tokio::join!(
-        service.load(&client, 100_000),
-        service.load(&client, 100_000)
+        service.load_online(&client, 100_000),
+        service.load_online(&client, 100_000)
     );
     server.await.unwrap();
     assert!(!first.entries.is_empty());
@@ -254,12 +310,12 @@ async fn concurrent_failed_loads_share_one_network_request() {
     let client = reqwest::Client::new();
 
     let (first, second) = tokio::join!(
-        service.load(&client, 100_000),
-        service.load(&client, 100_000)
+        service.load_online(&client, 100_000),
+        service.load_online(&client, 100_000)
     );
     server.await.unwrap();
 
-    assert_eq!(first.status.source, CatalogSource::Unavailable);
-    assert_eq!(second.status.source, CatalogSource::Unavailable);
+    assert_eq!(first.status.source, CatalogSource::Builtin);
+    assert_eq!(second.status.source, CatalogSource::Builtin);
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
 }

@@ -735,6 +735,14 @@ pub enum LoadBalanceStrategy {
 
 // === Settings ===
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelCatalogSourcePreference {
+    #[default]
+    Builtin,
+    Online,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -792,6 +800,8 @@ pub struct AppSettings {
     pub compression_top_p: Option<f32>,
     pub compression_frequency_penalty: Option<f32>,
     pub compression_prompt: Option<String>,
+    /// Model metadata source. Built-in is offline and is the default.
+    pub model_catalog_source: ModelCatalogSourcePreference,
     pub proxy_type: Option<String>,
     pub proxy_address: Option<String>,
     pub proxy_port: Option<u16>,
@@ -945,6 +955,7 @@ impl Default for AppSettings {
             compression_top_p: None,
             compression_frequency_penalty: None,
             compression_prompt: None,
+            model_catalog_source: ModelCatalogSourcePreference::Builtin,
             proxy_type: None,
             proxy_address: None,
             proxy_port: None,
@@ -1031,13 +1042,38 @@ impl Default for AppSettings {
 
 #[cfg(test)]
 mod app_settings_tests {
-    use super::AppSettings;
+    use super::{AppSettings, ModelCatalogSourcePreference};
     use serde_json::json;
 
     #[test]
     fn release_webview_on_tray_defaults_to_disabled() {
         let settings = AppSettings::default();
         assert!(!settings.release_webview_on_tray);
+    }
+
+    #[test]
+    fn model_catalog_source_defaults_to_builtin_and_roundtrips_online() {
+        let settings = AppSettings::default();
+        assert_eq!(
+            settings.model_catalog_source,
+            ModelCatalogSourcePreference::Builtin
+        );
+
+        let settings: AppSettings = serde_json::from_value(json!({
+            "model_catalog_source": "online"
+        }))
+        .expect("settings should deserialize");
+        assert_eq!(
+            settings.model_catalog_source,
+            ModelCatalogSourcePreference::Online
+        );
+
+        let settings: AppSettings =
+            serde_json::from_value(json!({})).expect("missing setting should use default");
+        assert_eq!(
+            settings.model_catalog_source,
+            ModelCatalogSourcePreference::Builtin
+        );
     }
 
     #[test]

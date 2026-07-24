@@ -1,6 +1,6 @@
 use super::metadata::CatalogEntry;
 use super::DEFAULT_SOURCE_URL;
-use aqbot_core::types::Model;
+use aqbot_core::types::{Model, ModelCatalogSourcePreference};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,6 +17,7 @@ pub enum CatalogFreshness {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CatalogSource {
+    Builtin,
     Network,
     Cache,
     Unavailable,
@@ -24,6 +25,7 @@ pub enum CatalogSource {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CatalogStatus {
+    pub configured_source: ModelCatalogSourcePreference,
     pub source: CatalogSource,
     pub freshness: CatalogFreshness,
     pub matched_context_windows: usize,
