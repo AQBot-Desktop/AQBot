@@ -38,6 +38,7 @@ mod m20260628_000001_repair_roles_schema;
 mod m20260701_000001_add_chat_perf_indexes;
 mod m20260702_000001_add_inline_media_failures;
 mod m20260723_000001_add_image_adapter_support;
+mod m20260724_000001_add_model_metadata;
 
 pub struct Migrator;
 
@@ -83,6 +84,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260701_000001_add_chat_perf_indexes::Migration),
             Box::new(m20260702_000001_add_inline_media_failures::Migration),
             Box::new(m20260723_000001_add_image_adapter_support::Migration),
+            Box::new(m20260724_000001_add_model_metadata::Migration),
         ]
     }
 }
@@ -190,6 +192,25 @@ mod tests {
                     .await
                     .expect("check drawing generation column"),
                 "missing drawing_generations.{column}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_model_metadata_columns_on_sqlite() {
+        let db = sqlite_test_db().await;
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+        let manager = SchemaManager::new(&db);
+
+        for column in ["max_output_tokens", "metadata_state_json"] {
+            assert!(
+                manager
+                    .has_column("models", column)
+                    .await
+                    .expect("check model metadata column"),
+                "missing models.{column}"
             );
         }
     }

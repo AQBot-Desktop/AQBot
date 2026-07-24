@@ -3,7 +3,7 @@ use super::metadata::{parse_catalog, CatalogEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 const SOURCE_PROJECT: &str = "LiteLLM";
 const SOURCE_REPOSITORY: &str = "https://github.com/BerriAI/litellm";
 const SOURCE_FILE: &str = "model_prices_and_context_window.json";

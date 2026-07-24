@@ -1,6 +1,7 @@
 use crate::AppState;
 use aqbot_core::repo::provider_import::{ProviderImportBatchResult, ProviderImportCandidate};
 use aqbot_core::types::*;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 use tauri::State;
 
@@ -89,13 +90,92 @@ pub async fn import_cc_switch_provider_configs(
     state: State<'_, AppState>,
     candidate_ids: Vec<String>,
 ) -> Result<ProviderImportBatchResult, String> {
-    aqbot_core::repo::provider_import::import_cc_switch_provider_configs(
+    let before = provider_model_inventory(state.inner()).await?;
+    let result = aqbot_core::repo::provider_import::import_cc_switch_provider_configs(
         &state.sea_db,
         &state.master_key,
         candidate_ids,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    adapt_imported_models(state.inner(), &before).await?;
+    Ok(result)
+}
+
+pub(crate) async fn provider_model_inventory(
+    state: &AppState,
+) -> Result<BTreeMap<String, BTreeSet<String>>, String> {
+    let providers = aqbot_core::repo::provider::list_providers_merged(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(providers
+        .into_iter()
+        .map(|provider| {
+            (
+                provider.id,
+                provider
+                    .models
+                    .into_iter()
+                    .map(|model| model.model_id)
+                    .collect(),
+            )
+        })
+        .collect())
+}
+
+pub(crate) async fn adapt_imported_models(
+    state: &AppState,
+    before: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<(), String> {
+    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .unwrap_or_default();
+    let catalog = state
+        .model_catalog
+        .load_local(
+            settings.model_catalog_source,
+            chrono::Utc::now().timestamp(),
+        )
+        .await;
+    let providers = aqbot_core::repo::provider::list_providers_merged(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    for mut provider in providers {
+        if provider.id.starts_with("builtin_") {
+            continue;
+        }
+        let previous = before.get(&provider.id);
+        let mut changed = false;
+        let context = provider.clone();
+        for model in &mut provider.models {
+            if previous.is_some_and(|models| models.contains(&model.model_id)) {
+                continue;
+            }
+            let candidate = crate::model_catalog::infer_single_model(
+                &context,
+                model.clone(),
+                catalog.clone(),
+                true,
+            );
+            if candidate.unsupported_reason.is_some() {
+                model.enabled = false;
+                model.metadata_state = candidate.proposed_model.metadata_state;
+            } else {
+                *model = candidate.proposed_model;
+            }
+            changed = true;
+        }
+        if changed {
+            aqbot_core::repo::provider::save_models_from_user_selection(
+                &state.sea_db,
+                &provider.id,
+                &provider.models,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -353,9 +433,290 @@ pub async fn fetch_remote_models(
     let catalog_future = load_model_catalog(state.inner(), &global_settings, now);
     let (models, catalog) = tokio::join!(adapter.list_models(&ctx), catalog_future);
     let models = models.map_err(|error| error.to_string())?;
-    Ok(crate::model_catalog::enrich_models(
+    Ok(crate::model_catalog::infer_remote_models(
         &provider, models, catalog,
     ))
+}
+
+#[tauri::command]
+pub async fn infer_model_metadata(
+    state: State<'_, AppState>,
+    provider_id: String,
+    model: Model,
+) -> Result<crate::model_catalog::ModelSyncCandidate, String> {
+    let provider = match aqbot_core::repo::provider::get_provider(&state.sea_db, &provider_id).await
+    {
+        Ok(provider) => provider,
+        Err(error) if provider_id.starts_with("builtin_") => {
+            aqbot_core::repo::provider::list_providers_merged(&state.sea_db)
+                .await
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|provider| provider.id == provider_id)
+                .ok_or_else(|| error.to_string())?
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .unwrap_or_default();
+    let catalog = state
+        .model_catalog
+        .load_local(
+            settings.model_catalog_source,
+            chrono::Utc::now().timestamp(),
+        )
+        .await;
+    Ok(crate::model_catalog::infer_single_model(
+        &provider, model, catalog, false,
+    ))
+}
+
+#[tauri::command]
+pub async fn apply_model_sync(
+    state: State<'_, AppState>,
+    provider_id: String,
+    models: Vec<Model>,
+) -> Result<(), String> {
+    let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    aqbot_core::repo::provider::save_models_from_user_selection(&state.sea_db, &real_id, &models)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn update_model_metadata(
+    state: State<'_, AppState>,
+    provider_id: String,
+    mut model: Model,
+    user_fields: Vec<String>,
+) -> Result<Model, String> {
+    let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    model.provider_id = real_id.clone();
+    mark_model_metadata_as_user(&mut model, &user_fields);
+    let mut provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &real_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(existing) = provider
+        .models
+        .iter_mut()
+        .find(|existing| existing.model_id == model.model_id)
+    {
+        *existing = model.clone();
+    } else {
+        provider.models.push(model.clone());
+    }
+    aqbot_core::repo::provider::save_models_from_user_selection(
+        &state.sea_db,
+        &real_id,
+        &provider.models,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(model)
+}
+
+#[tauri::command]
+pub async fn reset_model_metadata(
+    state: State<'_, AppState>,
+    provider_id: String,
+    model_ids: Vec<String>,
+    fields: Option<Vec<String>>,
+) -> Result<Vec<Model>, String> {
+    let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &real_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .unwrap_or_default();
+    let catalog =
+        load_model_catalog(state.inner(), &settings, chrono::Utc::now().timestamp()).await;
+    let reset_all = model_ids.is_empty();
+    let provider_context = provider.clone();
+    for model in &mut provider.models {
+        if !reset_all && !model_ids.iter().any(|model_id| model_id == &model.model_id) {
+            continue;
+        }
+        let candidate = crate::model_catalog::infer_single_model(
+            &provider_context,
+            model.clone(),
+            catalog.clone(),
+            true,
+        );
+        if candidate.unsupported_reason.is_none() {
+            match fields.as_deref() {
+                Some(fields) if !fields.is_empty() => {
+                    apply_automatic_fields(model, &candidate.proposed_model, fields)
+                }
+                _ => *model = candidate.proposed_model,
+            }
+        }
+    }
+    aqbot_core::repo::provider::save_models_from_user_selection(
+        &state.sea_db,
+        &real_id,
+        &provider.models,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(provider.models)
+}
+
+fn apply_automatic_fields(target: &mut Model, automatic: &Model, fields: &[String]) {
+    let automatic_state = automatic.metadata_state.clone().unwrap_or_default();
+    let target_state = target.metadata_state.get_or_insert_with(Default::default);
+    target_state.schema_version = automatic_state.schema_version;
+    target_state.catalog_key = automatic_state.catalog_key.clone();
+    target_state.catalog_mode = automatic_state.catalog_mode.clone();
+    for field in fields {
+        match field.as_str() {
+            "model_type" => {
+                target.model_type = automatic.model_type.clone();
+                target_state.model_type = automatic_state.model_type;
+            }
+            "capabilities" => {
+                target.capabilities = automatic.capabilities.clone();
+                target_state.capabilities = automatic_state.capabilities;
+            }
+            "context_window" => {
+                target.context_window = automatic.context_window;
+                target_state.context_window = automatic_state.context_window;
+            }
+            "max_output_tokens" => {
+                target.max_output_tokens = automatic.max_output_tokens;
+                target_state.max_output_tokens = automatic_state.max_output_tokens;
+            }
+            "no_system_role" => {
+                target
+                    .param_overrides
+                    .get_or_insert_with(Default::default)
+                    .no_system_role = automatic
+                    .param_overrides
+                    .as_ref()
+                    .and_then(|params| params.no_system_role);
+                target_state.no_system_role = automatic_state.no_system_role;
+            }
+            "omit_sampling_params" => {
+                target
+                    .param_overrides
+                    .get_or_insert_with(Default::default)
+                    .omit_sampling_params = automatic
+                    .param_overrides
+                    .as_ref()
+                    .and_then(|params| params.omit_sampling_params);
+                target_state.omit_sampling_params = automatic_state.omit_sampling_params;
+            }
+            "reasoning_options" => {
+                target
+                    .param_overrides
+                    .get_or_insert_with(Default::default)
+                    .reasoning_options = automatic
+                    .param_overrides
+                    .as_ref()
+                    .and_then(|params| params.reasoning_options.clone());
+                target_state.reasoning_options = automatic_state.reasoning_options;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn mark_metadata_field_as_user(metadata: &mut ModelMetadataState, field: &str) {
+    let source = ModelMetadataSource::User;
+    match field {
+        "model_type" => metadata.model_type = source,
+        "capabilities" => metadata.capabilities = source,
+        "context_window" => metadata.context_window = source,
+        "max_output_tokens" => metadata.max_output_tokens = source,
+        "no_system_role" => metadata.no_system_role = source,
+        "omit_sampling_params" => metadata.omit_sampling_params = source,
+        "reasoning_options" => metadata.reasoning_options = source,
+        _ => {}
+    }
+}
+
+fn mark_model_metadata_as_user(model: &mut Model, fields: &[String]) {
+    if fields.is_empty() {
+        return;
+    }
+    let metadata = model.metadata_state.get_or_insert_with(Default::default);
+    for field in fields {
+        mark_metadata_field_as_user(metadata, field);
+    }
+}
+
+#[cfg(test)]
+mod model_metadata_tests {
+    use super::*;
+
+    fn model() -> Model {
+        Model {
+            provider_id: "provider".into(),
+            model_id: "model".into(),
+            name: "Model".into(),
+            group_name: None,
+            model_type: ModelType::Chat,
+            capabilities: vec![ModelCapability::TextChat],
+            context_window: None,
+            max_output_tokens: None,
+            enabled: true,
+            param_overrides: None,
+            image_config: None,
+            metadata_state: None,
+        }
+    }
+
+    #[test]
+    fn request_only_edits_keep_legacy_metadata_protection() {
+        let mut model = model();
+        mark_model_metadata_as_user(&mut model, &[]);
+        assert_eq!(model.metadata_state, None);
+    }
+
+    #[test]
+    fn explicit_token_clears_are_persisted_as_user_metadata() {
+        let mut model = model();
+        mark_model_metadata_as_user(
+            &mut model,
+            &["context_window".into(), "max_output_tokens".into()],
+        );
+        let state = model.metadata_state.expect("metadata state");
+        assert_eq!(state.context_window, ModelMetadataSource::User);
+        assert_eq!(state.max_output_tokens, ModelMetadataSource::User);
+    }
+
+    #[test]
+    fn single_field_reset_does_not_replace_other_user_metadata() {
+        let mut target = model();
+        target.capabilities.push(ModelCapability::Vision);
+        target.metadata_state = Some(ModelMetadataState {
+            capabilities: ModelMetadataSource::User,
+            max_output_tokens: ModelMetadataSource::User,
+            ..ModelMetadataState::default()
+        });
+        let mut automatic = model();
+        automatic.max_output_tokens = Some(8_192);
+        automatic.metadata_state = Some(ModelMetadataState {
+            capabilities: ModelMetadataSource::Catalog,
+            max_output_tokens: ModelMetadataSource::Catalog,
+            ..ModelMetadataState::default()
+        });
+
+        apply_automatic_fields(&mut target, &automatic, &["max_output_tokens".into()]);
+
+        assert_eq!(target.max_output_tokens, Some(8_192));
+        assert!(target.capabilities.contains(&ModelCapability::Vision));
+        let state = target.metadata_state.expect("metadata state");
+        assert_eq!(state.max_output_tokens, ModelMetadataSource::Catalog);
+        assert_eq!(state.capabilities, ModelMetadataSource::User);
+    }
 }
 
 /// Test a single model's availability by sending the minimal native request.

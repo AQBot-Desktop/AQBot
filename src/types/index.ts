@@ -165,6 +165,20 @@ export interface ChatGptImportResult {
 // === Model System ===
 export type ModelCapability = 'TextChat' | 'Vision' | 'FunctionCalling' | 'Reasoning' | 'RealtimeVoice';
 export type ModelType = 'Chat' | 'Voice' | 'Embedding' | 'Image' | 'Rerank';
+export type ModelMetadataSource = 'catalog' | 'provider' | 'heuristic' | 'default' | 'user';
+
+export interface ModelMetadataState {
+  schema_version: number;
+  catalog_key: string | null;
+  catalog_mode: string | null;
+  model_type: ModelMetadataSource;
+  capabilities: ModelMetadataSource;
+  context_window: ModelMetadataSource;
+  max_output_tokens: ModelMetadataSource;
+  no_system_role: ModelMetadataSource;
+  omit_sampling_params: ModelMetadataSource;
+  reasoning_options: ModelMetadataSource;
+}
 
 export interface Model {
   provider_id: string;
@@ -174,9 +188,11 @@ export interface Model {
   model_type: ModelType;
   capabilities: ModelCapability[];
   context_window: number | null;
+  max_output_tokens?: number | null;
   enabled: boolean;
   param_overrides: ModelParamOverrides | null;
   image_config?: ImageAdapterConfig | null;
+  metadata_state?: ModelMetadataState | null;
 }
 
 export type ImageOperation = 'generate' | 'edit' | 'mask_edit';
@@ -224,13 +240,35 @@ export interface ModelCatalogStatus {
   freshness: ModelCatalogFreshness;
   matched_context_windows: number;
   total_chat_models: number;
+  matched_models: number;
+  autofilled_fields: number;
+  inferred_types: number;
+  unsupported_models: number;
   checked_at: number | null;
   warning: string | null;
 }
 
 export interface RemoteModelSyncResult {
-  models: Model[];
+  candidates: ModelSyncCandidate[];
   catalog: ModelCatalogStatus;
+}
+
+export type ModelSyncStatus = 'synced' | 'local-only' | 'remote-only' | 'unsupported';
+
+export interface ModelMetadataChange {
+  field: string;
+  previous: unknown;
+  proposed: unknown;
+  source: ModelMetadataSource;
+}
+
+export interface ModelSyncCandidate {
+  proposed_model: Model;
+  status: ModelSyncStatus;
+  catalog_mode: string | null;
+  inference_source: ModelMetadataSource;
+  changes: ModelMetadataChange[];
+  unsupported_reason: string | null;
 }
 
 export interface ModelParamOverrides {
@@ -240,6 +278,7 @@ export interface ModelParamOverrides {
   frequency_penalty?: number;
   use_max_completion_tokens?: boolean;
   no_system_role?: boolean;
+  omit_sampling_params?: boolean;
   force_max_tokens?: boolean;
   thinking_param_style?: string;
   reasoning_profile?: string;

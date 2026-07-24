@@ -23,6 +23,7 @@ pub struct AQBotProviderBridge {
     ctx: ProviderRequestContext,
     api_type: ApiType,
     model_param_overrides: Option<ModelParamOverrides>,
+    model_max_output_tokens: Option<u32>,
     app: Option<tauri::AppHandle>,
     conversation_id: Option<String>,
 }
@@ -57,6 +58,7 @@ impl AQBotProviderBridge {
             ctx,
             api_type,
             model_param_overrides: None,
+            model_max_output_tokens: None,
             app: None,
             conversation_id: None,
         })
@@ -64,6 +66,11 @@ impl AQBotProviderBridge {
 
     pub fn with_model_param_overrides(mut self, overrides: Option<ModelParamOverrides>) -> Self {
         self.model_param_overrides = overrides;
+        self
+    }
+
+    pub fn with_model_max_output_tokens(mut self, max_output_tokens: Option<u32>) -> Self {
+        self.model_max_output_tokens = max_output_tokens;
         self
     }
 
@@ -86,7 +93,11 @@ impl LLMProvider for AQBotProviderBridge {
         request: ProviderRequest<'_>,
         stream_tx: Option<tokio::sync::mpsc::Sender<SDKMessage>>,
     ) -> Result<ProviderResponse, ApiError> {
-        let chat_request = convert_request(request, self.model_param_overrides.as_ref());
+        let chat_request = convert_request(
+            request,
+            self.model_param_overrides.as_ref(),
+            self.model_max_output_tokens,
+        );
 
         let mut stream = self.adapter.chat_stream(&self.ctx, chat_request);
         let mut accumulated_text = String::new();
@@ -171,6 +182,7 @@ impl LLMProvider for AQBotProviderBridge {
 fn convert_request(
     request: ProviderRequest<'_>,
     model_param_overrides: Option<&ModelParamOverrides>,
+    model_max_output_tokens: Option<u32>,
 ) -> ChatRequest {
     let messages: Vec<ChatMessage> = request
         .messages
@@ -203,7 +215,15 @@ fn convert_request(
     let mut final_messages = Vec::new();
     if let Some(sys) = system_text {
         final_messages.push(ChatMessage {
-            role: "system".to_string(),
+            role: if model_param_overrides
+                .and_then(|overrides| overrides.no_system_role)
+                == Some(true)
+            {
+                "user"
+            } else {
+                "system"
+            }
+            .to_string(),
             content: ChatContent::Text(sys),
             reasoning_content: None,
             tool_calls: None,
@@ -214,7 +234,7 @@ fn convert_request(
 
     let force_model_max_tokens =
         model_param_overrides.and_then(|overrides| overrides.force_max_tokens) == Some(true);
-    let max_tokens = if request.max_tokens > 0 {
+    let configured_max_tokens = if request.max_tokens > 0 {
         Some(request.max_tokens as u32)
     } else if force_model_max_tokens {
         model_param_overrides
@@ -222,6 +242,17 @@ fn convert_request(
             .or(Some(4096))
     } else {
         None
+    };
+    let max_tokens = match (configured_max_tokens, model_max_output_tokens) {
+        (Some(configured), Some(limit)) if configured > limit => {
+            tracing::warn!(
+                configured_max_tokens = configured,
+                model_max_output_tokens = limit,
+                "Clamped agent output tokens to the model metadata limit"
+            );
+            Some(limit)
+        }
+        (configured, _) => configured,
     };
 
     ChatRequest {
@@ -490,6 +521,7 @@ mod tests {
             frequency_penalty: None,
             use_max_completion_tokens: Some(false),
             no_system_role: None,
+            omit_sampling_params: None,
             force_max_tokens: None,
             thinking_param_style: Some("enable_thinking".to_string()),
             reasoning_profile: Some("siliconflow_enable_thinking".to_string()),
@@ -516,7 +548,7 @@ mod tests {
             thinking: None,
         };
 
-        let converted = convert_request(request, Some(&param_overrides()));
+        let converted = convert_request(request, Some(&param_overrides()), None);
 
         assert_eq!(converted.max_tokens, None);
         assert_eq!(
@@ -549,7 +581,7 @@ mod tests {
         let mut overrides = param_overrides();
         overrides.force_max_tokens = Some(true);
 
-        let converted = convert_request(request, Some(&overrides));
+        let converted = convert_request(request, Some(&overrides), None);
 
         assert_eq!(converted.max_tokens, Some(2048));
     }
@@ -571,9 +603,31 @@ mod tests {
             thinking: None,
         };
 
-        let converted = convert_request(request, Some(&param_overrides()));
+        let converted = convert_request(request, Some(&param_overrides()), None);
 
         assert_eq!(converted.max_tokens, Some(8192));
+    }
+
+    #[test]
+    fn convert_request_clamps_sdk_max_tokens_to_model_limit() {
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let request = ProviderRequest {
+            model: "deepseek-reasoner",
+            max_tokens: 8192,
+            messages: &messages,
+            system: None,
+            tools: None,
+            thinking: None,
+        };
+
+        let converted = convert_request(request, Some(&param_overrides()), Some(4096));
+
+        assert_eq!(converted.max_tokens, Some(4096));
     }
 
     #[test]

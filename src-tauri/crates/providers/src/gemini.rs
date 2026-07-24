@@ -752,28 +752,21 @@ impl ProviderAdapter for GeminiAdapter {
                     .unwrap_or(&m.name)
                     .to_string();
                 let name = m.display_name.unwrap_or_else(|| model_id.clone());
-                let model_type = ModelType::detect(&model_id);
-                let mut caps = match model_type {
-                    ModelType::Chat => vec![ModelCapability::TextChat],
-                    ModelType::Embedding => vec![],
-                    ModelType::Image => vec![],
-                    ModelType::Rerank => vec![],
-                    ModelType::Voice => vec![ModelCapability::RealtimeVoice],
-                };
-                if model_id.contains("pro") || model_id.contains("flash") {
-                    caps.push(ModelCapability::Vision);
-                }
+                let (model_type, capabilities) =
+                    infer_model_type_and_capabilities(&model_id, &name);
                 Model {
                     provider_id: ctx.provider_id.clone(),
                     model_id: model_id.clone(),
                     name,
                     group_name: None,
                     model_type,
-                    capabilities: caps,
+                    capabilities,
                     context_window: None,
+                    max_output_tokens: None,
                     enabled: true,
                     param_overrides: None,
                     image_config: None,
+                    metadata_state: None,
                 }
             })
             .collect())

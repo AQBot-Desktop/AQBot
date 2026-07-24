@@ -26,6 +26,7 @@ pub async fn import_kelivo_backup(
     options: ThirdPartyImportOptions,
 ) -> Result<ThirdPartyImportResult, String> {
     let before = super::import_media::pending_snapshot(&state.sea_db).await?;
+    let provider_models = super::providers::provider_model_inventory(state.inner()).await?;
     let mut result = aqbot_core::repo::kelivo_import::import_kelivo_backup_from_path(
         &state.sea_db,
         &state.master_key,
@@ -34,6 +35,7 @@ pub async fn import_kelivo_backup(
     )
     .await
     .map_err(|e| e.to_string())?;
+    super::providers::adapt_imported_models(state.inner(), &provider_models).await?;
     match super::import_media::materialize_new_candidates(&state.sea_db, &before).await {
         Ok(report) => result
             .warnings

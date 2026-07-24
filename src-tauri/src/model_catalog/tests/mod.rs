@@ -17,7 +17,13 @@ const SAMPLE_CATALOG: &str = r#"{
     "max_input_tokens": 128000,
     "max_output_tokens": 16384,
     "max_tokens": 16384,
-    "supports_vision": true
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "supports_reasoning": false,
+    "supports_system_messages": false,
+    "supports_sampling_params": false,
+    "supports_none_reasoning_effort": true,
+    "supports_xhigh_reasoning_effort": true
   },
   "output-only": {
     "litellm_provider": "openai",
@@ -29,6 +35,25 @@ const SAMPLE_CATALOG: &str = r#"{
     "litellm_provider": "openai",
     "mode": "embedding",
     "max_input_tokens": 8192
+  },
+  "amazon.titan-embed-image-v1": {
+    "litellm_provider": "openai",
+    "mode": "embedding",
+    "max_input_tokens": 8192,
+    "supported_modalities": ["image", "text"]
+  },
+  "gpt-4o-audio-preview": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "max_input_tokens": 128000
+  },
+  "dall-e-3": {
+    "litellm_provider": "openai",
+    "mode": "image_generation"
+  },
+  "web-search-model": {
+    "litellm_provider": "openai",
+    "mode": "search"
   },
   "invalid-small": {
     "litellm_provider": "openai",

@@ -112,6 +112,8 @@ export interface ModelParamSlidersProps {
   showDividers?: boolean;
   /** Which parameters to render (default: all four) */
   visibleParams?: Array<'temperature' | 'topP' | 'maxTokens' | 'frequencyPenalty'>;
+  /** Optional hard model output limit. Does not become a request default. */
+  maxTokensMax?: number;
 }
 
 const MAX_TOKENS_MARKS: Record<string | number, string> = {
@@ -146,6 +148,7 @@ export function ModelParamSliders({
   showSwitch = true,
   showDividers = true,
   visibleParams = [...ALL_PARAMS],
+  maxTokensMax = 1048576,
 }: ModelParamSlidersProps) {
   const { t } = useTranslation();
   const d = { ...DEFAULT_DEFAULTS, ...defaults };
@@ -200,11 +203,14 @@ export function ModelParamSliders({
                 label={t('settings.maxTokens')}
                 tooltip={t('settings.maxTokensTooltip')}
                 value={values.maxTokens}
-                defaultValue={d.maxTokens}
-                min={256}
-                max={1048576}
+                defaultValue={Math.min(d.maxTokens, maxTokensMax)}
+                min={Math.min(256, maxTokensMax)}
+                max={maxTokensMax}
                 step={256}
-                marks={MAX_TOKENS_MARKS}
+                marks={Object.fromEntries(
+                  Object.entries(MAX_TOKENS_MARKS)
+                    .filter(([value]) => Number(value) <= maxTokensMax),
+                )}
                 inputWidth={90}
                 onChange={(v) => onChange({ maxTokens: v })}
                 showSwitch={showSwitch}

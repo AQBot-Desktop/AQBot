@@ -125,9 +125,11 @@ impl BuiltinModel {
                 .unwrap_or_else(|| ModelType::detect(self.model_id)),
             capabilities: self.capabilities.clone(),
             context_window: None,
+            max_output_tokens: None,
             enabled: self.enabled,
             param_overrides: self.param_overrides.clone(),
             image_config: None,
+            metadata_state: None,
         }
     }
 }
@@ -140,6 +142,7 @@ fn empty_param_overrides() -> ModelParamOverrides {
         frequency_penalty: None,
         use_max_completion_tokens: None,
         no_system_role: None,
+        omit_sampling_params: None,
         force_max_tokens: None,
         thinking_param_style: None,
         reasoning_profile: None,

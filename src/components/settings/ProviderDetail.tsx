@@ -39,6 +39,8 @@ import type {
   Model,
   ModelCapability,
   ModelCatalogStatus,
+  ModelSyncCandidate,
+  ModelSyncStatus,
   ModelType,
   ModelParamOverrides,
   ProviderType,
@@ -94,6 +96,7 @@ const MODEL_SYNC_STATUS_CONFIG: Record<ModelSyncStatus, { color: string; labelKe
   synced: { color: 'blue', labelKey: 'settings.modelAlreadyAdded' },
   'local-only': { color: 'gold', labelKey: 'settings.remoteMissing' },
   'remote-only': { color: 'green', labelKey: 'settings.remoteAvailable' },
+  unsupported: { color: 'red', labelKey: 'settings.modelUnsupported' },
 };
 
 const DEFAULT_PATHS: Record<ProviderType, string> = {
@@ -207,13 +210,9 @@ function parseExtraBodyInput(text: string): { value?: Record<string, unknown>; e
 }
 
 type KeyModalMode = 'add' | 'edit';
-type ModelSyncStatus = 'synced' | 'local-only' | 'remote-only';
 
-interface ModelSyncEntry {
+interface ModelSyncEntry extends ModelSyncCandidate {
   model: Model;
-  localModel: Model | null;
-  remoteModel: Model | null;
-  status: ModelSyncStatus;
 }
 
 function deriveModelGroupName(modelId: string): string {
@@ -258,40 +257,6 @@ function getDefaultCapabilitiesForType(modelType: ModelType): ModelCapability[] 
   }
 }
 
-function buildModelSyncEntries(localModels: Model[], remoteModels: Model[]): ModelSyncEntry[] {
-  const localById = new Map(localModels.map((model) => [model.model_id, model]));
-  const remoteById = new Map(remoteModels.map((model) => [model.model_id, model]));
-  const ids = Array.from(new Set([...localById.keys(), ...remoteById.keys()]));
-
-  return ids
-    .map((modelId) => {
-      const localModel = localById.get(modelId) ?? null;
-      const remoteModel = remoteById.get(modelId) ?? null;
-      const model = localModel && remoteModel
-        ? {
-            ...localModel,
-            context_window: localModel.context_window ?? remoteModel.context_window,
-          }
-        : localModel ?? remoteModel!;
-      const status: ModelSyncStatus = localModel && remoteModel
-        ? 'synced'
-        : localModel
-          ? 'local-only'
-          : 'remote-only';
-
-      return {
-        model,
-        localModel,
-        remoteModel,
-        status,
-      };
-    })
-    .sort((a, b) =>
-      getModelGroupName(a.model).localeCompare(getModelGroupName(b.model))
-      || (a.model.name || a.model.model_id).localeCompare(b.model.name || b.model.model_id),
-    );
-}
-
 interface ProviderDetailProps {
   providerId: string;
 }
@@ -314,9 +279,12 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const toggleProviderKey = useProviderStore((s) => s.toggleProviderKey);
   const validateProviderKey = useProviderStore((s) => s.validateProviderKey);
   const toggleModel = useProviderStore((s) => s.toggleModel);
-  const updateModelParams = useProviderStore((s) => s.updateModelParams);
   const fetchRemoteModels = useProviderStore((s) => s.fetchRemoteModels);
   const saveModels = useProviderStore((s) => s.saveModels);
+  const inferModelMetadata = useProviderStore((s) => s.inferModelMetadata);
+  const applyModelSync = useProviderStore((s) => s.applyModelSync);
+  const updateModelMetadata = useProviderStore((s) => s.updateModelMetadata);
+  const resetModelMetadata = useProviderStore((s) => s.resetModelMetadata);
   const testModel = useProviderStore((s) => s.testModel);
 
   const [keyModalOpen, setKeyModalOpen] = useState(false);
@@ -336,24 +304,30 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [addModelName, setAddModelName] = useState('');
   const [addModelGroupName, setAddModelGroupName] = useState('');
   const [addModelType, setAddModelType] = useState<ModelType>('Chat');
+  const [addModelPreview, setAddModelPreview] = useState<ModelSyncCandidate | null>(null);
+  const [addModelInferring, setAddModelInferring] = useState(false);
   const addModelNameDirty = useRef(false);
   const addModelGroupDirty = useRef(false);
+  const addModelTypeDirty = useRef(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [editCapabilities, setEditCapabilities] = useState<ModelCapability[]>([]);
   const [editModelType, setEditModelType] = useState<ModelType>('Chat');
   const [editContextWindow, setEditContextWindow] = useState<number | null>(null);
+  const [editMaxOutputTokens, setEditMaxOutputTokens] = useState<number | null>(null);
   const [editTemperature, setEditTemperature] = useState<number | null>(null);
   const [editMaxTokensParam, setEditMaxTokensParam] = useState<number | null>(null);
   const [editTopP, setEditTopP] = useState<number | null>(null);
   const [editFreqPenalty, setEditFreqPenalty] = useState<number | null>(null);
   const [editUseMaxCompletionTokens, setEditUseMaxCompletionTokens] = useState(false);
   const [editNoSystemRole, setEditNoSystemRole] = useState(false);
+  const [editOmitSamplingParams, setEditOmitSamplingParams] = useState(false);
   const [editForceMaxTokens, setEditForceMaxTokens] = useState(false);
   const [editThinkingParamStyle, setEditThinkingParamStyle] = useState<string>('reasoning_effort');
   const [editExtraBody, setEditExtraBody] = useState('');
   const [editExtraBodyError, setEditExtraBodyError] = useState<string | null>(null);
   const [editImageConfig, setEditImageConfig] = useState<ImageAdapterConfig | null>(null);
+  const [editMetadataDirty, setEditMetadataDirty] = useState<Set<string>>(new Set());
   const [iconOverrides, setIconOverrides] = useState<Record<string, string>>({});
   const [apiHostLocal, setApiHostLocal] = useState(provider?.api_host ?? '');
   const [apiPathLocal, setApiPathLocal] = useState(provider?.api_path ?? '');
@@ -535,10 +509,63 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     setAddModelName('');
     setAddModelGroupName(groupName ?? '');
     setAddModelType('Chat');
+    setAddModelPreview(null);
+    setAddModelInferring(false);
     addModelNameDirty.current = false;
     addModelGroupDirty.current = !!groupName;
+    addModelTypeDirty.current = false;
     setAddModelModalOpen(true);
   }, []);
+
+  useEffect(() => {
+    const modelId = addModelId.trim();
+    if (!addModelModalOpen || !modelId) {
+      setAddModelPreview(null);
+      setAddModelInferring(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setAddModelInferring(true);
+      try {
+        const preview = await inferModelMetadata(providerId, {
+          provider_id: providerId,
+          model_id: modelId,
+          name: addModelName.trim() || modelId,
+          group_name: addModelGroupName.trim() || deriveModelGroupName(modelId),
+          model_type: addModelType,
+          capabilities: getDefaultCapabilitiesForType(addModelType),
+          context_window: null,
+          max_output_tokens: null,
+          enabled: true,
+          param_overrides: null,
+          metadata_state: null,
+        });
+        if (!cancelled) {
+          setAddModelPreview(preview);
+          if (!addModelTypeDirty.current && preview.unsupported_reason == null) {
+            setAddModelType(preview.proposed_model.model_type);
+          }
+        }
+      } catch {
+        if (!cancelled) setAddModelPreview(null);
+      } finally {
+        if (!cancelled) setAddModelInferring(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    addModelGroupName,
+    addModelId,
+    addModelModalOpen,
+    addModelName,
+    addModelType,
+    inferModelMetadata,
+    providerId,
+  ]);
 
   const resetKeyModal = useCallback(() => {
     setKeyModalOpen(false);
@@ -644,11 +671,19 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     setRefreshing(true);
     try {
       const result = await fetchRemoteModels(providerId);
-      const localModels = provider?.models ?? [];
-      const syncEntries = buildModelSyncEntries(localModels, result.models);
+      const syncEntries = result.candidates
+        .map((candidate) => ({ ...candidate, model: candidate.proposed_model }))
+        .sort((a, b) =>
+          getModelGroupName(a.model).localeCompare(getModelGroupName(b.model))
+          || (a.model.name || a.model.model_id).localeCompare(b.model.name || b.model.model_id),
+        );
       setPickerModels(syncEntries);
       setPickerCatalog(result.catalog);
-      setPickerSelected(new Set(localModels.map((m) => m.model_id)));
+      setPickerSelected(new Set(
+        syncEntries
+          .filter((entry) => entry.status !== 'unsupported' && entry.status !== 'remote-only')
+          .map((entry) => entry.model.model_id),
+      ));
       setPickerSearch('');
       setPickerCollapsed(new Set());
       setPickerOpen(true);
@@ -662,24 +697,37 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     } finally {
       setRefreshing(false);
     }
-  }, [providerId, fetchRemoteModels, provider?.models, message, t]);
+  }, [providerId, fetchRemoteModels, message, t]);
 
   const handlePickerConfirm = useCallback(async () => {
     const selectedModels = pickerModels
-      .filter(({ model }) => pickerSelected.has(model.model_id))
+      .filter(({ model, status }) =>
+        status !== 'unsupported' && pickerSelected.has(model.model_id),
+      )
       .map((entry) => entry.model);
+    const selectedIds = new Set(selectedModels.map((model) => model.model_id));
+    const unsupportedIds = new Set(
+      pickerModels
+        .filter(({ status }) => status === 'unsupported')
+        .map(({ model }) => model.model_id),
+    );
+    for (const localModel of provider?.models ?? []) {
+      if (unsupportedIds.has(localModel.model_id) && !selectedIds.has(localModel.model_id)) {
+        selectedModels.push(localModel);
+      }
+    }
     if (selectedModels.length === 0) {
       setPickerOpen(false);
       return;
     }
     try {
-      await saveModels(providerId, selectedModels);
+      await applyModelSync(providerId, selectedModels);
       message.success(t('settings.modelSyncApplied'));
     } catch {
       message.error(t('error.saveFailed'));
     }
     setPickerOpen(false);
-  }, [pickerModels, pickerSelected, providerId, saveModels, message, t]);
+  }, [pickerModels, pickerSelected, provider?.models, providerId, applyModelSync, message, t]);
 
   const handleTestSingleModel = useCallback(async () => {
     if (!singleTestModelId) return;
@@ -748,29 +796,51 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       return;
     }
 
+    if (addModelPreview?.unsupported_reason) {
+      message.error(addModelPreview.unsupported_reason);
+      return;
+    }
     const nextModel: Model = {
+      ...(addModelPreview?.proposed_model ?? {
+        provider_id: providerId,
+        model_id: nextModelId,
+        name: nextModelName || nextModelId,
+        group_name: null,
+        model_type: addModelType,
+        capabilities: getDefaultCapabilitiesForType(addModelType),
+        context_window: null,
+        max_output_tokens: null,
+        enabled: true,
+        param_overrides: null,
+        metadata_state: null,
+      }),
       provider_id: providerId,
       model_id: nextModelId,
       name: nextModelName || nextModelId,
       group_name: manualGroupName || deriveModelGroupName(nextModelId),
       model_type: addModelType,
-      capabilities: getDefaultCapabilitiesForType(addModelType),
-      context_window: null,
-      enabled: true,
-      param_overrides: null,
+      capabilities: addModelTypeDirty.current
+        ? getDefaultCapabilitiesForType(addModelType)
+        : (addModelPreview?.proposed_model.capabilities
+          ?? getDefaultCapabilitiesForType(addModelType)),
     };
 
     try {
-      await saveModels(providerId, [...(provider?.models ?? []), nextModel]);
+      await updateModelMetadata(
+        providerId,
+        nextModel,
+        addModelTypeDirty.current ? ['model_type', 'capabilities'] : [],
+      );
       setAddModelModalOpen(false);
       setAddModelId('');
       setAddModelName('');
       setAddModelGroupName('');
       setAddModelType('Chat');
+      setAddModelPreview(null);
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [addModelGroupName, addModelId, addModelName, addModelType, message, provider?.models, providerId, saveModels, t]);
+  }, [addModelGroupName, addModelId, addModelName, addModelPreview, addModelType, message, provider?.models, providerId, t, updateModelMetadata]);
 
   const handleOpenSettings = useCallback(
     (model: Model) => {
@@ -779,21 +849,35 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setEditCapabilities(sanitizeModelCapabilities(nextModelType, model.capabilities));
       setEditModelType(nextModelType);
       setEditContextWindow(model.context_window);
+      setEditMaxOutputTokens(model.max_output_tokens ?? null);
       setEditTemperature(model.param_overrides?.temperature ?? null);
       setEditMaxTokensParam(model.param_overrides?.max_tokens ?? null);
       setEditTopP(model.param_overrides?.top_p ?? null);
       setEditFreqPenalty(model.param_overrides?.frequency_penalty ?? null);
       setEditUseMaxCompletionTokens(model.param_overrides?.use_max_completion_tokens ?? false);
       setEditNoSystemRole(model.param_overrides?.no_system_role ?? false);
+      setEditOmitSamplingParams(model.param_overrides?.omit_sampling_params ?? false);
       setEditForceMaxTokens(model.param_overrides?.force_max_tokens ?? false);
       setEditThinkingParamStyle(model.param_overrides?.reasoning_profile ?? model.param_overrides?.thinking_param_style ?? 'reasoning_effort');
       setEditExtraBody(formatExtraBody(model.param_overrides?.extra_body));
       setEditExtraBodyError(null);
       setEditImageConfig(model.image_config ?? null);
+      setEditMetadataDirty(new Set());
       setSettingsModalOpen(true);
     },
     [],
   );
+
+  const handleResetEditingMetadata = useCallback(async (fields?: string[]) => {
+    if (!editingModel) return;
+    try {
+      await resetModelMetadata(providerId, [editingModel.model_id], fields);
+      setSettingsModalOpen(false);
+      setEditingModel(null);
+    } catch {
+      message.error(t('error.loadFailed'));
+    }
+  }, [editingModel, message, providerId, resetModelMetadata, t]);
 
   const handleSaveSettings = useCallback(async () => {
     if (!editingModel) return;
@@ -812,6 +896,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         frequency_penalty: editFreqPenalty ?? undefined,
         use_max_completion_tokens: editUseMaxCompletionTokens,
         no_system_role: editNoSystemRole,
+        omit_sampling_params: editOmitSamplingParams,
         force_max_tokens: editForceMaxTokens,
         thinking_param_style: editThinkingParamStyle === 'enable_thinking' || editThinkingParamStyle === 'none'
           ? editThinkingParamStyle
@@ -822,31 +907,28 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     }
     const nextCapabilities = sanitizeModelCapabilities(editModelType, editCapabilities);
     try {
-      if (!isImageModel) {
-        await updateModelParams(providerId, editingModel.model_id, values ?? {});
-      }
-      // Update capabilities locally via saveModels
-      const updatedModels = (provider?.models ?? []).map((m) =>
-        m.model_id === editingModel.model_id
-          ? {
-              ...m,
-              capabilities: nextCapabilities,
-              context_window: isImageModel
-                ? editingModel.context_window
-                : editContextWindow,
-              model_type: editModelType,
-              param_overrides: values,
-              image_config: isImageModel ? editImageConfig : m.image_config,
-            }
-          : m,
+      const updatedModel: Model = {
+        ...editingModel,
+        capabilities: nextCapabilities,
+        context_window: isImageModel ? editingModel.context_window : editContextWindow,
+        max_output_tokens: isImageModel
+          ? editingModel.max_output_tokens
+          : editMaxOutputTokens,
+        model_type: editModelType,
+        param_overrides: values,
+        image_config: isImageModel ? editImageConfig : editingModel.image_config,
+      };
+      await updateModelMetadata(
+        providerId,
+        updatedModel,
+        Array.from(editMetadataDirty),
       );
-      await saveModels(providerId, updatedModels);
       setSettingsModalOpen(false);
       setEditingModel(null);
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [editingModel, editCapabilities, editContextWindow, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, providerId, updateModelParams, saveModels, provider?.models, message, t]);
+  }, [editingModel, editCapabilities, editContextWindow, editMaxOutputTokens, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editOmitSamplingParams, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, editMetadataDirty, providerId, updateModelMetadata, message, t]);
 
   const handleApiHostChange = useCallback(
     (value: string) => {
@@ -941,6 +1023,16 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     }
   }, [batchSelected, provider?.models, providerId, saveModels, message, t]);
 
+  const handleBatchResetMetadata = useCallback(async () => {
+    if (batchSelected.size === 0) return;
+    try {
+      await resetModelMetadata(providerId, Array.from(batchSelected));
+      message.success(t('settings.metadataResetSuccess', { count: batchSelected.size }));
+    } catch {
+      message.error(t('error.loadFailed'));
+    }
+  }, [batchSelected, message, providerId, resetModelMetadata, t]);
+
   const handleOpenBatchEdit = useCallback(() => {
     // Reset all batch edit fields and disable all toggles
     setBatchModelType('Chat');
@@ -1003,14 +1095,26 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       }
       return updated;
     });
+    const userFields = [
+      ...(batchModelTypeEnabled ? ['model_type', 'capabilities'] : []),
+      ...(!batchModelTypeEnabled && batchCapabilitiesEnabled ? ['capabilities'] : []),
+      ...(batchContextWindowEnabled ? ['context_window'] : []),
+      ...(batchNoSystemRoleEnabled ? ['no_system_role'] : []),
+    ];
     try {
-      await saveModels(providerId, updatedModels);
+      if (userFields.length === 0) {
+        await saveModels(providerId, updatedModels);
+      } else {
+        for (const model of updatedModels.filter((model) => batchSelected.has(model.model_id))) {
+          await updateModelMetadata(providerId, model, userFields);
+        }
+      }
       message.success(t('settings.batchEditSuccess', { count: batchSelected.size }));
       setBatchEditModalOpen(false);
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [batchSelected, provider?.models, providerId, saveModels, message, t, batchModelType, batchModelTypeEnabled, batchCapabilities, batchCapabilitiesEnabled, batchContextWindow, batchContextWindowEnabled, batchTemperature, batchTemperatureEnabled, batchTopP, batchTopPEnabled, batchMaxTokensParam, batchMaxTokensParamEnabled, batchFreqPenalty, batchFreqPenaltyEnabled, batchUseMaxCompletionTokens, batchUseMaxCompletionTokensEnabled, batchNoSystemRole, batchNoSystemRoleEnabled, batchForceMaxTokens, batchForceMaxTokensEnabled, batchThinkingParamStyle, batchThinkingParamStyleEnabled]);
+  }, [batchSelected, provider?.models, providerId, saveModels, updateModelMetadata, message, t, batchModelType, batchModelTypeEnabled, batchCapabilities, batchCapabilitiesEnabled, batchContextWindow, batchContextWindowEnabled, batchTemperature, batchTemperatureEnabled, batchTopP, batchTopPEnabled, batchMaxTokensParam, batchMaxTokensParamEnabled, batchFreqPenalty, batchFreqPenaltyEnabled, batchUseMaxCompletionTokens, batchUseMaxCompletionTokensEnabled, batchNoSystemRole, batchNoSystemRoleEnabled, batchForceMaxTokens, batchForceMaxTokensEnabled, batchThinkingParamStyle, batchThinkingParamStyleEnabled]);
 
   const batchEditIsImageMode = useMemo(() => {
     if (batchModelTypeEnabled) return batchModelType === 'Image';
@@ -1356,6 +1460,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
               </Tooltip>
               <Tooltip title={t('settings.batchEdit')}>
                 <Button type="text" size="small" icon={<Pencil size={14} />} disabled={batchSelected.size === 0} onClick={handleOpenBatchEdit} />
+              </Tooltip>
+              <Tooltip title={t('settings.batchResetMetadata')}>
+                <Button type="text" size="small" icon={<RefreshCw size={14} />} disabled={batchSelected.size === 0} onClick={handleBatchResetMetadata} />
               </Tooltip>
               <Popconfirm
                 title={t('settings.batchDeleteConfirm', { count: batchSelected.size })}
@@ -1807,10 +1914,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
           setAddModelName('');
           setAddModelGroupName('');
           setAddModelType('Chat');
+          setAddModelPreview(null);
+          addModelTypeDirty.current = false;
         }}
         onOk={handleAddModel}
         okText={t('settings.addModel')}
         cancelText={t('common.cancel')}
+        okButtonProps={{
+          disabled: addModelInferring || Boolean(addModelPreview?.unsupported_reason),
+        }}
         destroyOnHidden
       >
         <Form layout="vertical">
@@ -1854,13 +1966,51 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
           <Form.Item label={t('settings.modelType.title')} style={{ marginBottom: 0 }}>
             <Select
               value={addModelType}
-              onChange={(value) => setAddModelType(value as ModelType)}
+              onChange={(value) => {
+                addModelTypeDirty.current = true;
+                setAddModelType(value as ModelType);
+              }}
               options={(Object.keys(MODEL_TYPE_CONFIG) as ModelType[]).map((type_) => ({
                 value: type_,
                 label: t(`settings.modelType.${type_}`, MODEL_TYPE_LABEL_KEYS[type_]),
               }))}
             />
           </Form.Item>
+          <div style={{ marginTop: 12 }}>
+            {addModelInferring ? (
+              <Space size="small"><Spin size="small" />{t('settings.inferringMetadata')}</Space>
+            ) : addModelPreview?.unsupported_reason ? (
+              <Text type="danger">
+                {addModelPreview.unsupported_reason}
+                {addModelPreview.catalog_mode ? ` (${addModelPreview.catalog_mode})` : ''}
+              </Text>
+            ) : addModelPreview ? (
+              <Space wrap size={[4, 4]}>
+                <Tag color="blue">{t(`settings.modelType.${addModelType}`)}</Tag>
+                {addModelPreview.proposed_model.capabilities.map((capability) => (
+                  <Tag key={capability}>{t(`settings.capability.${capability}`)}</Tag>
+                ))}
+                {addModelPreview.proposed_model.context_window != null && (
+                  <Tag>{t('settings.contextWindow')}: {formatTokenCount(addModelPreview.proposed_model.context_window)}</Tag>
+                )}
+                {addModelPreview.proposed_model.max_output_tokens != null && (
+                  <Tag>
+                    {t('settings.modelMaxOutputTokens')}: {formatTokenCount(addModelPreview.proposed_model.max_output_tokens)}
+                  </Tag>
+                )}
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => {
+                    addModelTypeDirty.current = false;
+                    setAddModelType(addModelPreview.proposed_model.model_type);
+                  }}
+                >
+                  {t('settings.restoreAutomatic')}
+                </Button>
+              </Space>
+            ) : null}
+          </div>
         </Form>
       </Modal>
 
@@ -1918,6 +2068,21 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   successMessage={t('common.copySuccess')}
                   className="shrink-0"
                 />
+                <Tag color={Object.values(editingModel.metadata_state ?? {}).includes('user') ? 'gold' : 'blue'}>
+                  {t(Object.values(editingModel.metadata_state ?? {}).includes('user')
+                    ? 'settings.metadataManual'
+                    : 'settings.metadataAutomatic')}
+                </Tag>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<Undo2 size={12} />}
+                  onClick={async () => {
+                    await handleResetEditingMetadata();
+                  }}
+                >
+                  {t('settings.restoreAutomatic')}
+                </Button>
               </div>
             </div>
 
@@ -1925,7 +2090,12 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
 
             {/* Model Type */}
             <div>
-              <div className="font-medium mb-1.5" style={{ fontSize: 13 }}>{t('settings.modelType.title')}</div>
+              <div className="font-medium mb-1.5 flex items-center justify-between" style={{ fontSize: 13 }}>
+                {t('settings.modelType.title')}
+                <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['model_type'])}>
+                  {t('settings.restoreAutomatic')}
+                </Button>
+              </div>
               <div className="flex gap-2 flex-wrap">
                 {(Object.keys(MODEL_TYPE_CONFIG) as ModelType[]).map((type_) => (
                   <Tag
@@ -1935,6 +2105,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     onClick={() => {
                       setEditModelType(type_);
                       setEditCapabilities((current) => sanitizeModelCapabilities(type_, current));
+                      setEditMetadataDirty((current) =>
+                        new Set(current).add('model_type').add('capabilities'),
+                      );
                     }}
                   >
                     {MODEL_TYPE_CONFIG[type_].icon}
@@ -1962,7 +2135,12 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
 
                 {/* Capabilities as clickable tags */}
                 <div>
-                  <div className="font-medium mb-1.5" style={{ fontSize: 13 }}>{t('settings.modelAbilities')}</div>
+                  <div className="font-medium mb-1.5 flex items-center justify-between" style={{ fontSize: 13 }}>
+                    {t('settings.modelAbilities')}
+                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['capabilities'])}>
+                      {t('settings.restoreAutomatic')}
+                    </Button>
+                  </div>
                   <div className="flex gap-2 flex-wrap">
                     {getEditableCapabilities(editModelType).map((cap) => {
                       const selected = editCapabilities.includes(cap);
@@ -1976,6 +2154,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                               ? editCapabilities.filter((c) => c !== cap)
                               : [...editCapabilities, cap];
                             setEditCapabilities(sanitizeModelCapabilities(editModelType, next));
+                            setEditMetadataDirty((current) =>
+                              new Set(current).add('capabilities'),
+                            );
                           }}
                         >
                           {CAPABILITY_ICONS[cap]}
@@ -1999,12 +2180,22 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 {/* Context Window */}
                 <div>
                   <div className="flex items-center justify-between" style={{ padding: '8px 0' }}>
-                    <span className="text-sm shrink-0" style={{ color: token.colorText }}>{t('settings.contextWindow')}</span>
+                    <Space size={2}>
+                      <span className="text-sm shrink-0" style={{ color: token.colorText }}>{t('settings.contextWindow')}</span>
+                      <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['context_window'])}>
+                        {t('settings.restoreAutomatic')}
+                      </Button>
+                    </Space>
                     <Switch
                       size="small"
                       aria-label={t('settings.contextWindow')}
                       checked={editContextWindow != null}
-                      onChange={(enabled) => setEditContextWindow(enabled ? 128000 : null)}
+                      onChange={(enabled) => {
+                        setEditContextWindow(enabled ? 128000 : null);
+                        setEditMetadataDirty((current) =>
+                          new Set(current).add('context_window'),
+                        );
+                      }}
                     />
                   </div>
                   {editContextWindow != null && (
@@ -2012,7 +2203,12 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                       <div className="flex justify-end" style={{ paddingBottom: 4 }}>
                         <InputNumber
                           value={editContextWindow}
-                          onChange={(value) => value != null && setEditContextWindow(value)}
+                          onChange={(value) => {
+                            if (value != null) setEditContextWindow(value);
+                            setEditMetadataDirty((current) =>
+                              new Set(current).add('context_window'),
+                            );
+                          }}
                           min={1024}
                           max={10000000}
                           step={1024}
@@ -2028,11 +2224,44 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                           step={1024}
                           marks={{ 1024: '', 32768: '32K', 131072: '128K', 524288: '512K', 1048576: '1M' }}
                           value={Math.min(editContextWindow, 1048576)}
-                          onChange={setEditContextWindow}
+                          onChange={(value) => {
+                            setEditContextWindow(value);
+                            setEditMetadataDirty((current) =>
+                              new Set(current).add('context_window'),
+                            );
+                          }}
                         />
                       </div>
                     </>
                   )}
+                </div>
+
+                <div className="flex items-center justify-between" style={{ padding: '8px 0' }}>
+                  <div>
+                    <div className="text-sm" style={{ color: token.colorText }}>
+                      {t('settings.modelMaxOutputTokens')}
+                      <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['max_output_tokens'])}>
+                        {t('settings.restoreAutomatic')}
+                      </Button>
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {t('settings.modelMaxOutputTokensHint')}
+                    </Text>
+                  </div>
+                  <InputNumber
+                    value={editMaxOutputTokens}
+                    onChange={(value) => {
+                      setEditMaxOutputTokens(value);
+                      setEditMetadataDirty((current) =>
+                        new Set(current).add('max_output_tokens'),
+                      );
+                    }}
+                    min={1}
+                    max={10000000}
+                    placeholder={t('settings.automatic')}
+                    style={{ width: 120 }}
+                    size="small"
+                  />
                 </div>
 
                 <ModelParamSliders
@@ -2045,10 +2274,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   onChange={(v) => {
                     if ('temperature' in v) setEditTemperature(v.temperature!);
                     if ('topP' in v) setEditTopP(v.topP!);
-                    if ('maxTokens' in v) setEditMaxTokensParam(v.maxTokens!);
+                    if ('maxTokens' in v) {
+                      setEditMaxTokensParam(v.maxTokens == null
+                        ? null
+                        : Math.min(v.maxTokens, editMaxOutputTokens ?? v.maxTokens));
+                    }
                     if ('frequencyPenalty' in v) setEditFreqPenalty(v.frequencyPenalty!);
                   }}
                   showDividers={false}
+                  maxTokensMax={editMaxOutputTokens ?? 1048576}
                 />
 
                 <Divider className="!my-2" />
@@ -2059,8 +2293,42 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <Switch size="small" checked={editUseMaxCompletionTokens} onChange={setEditUseMaxCompletionTokens} />
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: token.colorText }}>{t('settings.noSystemRole')}</span>
-                  <Switch size="small" checked={editNoSystemRole} onChange={setEditNoSystemRole} />
+                  <Space size={2}>
+                    <span className="text-sm" style={{ color: token.colorText }}>{t('settings.noSystemRole')}</span>
+                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['no_system_role'])}>
+                      {t('settings.restoreAutomatic')}
+                    </Button>
+                  </Space>
+                  <Switch
+                    size="small"
+                    checked={editNoSystemRole}
+                    onChange={(value) => {
+                      setEditNoSystemRole(value);
+                      setEditMetadataDirty((current) =>
+                        new Set(current).add('no_system_role'),
+                      );
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Space size={2}>
+                    <span className="text-sm" style={{ color: token.colorText }}>
+                      {t('settings.omitSamplingParams')}
+                    </span>
+                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['omit_sampling_params'])}>
+                      {t('settings.restoreAutomatic')}
+                    </Button>
+                  </Space>
+                  <Switch
+                    size="small"
+                    checked={editOmitSamplingParams}
+                    onChange={(value) => {
+                      setEditOmitSamplingParams(value);
+                      setEditMetadataDirty((current) =>
+                        new Set(current).add('omit_sampling_params'),
+                      );
+                    }}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm" style={{ color: token.colorText }}>{t('settings.forceMaxTokens')}</span>
@@ -2369,8 +2637,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       >
         {(() => {
           const { filtered } = pickerGroups;
-          const allFilteredChecked = filtered.length > 0 && filtered.every(({ model }) => pickerSelected.has(model.model_id));
-          const someFilteredChecked = filtered.some(({ model }) => pickerSelected.has(model.model_id));
+          const selectableFiltered = filtered.filter(({ status }) => status !== 'unsupported');
+          const allFilteredChecked = selectableFiltered.length > 0 && selectableFiltered.every(({ model }) => pickerSelected.has(model.model_id));
+          const someFilteredChecked = selectableFiltered.some(({ model }) => pickerSelected.has(model.model_id));
           return (
             <>
               <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'inherit', padding: '8px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}`, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2380,7 +2649,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   onChange={(e) => {
                     setPickerSelected((prev) => {
                       const next = new Set(prev);
-                      for (const { model } of filtered) {
+                      for (const { model } of selectableFiltered) {
                         if (e.target.checked) next.add(model.model_id);
                         else next.delete(model.model_id);
                       }
@@ -2437,8 +2706,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     }
                     if (row.type === 'group') {
                       const { group, models } = row;
-                      const allChecked = models.every(({ model }) => pickerSelected.has(model.model_id));
-                      const someChecked = models.some(({ model }) => pickerSelected.has(model.model_id));
+                      const selectableModels = models.filter(({ status }) => status !== 'unsupported');
+                      const allChecked = selectableModels.length > 0 && selectableModels.every(({ model }) => pickerSelected.has(model.model_id));
+                      const someChecked = selectableModels.some(({ model }) => pickerSelected.has(model.model_id));
                       const collapsed = pickerCollapsed.has(group);
                       return (
                         <div
@@ -2464,7 +2734,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                                 onChange={(e) => {
                                   setPickerSelected((prev) => {
                                     const next = new Set(prev);
-                                    for (const { model } of models) {
+                                    for (const { model } of selectableModels) {
                                       if (e.target.checked) next.add(model.model_id);
                                       else next.delete(model.model_id);
                                     }
@@ -2496,6 +2766,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                         >
                           <Checkbox
                             checked={pickerSelected.has(m.model_id)}
+                            disabled={item.status === 'unsupported'}
                             aria-label={m.model_id}
                             onChange={(e) => {
                               setPickerSelected((prev) => {
@@ -2513,20 +2784,28 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                               {m.name && m.name !== m.model_id && (
                                 <Text type="secondary" style={{ fontSize: 11 }}>({m.model_id})</Text>
                               )}
-                              {item.status === 'local-only' && (
-                                <Tag color={MODEL_SYNC_STATUS_CONFIG['local-only'].color} style={{ marginInlineStart: 4 }}>
-                                  {t(MODEL_SYNC_STATUS_CONFIG['local-only'].labelKey)}
-                                </Tag>
-                              )}
+                              <Tag color={MODEL_SYNC_STATUS_CONFIG[item.status].color} style={{ marginInlineStart: 4 }}>
+                                {t(MODEL_SYNC_STATUS_CONFIG[item.status].labelKey)}
+                              </Tag>
                               {m.context_window != null && (
                                 <Tag bordered={false} style={{ marginInlineStart: 4 }}>
                                   {formatTokenCount(m.context_window)}
                                 </Tag>
                               )}
+                              {m.max_output_tokens != null && (
+                                <Tag bordered={false}>
+                                  {t('settings.modelMaxOutputTokens')}: {formatTokenCount(m.max_output_tokens)}
+                                </Tag>
+                              )}
                             </div>
-                            {item.localModel && item.remoteModel && item.localModel.name !== item.remoteModel.name && (
+                            {item.changes.length > 0 && (
                               <Text type="secondary" style={{ fontSize: 11 }}>
-                                {t('settings.remoteName')}: {item.remoteModel.name}
+                                {item.changes.map((change) => change.field).join(', ')}
+                              </Text>
+                            )}
+                            {item.unsupported_reason && (
+                              <Text type="danger" style={{ fontSize: 11 }}>
+                                {item.unsupported_reason}
                               </Text>
                             )}
                           </div>

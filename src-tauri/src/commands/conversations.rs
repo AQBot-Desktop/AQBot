@@ -452,24 +452,47 @@ fn resolve_chat_model_params(
     settings: &AppSettings,
     _use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
+    max_output_tokens: Option<u32>,
 ) -> EffectiveChatModelParams {
-    let temperature = conversation
-        .temperature
-        .or_else(|| model_param_overrides.and_then(|p| p.temperature))
-        .or(settings.default_temperature)
-        .map(|v| v as f64);
-    let top_p = conversation
-        .top_p
-        .or_else(|| model_param_overrides.and_then(|p| p.top_p))
-        .or(settings.default_top_p)
-        .map(|v| v as f64);
-    let max_tokens = match conversation.max_tokens {
+    let omit_sampling_params = model_param_overrides
+        .and_then(|params| params.omit_sampling_params)
+        .unwrap_or(false);
+    let temperature = (!omit_sampling_params)
+        .then(|| {
+            conversation
+                .temperature
+                .or_else(|| model_param_overrides.and_then(|params| params.temperature))
+                .or(settings.default_temperature)
+                .map(|value| value as f64)
+        })
+        .flatten();
+    let top_p = (!omit_sampling_params)
+        .then(|| {
+            conversation
+                .top_p
+                .or_else(|| model_param_overrides.and_then(|params| params.top_p))
+                .or(settings.default_top_p)
+                .map(|value| value as f64)
+        })
+        .flatten();
+    let configured_max_tokens = match conversation.max_tokens {
         Some(max_tokens) => Some(max_tokens),
         None if force_max_tokens == Some(true) => model_param_overrides
             .and_then(|p| p.max_tokens)
             .or(settings.default_max_tokens)
             .or(Some(4096)),
         None => settings.default_max_tokens,
+    };
+    let max_tokens = match (configured_max_tokens, max_output_tokens) {
+        (Some(configured), Some(limit)) if configured > limit => {
+            tracing::warn!(
+                configured_max_tokens = configured,
+                model_max_output_tokens = limit,
+                "Clamped chat output tokens to the model metadata limit"
+            );
+            Some(limit)
+        }
+        (configured, _) => configured,
     };
 
     EffectiveChatModelParams {
@@ -3358,6 +3381,7 @@ fn spawn_stream_task(
     force_max_tokens: Option<bool>,
     thinking_param_style: Option<String>,
     reasoning_profile: Option<String>,
+    max_output_tokens: Option<u32>,
     model_param_overrides: Option<ModelParamOverrides>,
     settings: AppSettings,
     master_key: [u8; 32],
@@ -3376,6 +3400,7 @@ fn spawn_stream_task(
             &settings,
             use_max_completion_tokens,
             force_max_tokens,
+            max_output_tokens,
         );
         let stream_timeouts = stream_timeout_config_from_settings(&settings);
         let registry = ProviderRegistry::create_default();
@@ -4104,6 +4129,9 @@ pub async fn send_message(
         .as_ref()
         .and_then(|p| p.reasoning_profile.clone());
     let model_context_window = resolved_model.as_ref().and_then(|m| m.context_window);
+    let model_max_output_tokens = resolved_model
+        .as_ref()
+        .and_then(|model| model.max_output_tokens);
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .unwrap_or_default();
@@ -4406,6 +4434,7 @@ pub async fn send_message(
         force_max_tokens,
         thinking_param_style,
         reasoning_profile,
+        model_max_output_tokens,
         model_param_overrides,
         global_settings,
         state.master_key,
@@ -4524,6 +4553,9 @@ pub async fn regenerate_message(
     .await
     .ok();
     let model_context_window = resolved_regen_model.as_ref().and_then(|m| m.context_window);
+    let model_max_output_tokens = resolved_regen_model
+        .as_ref()
+        .and_then(|model| model.max_output_tokens);
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // 6. Rebuild chat messages (active messages only — old inactive versions excluded)
@@ -4729,6 +4761,7 @@ pub async fn regenerate_message(
         force_max_tokens,
         thinking_param_style,
         reasoning_profile,
+        model_max_output_tokens,
         regen_model_overrides,
         global_settings,
         state.master_key,
@@ -4830,6 +4863,9 @@ pub async fn regenerate_with_model(
     let model_context_window = resolved_target_model
         .as_ref()
         .and_then(|m| m.context_window);
+    let model_max_output_tokens = resolved_target_model
+        .as_ref()
+        .and_then(|model| model.max_output_tokens);
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // Build context messages (same logic as regenerate_message)
@@ -5085,6 +5121,7 @@ pub async fn regenerate_with_model(
         force_max_tokens,
         thinking_param_style,
         reasoning_profile,
+        model_max_output_tokens,
         rwm_overrides,
         global_settings,
         state.master_key,
@@ -5744,6 +5781,7 @@ mod tests {
             frequency_penalty: None,
             use_max_completion_tokens: None,
             no_system_role: None,
+            omit_sampling_params: None,
             force_max_tokens: None,
             thinking_param_style: None,
             reasoning_profile: None,
@@ -7031,6 +7069,7 @@ mod tests {
             &settings,
             None,
             None,
+            None,
         );
 
         assert_eq!(params.temperature, Some(0.25));
@@ -7051,6 +7090,7 @@ mod tests {
             &settings,
             None,
             None,
+            None,
         );
 
         assert_eq!(params.temperature, Some(0.5));
@@ -7068,6 +7108,7 @@ mod tests {
             &settings,
             None,
             Some(false),
+            None,
         );
 
         assert_eq!(params.max_tokens, None);
@@ -7083,6 +7124,7 @@ mod tests {
             Some(&test_param_overrides(None, Some(2048), None)),
             &settings,
             Some(true),
+            None,
             None,
         );
 
@@ -7100,6 +7142,7 @@ mod tests {
             &settings,
             None,
             Some(true),
+            None,
         );
         assert_eq!(model_params.max_tokens, Some(4096));
 
@@ -7110,8 +7153,51 @@ mod tests {
             &settings,
             None,
             Some(true),
+            None,
         );
         assert_eq!(fallback_params.max_tokens, Some(4096));
+    }
+
+    #[test]
+    fn model_output_limit_clamps_configured_value_but_is_not_a_default() {
+        let mut settings = AppSettings::default();
+        settings.default_max_tokens = Some(32_768);
+        let clamped = resolve_chat_model_params(
+            &test_conversation(None, None, None),
+            None,
+            &settings,
+            None,
+            None,
+            Some(8_192),
+        );
+        assert_eq!(clamped.max_tokens, Some(8_192));
+
+        settings.default_max_tokens = None;
+        let unset = resolve_chat_model_params(
+            &test_conversation(None, None, None),
+            None,
+            &settings,
+            None,
+            None,
+            Some(8_192),
+        );
+        assert_eq!(unset.max_tokens, None);
+    }
+
+    #[test]
+    fn omit_sampling_params_removes_temperature_and_top_p() {
+        let mut overrides = test_param_overrides(Some(0.25), None, Some(0.75));
+        overrides.omit_sampling_params = Some(true);
+        let params = resolve_chat_model_params(
+            &test_conversation(Some(0.5), None, Some(0.625)),
+            Some(&overrides),
+            &AppSettings::default(),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(params.temperature, None);
+        assert_eq!(params.top_p, None);
     }
 
     #[test]

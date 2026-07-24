@@ -817,37 +817,21 @@ impl ProviderAdapter for AnthropicAdapter {
             .data
             .into_iter()
             .map(|m| {
-                let model_type = ModelType::detect(&m.id);
-                let mut caps = match model_type {
-                    ModelType::Chat => vec![ModelCapability::TextChat],
-                    ModelType::Embedding => vec![],
-                    ModelType::Image => vec![],
-                    ModelType::Rerank => vec![],
-                    ModelType::Voice => vec![ModelCapability::RealtimeVoice],
-                };
-                let id_lower = m.id.to_lowercase();
-                if id_lower.contains("claude") && !id_lower.contains("haiku") {
-                    caps.push(ModelCapability::Vision);
-                }
-                if id_lower.contains("opus")
-                    || id_lower.contains("sonnet-4")
-                    || id_lower.contains("3-7")
-                    || id_lower.contains("3.7")
-                {
-                    caps.push(ModelCapability::Reasoning);
-                }
                 let name = m.display_name.unwrap_or_else(|| m.id.clone());
+                let (model_type, capabilities) = infer_model_type_and_capabilities(&m.id, &name);
                 Model {
                     provider_id: ctx.provider_id.clone(),
                     model_id: m.id,
                     name,
                     group_name: None,
                     model_type,
-                    capabilities: caps,
+                    capabilities,
                     context_window: None,
+                    max_output_tokens: None,
                     enabled: true,
                     param_overrides: None,
                     image_config: None,
+                    metadata_state: None,
                 }
             })
             .collect())

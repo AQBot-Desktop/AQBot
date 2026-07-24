@@ -2,7 +2,7 @@ import { App } from 'antd';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderConfig, ProviderKey } from '@/types';
+import type { Model, ModelSyncStatus, ProviderConfig, ProviderKey } from '@/types';
 import { ProviderDetail } from '../ProviderDetail';
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
   updateModelParams: vi.fn(),
   fetchRemoteModels: vi.fn(),
   saveModels: vi.fn(),
+  inferModelMetadata: vi.fn(),
+  applyModelSync: vi.fn(),
+  updateModelMetadata: vi.fn(),
+  resetModelMetadata: vi.fn(),
   setSelectedProviderId: vi.fn(),
   invoke: vi.fn(),
   testModel: vi.fn(),
@@ -70,6 +74,17 @@ function createProviderKeyFixture(overrides: Partial<ProviderKey> = {}): Provide
     rotation_index: 0,
     created_at: 0,
     ...overrides,
+  };
+}
+
+function syncCandidate(model: Model, status: ModelSyncStatus) {
+  return {
+    proposed_model: model,
+    status,
+    catalog_mode: null,
+    inference_source: 'catalog',
+    changes: [],
+    unsupported_reason: null,
   };
 }
 
@@ -148,6 +163,10 @@ vi.mock('@/stores', () => ({
       updateModelParams: mocks.updateModelParams,
       fetchRemoteModels: mocks.fetchRemoteModels,
       saveModels: mocks.saveModels,
+      inferModelMetadata: mocks.inferModelMetadata,
+      applyModelSync: mocks.applyModelSync,
+      updateModelMetadata: mocks.updateModelMetadata,
+      resetModelMetadata: mocks.resetModelMetadata,
       testModel: mocks.testModel,
     }),
   useUIStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -161,14 +180,23 @@ describe('ProviderDetail', () => {
     vi.clearAllMocks();
     provider = createProviderFixture();
     mocks.saveModels.mockResolvedValue(undefined);
+    mocks.applyModelSync.mockResolvedValue(undefined);
+    mocks.updateModelMetadata.mockImplementation(async (_providerId, model) => model);
+    mocks.resetModelMetadata.mockResolvedValue(provider.models);
+    mocks.inferModelMetadata.mockImplementation(async (_providerId, model) =>
+      syncCandidate(model, 'remote-only'));
     mocks.fetchRemoteModels.mockResolvedValue({
-      models: [],
+      candidates: [],
       catalog: {
         configured_source: 'builtin',
         source: 'unavailable',
         freshness: 'unknown',
         matched_context_windows: 0,
         total_chat_models: 0,
+        matched_models: 0,
+        autofilled_fields: 0,
+        inferred_types: 0,
+        unsupported_models: 0,
         checked_at: null,
         warning: null,
       },
@@ -283,19 +311,47 @@ describe('ProviderDetail', () => {
     await userEvent.clear(inputs[1]);
     await userEvent.type(inputs[1], 'GPT 5.4 Think');
 
+    await waitFor(() => expect(mocks.inferModelMetadata).toHaveBeenCalled());
     await userEvent.click(within(dialog).getByRole('button', { name: 'settings.addModel' }));
 
-    expect(mocks.saveModels).toHaveBeenCalledWith(
+    expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
       'provider-1',
-      expect.arrayContaining([
-        expect.objectContaining({
-          model_id: 'gpt-5.4-think',
-          name: 'GPT 5.4 Think',
-          group_name: 'gpt-5.4',
-          model_type: 'Chat',
-        }),
-      ]),
+      expect.objectContaining({
+        model_id: 'gpt-5.4-think',
+        name: 'GPT 5.4 Think',
+        group_name: 'gpt-5.4',
+        model_type: 'Chat',
+      }),
+      [],
     );
+  });
+
+  it('previews automatically inferred type, capabilities, and token limits when adding a model', async () => {
+    mocks.inferModelMetadata.mockImplementation(async (_providerId, model: Model) => ({
+      ...syncCandidate({
+        ...model,
+        model_type: 'Image',
+        capabilities: [],
+        context_window: 64_000,
+        max_output_tokens: 4_096,
+      }, 'remote-only'),
+      catalog_mode: 'image_generation',
+    }));
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'settings.addModel' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getAllByRole('textbox')[0], 'gpt-image-1');
+
+    await waitFor(() => {
+      expect(within(dialog).getAllByText('settings.modelType.Image')).toHaveLength(2);
+      expect(within(dialog).getByText(/64K/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/4K/)).toBeInTheDocument();
+    });
   });
 
   it('prefills the current group when adding a model from a group header', async () => {
@@ -384,7 +440,6 @@ describe('ProviderDetail', () => {
   });
 
   it('saves model extra_body as a JSON object override', async () => {
-    mocks.updateModelParams.mockResolvedValue(provider.models[0]);
     provider.models[0].param_overrides = {
       temperature: 0.1,
       extra_body: { enable_thinking: true },
@@ -406,16 +461,19 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
     await waitFor(() => {
-      expect(mocks.updateModelParams).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        'gpt-5.4',
         expect.objectContaining({
-          temperature: 0.1,
-          extra_body: {
-            thinking: { type: 'enabled' },
-            include_reasoning: true,
-          },
+          model_id: 'gpt-5.4',
+          param_overrides: expect.objectContaining({
+            temperature: 0.1,
+            extra_body: {
+              thinking: { type: 'enabled' },
+              include_reasoning: true,
+            },
+          }),
         }),
+        [],
       );
     });
   });
@@ -433,7 +491,7 @@ describe('ProviderDetail', () => {
     fireEvent.change(extraBodyInput, { target: { value: '["enable_thinking"]' } });
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
-    expect(mocks.updateModelParams).not.toHaveBeenCalled();
+    expect(mocks.updateModelMetadata).not.toHaveBeenCalled();
     expect(within(dialog).getByText('settings.extraBodyObjectError')).toBeInTheDocument();
   });
 
@@ -450,7 +508,7 @@ describe('ProviderDetail', () => {
     fireEvent.change(extraBodyInput, { target: { value: '{"model":"other","enable_thinking":true}' } });
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
-    expect(mocks.updateModelParams).not.toHaveBeenCalled();
+    expect(mocks.updateModelMetadata).not.toHaveBeenCalled();
     expect(within(dialog).getByText('settings.extraBodyReservedError')).toBeInTheDocument();
   });
 
@@ -490,14 +548,13 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        expect.arrayContaining([
-          expect.objectContaining({
-            model_id: 'gpt-5.4',
-            context_window: null,
-          }),
-        ]),
+        expect.objectContaining({
+          model_id: 'gpt-5.4',
+          context_window: null,
+        }),
+        expect.arrayContaining(['context_window']),
       );
     });
   });
@@ -519,14 +576,13 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        expect.arrayContaining([
-          expect.objectContaining({
-            model_id: 'gpt-5.4',
-            context_window: 128_000,
-          }),
-        ]),
+        expect.objectContaining({
+          model_id: 'gpt-5.4',
+          context_window: 128_000,
+        }),
+        expect.arrayContaining(['context_window']),
       );
     });
   });
@@ -580,20 +636,18 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        expect.arrayContaining([
-          expect.objectContaining({
-            model_id: 'gpt-5.4',
-            model_type: 'Image',
-            capabilities: [],
-            context_window: 32_000,
-            param_overrides: persistedOverrides,
-          }),
-        ]),
+        expect.objectContaining({
+          model_id: 'gpt-5.4',
+          model_type: 'Image',
+          capabilities: [],
+          context_window: 32_000,
+          param_overrides: persistedOverrides,
+        }),
+        expect.arrayContaining(['model_type', 'capabilities']),
       );
     });
-    expect(mocks.updateModelParams).not.toHaveBeenCalled();
   });
 
   it('hides batch capabilities and chat parameters when every selected model is Image', async () => {
@@ -644,15 +698,14 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'settings.batchApply' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        expect.arrayContaining([
-          expect.objectContaining({
-            model_id: 'gpt-5.4',
-            model_type: 'Chat',
-            param_overrides: expect.objectContaining({ temperature: 0.8 }),
-          }),
-        ]),
+        expect.objectContaining({
+          model_id: 'gpt-5.4',
+          model_type: 'Chat',
+          param_overrides: expect.objectContaining({ temperature: 0.8 }),
+        }),
+        expect.arrayContaining(['model_type', 'capabilities']),
       );
     });
   });
@@ -696,24 +749,27 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'settings.batchApply' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
         'provider-1',
-        expect.arrayContaining([
-          expect.objectContaining({
-            model_id: 'image-model',
-            model_type: 'Image',
-            capabilities: [],
-            context_window: 16_000,
-            param_overrides: { temperature: 0.2 },
-          }),
-          expect.objectContaining({
-            model_id: 'chat-model',
-            model_type: 'Image',
-            capabilities: [],
-            context_window: 32_000,
-            param_overrides: { temperature: 0.4 },
-          }),
-        ]),
+        expect.objectContaining({
+          model_id: 'image-model',
+          model_type: 'Image',
+          capabilities: [],
+          context_window: 16_000,
+          param_overrides: { temperature: 0.2 },
+        }),
+        expect.arrayContaining(['model_type', 'capabilities']),
+      );
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
+        'provider-1',
+        expect.objectContaining({
+          model_id: 'chat-model',
+          model_type: 'Image',
+          capabilities: [],
+          context_window: 32_000,
+          param_overrides: { temperature: 0.4 },
+        }),
+        expect.arrayContaining(['model_type', 'capabilities']),
       );
     });
   });
@@ -771,13 +827,17 @@ describe('ProviderDetail', () => {
 
   it('keeps model sync usable when the online catalog is unavailable', async () => {
     mocks.fetchRemoteModels.mockResolvedValue({
-      models: provider.models,
+      candidates: provider.models.map((model) => syncCandidate(model, 'synced')),
       catalog: {
         configured_source: 'online',
         source: 'unavailable',
         freshness: 'unknown',
         matched_context_windows: 0,
         total_chat_models: 1,
+        matched_models: 0,
+        autofilled_fields: 0,
+        inferred_types: 0,
+        unsupported_models: 0,
         checked_at: null,
         warning: 'offline',
       },
@@ -798,7 +858,55 @@ describe('ProviderDetail', () => {
     );
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith('provider-1', provider.models);
+      expect(mocks.applyModelSync).toHaveBeenCalledWith('provider-1', provider.models);
+    });
+  });
+
+  it('preserves an existing local model when its exact catalog mode is unsupported', async () => {
+    const supportedLocal = {
+      ...provider.models[0],
+      model_id: 'local-chat',
+      name: 'Local Chat',
+    };
+    provider.models.push(supportedLocal);
+    const unsupported = {
+      ...syncCandidate(provider.models[0], 'unsupported'),
+      catalog_mode: 'search',
+      unsupported_reason: 'LiteLLM catalog mode is not supported by AQBot: search',
+    };
+    mocks.fetchRemoteModels.mockResolvedValue({
+      candidates: [unsupported, syncCandidate(supportedLocal, 'local-only')],
+      catalog: {
+        configured_source: 'builtin',
+        source: 'builtin',
+        freshness: 'fresh',
+        matched_context_windows: 0,
+        total_chat_models: 1,
+        matched_models: 1,
+        autofilled_fields: 0,
+        inferred_types: 0,
+        unsupported_models: 1,
+        checked_at: null,
+        warning: null,
+      },
+    });
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'settings.syncModels' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4' })).toBeDisabled();
+    expect(within(dialog).getByRole('checkbox', { name: 'local-chat' })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'settings.applyModelSync' }));
+
+    await waitFor(() => {
+      expect(mocks.applyModelSync).toHaveBeenCalledWith(
+        'provider-1',
+        expect.arrayContaining(provider.models),
+      );
     });
   });
 
@@ -840,30 +948,30 @@ describe('ProviderDetail', () => {
     ];
 
     mocks.fetchRemoteModels.mockResolvedValue({
-      models: [
-        {
+      candidates: [
+        syncCandidate({
           provider_id: 'provider-1',
           model_id: 'gpt-5.4',
-          name: 'Remote GPT 5.4',
-          group_name: 'remote-group',
+          name: 'Local GPT 5.4',
+          group_name: 'local-group',
           model_type: 'Chat',
-          capabilities: ['TextChat'],
-          context_window: 32000,
-          enabled: true,
-          param_overrides: null,
-        },
-        {
+          capabilities: ['TextChat', 'Reasoning'],
+          context_window: 16000,
+          enabled: false,
+          param_overrides: { temperature: 0.1, top_p: 0.8 },
+        }, 'synced'),
+        syncCandidate({
           provider_id: 'provider-1',
           model_id: 'gpt-5.4-empty',
-          name: 'Remote GPT 5.4 Empty',
-          group_name: 'remote-group',
+          name: 'Local GPT 5.4 Empty',
+          group_name: 'local-group',
           model_type: 'Chat',
           capabilities: ['TextChat'],
           context_window: 64000,
           enabled: true,
           param_overrides: null,
-        },
-        {
+        }, 'synced'),
+        syncCandidate({
           provider_id: 'provider-1',
           model_id: 'gpt-5.4-mini',
           name: 'Remote GPT 5.4 Mini',
@@ -873,7 +981,8 @@ describe('ProviderDetail', () => {
           context_window: 8000,
           enabled: true,
           param_overrides: null,
-        },
+        }, 'remote-only'),
+        syncCandidate(provider.models[2], 'local-only'),
       ],
       catalog: {
         configured_source: 'online',
@@ -881,6 +990,10 @@ describe('ProviderDetail', () => {
         freshness: 'fresh',
         matched_context_windows: 3,
         total_chat_models: 3,
+        matched_models: 3,
+        autofilled_fields: 3,
+        inferred_types: 0,
+        unsupported_models: 0,
         checked_at: 100000,
         warning: null,
       },
@@ -896,7 +1009,7 @@ describe('ProviderDetail', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(
-      within(dialog).getByText('settings.modelCatalogMatched: 3/3'),
+      within(dialog).getByText(/settings\.modelCatalogMatched: 3/),
     ).toBeInTheDocument();
     expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4' })).toBeChecked();
     expect(within(dialog).getByRole('checkbox', { name: 'gpt-5.4-empty' })).toBeChecked();
@@ -908,7 +1021,7 @@ describe('ProviderDetail', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'settings.applyModelSync' }));
 
     await waitFor(() => {
-      expect(mocks.saveModels).toHaveBeenCalledWith(
+      expect(mocks.applyModelSync).toHaveBeenCalledWith(
         'provider-1',
         expect.arrayContaining([
           expect.objectContaining({

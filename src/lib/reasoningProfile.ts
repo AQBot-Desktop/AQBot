@@ -279,21 +279,37 @@ export function resolveReasoningProfile(
 ): ReasoningProfile {
   const modelId = normalizedModelId(model);
   const explicitProfile = overrideProfile(model);
-  if (explicitProfile) return overriddenProfile(explicitProfile, modelId);
+  let profile: ReasoningProfile;
+  if (explicitProfile) profile = overriddenProfile(explicitProfile, modelId);
+  else if (providerType === 'gemini') profile = geminiProfile(modelId);
+  else if (providerType === 'anthropic') profile = anthropicProfile(modelId);
+  else if (providerType === 'deepseek') profile = deepSeekProfile();
+  else if (providerType === 'xai') profile = xaiProfile(modelId);
+  else if (providerType === 'glm') profile = glmProfile();
+  else if (providerType === 'siliconflow') profile = siliconFlowProfile();
+  else if (providerType === 'openai' || providerType === 'openai_responses') profile = openAiProfile(providerType, modelId);
+  else if (modelId.includes('claude')) profile = anthropicProfile(modelId);
+  else if (modelId.includes('gemini')) profile = geminiProfile(modelId);
+  else if (modelId.startsWith('gpt-') || modelId.startsWith('o')) profile = openAiProfile('openai', modelId);
+  else profile = { apiStyle: 'none', defaultOptionKey: 'default', options: options(['default']) };
 
-  if (providerType === 'gemini') return geminiProfile(modelId);
-  if (providerType === 'anthropic') return anthropicProfile(modelId);
-  if (providerType === 'deepseek') return deepSeekProfile();
-  if (providerType === 'xai') return xaiProfile(modelId);
-  if (providerType === 'glm') return glmProfile();
-  if (providerType === 'siliconflow') return siliconFlowProfile();
-  if (providerType === 'openai' || providerType === 'openai_responses') return openAiProfile(providerType, modelId);
-
-  if (modelId.includes('claude')) return anthropicProfile(modelId);
-  if (modelId.includes('gemini')) return geminiProfile(modelId);
-  if (modelId.startsWith('gpt-') || modelId.startsWith('o')) return openAiProfile('openai', modelId);
-
-  return { apiStyle: 'none', defaultOptionKey: 'default', options: options(['default']) };
+  const allowed = model?.param_overrides?.reasoning_options;
+  if (!allowed?.length) return profile;
+  const allowedKeys = new Set<ReasoningOptionKey>(
+    allowed.filter((key): key is ReasoningOptionKey => key in OPTION_DEFS),
+  );
+  allowedKeys.add('default');
+  const filteredOptions = profile.options.filter((option) => allowedKeys.has(option.key));
+  const defaultOptionKey = allowedKeys.has(
+    model?.param_overrides?.reasoning_default as ReasoningOptionKey,
+  )
+    ? model!.param_overrides!.reasoning_default as ReasoningOptionKey
+    : 'default';
+  return {
+    ...profile,
+    options: filteredOptions.length > 0 ? filteredOptions : options(['default']),
+    defaultOptionKey,
+  };
 }
 
 export function coerceReasoningOptionKey(
