@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AQBot",
-  "version": "0.0.101",
+  "version": "0.0.102",
   "identifier": "top.aqbot.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
