@@ -315,6 +315,50 @@ fn legacy_local_values_are_preserved_but_new_output_limit_is_added() {
 }
 
 #[test]
+fn automatic_only_inference_discards_user_metadata_from_the_seed() {
+    let mut manual = model("plain-model");
+    manual.model_type = ModelType::Image;
+    manual.capabilities = vec![ModelCapability::Vision];
+    manual.context_window = Some(32_000);
+    manual.max_output_tokens = Some(4_096);
+    manual.param_overrides = Some(ModelParamOverrides {
+        no_system_role: Some(false),
+        omit_sampling_params: Some(false),
+        reasoning_options: Some(vec!["high".into()]),
+        temperature: Some(0.4),
+        ..ModelParamOverrides::default()
+    });
+    manual.metadata_state = Some(ModelMetadataState {
+        model_type: ModelMetadataSource::User,
+        capabilities: ModelMetadataSource::User,
+        context_window: ModelMetadataSource::User,
+        max_output_tokens: ModelMetadataSource::User,
+        no_system_role: ModelMetadataSource::User,
+        omit_sampling_params: ModelMetadataSource::User,
+        reasoning_options: ModelMetadataSource::User,
+        ..ModelMetadataState::default()
+    });
+
+    let result = infer_single_model(
+        &provider(ProviderType::Custom, None, "https://example.invalid"),
+        manual,
+        catalog(BTreeMap::new()),
+        true,
+    );
+    let proposed = result.proposed_model;
+
+    assert_eq!(proposed.model_type, ModelType::Chat);
+    assert_eq!(proposed.capabilities, vec![ModelCapability::TextChat]);
+    assert_eq!(proposed.context_window, None);
+    assert_eq!(proposed.max_output_tokens, None);
+    let params = proposed.param_overrides.expect("request overrides");
+    assert_eq!(params.no_system_role, None);
+    assert_eq!(params.omit_sampling_params, None);
+    assert_eq!(params.reasoning_options, None);
+    assert_eq!(params.temperature, Some(0.4));
+}
+
+#[test]
 fn user_metadata_and_explicit_token_clears_win_over_catalog_updates() {
     let entries = parse_catalog(SAMPLE_CATALOG.as_bytes()).unwrap();
     let mut provider = provider(
@@ -345,13 +389,14 @@ fn user_metadata_and_explicit_token_clears_win_over_catalog_updates() {
     let proposed = &result.candidates[0].proposed_model;
     assert_eq!(proposed.context_window, None);
     assert_eq!(proposed.max_output_tokens, None);
-    assert!(proposed
-        .capabilities
-        .contains(&ModelCapability::Reasoning));
+    assert!(proposed.capabilities.contains(&ModelCapability::Reasoning));
     let overrides = proposed.param_overrides.as_ref().unwrap();
     assert_eq!(overrides.no_system_role, Some(false));
     assert_eq!(overrides.omit_sampling_params, Some(false));
-    assert_eq!(overrides.reasoning_options.as_deref(), Some(&["low".into()][..]));
+    assert_eq!(
+        overrides.reasoning_options.as_deref(),
+        Some(&["low".into()][..])
+    );
 }
 
 #[test]

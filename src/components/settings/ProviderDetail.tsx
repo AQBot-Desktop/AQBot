@@ -42,6 +42,7 @@ import type {
   ModelSyncCandidate,
   ModelSyncStatus,
   ModelType,
+  ModelMetadataState,
   ModelParamOverrides,
   ProviderType,
 } from '@/types';
@@ -49,6 +50,10 @@ import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { CopyButton } from '@/components/common/CopyButton';
 import { ModelCatalogStatusBar } from './ModelCatalogStatusBar';
 import { ImageProtocolEditor } from './ImageProtocolEditor';
+import {
+  ModelMetadataSyncModal,
+  type ModelMetadataField,
+} from './ModelMetadataSyncModal';
 
 const { Text, Title } = Typography;
 
@@ -98,6 +103,69 @@ const MODEL_SYNC_STATUS_CONFIG: Record<ModelSyncStatus, { color: string; labelKe
   'remote-only': { color: 'green', labelKey: 'settings.remoteAvailable' },
   unsupported: { color: 'red', labelKey: 'settings.modelUnsupported' },
 };
+
+function metadataStateWithAutomaticFields(
+  current: ModelMetadataState | null | undefined,
+  automatic: ModelMetadataState | null | undefined,
+  fields: ModelMetadataField[],
+): ModelMetadataState | null {
+  if (!automatic || fields.length === 0) return current ?? null;
+  const next: ModelMetadataState = current
+    ? { ...current }
+    : {
+        schema_version: automatic.schema_version,
+        catalog_key: null,
+        catalog_mode: null,
+        model_type: 'user',
+        capabilities: 'user',
+        context_window: 'user',
+        max_output_tokens: 'user',
+        no_system_role: 'user',
+        omit_sampling_params: 'user',
+        reasoning_options: 'user',
+      };
+  next.schema_version = automatic.schema_version;
+  if (automatic.catalog_key) {
+    next.catalog_key = automatic.catalog_key;
+  }
+  if (automatic.catalog_mode) {
+    next.catalog_mode = automatic.catalog_mode;
+  }
+  for (const field of fields) {
+    next[field] = automatic[field];
+  }
+  return next;
+}
+
+function sameCapabilities(left: ModelCapability[], right: ModelCapability[]): boolean {
+  return JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
+}
+
+function hasUserMetadata(state: ModelMetadataState | null | undefined): boolean {
+  return state
+    ? [
+        state.model_type,
+        state.capabilities,
+        state.context_window,
+        state.max_output_tokens,
+        state.no_system_role,
+        state.omit_sampling_params,
+        state.reasoning_options,
+      ].includes('user')
+    : true;
+}
+
+function metadataStateWithUserFields(
+  current: ModelMetadataState | null | undefined,
+  fields: Set<ModelMetadataField>,
+): ModelMetadataState | null {
+  if (!current || fields.size === 0) return current ?? null;
+  const next = { ...current };
+  fields.forEach((field) => {
+    next[field] = 'user';
+  });
+  return next;
+}
 
 const DEFAULT_PATHS: Record<ProviderType, string> = {
   openai: '/v1/chat/completions',
@@ -320,14 +388,20 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [editTopP, setEditTopP] = useState<number | null>(null);
   const [editFreqPenalty, setEditFreqPenalty] = useState<number | null>(null);
   const [editUseMaxCompletionTokens, setEditUseMaxCompletionTokens] = useState(false);
-  const [editNoSystemRole, setEditNoSystemRole] = useState(false);
-  const [editOmitSamplingParams, setEditOmitSamplingParams] = useState(false);
+  const [editNoSystemRole, setEditNoSystemRole] = useState<boolean | null>(null);
+  const [editOmitSamplingParams, setEditOmitSamplingParams] = useState<boolean | null>(null);
+  const [editReasoningOptions, setEditReasoningOptions] = useState<string[] | null>(null);
   const [editForceMaxTokens, setEditForceMaxTokens] = useState(false);
   const [editThinkingParamStyle, setEditThinkingParamStyle] = useState<string>('reasoning_effort');
   const [editExtraBody, setEditExtraBody] = useState('');
   const [editExtraBodyError, setEditExtraBodyError] = useState<string | null>(null);
   const [editImageConfig, setEditImageConfig] = useState<ImageAdapterConfig | null>(null);
-  const [editMetadataDirty, setEditMetadataDirty] = useState<Set<string>>(new Set());
+  const [editMetadataDirty, setEditMetadataDirty] = useState<Set<ModelMetadataField>>(new Set());
+  const [editMetadataAutomatic, setEditMetadataAutomatic] = useState<Set<ModelMetadataField>>(new Set());
+  const [metadataSyncModalOpen, setMetadataSyncModalOpen] = useState(false);
+  const [metadataSyncLoading, setMetadataSyncLoading] = useState(false);
+  const [metadataSyncCurrent, setMetadataSyncCurrent] = useState<Model | null>(null);
+  const [metadataSyncCandidate, setMetadataSyncCandidate] = useState<ModelSyncCandidate | null>(null);
   const [iconOverrides, setIconOverrides] = useState<Record<string, string>>({});
   const [apiHostLocal, setApiHostLocal] = useState(provider?.api_host ?? '');
   const [apiPathLocal, setApiPathLocal] = useState(provider?.api_path ?? '');
@@ -855,29 +929,139 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setEditTopP(model.param_overrides?.top_p ?? null);
       setEditFreqPenalty(model.param_overrides?.frequency_penalty ?? null);
       setEditUseMaxCompletionTokens(model.param_overrides?.use_max_completion_tokens ?? false);
-      setEditNoSystemRole(model.param_overrides?.no_system_role ?? false);
-      setEditOmitSamplingParams(model.param_overrides?.omit_sampling_params ?? false);
+      setEditNoSystemRole(model.param_overrides?.no_system_role ?? null);
+      setEditOmitSamplingParams(model.param_overrides?.omit_sampling_params ?? null);
+      setEditReasoningOptions(model.param_overrides?.reasoning_options ?? null);
       setEditForceMaxTokens(model.param_overrides?.force_max_tokens ?? false);
       setEditThinkingParamStyle(model.param_overrides?.reasoning_profile ?? model.param_overrides?.thinking_param_style ?? 'reasoning_effort');
       setEditExtraBody(formatExtraBody(model.param_overrides?.extra_body));
       setEditExtraBodyError(null);
       setEditImageConfig(model.image_config ?? null);
       setEditMetadataDirty(new Set());
+      setEditMetadataAutomatic(new Set());
+      setMetadataSyncModalOpen(false);
+      setMetadataSyncCurrent(null);
+      setMetadataSyncCandidate(null);
       setSettingsModalOpen(true);
     },
     [],
   );
 
-  const handleResetEditingMetadata = useCallback(async (fields?: string[]) => {
-    if (!editingModel) return;
+  const markMetadataManual = useCallback((...fields: ModelMetadataField[]) => {
+    setEditMetadataDirty((current) => {
+      const next = new Set(current);
+      fields.forEach((field) => next.add(field));
+      return next;
+    });
+    setEditMetadataAutomatic((current) => {
+      const next = new Set(current);
+      fields.forEach((field) => next.delete(field));
+      return next;
+    });
+  }, []);
+
+  const buildMetadataDraft = useCallback((): Model | null => {
+    if (!editingModel) return null;
+    const paramOverrides: ModelParamOverrides = {
+      ...(editingModel.param_overrides ?? {}),
+      no_system_role: editNoSystemRole ?? undefined,
+      omit_sampling_params: editOmitSamplingParams ?? undefined,
+      reasoning_options: editReasoningOptions ?? undefined,
+    };
+    return {
+      ...editingModel,
+      model_type: editModelType,
+      capabilities: sanitizeModelCapabilities(editModelType, editCapabilities),
+      context_window: editContextWindow,
+      max_output_tokens: editMaxOutputTokens,
+      param_overrides: paramOverrides,
+      metadata_state: metadataStateWithUserFields(
+        editingModel.metadata_state,
+        editMetadataDirty,
+      ),
+    };
+  }, [
+    editingModel,
+    editModelType,
+    editCapabilities,
+    editContextWindow,
+    editMaxOutputTokens,
+    editNoSystemRole,
+    editOmitSamplingParams,
+    editReasoningOptions,
+    editMetadataDirty,
+  ]);
+
+  const handleOpenMetadataSync = useCallback(async () => {
+    const current = buildMetadataDraft();
+    if (!current) return;
+    setMetadataSyncCurrent(current);
+    setMetadataSyncCandidate(null);
+    setMetadataSyncModalOpen(true);
+    setMetadataSyncLoading(true);
     try {
-      await resetModelMetadata(providerId, [editingModel.model_id], fields);
-      setSettingsModalOpen(false);
-      setEditingModel(null);
+      const candidate = await inferModelMetadata(providerId, current, true);
+      setMetadataSyncCandidate(candidate);
     } catch {
+      setMetadataSyncModalOpen(false);
       message.error(t('error.loadFailed'));
+    } finally {
+      setMetadataSyncLoading(false);
     }
-  }, [editingModel, message, providerId, resetModelMetadata, t]);
+  }, [buildMetadataDraft, inferModelMetadata, message, providerId, t]);
+
+  const handleApplyMetadataSync = useCallback((fields: ModelMetadataField[]) => {
+    const automatic = metadataSyncCandidate?.proposed_model;
+    if (!editingModel || !automatic || fields.length === 0) return;
+    const selected = new Set(fields);
+    const finalType = selected.has('model_type') ? automatic.model_type : editModelType;
+    const finalCapabilities = selected.has('capabilities')
+      ? sanitizeModelCapabilities(finalType, automatic.capabilities)
+      : sanitizeModelCapabilities(finalType, editCapabilities);
+    const capabilitiesChangedByType = selected.has('model_type')
+      && !selected.has('capabilities')
+      && !sameCapabilities(finalCapabilities, editCapabilities);
+
+    setEditModelType(finalType);
+    setEditCapabilities(finalCapabilities);
+    if (selected.has('context_window')) setEditContextWindow(automatic.context_window);
+    if (selected.has('max_output_tokens')) {
+      setEditMaxOutputTokens(automatic.max_output_tokens ?? null);
+    }
+    if (selected.has('no_system_role')) {
+      setEditNoSystemRole(automatic.param_overrides?.no_system_role ?? null);
+    }
+    if (selected.has('omit_sampling_params')) {
+      setEditOmitSamplingParams(automatic.param_overrides?.omit_sampling_params ?? null);
+    }
+    if (selected.has('reasoning_options')) {
+      setEditReasoningOptions(automatic.param_overrides?.reasoning_options ?? []);
+    }
+
+    setEditingModel((current) => current
+      ? {
+          ...current,
+          metadata_state: metadataStateWithAutomaticFields(
+            current.metadata_state,
+            automatic.metadata_state,
+            fields,
+          ),
+        }
+      : current);
+    setEditMetadataDirty((current) => {
+      const next = new Set(current);
+      fields.forEach((field) => next.delete(field));
+      if (capabilitiesChangedByType) next.add('capabilities');
+      return next;
+    });
+    setEditMetadataAutomatic((current) => {
+      const next = new Set(current);
+      fields.forEach((field) => next.add(field));
+      if (capabilitiesChangedByType) next.delete('capabilities');
+      return next;
+    });
+    setMetadataSyncModalOpen(false);
+  }, [editCapabilities, editModelType, editingModel, metadataSyncCandidate]);
 
   const handleSaveSettings = useCallback(async () => {
     if (!editingModel) return;
@@ -890,18 +1074,20 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         return;
       }
       values = {
+        ...(editingModel.param_overrides ?? {}),
         temperature: editTemperature ?? undefined,
         max_tokens: editMaxTokensParam ?? undefined,
         top_p: editTopP ?? undefined,
         frequency_penalty: editFreqPenalty ?? undefined,
         use_max_completion_tokens: editUseMaxCompletionTokens,
-        no_system_role: editNoSystemRole,
-        omit_sampling_params: editOmitSamplingParams,
+        no_system_role: editNoSystemRole ?? undefined,
+        omit_sampling_params: editOmitSamplingParams ?? undefined,
         force_max_tokens: editForceMaxTokens,
         thinking_param_style: editThinkingParamStyle === 'enable_thinking' || editThinkingParamStyle === 'none'
           ? editThinkingParamStyle
           : undefined,
         reasoning_profile: normalizeReasoningProfile(editThinkingParamStyle),
+        reasoning_options: editReasoningOptions ?? undefined,
         extra_body: parsedExtraBody.value,
       };
     }
@@ -918,17 +1104,19 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         param_overrides: values,
         image_config: isImageModel ? editImageConfig : editingModel.image_config,
       };
-      await updateModelMetadata(
-        providerId,
-        updatedModel,
-        Array.from(editMetadataDirty),
-      );
+      const userFields = Array.from(editMetadataDirty);
+      const automaticFields = Array.from(editMetadataAutomatic);
+      if (automaticFields.length > 0) {
+        await updateModelMetadata(providerId, updatedModel, userFields, automaticFields);
+      } else {
+        await updateModelMetadata(providerId, updatedModel, userFields);
+      }
       setSettingsModalOpen(false);
       setEditingModel(null);
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [editingModel, editCapabilities, editContextWindow, editMaxOutputTokens, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editOmitSamplingParams, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, editMetadataDirty, providerId, updateModelMetadata, message, t]);
+  }, [editingModel, editCapabilities, editContextWindow, editMaxOutputTokens, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editOmitSamplingParams, editReasoningOptions, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, editMetadataDirty, editMetadataAutomatic, providerId, updateModelMetadata, message, t]);
 
   const handleApiHostChange = useCallback(
     (value: string) => {
@@ -2020,6 +2208,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         open={settingsModalOpen}
         mask={{ enabled: true, blur: true }}
         onCancel={() => {
+          setMetadataSyncModalOpen(false);
           setSettingsModalOpen(false);
           setEditingModel(null);
         }}
@@ -2068,21 +2257,21 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   successMessage={t('common.copySuccess')}
                   className="shrink-0"
                 />
-                <Tag color={Object.values(editingModel.metadata_state ?? {}).includes('user') ? 'gold' : 'blue'}>
-                  {t(Object.values(editingModel.metadata_state ?? {}).includes('user')
+                <Tag color={editMetadataDirty.size > 0 || hasUserMetadata(editingModel.metadata_state) ? 'gold' : 'blue'}>
+                  {t(editMetadataDirty.size > 0 || hasUserMetadata(editingModel.metadata_state)
                     ? 'settings.metadataManual'
                     : 'settings.metadataAutomatic')}
                 </Tag>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<Undo2 size={12} />}
-                  onClick={async () => {
-                    await handleResetEditingMetadata();
-                  }}
-                >
-                  {t('settings.restoreAutomatic')}
-                </Button>
+                <Tooltip title={t('settings.syncModelMetadata')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<RefreshCw size={14} />}
+                    aria-label={t('settings.syncModelMetadata')}
+                    loading={metadataSyncLoading}
+                    onClick={handleOpenMetadataSync}
+                  />
+                </Tooltip>
               </div>
             </div>
 
@@ -2090,11 +2279,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
 
             {/* Model Type */}
             <div>
-              <div className="font-medium mb-1.5 flex items-center justify-between" style={{ fontSize: 13 }}>
+              <div className="font-medium mb-1.5" style={{ fontSize: 13 }}>
                 {t('settings.modelType.title')}
-                <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['model_type'])}>
-                  {t('settings.restoreAutomatic')}
-                </Button>
               </div>
               <div className="flex gap-2 flex-wrap">
                 {(Object.keys(MODEL_TYPE_CONFIG) as ModelType[]).map((type_) => (
@@ -2105,9 +2291,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     onClick={() => {
                       setEditModelType(type_);
                       setEditCapabilities((current) => sanitizeModelCapabilities(type_, current));
-                      setEditMetadataDirty((current) =>
-                        new Set(current).add('model_type').add('capabilities'),
-                      );
+                      markMetadataManual('model_type', 'capabilities');
                     }}
                   >
                     {MODEL_TYPE_CONFIG[type_].icon}
@@ -2135,11 +2319,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
 
                 {/* Capabilities as clickable tags */}
                 <div>
-                  <div className="font-medium mb-1.5 flex items-center justify-between" style={{ fontSize: 13 }}>
+                  <div className="font-medium mb-1.5" style={{ fontSize: 13 }}>
                     {t('settings.modelAbilities')}
-                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['capabilities'])}>
-                      {t('settings.restoreAutomatic')}
-                    </Button>
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     {getEditableCapabilities(editModelType).map((cap) => {
@@ -2154,9 +2335,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                               ? editCapabilities.filter((c) => c !== cap)
                               : [...editCapabilities, cap];
                             setEditCapabilities(sanitizeModelCapabilities(editModelType, next));
-                            setEditMetadataDirty((current) =>
-                              new Set(current).add('capabilities'),
-                            );
+                            markMetadataManual('capabilities');
                           }}
                         >
                           {CAPABILITY_ICONS[cap]}
@@ -2180,21 +2359,14 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 {/* Context Window */}
                 <div>
                   <div className="flex items-center justify-between" style={{ padding: '8px 0' }}>
-                    <Space size={2}>
-                      <span className="text-sm shrink-0" style={{ color: token.colorText }}>{t('settings.contextWindow')}</span>
-                      <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['context_window'])}>
-                        {t('settings.restoreAutomatic')}
-                      </Button>
-                    </Space>
+                    <span className="text-sm shrink-0" style={{ color: token.colorText }}>{t('settings.contextWindow')}</span>
                     <Switch
                       size="small"
                       aria-label={t('settings.contextWindow')}
                       checked={editContextWindow != null}
                       onChange={(enabled) => {
                         setEditContextWindow(enabled ? 128000 : null);
-                        setEditMetadataDirty((current) =>
-                          new Set(current).add('context_window'),
-                        );
+                        markMetadataManual('context_window');
                       }}
                     />
                   </div>
@@ -2205,9 +2377,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                           value={editContextWindow}
                           onChange={(value) => {
                             if (value != null) setEditContextWindow(value);
-                            setEditMetadataDirty((current) =>
-                              new Set(current).add('context_window'),
-                            );
+                            markMetadataManual('context_window');
                           }}
                           min={1024}
                           max={10000000}
@@ -2226,9 +2396,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                           value={Math.min(editContextWindow, 1048576)}
                           onChange={(value) => {
                             setEditContextWindow(value);
-                            setEditMetadataDirty((current) =>
-                              new Set(current).add('context_window'),
-                            );
+                            markMetadataManual('context_window');
                           }}
                         />
                       </div>
@@ -2240,9 +2408,6 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <div>
                     <div className="text-sm" style={{ color: token.colorText }}>
                       {t('settings.modelMaxOutputTokens')}
-                      <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['max_output_tokens'])}>
-                        {t('settings.restoreAutomatic')}
-                      </Button>
                     </div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       {t('settings.modelMaxOutputTokensHint')}
@@ -2252,9 +2417,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     value={editMaxOutputTokens}
                     onChange={(value) => {
                       setEditMaxOutputTokens(value);
-                      setEditMetadataDirty((current) =>
-                        new Set(current).add('max_output_tokens'),
-                      );
+                      markMetadataManual('max_output_tokens');
                     }}
                     min={1}
                     max={10000000}
@@ -2293,40 +2456,26 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <Switch size="small" checked={editUseMaxCompletionTokens} onChange={setEditUseMaxCompletionTokens} />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Space size={2}>
-                    <span className="text-sm" style={{ color: token.colorText }}>{t('settings.noSystemRole')}</span>
-                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['no_system_role'])}>
-                      {t('settings.restoreAutomatic')}
-                    </Button>
-                  </Space>
+                  <span className="text-sm" style={{ color: token.colorText }}>{t('settings.noSystemRole')}</span>
                   <Switch
                     size="small"
-                    checked={editNoSystemRole}
+                    checked={editNoSystemRole ?? false}
                     onChange={(value) => {
                       setEditNoSystemRole(value);
-                      setEditMetadataDirty((current) =>
-                        new Set(current).add('no_system_role'),
-                      );
+                      markMetadataManual('no_system_role');
                     }}
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Space size={2}>
-                    <span className="text-sm" style={{ color: token.colorText }}>
-                      {t('settings.omitSamplingParams')}
-                    </span>
-                    <Button type="link" size="small" onClick={() => handleResetEditingMetadata(['omit_sampling_params'])}>
-                      {t('settings.restoreAutomatic')}
-                    </Button>
-                  </Space>
+                  <span className="text-sm" style={{ color: token.colorText }}>
+                    {t('settings.omitSamplingParams')}
+                  </span>
                   <Switch
                     size="small"
-                    checked={editOmitSamplingParams}
+                    checked={editOmitSamplingParams ?? false}
                     onChange={(value) => {
                       setEditOmitSamplingParams(value);
-                      setEditMetadataDirty((current) =>
-                        new Set(current).add('omit_sampling_params'),
-                      );
+                      markMetadataManual('omit_sampling_params');
                     }}
                   />
                 </div>
@@ -2376,6 +2525,16 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
           </div>
         )}
       </Modal>
+
+      <ModelMetadataSyncModal
+        open={metadataSyncModalOpen}
+        loading={metadataSyncLoading}
+        currentModel={metadataSyncCurrent}
+        inferredModel={metadataSyncCandidate?.proposed_model ?? null}
+        unsupportedReason={metadataSyncCandidate?.unsupported_reason}
+        onCancel={() => setMetadataSyncModalOpen(false)}
+        onApply={handleApplyMetadataSync}
+      />
 
       {/* Batch Edit Modal */}
       <Modal
