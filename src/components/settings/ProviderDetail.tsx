@@ -2179,12 +2179,18 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <Tag key={capability}>{t(`settings.capability.${capability}`)}</Tag>
                 ))}
                 {addModelPreview.proposed_model.context_window != null && (
-                  <Tag>{t('settings.contextWindow')}: {formatTokenCount(addModelPreview.proposed_model.context_window)}</Tag>
+                  <Tooltip title={t('settings.contextWindow')}>
+                    <Tag aria-label={t('settings.contextWindow')}>
+                      {formatTokenCount(addModelPreview.proposed_model.context_window)}
+                    </Tag>
+                  </Tooltip>
                 )}
                 {addModelPreview.proposed_model.max_output_tokens != null && (
-                  <Tag>
-                    {t('settings.modelMaxOutputTokens')}: {formatTokenCount(addModelPreview.proposed_model.max_output_tokens)}
-                  </Tag>
+                  <Tooltip title={t('settings.modelMaxOutputTokens')}>
+                    <Tag aria-label={t('settings.modelMaxOutputTokens')}>
+                      {formatTokenCount(addModelPreview.proposed_model.max_output_tokens)}
+                    </Tag>
+                  </Tooltip>
                 )}
                 <Button
                   type="link"
@@ -2947,14 +2953,25 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                                 {t(MODEL_SYNC_STATUS_CONFIG[item.status].labelKey)}
                               </Tag>
                               {m.context_window != null && (
-                                <Tag bordered={false} style={{ marginInlineStart: 4 }}>
-                                  {formatTokenCount(m.context_window)}
-                                </Tag>
+                                <Tooltip title={t('settings.contextWindow')}>
+                                  <Tag
+                                    bordered={false}
+                                    aria-label={t('settings.contextWindow')}
+                                    style={{ marginInlineStart: 4 }}
+                                  >
+                                    {formatTokenCount(m.context_window)}
+                                  </Tag>
+                                </Tooltip>
                               )}
                               {m.max_output_tokens != null && (
-                                <Tag bordered={false}>
-                                  {t('settings.modelMaxOutputTokens')}: {formatTokenCount(m.max_output_tokens)}
-                                </Tag>
+                                <Tooltip title={t('settings.modelMaxOutputTokens')}>
+                                  <Tag
+                                    bordered={false}
+                                    aria-label={t('settings.modelMaxOutputTokens')}
+                                  >
+                                    {formatTokenCount(m.max_output_tokens)}
+                                  </Tag>
+                                </Tooltip>
                               )}
                             </div>
                             {item.changes.length > 0 && (

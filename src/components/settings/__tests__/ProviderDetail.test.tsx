@@ -349,9 +349,16 @@ describe('ProviderDetail', () => {
 
     await waitFor(() => {
       expect(within(dialog).getAllByText('settings.modelType.Image')).toHaveLength(2);
-      expect(within(dialog).getByText(/64K/)).toBeInTheDocument();
-      expect(within(dialog).getByText(/4K/)).toBeInTheDocument();
+      expect(
+        within(dialog).getByLabelText('settings.contextWindow'),
+      ).toHaveTextContent('64K');
+      expect(
+        within(dialog).getByLabelText('settings.modelMaxOutputTokens'),
+      ).toHaveTextContent('4.1K');
     });
+    expect(
+      within(dialog).queryByText(/settings\.modelMaxOutputTokens:/),
+    ).not.toBeInTheDocument();
   });
 
   it('prefills the current group when adding a model from a group header', async () => {
@@ -979,6 +986,11 @@ describe('ProviderDetail', () => {
   });
 
   it('keeps model sync usable when the online catalog is unavailable', async () => {
+    provider.models[0] = {
+      ...provider.models[0],
+      context_window: 1_048_576,
+      max_output_tokens: 32_768,
+    };
     mocks.fetchRemoteModels.mockResolvedValue({
       candidates: provider.models.map((model) => syncCandidate(model, 'synced')),
       catalog: {
@@ -1006,6 +1018,14 @@ describe('ProviderDetail', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('settings.modelCatalogWarning')).toBeInTheDocument();
     expect(within(dialog).getByText('settings.modelCatalogSource.unavailable')).toBeInTheDocument();
+    expect(
+      within(dialog).getByLabelText('settings.contextWindow'),
+    ).toHaveTextContent('1.0M');
+    const outputLimit = within(dialog).getByLabelText('settings.modelMaxOutputTokens');
+    expect(outputLimit).toHaveTextContent('32.8K');
+    expect(
+      within(dialog).queryByText(/settings\.modelMaxOutputTokens:/),
+    ).not.toBeInTheDocument();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'settings.applyModelSync' }),
     );
