@@ -1,6 +1,11 @@
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import i18n from '@/i18n';
 import type { Model, ModelMetadataState } from '@/types';
-import { buildMetadataSyncRows } from '../ModelMetadataSyncModal';
+import {
+  buildMetadataSyncRows,
+  ModelMetadataSyncModal,
+} from '../ModelMetadataSyncModal';
 
 function metadataState(): ModelMetadataState {
   return {
@@ -73,5 +78,25 @@ describe('buildMetadataSyncRows', () => {
       changed: true,
       inferred: [],
     });
+  });
+
+  it('localizes empty capability values instead of exposing the translation key', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const current = { ...model(), capabilities: [] };
+    const inferred = { ...current, metadata_state: metadataState() };
+
+    render(
+      <ModelMetadataSyncModal
+        open
+        loading={false}
+        currentModel={current}
+        inferredModel={inferred}
+        onCancel={() => {}}
+        onApply={() => {}}
+      />,
+    );
+
+    expect(screen.queryAllByText('common.none')).toHaveLength(0);
+    expect(screen.getAllByText('无')).not.toHaveLength(0);
   });
 });

@@ -1254,6 +1254,7 @@
     "search": "검색",
     "loading": "로드 중...",
     "noData": "데이터 없음",
+    "none": "없음",
     "copy": "복사",
     "copied": "복사됨",
     "copySuccess": "클립보드에 복사됨",

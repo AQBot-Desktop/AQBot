@@ -1254,6 +1254,7 @@
     "search": "Buscar",
     "loading": "Cargando...",
     "noData": "Sin datos",
+    "none": "Ninguno",
     "copy": "Copiar",
     "copied": "Copiado",
     "copySuccess": "Copiado al portapapeles",

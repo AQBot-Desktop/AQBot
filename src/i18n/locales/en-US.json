@@ -1254,6 +1254,7 @@
     "search": "Search",
     "loading": "Loading...",
     "noData": "No data",
+    "none": "None",
     "copy": "Copy",
     "copied": "Copied",
     "copySuccess": "Copied to clipboard",
