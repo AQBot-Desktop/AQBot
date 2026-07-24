@@ -82,16 +82,50 @@ pub fn infer_remote_models(
 
 pub fn infer_single_model(
     provider: &ProviderConfig,
-    model: Model,
+    mut model: Model,
     catalog: CatalogLoadResult,
     reset: bool,
 ) -> ModelSyncCandidate {
+    if reset {
+        prepare_automatic_seed(&mut model);
+    }
     let catalog_provider = canonical_provider(
         &provider.provider_type,
         provider.builtin_id.as_deref(),
         &provider.api_host,
     );
     infer_candidate(model, None, &catalog.entries, catalog_provider, reset)
+}
+
+fn prepare_automatic_seed(model: &mut Model) {
+    let state = model.metadata_state.as_ref();
+    let provider_type =
+        state.is_some_and(|value| value.model_type == ModelMetadataSource::Provider);
+    let provider_capabilities =
+        state.is_some_and(|value| value.capabilities == ModelMetadataSource::Provider);
+    if !provider_type {
+        model.model_type = ModelType::Chat;
+    }
+    if !provider_capabilities {
+        model.capabilities = default_capabilities_for_model_type(&model.model_type);
+    }
+    if !state.is_some_and(|value| value.context_window == ModelMetadataSource::Provider) {
+        model.context_window = None;
+    }
+    if !state.is_some_and(|value| value.max_output_tokens == ModelMetadataSource::Provider) {
+        model.max_output_tokens = None;
+    }
+    if let Some(params) = &mut model.param_overrides {
+        if !state.is_some_and(|value| value.no_system_role == ModelMetadataSource::Provider) {
+            params.no_system_role = None;
+        }
+        if !state.is_some_and(|value| value.omit_sampling_params == ModelMetadataSource::Provider) {
+            params.omit_sampling_params = None;
+        }
+        if !state.is_some_and(|value| value.reasoning_options == ModelMetadataSource::Provider) {
+            params.reasoning_options = None;
+        }
+    }
 }
 
 pub(super) fn infer_candidate(

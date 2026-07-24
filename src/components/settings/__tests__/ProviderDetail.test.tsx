@@ -587,6 +587,159 @@ describe('ProviderDetail', () => {
     });
   });
 
+  it('uses one metadata sync action instead of repeated restore links', async () => {
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const dialog = await openFirstModelSettings();
+    expect(within(dialog).queryByText('settings.restoreAutomatic')).not.toBeInTheDocument();
+    expect(
+      within(dialog).getAllByRole('button', { name: 'settings.syncModelMetadata' }),
+    ).toHaveLength(1);
+  });
+
+  it('previews metadata differences and saves selected fields with automatic ownership', async () => {
+    provider.models[0] = {
+      ...provider.models[0],
+      context_window: 16_000,
+      max_output_tokens: null,
+      param_overrides: {
+        no_system_role: true,
+        reasoning_options: ['high', 'low'],
+        reasoning_default: 'high',
+      },
+      metadata_state: {
+        schema_version: 1,
+        catalog_key: null,
+        catalog_mode: null,
+        model_type: 'user',
+        capabilities: 'user',
+        context_window: 'provider',
+        max_output_tokens: 'user',
+        no_system_role: 'user',
+        omit_sampling_params: 'user',
+        reasoning_options: 'user',
+      },
+    };
+    const inferredModel: Model = {
+      ...provider.models[0],
+      context_window: 32_000,
+      max_output_tokens: 8_192,
+      param_overrides: {
+        ...provider.models[0].param_overrides,
+        no_system_role: false,
+        reasoning_options: ['low', 'high'],
+      },
+      metadata_state: {
+        schema_version: 2,
+        catalog_key: 'gpt-5.4',
+        catalog_mode: 'chat',
+        model_type: 'catalog',
+        capabilities: 'catalog',
+        context_window: 'catalog',
+        max_output_tokens: 'catalog',
+        no_system_role: 'catalog',
+        omit_sampling_params: 'default',
+        reasoning_options: 'catalog',
+      },
+    };
+    mocks.inferModelMetadata.mockResolvedValue(syncCandidate(inferredModel, 'synced'));
+
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    const settingsDialog = await openFirstModelSettings();
+    const contextSwitch = within(settingsDialog).getByRole('switch', {
+      name: 'settings.contextWindow',
+    });
+    await userEvent.click(contextSwitch);
+    await userEvent.click(contextSwitch);
+    await userEvent.click(
+      within(settingsDialog).getByRole('button', { name: 'settings.syncModelMetadata' }),
+    );
+    const syncHint = await screen.findByText('settings.syncModelMetadataHint');
+    const syncDialog = syncHint.closest('[role="dialog"]');
+    expect(syncDialog).not.toBeNull();
+
+    expect(mocks.inferModelMetadata).toHaveBeenCalledWith(
+      'provider-1',
+      expect.objectContaining({
+        model_id: 'gpt-5.4',
+        context_window: 128_000,
+        metadata_state: expect.objectContaining({ context_window: 'user' }),
+      }),
+      true,
+    );
+    expect(
+      within(syncDialog as HTMLElement).getByRole('checkbox', {
+        name: 'settings.metadataSyncField.context_window',
+      }),
+    ).toBeChecked();
+    expect(
+      within(syncDialog as HTMLElement).getByRole('checkbox', {
+        name: 'settings.metadataSyncField.max_output_tokens',
+      }),
+    ).toBeChecked();
+    expect(
+      within(syncDialog as HTMLElement).getByRole('checkbox', {
+        name: 'settings.metadataSyncField.reasoning_options',
+      }),
+    ).not.toBeChecked();
+    expect(
+      within(syncDialog as HTMLElement).getByRole('checkbox', {
+        name: 'settings.metadataSyncField.omit_sampling_params',
+      }),
+    ).toBeDisabled();
+
+    await userEvent.click(
+      within(syncDialog as HTMLElement).getByRole('checkbox', {
+        name: 'settings.metadataSyncField.max_output_tokens',
+      }),
+    );
+    await userEvent.click(
+      within(syncDialog as HTMLElement).getByRole('button', { name: 'settings.syncSelectedMetadata' }),
+    );
+
+    expect(mocks.updateModelMetadata).not.toHaveBeenCalled();
+    expect(
+      within(settingsDialog).getByRole('button', { name: 'common.save' }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      within(settingsDialog).getByRole('button', { name: 'common.save' }),
+    );
+    await waitFor(() => {
+      expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
+        'provider-1',
+        expect.objectContaining({
+          context_window: 32_000,
+          max_output_tokens: null,
+          param_overrides: expect.objectContaining({
+            no_system_role: false,
+            reasoning_options: ['high', 'low'],
+            reasoning_default: 'high',
+          }),
+          metadata_state: expect.objectContaining({
+            schema_version: 2,
+            catalog_key: 'gpt-5.4',
+            catalog_mode: 'chat',
+            context_window: 'catalog',
+            max_output_tokens: 'user',
+            no_system_role: 'catalog',
+          }),
+        }),
+        [],
+        expect.arrayContaining(['context_window', 'no_system_role']),
+      );
+    });
+  });
+
   it('hides chat parameters when editing an image model', async () => {
     provider.models[0] = {
       ...provider.models[0],

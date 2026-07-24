@@ -68,9 +68,14 @@ interface ProviderState {
   toggleModel: (providerId: string, modelId: string, enabled: boolean) => Promise<Model>;
   updateModelParams: (providerId: string, modelId: string, overrides: ModelParamOverrides) => Promise<Model>;
   fetchRemoteModels: (providerId: string) => Promise<RemoteModelSyncResult>;
-  inferModelMetadata: (providerId: string, model: Model) => Promise<ModelSyncCandidate>;
+  inferModelMetadata: (providerId: string, model: Model, automaticOnly?: boolean) => Promise<ModelSyncCandidate>;
   applyModelSync: (providerId: string, models: Model[]) => Promise<void>;
-  updateModelMetadata: (providerId: string, model: Model, userFields: string[]) => Promise<Model>;
+  updateModelMetadata: (
+    providerId: string,
+    model: Model,
+    userFields: string[],
+    automaticFields?: string[],
+  ) => Promise<Model>;
   resetModelMetadata: (providerId: string, modelIds: string[], fields?: string[]) => Promise<Model[]>;
   testModel: (providerId: string, modelId: string) => Promise<number>;
 }
@@ -486,8 +491,12 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  inferModelMetadata: async (providerId, model) =>
-    await invoke<ModelSyncCandidate>('infer_model_metadata', { providerId, model }),
+  inferModelMetadata: async (providerId, model, automaticOnly = false) =>
+    await invoke<ModelSyncCandidate>('infer_model_metadata', {
+      providerId,
+      model,
+      automaticOnly,
+    }),
 
   applyModelSync: async (providerId, models) => {
     await invoke('apply_model_sync', { providerId, models });
@@ -507,11 +516,12 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }));
   },
 
-  updateModelMetadata: async (providerId, model, userFields) => {
+  updateModelMetadata: async (providerId, model, userFields, automaticFields = []) => {
     const updated = await invoke<Model>('update_model_metadata', {
       providerId,
       model,
       userFields,
+      automaticFields,
     });
     if (providerId.startsWith('builtin_')) {
       const providers = await invoke<ProviderConfig[]>('list_providers');

@@ -671,6 +671,16 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     }
     case 'infer_model_metadata': {
       const model = { ...(args as any).model };
+      if ((args as any).automaticOnly) {
+        model.context_window = null;
+        model.max_output_tokens = null;
+        model.param_overrides = {
+          ...(model.param_overrides ?? {}),
+          no_system_role: undefined,
+          omit_sampling_params: undefined,
+          reasoning_options: undefined,
+        };
+      }
       const normalized = `${model.model_id} ${model.name}`.toLowerCase();
       if (/(^|[^a-z0-9])(rerank|reranker|colbert)([^a-z0-9]|$)/.test(normalized)) {
         model.model_type = 'Rerank';
@@ -688,11 +698,24 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         model.model_type = 'Chat';
         model.capabilities = ['TextChat'];
       }
+      const typeSource = model.model_type === 'Chat' ? 'default' : 'heuristic';
+      model.metadata_state = {
+        schema_version: 1,
+        catalog_key: null,
+        catalog_mode: null,
+        model_type: typeSource,
+        capabilities: typeSource,
+        context_window: 'default',
+        max_output_tokens: 'default',
+        no_system_role: 'default',
+        omit_sampling_params: 'default',
+        reasoning_options: 'default',
+      };
       return {
         proposed_model: model,
         status: 'remote-only',
         catalog_mode: null,
-        inference_source: model.model_type === 'Chat' ? 'default' : 'heuristic',
+        inference_source: typeSource,
         changes: [],
         unsupported_reason: null,
       } as T;

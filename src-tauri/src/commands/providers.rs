@@ -443,6 +443,7 @@ pub async fn infer_model_metadata(
     state: State<'_, AppState>,
     provider_id: String,
     model: Model,
+    automatic_only: Option<bool>,
 ) -> Result<crate::model_catalog::ModelSyncCandidate, String> {
     let provider = match aqbot_core::repo::provider::get_provider(&state.sea_db, &provider_id).await
     {
@@ -468,7 +469,10 @@ pub async fn infer_model_metadata(
         )
         .await;
     Ok(crate::model_catalog::infer_single_model(
-        &provider, model, catalog, false,
+        &provider,
+        model,
+        catalog,
+        automatic_only.unwrap_or(false),
     ))
 }
 
@@ -492,7 +496,10 @@ pub async fn update_model_metadata(
     provider_id: String,
     mut model: Model,
     user_fields: Vec<String>,
+    automatic_fields: Option<Vec<String>>,
 ) -> Result<Model, String> {
+    let automatic_fields = automatic_fields.unwrap_or_default();
+    validate_metadata_field_updates(&model, &user_fields, &automatic_fields)?;
     let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
         .await
         .map_err(|error| error.to_string())?;
@@ -518,6 +525,67 @@ pub async fn update_model_metadata(
     .await
     .map_err(|error| error.to_string())?;
     Ok(model)
+}
+
+fn metadata_field_source(
+    metadata: &ModelMetadataState,
+    field: &str,
+) -> Option<ModelMetadataSource> {
+    match field {
+        "model_type" => Some(metadata.model_type),
+        "capabilities" => Some(metadata.capabilities),
+        "context_window" => Some(metadata.context_window),
+        "max_output_tokens" => Some(metadata.max_output_tokens),
+        "no_system_role" => Some(metadata.no_system_role),
+        "omit_sampling_params" => Some(metadata.omit_sampling_params),
+        "reasoning_options" => Some(metadata.reasoning_options),
+        _ => None,
+    }
+}
+
+fn validate_metadata_field_updates(
+    model: &Model,
+    user_fields: &[String],
+    automatic_fields: &[String],
+) -> Result<(), String> {
+    let user_fields: BTreeSet<_> = user_fields.iter().map(String::as_str).collect();
+    let automatic_fields: BTreeSet<_> = automatic_fields.iter().map(String::as_str).collect();
+    if let Some(field) = user_fields.intersection(&automatic_fields).next() {
+        return Err(format!(
+            "Model metadata field cannot be both manual and automatic: {field}"
+        ));
+    }
+    for field in &user_fields {
+        if !is_metadata_field(field) {
+            return Err(format!("Unknown model metadata field: {field}"));
+        }
+    }
+    let metadata = model.metadata_state.as_ref();
+    for field in automatic_fields {
+        let source = metadata.and_then(|value| metadata_field_source(value, field));
+        if source.is_none() {
+            return Err(format!("Unknown model metadata field: {field}"));
+        }
+        if source == Some(ModelMetadataSource::User) {
+            return Err(format!(
+                "Automatic model metadata field still has user ownership: {field}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_metadata_field(field: &str) -> bool {
+    matches!(
+        field,
+        "model_type"
+            | "capabilities"
+            | "context_window"
+            | "max_output_tokens"
+            | "no_system_role"
+            | "omit_sampling_params"
+            | "reasoning_options"
+    )
 }
 
 #[tauri::command]
@@ -716,6 +784,35 @@ mod model_metadata_tests {
         let state = target.metadata_state.expect("metadata state");
         assert_eq!(state.max_output_tokens, ModelMetadataSource::Catalog);
         assert_eq!(state.capabilities, ModelMetadataSource::User);
+    }
+
+    #[test]
+    fn metadata_fields_cannot_be_manual_and_automatic_together() {
+        let model = model();
+        let error = validate_metadata_field_updates(
+            &model,
+            &["context_window".into()],
+            &["context_window".into()],
+        )
+        .expect_err("overlapping ownership must fail");
+        assert!(error.contains("both manual and automatic"));
+    }
+
+    #[test]
+    fn automatic_fields_require_a_non_user_source() {
+        let mut model = model();
+        model.metadata_state = Some(ModelMetadataState {
+            context_window: ModelMetadataSource::User,
+            ..ModelMetadataState::default()
+        });
+        assert!(validate_metadata_field_updates(&model, &[], &["context_window".into()],).is_err());
+
+        model
+            .metadata_state
+            .as_mut()
+            .expect("metadata")
+            .context_window = ModelMetadataSource::Catalog;
+        assert!(validate_metadata_field_updates(&model, &[], &["context_window".into()],).is_ok());
     }
 }
 
