@@ -1,10 +1,12 @@
-use super::metadata::{CatalogEntry, MAX_CONTEXT_WINDOW, MIN_CONTEXT_WINDOW};
+use super::metadata::{
+    CatalogEntry, MAX_CONTEXT_WINDOW, MAX_OUTPUT_TOKENS, MIN_CONTEXT_WINDOW, MIN_OUTPUT_TOKENS,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
-const CACHE_SCHEMA_VERSION: u32 = 1;
+const CACHE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct CatalogCache {
@@ -58,8 +60,13 @@ pub(super) fn validate_entries(entries: &BTreeMap<String, CatalogEntry>) -> Resu
 
 fn invalid_entry(entry: &CatalogEntry) -> bool {
     entry.provider.is_empty()
-        || entry.mode != "chat"
-        || !(MIN_CONTEXT_WINDOW..=MAX_CONTEXT_WINDOW).contains(&(entry.max_input_tokens as u64))
+        || entry.mode.is_empty()
+        || entry.max_input_tokens.is_some_and(|value| {
+            !(MIN_CONTEXT_WINDOW..=MAX_CONTEXT_WINDOW).contains(&(value as u64))
+        })
+        || entry
+            .max_output_tokens
+            .is_some_and(|value| !(MIN_OUTPUT_TOKENS..=MAX_OUTPUT_TOKENS).contains(&(value as u64)))
 }
 
 pub(super) fn write_cache_atomic(path: &Path, cache: &CatalogCache) -> Result<(), String> {

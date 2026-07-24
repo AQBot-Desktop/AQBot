@@ -62,8 +62,10 @@ function chatModel(
     model_type: 'Chat',
     capabilities,
     context_window: null,
+    max_output_tokens: null,
     enabled,
     param_overrides: paramOverrides,
+    metadata_state: null,
   };
 }
 
@@ -76,8 +78,10 @@ function imageModel(providerId: string, modelId: string, enabled = true) {
     model_type: 'Image',
     capabilities: [],
     context_window: null,
+    max_output_tokens: null,
     enabled,
     param_overrides: null,
+    metadata_state: null,
   };
 }
 
@@ -89,8 +93,10 @@ function rerankModel(providerId: string, modelId: string, name: string, enabled 
     model_type: 'Rerank',
     capabilities: [],
     context_window: null,
+    max_output_tokens: null,
     enabled,
     param_overrides: null,
+    metadata_state: null,
   };
 }
 
@@ -640,17 +646,80 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const providers = getStore('providers', []) as any[];
       const target = providers.find((p: any) => p.id === (args as any).providerId);
       return {
-        models: target?.models ?? [],
+        candidates: (target?.models ?? []).map((model: any) => ({
+          proposed_model: model,
+          status: 'synced',
+          catalog_mode: null,
+          inference_source: 'default',
+          changes: [],
+          unsupported_reason: null,
+        })),
         catalog: {
           configured_source: 'builtin',
           source: 'unavailable',
           freshness: 'unknown',
           matched_context_windows: 0,
           total_chat_models: 0,
+          matched_models: 0,
+          autofilled_fields: 0,
+          inferred_types: 0,
+          unsupported_models: 0,
           checked_at: null,
           warning: 'Model catalog is unavailable in browser preview mode.',
         },
       } as T;
+    }
+    case 'infer_model_metadata': {
+      const model = { ...(args as any).model };
+      const normalized = `${model.model_id} ${model.name}`.toLowerCase();
+      if (/(^|[^a-z0-9])(rerank|reranker|colbert)([^a-z0-9]|$)/.test(normalized)) {
+        model.model_type = 'Rerank';
+        model.capabilities = [];
+      } else if (/(^|[^a-z0-9])(embed|embedding)([^a-z0-9]|$)/.test(normalized)) {
+        model.model_type = 'Embedding';
+        model.capabilities = [];
+      } else if (/(gpt-image|dall-e|imagen|flux|stable-diffusion|(^|[^a-z0-9])image([^a-z0-9]|$))/.test(normalized)) {
+        model.model_type = 'Image';
+        model.capabilities = [];
+      } else if (/(^|[^a-z0-9])(voice|tts|speech|whisper|audio|realtime)([^a-z0-9]|$)/.test(normalized)) {
+        model.model_type = 'Voice';
+        model.capabilities = normalized.includes('realtime') ? ['RealtimeVoice'] : [];
+      } else {
+        model.model_type = 'Chat';
+        model.capabilities = ['TextChat'];
+      }
+      return {
+        proposed_model: model,
+        status: 'remote-only',
+        catalog_mode: null,
+        inference_source: model.model_type === 'Chat' ? 'default' : 'heuristic',
+        changes: [],
+        unsupported_reason: null,
+      } as T;
+    }
+    case 'apply_model_sync': {
+      const { providerId, models } = args as any;
+      const providers = getStore<any[]>('providers', []);
+      const provider = providers.find((item: any) => item.id === providerId);
+      if (provider) provider.models = models;
+      setStore('providers', providers);
+      return undefined as T;
+    }
+    case 'update_model_metadata': {
+      const { providerId, model } = args as any;
+      const providers = getStore<any[]>('providers', []);
+      const provider = providers.find((item: any) => item.id === providerId);
+      if (!provider) throw new Error('Provider not found');
+      const index = provider.models.findIndex((item: any) => item.model_id === model.model_id);
+      if (index >= 0) provider.models[index] = model;
+      else provider.models.push(model);
+      setStore('providers', providers);
+      return model as T;
+    }
+    case 'reset_model_metadata': {
+      const providers = getStore<any[]>('providers', []);
+      const provider = providers.find((item: any) => item.id === (args as any).providerId);
+      return (provider?.models ?? []) as T;
     }
 
     // ── Conversations ─────────────────────────────────────────────────

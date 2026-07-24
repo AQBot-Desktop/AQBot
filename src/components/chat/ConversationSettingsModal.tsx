@@ -29,10 +29,13 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
   const providers = useProviderStore((s) => s.providers);
 
   const conversation = conversations.find((c) => c.id === activeConversationId);
+  const selectedModel = React.useMemo(
+    () => findModelByIds(providers, conversation?.provider_id, conversation?.model_id),
+    [providers, conversation?.provider_id, conversation?.model_id],
+  );
   const modelParamDefaults = React.useMemo(() => {
-    const model = findModelByIds(providers, conversation?.provider_id, conversation?.model_id);
-    return resolveModelParamDefaults(model, settings);
-  }, [providers, conversation?.provider_id, conversation?.model_id, settings]);
+    return resolveModelParamDefaults(selectedModel, settings);
+  }, [selectedModel, settings]);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -243,7 +246,11 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
             onChange={(v) => {
               if ('temperature' in v) setTemperature(v.temperature!);
               if ('topP' in v) setTopP(v.topP!);
-              if ('maxTokens' in v) setMaxTokens(v.maxTokens!);
+              if ('maxTokens' in v) {
+                setMaxTokens(v.maxTokens == null
+                  ? null
+                  : Math.min(v.maxTokens, selectedModel?.max_output_tokens ?? v.maxTokens));
+              }
               if ('frequencyPenalty' in v) setFrequencyPenalty(v.frequencyPenalty!);
             }}
             defaults={{
@@ -252,7 +259,15 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
               maxTokens: modelParamDefaults.maxTokens,
               frequencyPenalty: modelParamDefaults.frequencyPenalty,
             }}
+            maxTokensMax={selectedModel?.max_output_tokens ?? 1048576}
           />
+          {maxTokens != null
+            && selectedModel?.max_output_tokens != null
+            && maxTokens > selectedModel.max_output_tokens && (
+              <div style={{ color: token.colorWarning, fontSize: 12, marginTop: 4 }}>
+                {t('settings.modelMaxOutputTokens')}: {selectedModel.max_output_tokens.toLocaleString()}
+              </div>
+            )}
         </Card>
       </div>
     </Modal>

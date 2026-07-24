@@ -13,7 +13,9 @@ use crate::entity::{
 use crate::error::{AQBotError, Result};
 use crate::file_store::FileStore;
 use crate::repo::settings::get_settings;
-use crate::types::{Attachment, ModelCapability, ModelParamOverrides, ModelType, ProviderType};
+use crate::types::{
+    infer_model_type_and_capabilities, Attachment, ModelParamOverrides, ProviderType,
+};
 use crate::utils::{gen_id, now_ts};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -796,19 +798,23 @@ where
         if model.id.trim().is_empty() {
             continue;
         }
-        let model_type = ModelType::detect(&model.id);
+        let display_name = model.name.as_deref().unwrap_or(&model.id);
+        let (model_type, capabilities) =
+            infer_model_type_and_capabilities(&model.id, display_name);
         models::Entity::insert(models::ActiveModel {
             provider_id: Set(provider_id.clone()),
             model_id: Set(model.id.clone()),
             name: Set(model.name.clone().unwrap_or_else(|| model.id.clone())),
             group_name: Set(model.group.clone()),
             model_type: Set(model_type.to_string()),
-            capabilities: Set(serde_json::to_string(&default_capabilities(&model_type)).unwrap()),
+            capabilities: Set(serde_json::to_string(&capabilities).unwrap()),
             max_tokens: Set(None),
+            max_output_tokens: Set(None),
             enabled: Set(1),
             param_overrides: Set(empty_param_overrides_for_import(&provider_type)
                 .and_then(|value| serde_json::to_string(&value).ok())),
             image_config_json: Set(None),
+            metadata_state_json: Set(None),
         })
         .on_conflict(
             OnConflict::columns([models::Column::ProviderId, models::Column::ModelId])
@@ -1207,13 +1213,6 @@ fn key_prefix(raw_key: &str) -> String {
     }
 }
 
-fn default_capabilities(model_type: &ModelType) -> Vec<ModelCapability> {
-    match model_type {
-        ModelType::Chat => vec![ModelCapability::TextChat],
-        _ => Vec::new(),
-    }
-}
-
 fn empty_param_overrides_for_import(provider_type: &ProviderType) -> Option<ModelParamOverrides> {
     let reasoning_profile = match provider_type {
         ProviderType::OpenAIResponses => Some("openai_responses_reasoning".to_string()),
@@ -1230,6 +1229,7 @@ fn empty_param_overrides_for_import(provider_type: &ProviderType) -> Option<Mode
         frequency_penalty: None,
         use_max_completion_tokens: None,
         no_system_role: None,
+        omit_sampling_params: None,
         force_max_tokens: None,
         thinking_param_style: None,
         reasoning_profile: Some(profile),

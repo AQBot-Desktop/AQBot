@@ -82,6 +82,24 @@ describe('reasoning profile resolution', () => {
     expect(profile.options.map((option) => option.key)).toEqual(['default', 'minimal', 'low', 'medium', 'high']);
   });
 
+  it('crops provider options to catalog-supported reasoning efforts', () => {
+    const profile = resolveReasoningProfile(
+      'openai',
+      model('gpt-5.1', {
+        reasoning_options: ['default', 'none', 'medium', 'high'],
+        reasoning_default: 'medium',
+      }),
+    );
+
+    expect(profile.options.map((option) => option.key)).toEqual([
+      'default',
+      'none',
+      'medium',
+      'high',
+    ]);
+    expect(profile.defaultOptionKey).toBe('medium');
+  });
+
   it('uses dedicated OpenAI-compatible provider profiles', () => {
     expect(optionKeys('deepseek', 'deepseek-v4-flash')).toEqual(['default', 'none', 'high', 'max']);
     expect(optionKeys('xai', 'grok-4.3')).toEqual(['default', 'none', 'low', 'medium', 'high']);

@@ -1,11 +1,12 @@
 mod cache;
+mod inference;
 mod metadata;
 mod snapshot;
 mod types;
 
 use aqbot_core::types::ModelCatalogSourcePreference;
 use cache::{read_cache, write_cache_atomic, CatalogCache};
-pub use metadata::enrich_models;
+pub use inference::{infer_remote_models, infer_single_model};
 use metadata::{parse_catalog, CatalogEntry};
 use reqwest::header::{ETAG, IF_NONE_MATCH, USER_AGENT};
 pub(crate) use snapshot::build_snapshot;
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 pub use types::{
     CatalogFreshness, CatalogLoadResult, CatalogSource, CatalogStatus, ModelCatalogConfig,
-    RemoteModelSyncResult,
+    ModelSyncCandidate, RemoteModelSyncResult,
 };
 
 const CACHE_FILE_NAME: &str = "litellm.json";
@@ -117,6 +118,28 @@ impl ModelCatalogService {
         result_from_cache(&cache, freshness, warning)
     }
 
+    /// Load the best locally available catalog without creating an HTTP client
+    /// or starting a network request. Used by debounced model-add previews.
+    pub async fn load_local(
+        &self,
+        configured_source: ModelCatalogSourcePreference,
+        now: i64,
+    ) -> CatalogLoadResult {
+        if configured_source == ModelCatalogSourcePreference::Builtin {
+            return self.load_builtin();
+        }
+        let (cached, warning) = self.load_cached().await;
+        let Some(cache) = cached else {
+            return self.builtin_result(configured_source, warning);
+        };
+        let freshness = if self.is_fresh(&cache, now) {
+            CatalogFreshness::Fresh
+        } else {
+            CatalogFreshness::Stale
+        };
+        result_from_cache(&cache, freshness, warning)
+    }
+
     async fn apply_fetch_result(
         &self,
         result: FetchResult,
@@ -205,7 +228,7 @@ impl ModelCatalogService {
         let body = read_limited_body(&mut response, self.config.max_response_bytes).await?;
         let entries = parse_catalog(&body)?;
         if entries.is_empty() {
-            return Err("LiteLLM catalog did not contain valid chat models".to_string());
+            return Err("LiteLLM catalog did not contain valid model metadata".to_string());
         }
         Ok(FetchResult::Modified { entries, etag })
     }
@@ -226,6 +249,10 @@ impl ModelCatalogService {
                         freshness: CatalogFreshness::Unknown,
                         matched_context_windows: 0,
                         total_chat_models: 0,
+                        matched_models: 0,
+                        autofilled_fields: 0,
+                        inferred_types: 0,
+                        unsupported_models: 0,
                         checked_at: None,
                         warning,
                     },
@@ -304,6 +331,10 @@ fn result_from_valid_cache(
             freshness,
             matched_context_windows: 0,
             total_chat_models: 0,
+            matched_models: 0,
+            autofilled_fields: 0,
+            inferred_types: 0,
+            unsupported_models: 0,
             checked_at: Some(cache.checked_at),
             warning,
         },
@@ -323,6 +354,10 @@ fn unavailable_result(
             freshness: CatalogFreshness::Unknown,
             matched_context_windows: 0,
             total_chat_models: 0,
+            matched_models: 0,
+            autofilled_fields: 0,
+            inferred_types: 0,
+            unsupported_models: 0,
             checked_at: None,
             warning,
         },

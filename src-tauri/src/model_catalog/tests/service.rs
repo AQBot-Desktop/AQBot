@@ -15,7 +15,7 @@ fn builtin_load_uses_embedded_catalog_without_touching_cache() {
     );
     assert_eq!(result.status.source, CatalogSource::Builtin);
     assert_eq!(result.status.warning, None);
-    assert!(result.entries.len() > 2_000);
+    assert!(result.entries.len() > 2_900);
     assert!(!temp.path().join("litellm.json").exists());
 }
 
@@ -38,10 +38,24 @@ async fn successful_download_is_normalized_and_cached() {
         read_cache(&temp.path().join("litellm.json")).unwrap().etag,
         Some("\"catalog-v1\"".to_string())
     );
-    assert!(!cached.contains("max_output_tokens"));
+    assert!(cached.contains("max_output_tokens"));
     assert!(!cached.contains("\"max_tokens\""));
     let request = request_rx.await.unwrap().to_ascii_lowercase();
     assert!(request.contains("user-agent: aqbot-"));
+}
+
+#[test]
+fn schema_v1_cache_is_invalidated() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_path = temp.path().join("litellm.json");
+    std::fs::write(
+        &cache_path,
+        br#"{"schema_version":1,"etag":null,"fetched_at":1,"checked_at":1,"entries":{}}"#,
+    )
+    .unwrap();
+
+    let error = read_cache(&cache_path).expect_err("schema v1 must be rejected");
+    assert!(error.contains("schema 1"));
 }
 
 #[tokio::test]

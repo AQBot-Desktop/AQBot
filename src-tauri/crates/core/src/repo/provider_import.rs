@@ -11,8 +11,8 @@ use crate::crypto::{decrypt_key, encrypt_key};
 use crate::error::{AQBotError, Result};
 use crate::repo::provider;
 use crate::types::{
-    CreateProviderInput, Model, ModelCapability, ModelParamOverrides, ModelType, ProviderConfig,
-    ProviderType,
+    infer_model_type_and_capabilities, CreateProviderInput, Model, ModelParamOverrides,
+    ProviderConfig, ProviderType,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -211,29 +211,24 @@ async fn merge_candidate_models(
         if existing_ids.contains(model_id) {
             continue;
         }
-        let model_type = ModelType::detect(model_id);
+        let (model_type, capabilities) = infer_model_type_and_capabilities(model_id, model_id);
         models.push(Model {
             provider_id: provider_config.id.clone(),
             model_id: model_id.clone(),
             name: model_id.clone(),
             group_name: None,
-            capabilities: default_capabilities(&model_type),
+            capabilities,
             model_type,
             context_window: None,
+            max_output_tokens: None,
             enabled: true,
             param_overrides: empty_param_overrides_for_import(&provider_config.provider_type),
             image_config: None,
+            metadata_state: None,
         });
     }
 
     provider::save_models(db, &provider_config.id, &models).await
-}
-
-fn default_capabilities(model_type: &ModelType) -> Vec<ModelCapability> {
-    match model_type {
-        ModelType::Chat => vec![ModelCapability::TextChat],
-        _ => Vec::new(),
-    }
 }
 
 fn empty_param_overrides_for_import(provider_type: &ProviderType) -> Option<ModelParamOverrides> {
@@ -252,6 +247,7 @@ fn empty_param_overrides_for_import(provider_type: &ProviderType) -> Option<Mode
         frequency_penalty: None,
         use_max_completion_tokens: None,
         no_system_role: None,
+        omit_sampling_params: None,
         force_max_tokens: None,
         thinking_param_style: None,
         reasoning_profile: Some(profile),

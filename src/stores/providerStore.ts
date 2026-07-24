@@ -13,6 +13,7 @@ import type {
   ProviderKey,
   Model,
   RemoteModelSyncResult,
+  ModelSyncCandidate,
   ModelParamOverrides,
   DeepLinkProviderImportInput,
   DeepLinkProviderImportResult,
@@ -67,6 +68,10 @@ interface ProviderState {
   toggleModel: (providerId: string, modelId: string, enabled: boolean) => Promise<Model>;
   updateModelParams: (providerId: string, modelId: string, overrides: ModelParamOverrides) => Promise<Model>;
   fetchRemoteModels: (providerId: string) => Promise<RemoteModelSyncResult>;
+  inferModelMetadata: (providerId: string, model: Model) => Promise<ModelSyncCandidate>;
+  applyModelSync: (providerId: string, models: Model[]) => Promise<void>;
+  updateModelMetadata: (providerId: string, model: Model, userFields: string[]) => Promise<Model>;
+  resetModelMetadata: (providerId: string, modelIds: string[], fields?: string[]) => Promise<Model[]>;
   testModel: (providerId: string, modelId: string) => Promise<number>;
 }
 
@@ -479,6 +484,82 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       set({ error: String(e) });
       throw e;
     }
+  },
+
+  inferModelMetadata: async (providerId, model) =>
+    await invoke<ModelSyncCandidate>('infer_model_metadata', { providerId, model }),
+
+  applyModelSync: async (providerId, models) => {
+    await invoke('apply_model_sync', { providerId, models });
+    if (providerId.startsWith('builtin_')) {
+      const providers = await invoke<ProviderConfig[]>('list_providers');
+      set((state) => ({
+        providers,
+        providersMeta: replaceProvidersMeta(state.providersMeta),
+      }));
+      return;
+    }
+    set((state) => ({
+      providers: state.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, models } : provider,
+      ),
+      providersMeta: mutateProvidersMeta(state.providersMeta),
+    }));
+  },
+
+  updateModelMetadata: async (providerId, model, userFields) => {
+    const updated = await invoke<Model>('update_model_metadata', {
+      providerId,
+      model,
+      userFields,
+    });
+    if (providerId.startsWith('builtin_')) {
+      const providers = await invoke<ProviderConfig[]>('list_providers');
+      set((state) => ({
+        providers,
+        providersMeta: replaceProvidersMeta(state.providersMeta),
+      }));
+      return updated;
+    }
+    set((state) => ({
+      providers: state.providers.map((provider) =>
+        provider.id === providerId
+          ? {
+              ...provider,
+              models: provider.models.some((item) => item.model_id === updated.model_id)
+                ? provider.models.map((item) =>
+                    item.model_id === updated.model_id ? updated : item,
+                  )
+                : [...provider.models, updated],
+            }
+          : provider,
+      ),
+      providersMeta: mutateProvidersMeta(state.providersMeta),
+    }));
+    return updated;
+  },
+
+  resetModelMetadata: async (providerId, modelIds, fields) => {
+    const models = await invoke<Model[]>('reset_model_metadata', {
+      providerId,
+      modelIds,
+      fields: fields ?? null,
+    });
+    if (providerId.startsWith('builtin_')) {
+      const providers = await invoke<ProviderConfig[]>('list_providers');
+      set((state) => ({
+        providers,
+        providersMeta: replaceProvidersMeta(state.providersMeta),
+      }));
+      return models;
+    }
+    set((state) => ({
+      providers: state.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, models } : provider,
+      ),
+      providersMeta: mutateProvidersMeta(state.providersMeta),
+    }));
+    return models;
   },
 
   testModel: async (providerId, modelId) => {

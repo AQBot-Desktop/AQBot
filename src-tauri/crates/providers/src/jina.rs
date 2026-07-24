@@ -56,9 +56,11 @@ pub(crate) fn jina_models(provider_id: &str) -> Vec<Model> {
         model_type: ModelType::Rerank,
         capabilities: vec![],
         context_window: None,
+        max_output_tokens: None,
         enabled: true,
         param_overrides: None,
         image_config: None,
+        metadata_state: None,
     })
     .collect()
 }

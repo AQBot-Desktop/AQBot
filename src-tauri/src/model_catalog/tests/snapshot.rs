@@ -10,7 +10,8 @@ fn embedded_snapshot_has_valid_provenance_and_entries() {
     let root: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     let provenance = &root["provenance"];
 
-    assert!(entries.len() > 2_000);
+    assert!(entries.len() > 2_900);
+    assert_eq!(root["schema_version"], 2);
     assert_eq!(provenance["project"], "LiteLLM");
     assert_eq!(
         provenance["repository"],
@@ -21,7 +22,7 @@ fn embedded_snapshot_has_valid_provenance_and_entries() {
 }
 
 #[test]
-fn generated_snapshot_contains_only_normalized_input_context_metadata() {
+fn generated_snapshot_contains_normalized_safe_metadata_but_not_legacy_max_tokens() {
     let bytes = build_snapshot(
         SAMPLE_CATALOG.as_bytes(),
         TEST_COMMIT,
@@ -31,10 +32,11 @@ fn generated_snapshot_contains_only_normalized_input_context_metadata() {
     let serialized = String::from_utf8(bytes.clone()).unwrap();
     let entries = parse_snapshot(&bytes).unwrap();
 
-    assert_eq!(entries.len(), 4);
-    assert!(!serialized.contains("max_output_tokens"));
+    assert_eq!(entries.len(), 13);
+    assert!(serialized.contains("max_output_tokens"));
     assert!(!serialized.contains("\"max_tokens\""));
     assert!(serialized.contains("max_input_tokens"));
+    assert!(serialized.contains("supports_sampling_params"));
 }
 
 #[test]
@@ -47,7 +49,7 @@ fn snapshot_rejects_invalid_commit_and_empty_entries() {
     .is_err());
 
     let empty = br#"{
-      "schema_version": 1,
+      "schema_version": 2,
       "provenance": {
         "project": "LiteLLM",
         "repository": "https://github.com/BerriAI/litellm",

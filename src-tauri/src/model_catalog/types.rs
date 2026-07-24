@@ -1,6 +1,6 @@
 use super::metadata::CatalogEntry;
 use super::DEFAULT_SOURCE_URL;
-use aqbot_core::types::{Model, ModelCatalogSourcePreference};
+use aqbot_core::types::{Model, ModelCatalogSourcePreference, ModelMetadataSource};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -30,8 +30,39 @@ pub struct CatalogStatus {
     pub freshness: CatalogFreshness,
     pub matched_context_windows: usize,
     pub total_chat_models: usize,
+    pub matched_models: usize,
+    pub autofilled_fields: usize,
+    pub inferred_types: usize,
+    pub unsupported_models: usize,
     pub checked_at: Option<i64>,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelSyncStatus {
+    Synced,
+    LocalOnly,
+    RemoteOnly,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelMetadataChange {
+    pub field: String,
+    pub previous: serde_json::Value,
+    pub proposed: serde_json::Value,
+    pub source: ModelMetadataSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelSyncCandidate {
+    pub proposed_model: Model,
+    pub status: ModelSyncStatus,
+    pub catalog_mode: Option<String>,
+    pub inference_source: ModelMetadataSource,
+    pub changes: Vec<ModelMetadataChange>,
+    pub unsupported_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +92,6 @@ pub struct CatalogLoadResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteModelSyncResult {
-    pub models: Vec<Model>,
+    pub candidates: Vec<ModelSyncCandidate>,
     pub catalog: CatalogStatus,
 }

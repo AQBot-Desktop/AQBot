@@ -818,10 +818,13 @@ pub async fn agent_query(
         .map_err(|e| e.to_string())?;
     let decrypted_key = aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
         .map_err(|e| e.to_string())?;
-    let model_param_overrides = provider::get_model(&state.sea_db, &real_provider_id, &model_id)
+    let resolved_model = provider::get_model(&state.sea_db, &real_provider_id, &model_id)
         .await
-        .ok()
-        .and_then(|model| model.param_overrides);
+        .ok();
+    let model_max_output_tokens = resolved_model
+        .as_ref()
+        .and_then(|model| model.max_output_tokens);
+    let model_param_overrides = resolved_model.and_then(|model| model.param_overrides);
 
     // 6. Build ProviderRequestContext
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
@@ -859,6 +862,7 @@ pub async fn agent_query(
     let bridge = aqbot_agent::bridge::AQBotProviderBridge::new(adapter, ctx, provider_type_str)
         .map_err(|e| e.to_string())?
         .with_model_param_overrides(model_param_overrides)
+        .with_model_max_output_tokens(model_max_output_tokens)
         .with_app(app.clone(), conversation_id.clone());
 
     // 8. Build permission callback (CanUseToolFn)

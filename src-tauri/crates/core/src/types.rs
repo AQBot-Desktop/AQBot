@@ -155,10 +155,18 @@ pub struct Model {
     pub capabilities: Vec<ModelCapability>,
     #[serde(alias = "max_tokens")]
     pub context_window: Option<u32>,
+    /// Maximum output tokens supported by the model. This is a hard cap, not a
+    /// request default.
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
     pub enabled: bool,
     pub param_overrides: Option<ModelParamOverrides>,
     #[serde(default)]
     pub image_config: Option<serde_json::Value>,
+    /// `None` marks a legacy record whose existing values must be preserved
+    /// until the user explicitly restores automatic detection.
+    #[serde(default)]
+    pub metadata_state: Option<ModelMetadataState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -177,24 +185,9 @@ impl Default for ModelType {
 }
 
 impl ModelType {
-    /// Auto-detect model type from model_id string
+    /// Conservatively infer a model type from a model identifier.
     pub fn detect(model_id: &str) -> Self {
-        let id = model_id.to_lowercase();
-        if id.contains("rerank") || id.contains("colbert") {
-            ModelType::Rerank
-        } else if id.contains("embed") {
-            ModelType::Embedding
-        } else if id.contains("gpt-image") || id.contains("dall-e") || id.contains("image") {
-            ModelType::Image
-        } else if id.contains("realtime")
-            || id.contains("tts")
-            || id.contains("whisper")
-            || id.contains("audio")
-        {
-            ModelType::Voice
-        } else {
-            ModelType::Chat
-        }
+        infer_model_type_and_capabilities(model_id, "").0
     }
 }
 
@@ -238,6 +231,29 @@ mod model_type_tests {
     }
 
     #[test]
+    fn detection_uses_boundaries_and_stable_precedence() {
+        assert_eq!(
+            ModelType::detect("amazon.titan-embed-image-v1"),
+            ModelType::Embedding
+        );
+        assert_eq!(ModelType::detect("gpt-image-1"), ModelType::Image);
+        assert_eq!(ModelType::detect("speech-to-text"), ModelType::Voice);
+        assert_eq!(ModelType::detect("imagination-chat"), ModelType::Chat);
+        assert_eq!(ModelType::detect("audiofile-chat"), ModelType::Chat);
+    }
+
+    #[test]
+    fn chat_capabilities_are_conservative() {
+        let (_, vision) = infer_model_type_and_capabilities("qwen-vl-max", "");
+        assert!(vision.contains(&ModelCapability::Vision));
+        let (_, reasoning) = infer_model_type_and_capabilities("deepseek-r1", "");
+        assert!(reasoning.contains(&ModelCapability::Reasoning));
+        let (_, ordinary) = infer_model_type_and_capabilities("gpt-4o", "");
+        assert_eq!(ordinary, vec![ModelCapability::TextChat]);
+        assert!(!ordinary.contains(&ModelCapability::FunctionCalling));
+    }
+
+    #[test]
     fn model_context_window_serializes_new_name_and_accepts_legacy_alias() {
         let model: Model = serde_json::from_value(json!({
             "provider_id": "provider",
@@ -253,6 +269,8 @@ mod model_type_tests {
         .unwrap();
 
         assert_eq!(model.context_window, Some(128_000));
+        assert_eq!(model.max_output_tokens, None);
+        assert_eq!(model.metadata_state, None);
         let serialized = serde_json::to_value(model).unwrap();
         assert_eq!(serialized["context_window"], json!(128_000));
         assert!(serialized.get("max_tokens").is_none());
@@ -268,7 +286,147 @@ pub enum ModelCapability {
     RealtimeVoice,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelMetadataSource {
+    Catalog,
+    Provider,
+    Heuristic,
+    Default,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelMetadataState {
+    pub schema_version: u32,
+    pub catalog_key: Option<String>,
+    pub catalog_mode: Option<String>,
+    pub model_type: ModelMetadataSource,
+    pub capabilities: ModelMetadataSource,
+    pub context_window: ModelMetadataSource,
+    pub max_output_tokens: ModelMetadataSource,
+    pub no_system_role: ModelMetadataSource,
+    pub omit_sampling_params: ModelMetadataSource,
+    pub reasoning_options: ModelMetadataSource,
+}
+
+impl Default for ModelMetadataState {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            catalog_key: None,
+            catalog_mode: None,
+            model_type: ModelMetadataSource::Default,
+            capabilities: ModelMetadataSource::Default,
+            context_window: ModelMetadataSource::Default,
+            max_output_tokens: ModelMetadataSource::Default,
+            no_system_role: ModelMetadataSource::Default,
+            omit_sampling_params: ModelMetadataSource::Default,
+            reasoning_options: ModelMetadataSource::Default,
+        }
+    }
+}
+
+pub fn default_capabilities_for_model_type(model_type: &ModelType) -> Vec<ModelCapability> {
+    match model_type {
+        ModelType::Chat => vec![ModelCapability::TextChat],
+        ModelType::Voice | ModelType::Embedding | ModelType::Image | ModelType::Rerank => {
+            Vec::new()
+        }
+    }
+}
+
+pub fn infer_model_type_and_capabilities(
+    model_id: &str,
+    display_name: &str,
+) -> (ModelType, Vec<ModelCapability>) {
+    let tokens = identifier_tokens(&format!("{model_id} {display_name}"));
+    let has = |candidates: &[&str]| {
+        candidates
+            .iter()
+            .any(|candidate| tokens.iter().any(|token| token == candidate))
+    };
+    let has_pair = |left: &str, right: &str| {
+        tokens
+            .windows(2)
+            .any(|pair| pair[0] == left && pair[1] == right)
+    };
+
+    let model_type = if has(&["rerank", "reranker", "colbert"]) {
+        ModelType::Rerank
+    } else if has(&["embed", "embedding"]) {
+        ModelType::Embedding
+    } else if has(&["image", "imagen", "flux"])
+        || has_pair("gpt", "image")
+        || has_pair("dall", "e")
+        || has_pair("stable", "diffusion")
+    {
+        ModelType::Image
+    } else if has(&[
+        "voice",
+        "tts",
+        "speech",
+        "whisper",
+        "transcribe",
+        "transcription",
+        "stt",
+        "asr",
+        "audio",
+        "realtime",
+    ]) {
+        ModelType::Voice
+    } else {
+        ModelType::Chat
+    };
+
+    let mut capabilities = default_capabilities_for_model_type(&model_type);
+    match model_type {
+        ModelType::Chat => capabilities = infer_chat_capabilities(model_id, display_name),
+        ModelType::Voice if has(&["realtime"]) => {
+            capabilities.push(ModelCapability::RealtimeVoice);
+        }
+        _ => {}
+    }
+    (model_type, capabilities)
+}
+
+pub fn infer_chat_capabilities(model_id: &str, display_name: &str) -> Vec<ModelCapability> {
+    let tokens = identifier_tokens(&format!("{model_id} {display_name}"));
+    let has = |candidates: &[&str]| {
+        candidates
+            .iter()
+            .any(|candidate| tokens.iter().any(|token| token == candidate))
+    };
+    let mut capabilities = vec![ModelCapability::TextChat];
+    if has(&["vision", "vl", "multimodal"]) {
+        capabilities.push(ModelCapability::Vision);
+    }
+    if has(&[
+        "reason",
+        "reasoner",
+        "reasoning",
+        "thinking",
+        "think",
+        "o1",
+        "o3",
+        "o4",
+        "r1",
+    ]) {
+        capabilities.push(ModelCapability::Reasoning);
+    }
+    capabilities
+}
+
+fn identifier_tokens(value: &str) -> Vec<String> {
+    value
+        .to_ascii_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModelParamOverrides {
     pub temperature: Option<f32>,
     /// Model-specific output token limit. This is only applied to normal chat
@@ -283,6 +441,9 @@ pub struct ModelParamOverrides {
     /// When true, system messages are converted to user messages
     /// (for models that don't support the system role).
     pub no_system_role: Option<bool>,
+    /// When true, omit temperature, top-p, and frequency penalty.
+    #[serde(default)]
+    pub omit_sampling_params: Option<bool>,
     /// When true, include the model-specific max_tokens in chat requests
     /// (falls back to 4096 if neither conversation nor model defaults are set).
     pub force_max_tokens: Option<bool>,

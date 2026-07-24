@@ -13,9 +13,11 @@ pub struct Model {
     pub model_type: String,
     pub capabilities: String,
     pub max_tokens: Option<i64>,
+    pub max_output_tokens: Option<i64>,
     pub enabled: i32,
     pub param_overrides: Option<String>,
     pub image_config_json: Option<String>,
+    pub metadata_state_json: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

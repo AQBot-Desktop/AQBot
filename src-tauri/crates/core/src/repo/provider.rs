@@ -57,6 +57,18 @@ fn key_from_entity(m: provider_keys::Model) -> ProviderKey {
 }
 
 fn model_from_entity(m: models::Model) -> Model {
+    let metadata_state = m.metadata_state_json.and_then(|value| {
+        serde_json::from_str(&value)
+            .map_err(|error| {
+                tracing::warn!(
+                    provider_id = %m.provider_id,
+                    model_id = %m.model_id,
+                    %error,
+                    "Ignoring invalid model metadata state"
+                );
+            })
+            .ok()
+    });
     Model {
         provider_id: m.provider_id,
         model_id: m.model_id,
@@ -65,6 +77,7 @@ fn model_from_entity(m: models::Model) -> Model {
         model_type: m.model_type.parse().unwrap_or_default(),
         capabilities: serde_json::from_str(&m.capabilities).unwrap_or_default(),
         context_window: m.max_tokens.map(|v| v as u32),
+        max_output_tokens: m.max_output_tokens.map(|value| value as u32),
         enabled: m.enabled != 0,
         param_overrides: m
             .param_overrides
@@ -72,6 +85,7 @@ fn model_from_entity(m: models::Model) -> Model {
         image_config: m
             .image_config_json
             .and_then(|value| serde_json::from_str(&value).ok()),
+        metadata_state,
     }
 }
 
@@ -614,6 +628,10 @@ where
             .as_ref()
             .map(|po| serde_json::to_string(po).unwrap_or_else(|_| "null".to_string()));
         let image_config_json = model.image_config.as_ref().map(|config| config.to_string());
+        let metadata_state_json = model
+            .metadata_state
+            .as_ref()
+            .and_then(|state| serde_json::to_string(state).ok());
 
         models::ActiveModel {
             provider_id: Set(provider_id.to_string()),
@@ -623,9 +641,11 @@ where
             model_type: Set(model.model_type.to_string()),
             capabilities: Set(capabilities),
             max_tokens: Set(model.context_window.map(|v| v as i64)),
+            max_output_tokens: Set(model.max_output_tokens.map(|value| value as i64)),
             enabled: Set(if model.enabled { 1 } else { 0 }),
             param_overrides: Set(param_overrides),
             image_config_json: Set(image_config_json),
+            metadata_state_json: Set(metadata_state_json),
         }
         .insert(conn)
         .await?;
@@ -1021,9 +1041,15 @@ mod tests {
                 model_type: ModelType::Chat,
                 capabilities: vec![ModelCapability::TextChat],
                 context_window: Some(1_000_000),
+                max_output_tokens: Some(4_096),
                 enabled: true,
                 param_overrides: None,
                 image_config: None,
+                metadata_state: Some(ModelMetadataState {
+                    model_type: ModelMetadataSource::User,
+                    max_output_tokens: ModelMetadataSource::Catalog,
+                    ..ModelMetadataState::default()
+                }),
             }],
         )
         .await
@@ -1080,12 +1106,18 @@ mod tests {
                 model_type: ModelType::Image,
                 capabilities: Vec::new(),
                 context_window: None,
+                max_output_tokens: Some(4_096),
                 enabled: true,
                 param_overrides: None,
                 image_config: Some(serde_json::json!({
                     "adapter_id": "xai_images",
                     "timeout_secs": 3600
                 })),
+                metadata_state: Some(ModelMetadataState {
+                    model_type: ModelMetadataSource::User,
+                    max_output_tokens: ModelMetadataSource::Catalog,
+                    ..ModelMetadataState::default()
+                }),
             }],
         )
         .await
@@ -1101,6 +1133,11 @@ mod tests {
                 .and_then(|value| value.get("adapter_id"))
                 .and_then(serde_json::Value::as_str),
             Some("xai_images")
+        );
+        assert_eq!(model.max_output_tokens, Some(4_096));
+        assert_eq!(
+            model.metadata_state.as_ref().map(|state| state.model_type),
+            Some(ModelMetadataSource::User)
         );
     }
 

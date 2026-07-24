@@ -45,7 +45,11 @@ export function ModelCatalogStatusBar({ status }: ModelCatalogStatusBarProps) {
     >
       <Space size={[4, 4]} wrap>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('settings.modelCatalogMatched')}: {status.matched_context_windows}/{status.total_chat_models}
+          {t('settings.modelCatalogMatched')}: {status.matched_models}
+          {' · '}
+          {t('settings.contextWindow')}: {status.matched_context_windows}
+          {' · '}
+          {t('settings.modelUnsupported')}: {status.unsupported_models}
         </Text>
         {status.checked_at || status.warning
           ? <Tooltip title={detail}>{sourceTag}</Tooltip>

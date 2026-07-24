@@ -247,6 +247,10 @@ pub fn run() {
         commands::providers::toggle_model,
         commands::providers::update_model_params,
         commands::providers::fetch_remote_models,
+        commands::providers::infer_model_metadata,
+        commands::providers::apply_model_sync,
+        commands::providers::update_model_metadata,
+        commands::providers::reset_model_metadata,
         commands::providers::test_model,
         commands::providers::reorder_providers,
         // drawing
