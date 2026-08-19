@@ -5,6 +5,8 @@ use std::{
 };
 
 fn main() {
+    // Tauri embeds this file into macOS development binaries at compile time.
+    println!("cargo:rerun-if-changed=icons/icon.icns");
     configure_macos_swift_linker();
     tauri_build::build()
 }
