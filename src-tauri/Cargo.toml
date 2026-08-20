@@ -108,7 +108,8 @@ block2 = "0.6.2"
 axuielement = { version = "0.9.1", features = ["async"] }
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
-core-graphics = "0.25"
+# Exposes CGEventPostToPid so synthetic copy events cannot leak into a new foreground app.
+core-graphics = { version = "0.25", features = ["elcapitan"] }
 # Nonactivating NSPanel for the selection toolbar (hover + click without activating the app).
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 

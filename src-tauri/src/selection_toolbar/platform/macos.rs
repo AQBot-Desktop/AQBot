@@ -132,7 +132,11 @@ enum MacSignal {
     ApplicationActivated(WorkspaceApplication),
     ApplicationDismissed(i32),
     SelectionProbeRequested(LogicalPoint),
-    SelectionProbeReady { point: LogicalPoint, attempt: usize },
+    SelectionProbeReady {
+        point: LogicalPoint,
+        attempt: usize,
+        source_pid: Option<i32>,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -539,6 +543,17 @@ fn workspace_application_for_pid(pid: i32) -> Option<WorkspaceApplication> {
         .and_then(workspace_application)
 }
 
+fn frontmost_application_pid() -> Option<i32> {
+    let pid = NSWorkspace::sharedWorkspace()
+        .frontmostApplication()?
+        .processIdentifier();
+    (pid > 0).then_some(pid)
+}
+
+fn is_copy_target_active(target_pid: i32) -> bool {
+    is_macos_copy_target_active(target_pid, frontmost_application_pid())
+}
+
 async fn run_monitor(
     sender: UnboundedSender<PlatformEvent>,
     mac_sender: UnboundedSender<MacSignal>,
@@ -677,17 +692,31 @@ fn handle_mac_signal(
             }
         }
         MacSignal::SelectionProbeRequested(point) => {
+            let source_pid = active.as_ref().map(|active| active.info.pid);
             tracing::debug!(
-                pid = active.as_ref().map(|active| active.info.pid),
+                pid = source_pid,
                 point_x = point.x,
                 point_y = point.y,
                 "Scheduling macOS mouse selection probe"
             );
-            schedule_selection_probe(mac_sender, point, 0);
+            schedule_selection_probe(mac_sender, point, 0, source_pid);
         }
-        MacSignal::SelectionProbeReady { point, attempt } => {
+        MacSignal::SelectionProbeReady {
+            point,
+            attempt,
+            source_pid,
+        } => {
+            let active_pid = active.as_ref().map(|active| active.info.pid);
+            if !probe_source_matches_active_app(source_pid, active_pid) {
+                tracing::debug!(
+                    source_pid,
+                    active_pid,
+                    "Ignoring stale macOS selection probe after application switch"
+                );
+                return;
+            }
             probe_selection(
-                system, active, lifecycle, own_pid, point, attempt, sender, mac_sender,
+                system, active, lifecycle, own_pid, point, attempt, source_pid, sender, mac_sender,
             );
         }
     }
@@ -697,6 +726,7 @@ fn schedule_selection_probe(
     sender: &UnboundedSender<MacSignal>,
     point: LogicalPoint,
     attempt: usize,
+    source_pid: Option<i32>,
 ) {
     let Some(delay_ms) = SELECTION_PROBE_DELAYS_MS.get(attempt).copied() else {
         return;
@@ -704,12 +734,33 @@ fn schedule_selection_probe(
     let delayed_sender = sender.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        let _ = delayed_sender.send(MacSignal::SelectionProbeReady { point, attempt });
+        let _ = delayed_sender.send(MacSignal::SelectionProbeReady {
+            point,
+            attempt,
+            source_pid,
+        });
     });
 }
 
 fn is_last_probe_attempt(attempt: usize) -> bool {
     attempt + 1 >= SELECTION_PROBE_DELAYS_MS.len()
+}
+
+fn should_try_macos_clipboard_fallback(attempt: usize, source_app: &str) -> bool {
+    // This path can synthesize Cmd+C, so it must never be a generic final probe.
+    attempt == 0 && is_weak_ax_source_app(source_app)
+}
+
+fn is_macos_copy_target_active(target_pid: i32, foreground_pid: Option<i32>) -> bool {
+    target_pid > 0 && foreground_pid == Some(target_pid)
+}
+
+fn probe_source_matches_active_app(source_pid: Option<i32>, active_pid: Option<i32>) -> bool {
+    source_pid.is_none() || source_pid == active_pid
+}
+
+fn probe_source_allows_clipboard(source_pid: Option<i32>, target_pid: i32) -> bool {
+    target_pid > 0 && source_pid == Some(target_pid)
 }
 
 struct ActiveApplication {
@@ -904,6 +955,7 @@ fn probe_selection(
     own_pid: i32,
     point: LogicalPoint,
     attempt: usize,
+    source_pid: Option<i32>,
     sender: &UnboundedSender<PlatformEvent>,
     mac_sender: &UnboundedSender<MacSignal>,
 ) {
@@ -978,50 +1030,44 @@ fn probe_selection(
                 std::iter::once(element).chain(focused),
                 sender,
                 Some(pointer),
-                // Chromium/WebKit may still be propagating the selection; only the
-                // final failed attempt is allowed to mean "deselected" — and even
-                // then clipboard fallback may still recover WeChat-like UIs.
+                // Chromium/WebKit may still be propagating the selection. The final
+                // failed attempt may clear a real deselection, while the clipboard
+                // path is separately gated to weak-AX apps.
                 false,
             );
             if found {
                 return;
             }
-            let escalate_clipboard = is_last_probe_attempt(attempt)
-                || (attempt == 0 && is_weak_ax_source_app(&active.info.source_app));
-            if !escalate_clipboard {
-                tracing::debug!(
-                    pid = active.info.pid,
-                    attempt,
-                    "macOS selection probe found no selection yet; retrying"
-                );
-                schedule_selection_probe(mac_sender, point, attempt + 1);
-                return;
-            }
-            // Weak-AX apps (WeChat, some Electron shells) expose no selected text.
-            // Fall back to Edit → Copy / Cmd+C and read the pasteboard.
-            if try_clipboard_selection_fallback(active, pointer, sender) {
+            let try_clipboard = probe_source_allows_clipboard(source_pid, active.info.pid)
+                && should_try_macos_clipboard_fallback(attempt, &active.info.source_app);
+            if try_clipboard && try_clipboard_selection_fallback(active, pointer, sender) {
                 return;
             }
             if is_last_probe_attempt(attempt) {
                 tracing::debug!(
                     pid = active.info.pid,
-                    "macOS selection probe exhausted AX and clipboard fallbacks"
+                    clipboard_attempted = try_clipboard,
+                    "macOS selection probe exhausted the allowed fallbacks"
                 );
                 let _ = sender.send(PlatformEvent::Clear);
             } else {
-                schedule_selection_probe(mac_sender, point, attempt + 1);
+                tracing::debug!(
+                    pid = active.info.pid,
+                    attempt,
+                    "macOS selection probe found no selection yet; retrying"
+                );
+                schedule_selection_probe(mac_sender, point, attempt + 1, Some(active.info.pid));
             }
         }
         Ok(None) => {
-            // Empty hit-tests include toolbar clicks and UI chrome. Still try the
-            // clipboard path on the last attempt (or early for WeChat) when we
-            // already know which app owns the selection.
+            // Empty hit-tests include toolbar clicks and UI chrome. The clipboard
+            // path remains restricted to a known weak-AX source on its first attempt.
             tracing::debug!(
                 pid = active.as_ref().map(|value| value.info.pid),
                 attempt,
                 "macOS selection probe hit-test returned no element"
             );
-            finish_probe_without_hit(active, point, attempt, sender, mac_sender);
+            finish_probe_without_hit(active, point, attempt, source_pid, sender, mac_sender);
         }
         Err(error) => {
             tracing::debug!(
@@ -1030,7 +1076,7 @@ fn probe_selection(
                 %error,
                 "Could not hit-test the macOS selection endpoint"
             );
-            finish_probe_without_hit(active, point, attempt, sender, mac_sender);
+            finish_probe_without_hit(active, point, attempt, source_pid, sender, mac_sender);
         }
     }
 }
@@ -1039,6 +1085,7 @@ fn finish_probe_without_hit(
     active: &Option<ActiveApplication>,
     point: LogicalPoint,
     attempt: usize,
+    source_pid: Option<i32>,
     sender: &UnboundedSender<PlatformEvent>,
     mac_sender: &UnboundedSender<MacSignal>,
 ) {
@@ -1047,8 +1094,8 @@ fn finish_probe_without_hit(
         y: point.y,
     };
     if let Some(active) = active.as_ref() {
-        let escalate_clipboard = is_last_probe_attempt(attempt)
-            || (attempt == 0 && is_weak_ax_source_app(&active.info.source_app));
+        let escalate_clipboard = probe_source_allows_clipboard(source_pid, active.info.pid)
+            && should_try_macos_clipboard_fallback(attempt, &active.info.source_app);
         if escalate_clipboard && try_clipboard_selection_fallback(active, pointer, sender) {
             return;
         }
@@ -1058,7 +1105,12 @@ fn finish_probe_without_hit(
         // a real deselect. AX notifications still clear real deselections.
         return;
     }
-    schedule_selection_probe(mac_sender, point, attempt + 1);
+    schedule_selection_probe(
+        mac_sender,
+        point,
+        attempt + 1,
+        active.as_ref().map(|active| active.info.pid),
+    );
 }
 
 fn is_weak_ax_source_app(source_app: &str) -> bool {
@@ -1335,6 +1387,13 @@ fn try_clipboard_selection_fallback(
     pointer: ScreenPoint,
     sender: &UnboundedSender<PlatformEvent>,
 ) -> bool {
+    if !is_copy_target_active(active.info.pid) {
+        tracing::debug!(
+            pid = active.info.pid,
+            "Skipping macOS clipboard fallback because the target is no longer frontmost"
+        );
+        return false;
+    }
     let Some(snapshot) = snapshot_pasteboard() else {
         tracing::debug!(
             pid = active.info.pid,
@@ -1375,7 +1434,7 @@ fn try_clipboard_selection_fallback(
             change_count: snapshot.change_count,
             text: snapshot.text.clone(),
         });
-        if !post_command_copy() {
+        if !post_command_copy(active.info.pid) {
             restore_pasteboard(&snapshot);
             tracing::debug!(
                 pid = active.info.pid,
@@ -1471,7 +1530,8 @@ fn wait_for_pasteboard_text(snapshot: &PasteboardSnapshot) -> Option<String> {
 
 /// Full ⌘C sequence (Command down → C down/up with Command flag → Command up).
 /// Flag-only C events are ignored by some custom-rendered apps including WeChat.
-fn post_command_copy() -> bool {
+/// Revalidate focus immediately before posting, then target every event to the original process.
+fn post_command_copy(target_pid: i32) -> bool {
     let Ok(source) = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
         .or_else(|_| CGEventSource::new(CGEventSourceStateID::HIDSystemState))
     else {
@@ -1493,10 +1553,13 @@ fn post_command_copy() -> bool {
     c_down.set_flags(CGEventFlags::CGEventFlagCommand);
     c_up.set_flags(CGEventFlags::CGEventFlagCommand);
     cmd_up.set_flags(CGEventFlags::CGEventFlagNull);
-    cmd_down.post(CGEventTapLocation::HID);
-    c_down.post(CGEventTapLocation::HID);
-    c_up.post(CGEventTapLocation::HID);
-    cmd_up.post(CGEventTapLocation::HID);
+    if !is_copy_target_active(target_pid) {
+        return false;
+    }
+    cmd_down.post_to_pid(target_pid);
+    c_down.post_to_pid(target_pid);
+    c_up.post_to_pid(target_pid);
+    cmd_up.post_to_pid(target_pid);
     true
 }
 
@@ -1752,10 +1815,12 @@ mod macos_tests {
 
     use super::{
         event_tap_disable_reason, first_character_range, first_value_in_ancestor_chain,
-        first_value_in_candidate_chains, is_bundled_app_executable, is_weak_ax_source_app,
-        marker_range_signature, permission_action, screen_point_from_cg, selection_probe_action,
-        usable_selection_rect, workspace_signal, MacSignal, MonitorLifecycle, PermissionAction,
-        SelectionProbeAction, WorkspaceApplication, WorkspaceEventKind,
+        first_value_in_candidate_chains, is_bundled_app_executable, is_macos_copy_target_active,
+        is_weak_ax_source_app, marker_range_signature, permission_action,
+        probe_source_allows_clipboard, probe_source_matches_active_app, screen_point_from_cg,
+        selection_probe_action, should_try_macos_clipboard_fallback, usable_selection_rect,
+        workspace_signal, MacSignal, MonitorLifecycle, PermissionAction, SelectionProbeAction,
+        WorkspaceApplication, WorkspaceEventKind,
     };
     use axuielement::{AXPoint, AXRange, AXRect, AXSize, AXTextMarkerRange};
     use core_graphics::event::CGEventType;
@@ -1823,6 +1888,56 @@ mod macos_tests {
         assert!(is_weak_ax_source_app("WeChat"));
         assert!(!is_weak_ax_source_app("com.apple.TextEdit"));
         assert!(!is_weak_ax_source_app("com.google.Chrome"));
+    }
+
+    #[test]
+    fn regular_apps_never_request_clipboard_fallback() {
+        for attempt in 0..super::SELECTION_PROBE_DELAYS_MS.len() {
+            assert!(!should_try_macos_clipboard_fallback(
+                attempt,
+                "com.apple.finder"
+            ));
+            assert!(!should_try_macos_clipboard_fallback(
+                attempt,
+                "com.google.Chrome"
+            ));
+        }
+    }
+
+    #[test]
+    fn weak_ax_clipboard_fallback_is_attempted_once() {
+        assert!(should_try_macos_clipboard_fallback(
+            0,
+            "com.tencent.xinWeChat"
+        ));
+        for attempt in 1..super::SELECTION_PROBE_DELAYS_MS.len() {
+            assert!(!should_try_macos_clipboard_fallback(
+                attempt,
+                "com.tencent.xinWeChat"
+            ));
+        }
+    }
+
+    #[test]
+    fn copy_target_validation_rejects_a_frontmost_application_change() {
+        assert!(is_macos_copy_target_active(42, Some(42)));
+        assert!(!is_macos_copy_target_active(42, Some(84)));
+        assert!(!is_macos_copy_target_active(42, None));
+    }
+
+    #[test]
+    fn stale_probe_does_not_match_a_new_active_application() {
+        assert!(probe_source_matches_active_app(Some(42), Some(42)));
+        assert!(!probe_source_matches_active_app(Some(42), Some(84)));
+        assert!(!probe_source_matches_active_app(Some(42), None));
+        assert!(probe_source_matches_active_app(None, Some(84)));
+    }
+
+    #[test]
+    fn clipboard_fallback_requires_a_known_matching_probe_source() {
+        assert!(probe_source_allows_clipboard(Some(42), 42));
+        assert!(!probe_source_allows_clipboard(Some(42), 84));
+        assert!(!probe_source_allows_clipboard(None, 84));
     }
 
     #[test]
@@ -1975,7 +2090,7 @@ mod macos_tests {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let point = super::LogicalPoint { x: 320.0, y: 180.0 };
 
-        super::schedule_selection_probe(&sender, point, 0);
+        super::schedule_selection_probe(&sender, point, 0, None);
 
         let signal = tokio::time::timeout(
             Duration::from_millis(super::SELECTION_PROBE_DELAYS_MS[0] + 100),
@@ -1988,10 +2103,12 @@ mod macos_tests {
             super::MacSignal::SelectionProbeReady {
                 point: actual,
                 attempt,
+                source_pid,
             } => {
                 assert_eq!(actual.x, point.x);
                 assert_eq!(actual.y, point.y);
                 assert_eq!(attempt, 0);
+                assert_eq!(source_pid, None);
             }
             other => panic!("unexpected macOS signal: {other:?}"),
         }
@@ -2006,7 +2123,12 @@ mod macos_tests {
         assert!(super::is_last_probe_attempt(last_attempt));
         assert!(!super::is_last_probe_attempt(0));
 
-        super::schedule_selection_probe(&sender, point, super::SELECTION_PROBE_DELAYS_MS.len());
+        super::schedule_selection_probe(
+            &sender,
+            point,
+            super::SELECTION_PROBE_DELAYS_MS.len(),
+            None,
+        );
         drop(sender);
         assert!(receiver.recv().await.is_none());
     }
