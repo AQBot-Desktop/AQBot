@@ -286,6 +286,22 @@ impl RuntimeStore {
             .map(|selection| &selection.observation)
     }
 
+    pub fn reanchor_selection(
+        &mut self,
+        selection_id: &str,
+        observation: SelectionObservation,
+    ) -> bool {
+        let Some(selection) = self
+            .selection
+            .as_mut()
+            .filter(|selection| selection.view.selection_id == selection_id)
+        else {
+            return false;
+        };
+        selection.observation = observation;
+        true
+    }
+
     pub fn refresh_session(
         &mut self,
         tools: Vec<ToolbarToolView>,
@@ -543,6 +559,48 @@ mod tests {
         assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
         assert_ne!(first, second);
         assert!(store.snapshot().run.is_none());
+    }
+
+    #[test]
+    fn reanchoring_a_live_selection_preserves_the_session_and_streaming_run() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("text"),
+            vec![ToolbarToolView::ai(
+                "summarize",
+                Some("summarize"),
+                None,
+                "list-collapse",
+            )],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+        );
+        let (request_id, cancel) = store.begin_run(&selection_id, "summarize").unwrap();
+        assert!(store.append_delta(&request_id, "partial"));
+        let before = store.snapshot();
+
+        let mut reanchored = selected("text");
+        reanchored.range_signature = "pointer".into();
+        reanchored.anchor = ScreenRect {
+            x: 640.0,
+            y: 480.0,
+            width: 1.0,
+            height: 1.0,
+        };
+        reanchored.anchor_kind = SelectionAnchorKind::Pointer;
+
+        assert!(store.reanchor_selection(&selection_id, reanchored.clone()));
+
+        let after = store.snapshot();
+        assert_eq!(after.session, before.session);
+        assert_eq!(after.run, before.run);
+        assert_eq!(
+            store.selection_observation(&selection_id),
+            Some(&reanchored)
+        );
+        assert!(!cancel.load(Ordering::Relaxed));
     }
 
     #[test]

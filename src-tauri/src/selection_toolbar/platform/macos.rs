@@ -1147,7 +1147,7 @@ fn emit_selection_from_candidates_with_pointer(
     pointer: Option<ScreenPoint>,
     clear_on_empty: bool,
 ) -> bool {
-    let payload = first_value_in_candidate_chains(
+    let payload = best_value_in_candidate_chains(
         candidates,
         MAX_SELECTION_ANCESTORS,
         read_selection_payload,
@@ -1157,32 +1157,27 @@ fn emit_selection_from_candidates_with_pointer(
                 .ok()
                 .flatten()
         },
+        |payload| selection_payload_rank(payload.source),
     );
-    match payload {
-        Some(mut payload) => {
-            let pointer_anchored = pointer.is_some();
-            if let Some(pointer) = pointer {
-                // Keep a small rect at the release point so place_surface still centers
-                // and flips above/below correctly.
-                payload.anchor = ScreenRect {
-                    x: pointer.x,
-                    y: pointer.y,
-                    width: 1.0,
-                    height: 1.0,
-                };
-                payload.anchor_kind = SelectionAnchorKind::Pointer;
-            }
+    match selection_payload_outcome(payload, pointer) {
+        SelectionPayloadOutcome::Ready(payload) => {
             tracing::debug!(
                 pid = active.info.pid,
                 text_len = payload.text.chars().count(),
-                pointer_anchored,
+                candidate_source = ?payload.source,
+                anchor_kind = ?payload.anchor_kind,
+                anchor_x = payload.anchor.x,
+                anchor_y = payload.anchor.y,
+                anchor_width = payload.anchor.width,
+                anchor_height = payload.anchor.height,
                 "macOS accessibility selection read succeeded"
             );
             let observation = selection_observation(active, payload);
             let _ = sender.send(PlatformEvent::Selection(observation));
             true
         }
-        None => {
+        SelectionPayloadOutcome::Unpositionable => true,
+        SelectionPayloadOutcome::Empty => {
             tracing::debug!(
                 pid = active.info.pid,
                 "macOS accessibility element did not expose a selection"
@@ -1198,38 +1193,91 @@ fn emit_selection_from_candidates_with_pointer(
     }
 }
 
-fn first_value_in_ancestor_chain<T, U>(
-    mut current: T,
-    max_depth: usize,
-    mut read: impl FnMut(&T) -> Option<U>,
-    mut parent: impl FnMut(&T) -> Option<T>,
-) -> Option<U> {
-    for _ in 0..max_depth {
-        if let Some(value) = read(&current) {
-            return Some(value);
-        }
-        current = parent(&current)?;
-    }
-    None
+enum SelectionPayloadOutcome {
+    Ready(SelectionPayload),
+    Unpositionable,
+    Empty,
 }
 
-fn first_value_in_candidate_chains<T, U>(
+fn selection_payload_outcome(
+    payload: Option<SelectionPayload>,
+    pointer: Option<ScreenPoint>,
+) -> SelectionPayloadOutcome {
+    match payload {
+        Some(payload) => finalize_selection_payload(payload, pointer)
+            .map(SelectionPayloadOutcome::Ready)
+            .unwrap_or(SelectionPayloadOutcome::Unpositionable),
+        None => SelectionPayloadOutcome::Empty,
+    }
+}
+
+fn finalize_selection_payload(
+    mut payload: SelectionPayload,
+    pointer: Option<ScreenPoint>,
+) -> Option<SelectionPayload> {
+    if let Some(pointer) = pointer {
+        // Keep a small rect at the release point so place_surface still centers
+        // and flips above/below correctly.
+        payload.anchor = ScreenRect {
+            x: pointer.x,
+            y: pointer.y,
+            width: 1.0,
+            height: 1.0,
+        };
+        payload.anchor_kind = SelectionAnchorKind::Pointer;
+        return Some(payload);
+    }
+    if payload.source == SelectionPayloadSource::MissingBounds {
+        tracing::debug!(
+            text_len = payload.text.chars().count(),
+            candidate_source = ?payload.source,
+            "Ignoring macOS selection text without usable bounds or a pointer"
+        );
+        return None;
+    }
+    Some(payload)
+}
+
+fn best_value_in_candidate_chains<T, U>(
     candidates: impl IntoIterator<Item = T>,
     max_depth: usize,
     mut read: impl FnMut(&T) -> Option<U>,
     mut parent: impl FnMut(&T) -> Option<T>,
+    rank: impl Fn(&U) -> u8,
 ) -> Option<U> {
+    let mut best: Option<(u8, U)> = None;
     for candidate in candidates {
-        if let Some(value) = first_value_in_ancestor_chain(
-            candidate,
-            max_depth,
-            |current| read(current),
-            |current| parent(current),
-        ) {
-            return Some(value);
+        let mut current = Some(candidate);
+        for _ in 0..max_depth {
+            let Some(node) = current else {
+                break;
+            };
+            if let Some(value) = read(&node) {
+                let value_rank = rank(&value);
+                // The caller reserves the maximum rank for a terminal exact match.
+                if value_rank == u8::MAX {
+                    return Some(value);
+                }
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_rank, _)| value_rank > *best_rank)
+                {
+                    best = Some((value_rank, value));
+                }
+            }
+            current = parent(&node);
         }
     }
-    None
+    best.map(|(_, value)| value)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionPayloadSource {
+    RangeBounds,
+    TextMarkerBounds,
+    ElementFrameFallback,
+    MissingBounds,
+    Clipboard,
 }
 
 struct SelectionPayload {
@@ -1237,10 +1285,44 @@ struct SelectionPayload {
     range_signature: String,
     anchor: ScreenRect,
     anchor_kind: SelectionAnchorKind,
+    source: SelectionPayloadSource,
+}
+
+fn selection_payload_rank(source: SelectionPayloadSource) -> u8 {
+    match source {
+        SelectionPayloadSource::RangeBounds => u8::MAX,
+        SelectionPayloadSource::TextMarkerBounds => 2,
+        SelectionPayloadSource::ElementFrameFallback => 1,
+        SelectionPayloadSource::MissingBounds | SelectionPayloadSource::Clipboard => 0,
+    }
 }
 
 fn read_selection_payload(element: &AXUIElement) -> Option<SelectionPayload> {
-    read_range_selection(element).or_else(|| read_marker_selection(element))
+    resolve_selection_payload(read_range_selection(element), || {
+        read_marker_selection(element)
+    })
+}
+
+fn resolve_selection_payload(
+    range: Option<SelectionPayload>,
+    read_marker: impl FnOnce() -> Option<SelectionPayload>,
+) -> Option<SelectionPayload> {
+    if range
+        .as_ref()
+        .is_some_and(|payload| payload.source == SelectionPayloadSource::RangeBounds)
+    {
+        return range;
+    }
+    let marker = read_marker();
+    match (range, marker) {
+        (Some(range), Some(marker))
+            if selection_payload_rank(marker.source) > selection_payload_rank(range.source) =>
+        {
+            Some(marker)
+        }
+        (Some(range), _) => Some(range),
+        (None, marker) => marker,
+    }
 }
 
 fn read_range_selection(element: &AXUIElement) -> Option<SelectionPayload> {
@@ -1281,6 +1363,7 @@ fn read_range_selection(element: &AXUIElement) -> Option<SelectionPayload> {
                 height: rect.size.height,
             },
             anchor_kind: SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::RangeBounds,
         },
         _ => text_only_selection_payload(element, text),
     })
@@ -1289,16 +1372,24 @@ fn read_range_selection(element: &AXUIElement) -> Option<SelectionPayload> {
 fn text_only_selection_payload(element: &AXUIElement, text: String) -> SelectionPayload {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
+    let (anchor, source) = match element_frame_anchor(element) {
+        Some(anchor) => (anchor, SelectionPayloadSource::ElementFrameFallback),
+        None => (
+            ScreenRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            SelectionPayloadSource::MissingBounds,
+        ),
+    };
     SelectionPayload {
         text,
         range_signature: format!("text:{:016x}", hasher.finish()),
-        anchor: element_frame_anchor(element).unwrap_or(ScreenRect {
-            x: 0.0,
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        }),
+        anchor,
         anchor_kind: SelectionAnchorKind::SelectionRect,
+        source,
     }
 }
 
@@ -1372,6 +1463,7 @@ fn read_marker_selection(element: &AXUIElement) -> Option<SelectionPayload> {
                 height: rect.size.height,
             },
             anchor_kind: SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::TextMarkerBounds,
         },
         None => text_only_selection_payload(element, text),
     })
@@ -1460,6 +1552,12 @@ fn try_clipboard_selection_fallback(
     tracing::debug!(
         pid = active.info.pid,
         text_len = text.chars().count(),
+        candidate_source = ?SelectionPayloadSource::Clipboard,
+        anchor_kind = ?SelectionAnchorKind::Pointer,
+        anchor_x = pointer.x,
+        anchor_y = pointer.y,
+        anchor_width = 1.0,
+        anchor_height = 1.0,
         "macOS clipboard selection fallback succeeded"
     );
     let mut hasher = DefaultHasher::new();
@@ -1476,6 +1574,7 @@ fn try_clipboard_selection_fallback(
                 height: 1.0,
             },
             anchor_kind: SelectionAnchorKind::Pointer,
+            source: SelectionPayloadSource::Clipboard,
         },
     );
     let _ = sender.send(PlatformEvent::Selection(observation));
@@ -1814,12 +1913,13 @@ mod macos_tests {
     use std::time::Duration;
 
     use super::{
-        event_tap_disable_reason, first_character_range, first_value_in_ancestor_chain,
-        first_value_in_candidate_chains, is_bundled_app_executable, is_macos_copy_target_active,
+        best_value_in_candidate_chains, event_tap_disable_reason, finalize_selection_payload,
+        first_character_range, is_bundled_app_executable, is_macos_copy_target_active,
         is_weak_ax_source_app, marker_range_signature, permission_action,
         probe_source_allows_clipboard, probe_source_matches_active_app, screen_point_from_cg,
-        selection_probe_action, should_try_macos_clipboard_fallback, usable_selection_rect,
-        workspace_signal, MacSignal, MonitorLifecycle, PermissionAction, SelectionProbeAction,
+        selection_payload_outcome, selection_probe_action, should_try_macos_clipboard_fallback,
+        usable_selection_rect, workspace_signal, MacSignal, MonitorLifecycle, PermissionAction,
+        SelectionPayload, SelectionPayloadOutcome, SelectionPayloadSource, SelectionProbeAction,
         WorkspaceApplication, WorkspaceEventKind,
     };
     use axuielement::{AXPoint, AXRange, AXRect, AXSize, AXTextMarkerRange};
@@ -1986,11 +2086,12 @@ mod macos_tests {
 
     #[test]
     fn selection_candidate_walks_to_the_first_readable_parent() {
-        let selected = first_value_in_ancestor_chain(
-            0,
+        let selected = best_value_in_candidate_chains(
+            [0],
             16,
             |node| (*node == 3).then_some("selection"),
             |node| Some(node + 1),
+            |_| 1,
         );
 
         assert_eq!(selected, Some("selection"));
@@ -1998,11 +2099,12 @@ mod macos_tests {
 
     #[test]
     fn selection_candidate_walk_is_bounded() {
-        let selected = first_value_in_ancestor_chain(
-            0,
+        let selected = best_value_in_candidate_chains(
+            [0],
             3,
             |node| (*node == 3).then_some("selection"),
             |node| Some(node + 1),
+            |_| 1,
         );
 
         assert_eq!(selected, None);
@@ -2010,14 +2112,49 @@ mod macos_tests {
 
     #[test]
     fn selection_candidate_walk_uses_focused_element_after_xpc_event_element() {
-        let selected = first_value_in_candidate_chains(
+        let selected = best_value_in_candidate_chains(
             [0, 10],
             3,
             |node| (*node == 12).then_some("selection"),
             |node| Some(node + 1),
+            |_| 1,
         );
 
         assert_eq!(selected, Some("selection"));
+    }
+
+    #[test]
+    fn precise_selection_wins_across_candidate_chains() {
+        let selected = best_value_in_candidate_chains(
+            [0, 10],
+            3,
+            |node| match *node {
+                0 => Some(("child frame", 1)),
+                12 => Some(("focused range", 3)),
+                _ => None,
+            },
+            |node| Some(node + 1),
+            |value| value.1,
+        );
+
+        assert_eq!(selected, Some(("focused range", 3)));
+    }
+
+    #[test]
+    fn first_real_frame_is_kept_when_no_candidate_has_precise_bounds() {
+        let selected = best_value_in_candidate_chains(
+            [0, 10],
+            2,
+            |node| match *node {
+                0 => Some(("event frame", 1)),
+                10 => Some(("focused frame", 1)),
+                _ => None,
+            },
+            |node| Some(node + 1),
+            |value| value.1,
+        );
+
+        assert_eq!(selected, Some(("event frame", 1)));
     }
 
     #[test]
@@ -2061,6 +2198,106 @@ mod macos_tests {
             },
         })
         .is_some());
+    }
+
+    #[test]
+    fn precise_marker_bounds_win_over_range_frame_fallback() {
+        let fallback = SelectionPayload {
+            text: "selection".into(),
+            range_signature: "text:fallback".into(),
+            anchor: crate::selection_toolbar::ScreenRect {
+                x: 40.0,
+                y: 80.0,
+                width: 1_200.0,
+                height: 800.0,
+            },
+            anchor_kind: crate::selection_toolbar::SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::ElementFrameFallback,
+        };
+        let marker = SelectionPayload {
+            text: "selection".into(),
+            range_signature: "marker:precise".into(),
+            anchor: crate::selection_toolbar::ScreenRect {
+                x: 980.0,
+                y: 640.0,
+                width: 6.0,
+                height: 18.0,
+            },
+            anchor_kind: crate::selection_toolbar::SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::TextMarkerBounds,
+        };
+
+        let chosen = super::resolve_selection_payload(Some(fallback), || Some(marker))
+            .expect("selection payload");
+
+        assert_eq!(chosen.range_signature, "marker:precise");
+        assert_eq!(chosen.anchor.x, 980.0);
+        assert_eq!(chosen.source, SelectionPayloadSource::TextMarkerBounds);
+    }
+
+    #[test]
+    fn precise_range_bounds_win_over_precise_marker_bounds() {
+        let range = SelectionPayload {
+            text: "selection".into(),
+            range_signature: "range:4:9".into(),
+            anchor: crate::selection_toolbar::ScreenRect {
+                x: 400.0,
+                y: 300.0,
+                width: 8.0,
+                height: 18.0,
+            },
+            anchor_kind: crate::selection_toolbar::SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::RangeBounds,
+        };
+        let marker = SelectionPayload {
+            text: "selection".into(),
+            range_signature: "marker:precise".into(),
+            anchor: crate::selection_toolbar::ScreenRect {
+                x: 980.0,
+                y: 640.0,
+                width: 6.0,
+                height: 18.0,
+            },
+            anchor_kind: crate::selection_toolbar::SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::TextMarkerBounds,
+        };
+
+        let chosen = super::resolve_selection_payload(Some(range), || Some(marker))
+            .expect("selection payload");
+
+        assert_eq!(chosen.range_signature, "range:4:9");
+        assert_eq!(chosen.source, SelectionPayloadSource::RangeBounds);
+    }
+
+    #[test]
+    fn text_without_bounds_requires_a_pointer_anchor() {
+        let missing_bounds = || SelectionPayload {
+            text: "selection".into(),
+            range_signature: "text:no-bounds".into(),
+            anchor: crate::selection_toolbar::ScreenRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            anchor_kind: crate::selection_toolbar::SelectionAnchorKind::SelectionRect,
+            source: SelectionPayloadSource::MissingBounds,
+        };
+
+        assert!(finalize_selection_payload(missing_bounds(), None).is_none());
+        assert!(matches!(
+            selection_payload_outcome(Some(missing_bounds()), None),
+            SelectionPayloadOutcome::Unpositionable
+        ));
+        let pointer = crate::selection_toolbar::ScreenPoint { x: 640.0, y: 480.0 };
+        let chosen = finalize_selection_payload(missing_bounds(), Some(pointer))
+            .expect("pointer can anchor text-only selection");
+        assert_eq!(
+            chosen.anchor_kind,
+            crate::selection_toolbar::SelectionAnchorKind::Pointer
+        );
+        assert_eq!(chosen.anchor.x, 640.0);
+        assert_eq!(chosen.anchor.y, 480.0);
     }
 
     #[test]

@@ -354,6 +354,37 @@ pub struct SelectionDebouncer {
     last_emission: Option<(String, u64)>,
 }
 
+pub(crate) fn prefer_selection_observation(
+    current: SelectionObservation,
+    incoming: SelectionObservation,
+) -> SelectionObservation {
+    let same_selection = current.source_app == incoming.source_app && current.text == incoming.text;
+    let keep_pointer = same_selection
+        && current.anchor_kind == SelectionAnchorKind::Pointer
+        && incoming.anchor_kind == SelectionAnchorKind::SelectionRect;
+    tracing::debug!(
+        source_app = %incoming.source_app,
+        text_len = incoming.text.chars().count(),
+        current_anchor_kind = ?current.anchor_kind,
+        current_anchor_x = current.anchor.x,
+        current_anchor_y = current.anchor.y,
+        current_anchor_width = current.anchor.width,
+        current_anchor_height = current.anchor.height,
+        incoming_anchor_kind = ?incoming.anchor_kind,
+        incoming_anchor_x = incoming.anchor.x,
+        incoming_anchor_y = incoming.anchor.y,
+        incoming_anchor_width = incoming.anchor.width,
+        incoming_anchor_height = incoming.anchor.height,
+        arbitration = if keep_pointer { "keep_pointer" } else { "use_latest" },
+        "debounced selection observation arbitration"
+    );
+    if keep_pointer {
+        current
+    } else {
+        incoming
+    }
+}
+
 impl SelectionDebouncer {
     pub fn new(delay_ms: u64) -> Self {
         Self {
@@ -364,6 +395,12 @@ impl SelectionDebouncer {
     }
 
     pub fn push(&mut self, observation: SelectionObservation, now_ms: u64) {
+        let observation = match self.pending.as_ref() {
+            Some((SelectionChange::Selected(current), _)) => {
+                prefer_selection_observation(current.clone(), observation)
+            }
+            _ => observation,
+        };
         let change = if is_actionable_selection_text(&observation.text) {
             SelectionChange::Selected(observation)
         } else {
@@ -418,6 +455,19 @@ mod tests {
             },
             anchor_kind: SelectionAnchorKind::SelectionRect,
         }
+    }
+
+    fn pointer_observation(text: &str, x: f64, y: f64) -> SelectionObservation {
+        let mut value = observation(text, x);
+        value.range_signature = "pointer".into();
+        value.anchor = ScreenRect {
+            x,
+            y,
+            width: 1.0,
+            height: 1.0,
+        };
+        value.anchor_kind = SelectionAnchorKind::Pointer;
+        value
     }
 
     #[test]
@@ -724,6 +774,59 @@ mod tests {
             panic!("moved selection should be published");
         };
         assert_eq!(moved.anchor.x, 480.0);
+    }
+
+    #[test]
+    fn pointer_anchor_wins_regardless_of_observation_order() {
+        let rect = observation("same selection", 80.0);
+        let pointer = pointer_observation("same selection", 600.0, 500.0);
+        let monitor = ScreenRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1_920.0,
+            height: 1_080.0,
+        };
+
+        for (first, second) in [
+            (rect.clone(), pointer.clone()),
+            (pointer.clone(), rect.clone()),
+        ] {
+            let mut debouncer = SelectionDebouncer::new(200);
+            debouncer.push(first, 0);
+            debouncer.push(second, 20);
+            let Some(SelectionChange::Selected(chosen)) = debouncer.take_ready(220) else {
+                panic!("selection should be published");
+            };
+
+            assert_eq!(chosen.anchor_kind, SelectionAnchorKind::Pointer);
+            assert_eq!(
+                place_surface_scaled(
+                    chosen.anchor,
+                    chosen.anchor_kind,
+                    monitor,
+                    SurfaceSize::Toolbar,
+                    1.0,
+                ),
+                ScreenPoint { x: 440.5, y: 519.0 }
+            );
+        }
+    }
+
+    #[test]
+    fn pointer_anchor_does_not_override_a_different_selection() {
+        let pointer = pointer_observation("repeated text", 600.0, 500.0);
+        let latest = observation("different text", 80.0);
+        let mut debouncer = SelectionDebouncer::new(200);
+
+        debouncer.push(pointer, 0);
+        debouncer.push(latest, 20);
+        let Some(SelectionChange::Selected(chosen)) = debouncer.take_ready(220) else {
+            panic!("selection should be published");
+        };
+
+        assert_eq!(chosen.anchor_kind, SelectionAnchorKind::SelectionRect);
+        assert_eq!(chosen.text, "different text");
+        assert_eq!(chosen.anchor.x, 80.0);
     }
 
     #[test]

@@ -14,12 +14,21 @@ use tokio::sync::{mpsc, Mutex};
 use super::{
     compact_toolbar_width, normalize_permission_status,
     platform::{self, DismissReason, PlatformEvent, PlatformMonitorHandle},
+    prefer_selection_observation,
     runtime::SessionView,
     window, OverflowDirection, PermissionSettingsOutcome, PermissionState, RuntimeError,
     RuntimeSnapshot, RuntimeState, RuntimeStatus, RuntimeStore, ScreenPoint, SelectionChange,
     SelectionDebouncer, SelectionObservation, SelectionPlatform, SurfaceSize, ToolbarToolView,
     OVERFLOW_SURFACE_MAX_HEIGHT, RESULT_WIDTH, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
 };
+
+const SELECTION_OBSERVATION_RACE_MS: u64 = 200;
+
+#[derive(Debug, Clone)]
+struct PendingSelection {
+    observation: SelectionObservation,
+    observed_at_ms: u64,
+}
 
 pub struct SelectionToolbarRuntime {
     store: Mutex<RuntimeStore>,
@@ -28,6 +37,8 @@ pub struct SelectionToolbarRuntime {
     generation: AtomicU64,
     debounce_clock: Instant,
     debouncer: Mutex<SelectionDebouncer>,
+    /// Serializes native window moves that can change the active presentation.
+    presentation_lock: Mutex<()>,
     surface: Mutex<SurfaceSize>,
     toolbar_width: Mutex<f64>,
     overflow_height: Mutex<f64>,
@@ -38,11 +49,48 @@ pub struct SelectionToolbarRuntime {
     interaction_lock: AtomicBool,
     /// Latest non-empty selection observed by the platform monitor. Shortcut
     /// mode keeps this without opening a toolbar until the accelerator fires.
-    pending_selection: Mutex<Option<SelectionObservation>>,
+    pending_selection: Mutex<Option<PendingSelection>>,
     /// Selection-toolbar webview has registered event listeners.
     frontend_ready: AtomicBool,
     /// Session emitted before the frontend was ready.
     pending_session: Mutex<Option<SessionView>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SelectionPublishDecision {
+    PublishNew,
+    ReanchorLive { selection_id: String },
+    Ignore,
+}
+
+fn merge_shortcut_candidate(
+    current: Option<PendingSelection>,
+    incoming: SelectionObservation,
+    now_ms: u64,
+) -> PendingSelection {
+    if let Some(current) = current {
+        let within_race =
+            now_ms.saturating_sub(current.observed_at_ms) <= SELECTION_OBSERVATION_RACE_MS;
+        if within_race {
+            let preferred =
+                prefer_selection_observation(current.observation.clone(), incoming.clone());
+            if preferred == current.observation {
+                return current;
+            }
+            return PendingSelection {
+                observation: preferred,
+                observed_at_ms: now_ms,
+            };
+        }
+    }
+    PendingSelection {
+        observation: incoming,
+        observed_at_ms: now_ms,
+    }
+}
+
+fn live_reanchor_allowed(surface: SurfaceSize, interaction_locked: bool, dragged: bool) -> bool {
+    surface == SurfaceSize::Toolbar && !interaction_locked && !dragged
 }
 
 impl SelectionToolbarRuntime {
@@ -53,7 +101,8 @@ impl SelectionToolbarRuntime {
             event_sender: Mutex::new(None),
             generation: AtomicU64::new(0),
             debounce_clock: Instant::now(),
-            debouncer: Mutex::new(SelectionDebouncer::new(200)),
+            debouncer: Mutex::new(SelectionDebouncer::new(SELECTION_OBSERVATION_RACE_MS)),
+            presentation_lock: Mutex::new(()),
             surface: Mutex::new(SurfaceSize::Toolbar),
             toolbar_width: Mutex::new(TOOLBAR_WIDTH),
             overflow_height: Mutex::new(OVERFLOW_SURFACE_MAX_HEIGHT),
@@ -161,7 +210,8 @@ impl SelectionToolbarRuntime {
             .pending_selection
             .lock()
             .await
-            .clone()
+            .as_ref()
+            .map(|pending| pending.observation.clone())
             .ok_or_else(|| "No active text selection is available".to_string())?;
         if !settings
             .selection_toolbar
@@ -173,9 +223,16 @@ impl SelectionToolbarRuntime {
     }
 
     async fn remember_selection_candidate(&self, observation: &SelectionObservation) {
-        let candidate =
-            super::is_actionable_selection_text(&observation.text).then(|| observation.clone());
-        *self.pending_selection.lock().await = candidate;
+        let mut pending = self.pending_selection.lock().await;
+        if super::is_actionable_selection_text(&observation.text) {
+            *pending = Some(merge_shortcut_candidate(
+                pending.take(),
+                observation.clone(),
+                self.elapsed_ms(),
+            ));
+        } else {
+            *pending = None;
+        }
     }
 
     async fn clear_selection_candidate(&self) {
@@ -227,6 +284,7 @@ impl SelectionToolbarRuntime {
         surface: SurfaceSize,
         requested_overflow_height: Option<f64>,
     ) -> Result<Option<OverflowDirection>, String> {
+        let _presentation_guard = self.presentation_lock.lock().await;
         let toolbar_width = *self.toolbar_width.lock().await;
         let anchor = {
             let store = self.store.lock().await;
@@ -468,7 +526,10 @@ impl SelectionToolbarRuntime {
                 let runtime = Arc::clone(self);
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        SELECTION_OBSERVATION_RACE_MS,
+                    ))
+                    .await;
                     let current_generation = runtime.generation.load(Ordering::Relaxed);
                     if current_generation == generation {
                         let change = {
@@ -559,37 +620,157 @@ impl SelectionToolbarRuntime {
     /// session id, cancels any active run and resets the surface — so keep the
     /// live session for duplicates, and never replace a session the user is
     /// actively interacting with.
-    async fn should_skip_publish(&self, observation: &SelectionObservation) -> bool {
-        let (session_live, duplicate) = {
+    async fn selection_publish_decision(
+        &self,
+        observation: &SelectionObservation,
+    ) -> SelectionPublishDecision {
+        let live_selection = {
             let store = self.store.lock().await;
-            match store.snapshot().session {
-                Some(session) => (
-                    true,
-                    // range_signature is unstable across read paths (range vs
-                    // text-marker vs hit-test candidate), so the duplicate key
-                    // is app + text only.
-                    store
-                        .selection_observation(&session.selection_id)
-                        .is_some_and(|current| {
-                            current.source_app == observation.source_app
-                                && current.text == observation.text
-                        }),
-                ),
-                None => (false, false),
+            store.snapshot().session.and_then(|session| {
+                store
+                    .selection_observation(&session.selection_id)
+                    .cloned()
+                    .map(|current| (session.selection_id, current))
+            })
+        };
+        let Some((selection_id, current)) = live_selection else {
+            tracing::debug!(
+                source_app = %observation.source_app,
+                text_len = observation.text.chars().count(),
+                incoming_anchor_kind = ?observation.anchor_kind,
+                arbitration = ?SelectionPublishDecision::PublishNew,
+                "selection observation arbitration"
+            );
+            return SelectionPublishDecision::PublishNew;
+        };
+        // range_signature is unstable across range, text-marker and hit-test
+        // paths, so app + text remains the logical duplicate key.
+        let duplicate =
+            current.source_app == observation.source_app && current.text == observation.text;
+        let surface = *self.surface.lock().await;
+        let interaction_locked = self.interaction_lock.load(Ordering::Relaxed);
+        let dragged = self.dragged_for_session.load(Ordering::Relaxed);
+        let decision = if duplicate {
+            if live_reanchor_allowed(surface, interaction_locked, dragged)
+                && current.anchor_kind == super::SelectionAnchorKind::SelectionRect
+                && observation.anchor_kind == super::SelectionAnchorKind::Pointer
+            {
+                SelectionPublishDecision::ReanchorLive { selection_id }
+            } else {
+                SelectionPublishDecision::Ignore
+            }
+        } else if interaction_locked || surface == SurfaceSize::Result {
+            SelectionPublishDecision::Ignore
+        } else {
+            SelectionPublishDecision::PublishNew
+        };
+        tracing::debug!(
+            source_app = %observation.source_app,
+            text_len = observation.text.chars().count(),
+            current_anchor_kind = ?current.anchor_kind,
+            current_anchor_x = current.anchor.x,
+            current_anchor_y = current.anchor.y,
+            current_anchor_width = current.anchor.width,
+            current_anchor_height = current.anchor.height,
+            incoming_anchor_kind = ?observation.anchor_kind,
+            incoming_anchor_x = observation.anchor.x,
+            incoming_anchor_y = observation.anchor.y,
+            incoming_anchor_width = observation.anchor.width,
+            incoming_anchor_height = observation.anchor.height,
+            ?surface,
+            interaction_locked,
+            dragged,
+            arbitration = ?decision,
+            "selection observation arbitration"
+        );
+        decision
+    }
+
+    async fn refresh_dragged_state(&self, app: &AppHandle) {
+        let current = window::current_screen_position(app);
+        let previous = *self.last_window_position.lock().await;
+        if matches!((current, previous), (Some(current), Some(previous)) if position_changed(current, previous))
+        {
+            self.dragged_for_session.store(true, Ordering::Relaxed);
+            tracing::debug!(
+                current_x = current.map(|point| point.x),
+                current_y = current.map(|point| point.y),
+                previous_x = previous.map(|point| point.x),
+                previous_y = previous.map(|point| point.y),
+                "selection toolbar manual movement detected"
+            );
+        }
+    }
+
+    async fn reanchor_live_selection(
+        &self,
+        app: &AppHandle,
+        selection_id: &str,
+        observation: SelectionObservation,
+    ) -> Result<(), String> {
+        let _presentation_guard = self.presentation_lock.lock().await;
+        self.refresh_dragged_state(app).await;
+        let surface = *self.surface.lock().await;
+        let interaction_locked = self.interaction_lock.load(Ordering::Relaxed);
+        let dragged = self.dragged_for_session.load(Ordering::Relaxed);
+        if !live_reanchor_allowed(surface, interaction_locked, dragged) {
+            tracing::debug!(
+                selection_id,
+                ?surface,
+                interaction_locked,
+                dragged,
+                arbitration = ?SelectionPublishDecision::Ignore,
+                "Live selection reanchor was blocked after presentation state changed"
+            );
+            return Ok(());
+        }
+        let toolbar_width = *self.toolbar_width.lock().await;
+        let mut store = self.store.lock().await;
+        let still_live = store
+            .snapshot()
+            .session
+            .is_some_and(|session| session.selection_id == selection_id);
+        if !still_live {
+            tracing::debug!(selection_id, "Skipping stale live selection reanchor");
+            return Ok(());
+        }
+        let position = match window::show_surface(
+            app,
+            observation.anchor,
+            observation.anchor_kind,
+            SurfaceSize::Toolbar,
+            toolbar_width,
+        ) {
+            Ok(position) => position,
+            Err(error) => {
+                drop(store);
+                self.set_error("window_reanchor_failed", error.clone())
+                    .await;
+                return Err(error);
             }
         };
-        if !session_live {
-            return false;
+        if !store.reanchor_selection(selection_id, observation.clone()) {
+            tracing::error!(
+                selection_id,
+                "Live selection disappeared during atomic reanchor"
+            );
+            return Err("Live selection disappeared during reanchor".into());
         }
-        if duplicate {
-            tracing::debug!("Skipping duplicate selection publish for the live session");
-            return true;
-        }
-        if self.sticky_interaction_active().await {
-            tracing::debug!("Skipping selection publish while toolbar interaction is active");
-            return true;
-        }
-        false
+        drop(store);
+        *self.last_window_position.lock().await = Some(position);
+        *self.last_toolbar_position.lock().await = Some(position);
+        tracing::debug!(
+            selection_id,
+            source_app = %observation.source_app,
+            text_len = observation.text.chars().count(),
+            anchor_kind = ?observation.anchor_kind,
+            anchor_x = observation.anchor.x,
+            anchor_y = observation.anchor.y,
+            position_x = position.x,
+            position_y = position.y,
+            "live selection toolbar reanchored"
+        );
+        Ok(())
     }
 
     async fn publish_selection(&self, app: &AppHandle, observation: SelectionObservation) {
@@ -629,8 +810,15 @@ impl SelectionToolbarRuntime {
         observation: SelectionObservation,
         settings: &AppSettings,
     ) -> Result<(), String> {
-        if self.should_skip_publish(&observation).await {
-            return Ok(());
+        self.refresh_dragged_state(app).await;
+        match self.selection_publish_decision(&observation).await {
+            SelectionPublishDecision::PublishNew => {}
+            SelectionPublishDecision::ReanchorLive { selection_id } => {
+                return self
+                    .reanchor_live_selection(app, &selection_id, observation)
+                    .await;
+            }
+            SelectionPublishDecision::Ignore => return Ok(()),
         }
         let status = self.status().await;
         if status.state != RuntimeState::Running {
@@ -646,6 +834,8 @@ impl SelectionToolbarRuntime {
         let theme = toolbar_theme(app, &settings);
         let anchor = observation.anchor;
         let anchor_kind = observation.anchor_kind;
+        let source_app = observation.source_app.clone();
+        let text_len = observation.text.chars().count();
         let session = {
             let mut store = self.store.lock().await;
             let id = store.accept_selection(
@@ -680,6 +870,19 @@ impl SelectionToolbarRuntime {
                 return Err(error);
             }
         };
+        tracing::debug!(
+            source_app = %source_app,
+            text_len,
+            anchor_kind = ?anchor_kind,
+            anchor_x = anchor.x,
+            anchor_y = anchor.y,
+            anchor_width = anchor.width,
+            anchor_height = anchor.height,
+            position_x = position.x,
+            position_y = position.y,
+            arbitration = "publish_new",
+            "selection toolbar placement resolved"
+        );
         tracing::info!(
             position_x = position.x,
             position_y = position.y,
@@ -875,7 +1078,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn re_announced_selection_does_not_replace_the_live_session() {
+    async fn pointer_reannouncement_requests_a_live_reanchor() {
         let runtime = runtime_with_live_selection("hello").await;
 
         // Same app + text with a different anchor/signature (probe vs AX path).
@@ -884,12 +1087,87 @@ mod tests {
         duplicate.anchor.x = 500.0;
         duplicate.anchor_kind = SelectionAnchorKind::Pointer;
 
-        assert!(runtime.should_skip_publish(&duplicate).await);
-        assert!(
-            !runtime
-                .should_skip_publish(&observation("different", "com.example.editor"))
-                .await
+        assert!(matches!(
+            runtime.selection_publish_decision(&duplicate).await,
+            SelectionPublishDecision::ReanchorLive { .. }
+        ));
+        assert_eq!(
+            runtime
+                .selection_publish_decision(&observation("different", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::PublishNew
         );
+    }
+
+    #[tokio::test]
+    async fn live_pointer_anchor_is_never_downgraded_to_a_selection_rect() {
+        let runtime = runtime_with_live_selection("hello").await;
+        let mut pointer = observation("hello", "com.example.editor");
+        pointer.anchor_kind = SelectionAnchorKind::Pointer;
+        let selection_id = runtime
+            .store
+            .lock()
+            .await
+            .snapshot()
+            .session
+            .expect("live session")
+            .selection_id;
+        assert!(runtime
+            .store
+            .lock()
+            .await
+            .reanchor_selection(&selection_id, pointer));
+
+        assert_eq!(
+            runtime
+                .selection_publish_decision(&observation("hello", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::Ignore
+        );
+    }
+
+    #[tokio::test]
+    async fn live_pointer_reanchor_respects_drag_interaction_and_surface_guards() {
+        let runtime = runtime_with_live_selection("hello").await;
+        let mut pointer = observation("hello", "com.example.editor");
+        pointer.anchor_kind = SelectionAnchorKind::Pointer;
+
+        runtime.dragged_for_session.store(true, Ordering::Relaxed);
+        assert_eq!(
+            runtime.selection_publish_decision(&pointer).await,
+            SelectionPublishDecision::Ignore
+        );
+        assert_eq!(
+            runtime
+                .selection_publish_decision(&observation("different", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::PublishNew
+        );
+
+        runtime.dragged_for_session.store(false, Ordering::Relaxed);
+        runtime.lock_interaction();
+        assert_eq!(
+            runtime.selection_publish_decision(&pointer).await,
+            SelectionPublishDecision::Ignore
+        );
+        runtime.unlock_interaction();
+
+        for surface in [SurfaceSize::Overflow, SurfaceSize::Result] {
+            *runtime.surface.lock().await = surface;
+            assert_eq!(
+                runtime.selection_publish_decision(&pointer).await,
+                SelectionPublishDecision::Ignore
+            );
+        }
+    }
+
+    #[test]
+    fn live_reanchor_guard_requires_an_idle_undragged_toolbar() {
+        assert!(live_reanchor_allowed(SurfaceSize::Toolbar, false, false));
+        assert!(!live_reanchor_allowed(SurfaceSize::Toolbar, true, false));
+        assert!(!live_reanchor_allowed(SurfaceSize::Toolbar, false, true));
+        assert!(!live_reanchor_allowed(SurfaceSize::Overflow, false, false));
+        assert!(!live_reanchor_allowed(SurfaceSize::Result, false, false));
     }
 
     #[tokio::test]
@@ -897,17 +1175,19 @@ mod tests {
         let runtime = runtime_with_live_selection("hello").await;
         runtime.lock_interaction();
 
-        assert!(
+        assert_eq!(
             runtime
-                .should_skip_publish(&observation("different", "com.example.editor"))
-                .await
+                .selection_publish_decision(&observation("different", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::Ignore
         );
 
         runtime.unlock_interaction();
-        assert!(
-            !runtime
-                .should_skip_publish(&observation("different", "com.example.editor"))
-                .await
+        assert_eq!(
+            runtime
+                .selection_publish_decision(&observation("different", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::PublishNew
         );
     }
 
@@ -919,10 +1199,11 @@ mod tests {
         *runtime.surface.lock().await = SurfaceSize::Result;
 
         assert!(runtime.sticky_interaction_active().await);
-        assert!(
+        assert_eq!(
             runtime
-                .should_skip_publish(&observation("different", "com.example.editor"))
-                .await
+                .selection_publish_decision(&observation("different", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::Ignore
         );
     }
 
@@ -931,10 +1212,11 @@ mod tests {
         let runtime = Arc::new(SelectionToolbarRuntime::new());
         runtime.lock_interaction();
 
-        assert!(
-            !runtime
-                .should_skip_publish(&observation("hello", "com.example.editor"))
-                .await
+        assert_eq!(
+            runtime
+                .selection_publish_decision(&observation("hello", "com.example.editor"))
+                .await,
+            SelectionPublishDecision::PublishNew
         );
     }
 
@@ -950,11 +1232,15 @@ mod tests {
 
         let candidate = runtime.pending_selection.lock().await.clone();
         assert_eq!(
-            candidate.as_ref().map(|value| value.text.as_str()),
+            candidate
+                .as_ref()
+                .map(|value| value.observation.text.as_str()),
             Some("second")
         );
         assert_eq!(
-            candidate.as_ref().map(|value| value.source_app.as_str()),
+            candidate
+                .as_ref()
+                .map(|value| value.observation.source_app.as_str()),
             Some("app.two")
         );
 
@@ -962,6 +1248,26 @@ mod tests {
             .remember_selection_candidate(&observation("   ", "app.two"))
             .await;
         assert!(runtime.pending_selection.lock().await.is_none());
+    }
+
+    #[test]
+    fn shortcut_pointer_arbitration_is_limited_to_the_observation_race_window() {
+        let mut pointer = observation("same", "com.example.editor");
+        pointer.anchor_kind = SelectionAnchorKind::Pointer;
+        let rect = observation("same", "com.example.editor");
+
+        let pending = merge_shortcut_candidate(None, pointer, 0);
+        let within_race = merge_shortcut_candidate(Some(pending.clone()), rect.clone(), 50);
+        let after_race = merge_shortcut_candidate(Some(pending), rect, 201);
+
+        assert_eq!(
+            within_race.observation.anchor_kind,
+            SelectionAnchorKind::Pointer
+        );
+        assert_eq!(
+            after_race.observation.anchor_kind,
+            SelectionAnchorKind::SelectionRect
+        );
     }
 
     #[test]
