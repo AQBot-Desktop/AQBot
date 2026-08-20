@@ -24,7 +24,9 @@ const clearAllMessages = vi.fn();
 const clearFirstRounds = vi.fn();
 const getContextUsage = vi.fn();
 const setActivePage = vi.fn();
+const enterSettings = vi.fn();
 const setSettingsSection = vi.fn();
+const setSelectedProviderId = vi.fn();
 
 const conversationState = {
   streaming: false,
@@ -175,8 +177,17 @@ vi.mock('@/stores', () => ({
 }));
 
 vi.mock('@/stores/uiStore', () => ({
-  useUIStore: (selector: (state: { setActivePage: typeof setActivePage; setSettingsSection: typeof setSettingsSection }) => unknown) =>
-    selector({ setActivePage, setSettingsSection }),
+  useUIStore: (selector: (state: {
+    setActivePage: typeof setActivePage;
+    enterSettings: typeof enterSettings;
+    setSettingsSection: typeof setSettingsSection;
+    setSelectedProviderId: typeof setSelectedProviderId;
+  }) => unknown) => selector({
+    setActivePage,
+    enterSettings,
+    setSettingsSection,
+    setSelectedProviderId,
+  }),
 }));
 
 vi.mock('@/lib/modelCapabilities', () => ({
@@ -225,6 +236,8 @@ vi.mock('../ModelSelector', () => ({
 describe('InputArea', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    providerState.providers.splice(1);
+    providerState.providers[0].enabled = true;
     providerState.providers[0].provider_type = 'gemini';
     providerState.providers[0].models[0].model_id = 'model-1';
     providerState.providers[0].models[0].name = 'model-1';
@@ -239,6 +252,8 @@ describe('InputArea', () => {
     conversationState.loading = false;
     conversationState.streaming = false;
     getContextUsage.mockResolvedValue(null);
+    settingsState.settings.default_provider_id = null;
+    settingsState.settings.default_model_id = null;
     settingsState.settings.document_attachment_reading_enabled = false;
     settingsState.settings.chat_input_actions_scale = 100;
   });
@@ -695,6 +710,186 @@ describe('InputArea', () => {
     const label = screen.getByText('chat.dropToAttach');
     const overlay = label.parentElement?.parentElement;
     expect(overlay).toHaveStyle({ pointerEvents: 'none' });
+  });
+
+  it('shows image attachment controls when image input and document reading are not configured', () => {
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    expect(screen.getByLabelText('chat.attachFile')).toBeInTheDocument();
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input?.accept).toContain('image/*');
+  });
+
+  it('prompts to configure image input after selecting an image and opens the current provider', async () => {
+    const user = userEvent.setup();
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [new File(['image'], 'photo.png', { type: 'image/png' })],
+      },
+    });
+
+    expect(await screen.findAllByText('chat.imageInputNotConfiguredTitle')).not.toHaveLength(0);
+    expect(screen.getAllByText('chat.imageInputNotConfiguredContent')).not.toHaveLength(0);
+
+    fireEvent.change(input, {
+      target: {
+        files: [new File(['second image'], 'second-photo.png', { type: 'image/png' })],
+      },
+    });
+    expect(screen.getAllByRole('button', {
+      name: 'chat.imageInputOpenProviderSettings',
+    })).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'chat.imageInputOpenProviderSettings' }));
+
+    expect(enterSettings).toHaveBeenCalledOnce();
+    expect(setSettingsSection).toHaveBeenCalledWith('providers');
+    expect(setSelectedProviderId).toHaveBeenCalledWith('provider-1');
+  });
+
+  it('prompts to configure image input after pasting an image', async () => {
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const image = new File(['image'], 'clipboard.png', { type: 'image/png' });
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    const pasteEvent = createEvent.paste(textarea, {
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => image }],
+        getData: (type: string) => (type === 'text/plain' ? 'copied image URL' : ''),
+      },
+    });
+    const preventDefault = vi.spyOn(pasteEvent, 'preventDefault');
+    fireEvent(textarea, pasteEvent);
+
+    expect(await screen.findAllByText('chat.imageInputNotConfiguredTitle')).not.toHaveLength(0);
+    expect(screen.getAllByText('chat.imageInputNotConfiguredContent')).not.toHaveLength(0);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(textarea).toHaveValue('');
+  });
+
+  it('prompts to configure image input after dropping an image', async () => {
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const composer = document.querySelector('.px-4.pb-3.pt-1');
+    expect(composer).toBeTruthy();
+    const image = new File(['image'], 'dropped.png', { type: 'image/png' });
+    const dataTransfer = {
+      types: ['Files'],
+      files: [image],
+      items: [],
+      dropEffect: 'none',
+    };
+
+    fireEvent.dragEnter(composer as HTMLElement, { dataTransfer });
+    fireEvent.drop(composer as HTMLElement, { dataTransfer });
+
+    expect(await screen.findAllByText('chat.imageInputNotConfiguredTitle')).not.toHaveLength(0);
+    expect(screen.getAllByText('chat.imageInputNotConfiguredContent')).not.toHaveLength(0);
+  });
+
+  it('reports unsupported non-image files alongside the image input prompt', async () => {
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(['image'], 'photo.png', { type: 'image/png' }),
+          new File(['archive'], 'bundle.zip', { type: 'application/zip' }),
+        ],
+      },
+    });
+
+    expect(await screen.findAllByText('chat.imageInputNotConfiguredTitle')).not.toHaveLength(0);
+    expect(await screen.findByText('chat.attachmentTypeUnsupported')).toBeInTheDocument();
+  });
+
+  it('accepts configured image input without showing the configuration prompt', async () => {
+    providerState.providers[0].models[0].capabilities = ['Vision'];
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:vision-image');
+    try {
+      render(
+        <App>
+          <InputArea />
+        </App>,
+      );
+
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(input, {
+        target: {
+          files: [new File(['image'], 'vision.png', { type: 'image/png' })],
+        },
+      });
+
+      expect(await screen.findByText('vision.png')).toBeInTheDocument();
+      expect(screen.queryByText('chat.imageInputNotConfiguredTitle')).not.toBeInTheDocument();
+    } finally {
+      createObjectURL.mockRestore();
+    }
+  });
+
+  it('uses an enabled fallback provider when the configured default provider is disabled', async () => {
+    const user = userEvent.setup();
+    conversationState.activeConversationId = null;
+    settingsState.settings.default_provider_id = 'provider-1';
+    settingsState.settings.default_model_id = 'model-1';
+    providerState.providers[0].enabled = false;
+    providerState.providers.push({
+      id: 'provider-2',
+      provider_type: 'openai',
+      enabled: true,
+      models: [{
+        provider_id: 'provider-2',
+        model_id: 'model-2',
+        name: 'model-2',
+        model_type: 'Chat',
+        enabled: true,
+        capabilities: [],
+        context_window: 128000,
+        param_overrides: null,
+      }],
+    });
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [new File(['image'], 'photo.png', { type: 'image/png' })],
+      },
+    });
+    await user.click(await screen.findByRole('button', {
+      name: 'chat.imageInputOpenProviderSettings',
+    }));
+
+    expect(setSelectedProviderId).toHaveBeenCalledWith('provider-2');
   });
 
   it('shows document attachment controls for non-vision models when document reading is enabled', () => {

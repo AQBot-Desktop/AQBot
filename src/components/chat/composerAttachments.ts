@@ -249,11 +249,11 @@ export function useComposerAttachments({
       .map((item) => item.getAsFile())
       .filter((file): file is File => file !== null);
     if (files.length === 0) return false;
+    event.preventDefault();
     if (!files.some(acceptFile)) {
       onRejected?.(files);
-      return false;
+      return true;
     }
-    event.preventDefault();
     addFiles(files);
     return true;
   }, [acceptFile, addFiles, onRejected]);

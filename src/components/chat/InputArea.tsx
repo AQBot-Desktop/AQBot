@@ -50,6 +50,7 @@ import {
   isAllowedChatAttachmentFile,
   useComposerAttachments,
 } from './composerAttachments';
+import { isImageAttachmentFile } from './attachmentFileTypes';
 import {
   createPastedSnippet,
   insertPasteTokenAtSelection,
@@ -76,6 +77,7 @@ export function InputArea() {
   const [mcpPopoverOpen, setMcpPopoverOpen] = useState(false);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputConfigurationPromptOpenRef = useRef(false);
   const valueRef = useRef(value);
   valueRef.current = value;
   const prevConvIdRef = useRef<string | null>(
@@ -263,7 +265,9 @@ export function InputArea() {
   }, [activeConversationId, messageApi, t, updateConversation]);
 
   const setActivePage = useUIStore((s) => s.setActivePage);
+  const enterSettings = useUIStore((s) => s.enterSettings);
   const setSettingsSection = useUIStore((s) => s.setSettingsSection);
+  const setSelectedProviderId = useUIStore((s) => s.setSelectedProviderId);
 
   // Empty arrays are valid loaded resources; Activity resumes must not refetch.
   useEffect(() => {
@@ -684,7 +688,12 @@ export function InputArea() {
     }
 
     if (settings.default_provider_id && settings.default_model_id) {
-      const defaultModel = findModelByIds(providers, settings.default_provider_id, settings.default_model_id);
+      const defaultProvider = providers.find((provider) => (
+        provider.id === settings.default_provider_id && provider.enabled
+      ));
+      const defaultModel = defaultProvider?.models.find((model) => (
+        model.model_id === settings.default_model_id
+      ));
       if (defaultModel?.enabled) return defaultModel;
     }
 
@@ -701,6 +710,10 @@ export function InputArea() {
     const providerId = currentModel?.provider_id ?? activeConversation?.provider_id;
     return providers.find((provider) => provider.id === providerId)?.provider_type;
   }, [activeConversation?.provider_id, currentModel?.provider_id, providers]);
+  const currentProviderId = currentModel?.provider_id
+    ?? activeConversation?.provider_id
+    ?? settings.default_provider_id
+    ?? null;
 
   const reasoningProfile = useMemo(
     () => resolveReasoningProfile(currentProviderType, currentModel),
@@ -949,7 +962,6 @@ export function InputArea() {
     hasFunctionCalling: supportsFunctionCalling(currentModel),
   }), [activeConversation, currentModel, providers]);
   const documentAttachmentReadingEnabled = settings.document_attachment_reading_enabled ?? false;
-  const canAttachFiles = hasVision || documentAttachmentReadingEnabled;
   const acceptChatAttachment = useCallback(
     (file: File) => isAllowedChatAttachmentFile(
       file,
@@ -958,9 +970,46 @@ export function InputArea() {
     ),
     [documentAttachmentReadingEnabled, hasVision],
   );
-  const handleRejectedAttachments = useCallback(() => {
-    messageApi.warning(t('chat.attachmentTypeUnsupported'));
-  }, [messageApi, t]);
+  const showImageInputConfigurationPrompt = useCallback(() => {
+    if (imageInputConfigurationPromptOpenRef.current) return;
+    if (!currentProviderId) {
+      messageApi.warning(t('chat.noModelsAvailable'));
+      return;
+    }
+    imageInputConfigurationPromptOpenRef.current = true;
+    modal.confirm({
+      title: t('chat.imageInputNotConfiguredTitle'),
+      content: t('chat.imageInputNotConfiguredContent'),
+      okText: t('chat.imageInputOpenProviderSettings'),
+      cancelText: t('common.cancel'),
+      afterClose: () => {
+        imageInputConfigurationPromptOpenRef.current = false;
+      },
+      onOk: () => {
+        enterSettings();
+        setSettingsSection('providers');
+        setSelectedProviderId(currentProviderId);
+      },
+    });
+  }, [
+    currentProviderId,
+    enterSettings,
+    messageApi,
+    modal,
+    setSelectedProviderId,
+    setSettingsSection,
+    t,
+  ]);
+
+  const handleRejectedAttachments = useCallback((files: File[]) => {
+    const hasRejectedImage = !hasVision && files.some(isImageAttachmentFile);
+    if (hasRejectedImage) {
+      showImageInputConfigurationPrompt();
+    }
+    if (files.some((file) => !isImageAttachmentFile(file))) {
+      messageApi.warning(t('chat.attachmentTypeUnsupported'));
+    }
+  }, [hasVision, messageApi, showImageInputConfigurationPrompt, t]);
   const handleAttachmentReadError = useCallback((filePath: string, error: unknown) => {
     console.error('[drag-drop] Failed to read file:', filePath, error);
     const name = filePath.split(/[\\/]/).pop() || filePath || t('common.unknown');
@@ -980,7 +1029,6 @@ export function InputArea() {
     handleClipboardFiles,
     dragHandlers,
   } = useComposerAttachments({
-    enabled: canAttachFiles,
     acceptFile: acceptChatAttachment,
     onRejected: handleRejectedAttachments,
     onReadError: handleAttachmentReadError,
@@ -1012,7 +1060,7 @@ export function InputArea() {
   }, [attachedFilesRef]);
 
   const fileInputAccept = [
-    hasVision ? 'image/*' : null,
+    'image/*',
     documentAttachmentReadingEnabled ? DOCUMENT_ATTACHMENT_ACCEPT : null,
   ].filter(Boolean).join(',');
 
@@ -1233,7 +1281,7 @@ export function InputArea() {
   }, [resizeTextareaToContent]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (canAttachFiles && handleClipboardFiles(e)) return;
+    if (handleClipboardFiles(e)) return;
 
     // Long plain-text paste → compact snippet + inline reference token at caret.
     const text = e.clipboardData?.getData('text/plain');
@@ -1262,7 +1310,7 @@ export function InputArea() {
         el.style.height = Math.min(desired, ABSOLUTE_MAX_HEIGHT) + 'px';
       });
     }
-  }, [canAttachFiles, handleClipboardFiles]);
+  }, [handleClipboardFiles]);
 
   usePageSuspendCleanup(() => {
     setVoiceCallVisible(false);
@@ -1604,17 +1652,15 @@ export function InputArea() {
                 </Tooltip>
               </Dropdown>
             )}
-            {canAttachFiles && (
-              <Tooltip title={t('chat.attachFile')}>
-                <Button
-                  aria-label={t('chat.attachFile')}
-                  type="text"
-                  size="small"
-                  icon={<Paperclip size={14} />}
-                  onClick={handleFileSelect}
-                />
-              </Tooltip>
-            )}
+            <Tooltip title={t('chat.attachFile')}>
+              <Button
+                aria-label={t('chat.attachFile')}
+                type="text"
+                size="small"
+                icon={<Paperclip size={14} />}
+                onClick={handleFileSelect}
+              />
+            </Tooltip>
             <RoleSwitcherPopover />
             {currentMode === 'agent' && <SkillPickerPopover />}
             <Popover

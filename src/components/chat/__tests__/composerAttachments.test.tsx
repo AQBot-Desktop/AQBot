@@ -165,6 +165,30 @@ describe('composerAttachments', () => {
     expect(result.current.attachments.map(({ file }) => file.name)).toEqual(['notes.txt']);
   });
 
+  it('consumes rejected clipboard files after reporting them', () => {
+    const onRejected = vi.fn();
+    const { result } = renderHook(() => useComposerAttachments({
+      acceptFile: () => false,
+      onRejected,
+    }));
+    const image = new File(['image'], 'photo.png', { type: 'image/png' });
+    const preventDefault = vi.fn();
+    const event = {
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => image }],
+      },
+      preventDefault,
+    } as unknown as React.ClipboardEvent<HTMLTextAreaElement>;
+
+    act(() => {
+      expect(result.current.handleClipboardFiles(event)).toBe(true);
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(onRejected).toHaveBeenCalledWith([image]);
+    expect(result.current.attachments).toEqual([]);
+  });
+
   it('uses the HTML drag fallback to show the overlay and add dropped files', () => {
     const { result } = renderHook(() => useComposerAttachments({
       acceptFile: () => true,
