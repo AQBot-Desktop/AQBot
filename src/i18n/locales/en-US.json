@@ -286,7 +286,16 @@
     },
     "memory": {
       "title": "Memory",
-      "empty": "Please add a memory namespace in settings first"
+      "empty": "Please add a memory namespace in settings first",
+      "save": "Save to Memory",
+      "selectNamespace": "Select memory namespace",
+      "saving": "Saving…",
+      "saveSuccess": "Saved to “{{namespace}}”",
+      "saveSkipped": "Saved to “{{namespace}}”, but vector indexing is not configured for this namespace",
+      "saveFailed": "Failed to save to memory: {{error}}",
+      "loadFailed": "Failed to load memory namespaces: {{error}}",
+      "retry": "Retry",
+      "manage": "Manage Memory"
     },
     "memoryRetrieval": {
       "searching": "Searching memory...",

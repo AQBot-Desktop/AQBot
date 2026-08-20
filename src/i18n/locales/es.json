@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "Memoria",
-      "empty": "Añada primero un espacio de nombres de memoria en ajustes"
+      "empty": "Añada primero un espacio de nombres de memoria en ajustes",
+      "save": "Guardar en la memoria",
+      "selectNamespace": "Seleccionar espacio de nombres de memoria",
+      "saving": "Guardando…",
+      "saveSuccess": "Guardado en «{{namespace}}»",
+      "saveSkipped": "Guardado en «{{namespace}}», pero este espacio de nombres no tiene configurado un índice vectorial",
+      "saveFailed": "No se pudo guardar en la memoria: {{error}}",
+      "loadFailed": "No se pudieron cargar los espacios de nombres de memoria: {{error}}",
+      "retry": "Reintentar",
+      "manage": "Gestionar la memoria"
     },
     "memoryRetrieval": {
       "searching": "Buscando en la memoria...",

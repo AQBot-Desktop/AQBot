@@ -18,6 +18,21 @@ function mutateNamespacesMeta(meta: ResourceMeta): ResourceMeta {
   };
 }
 
+function mutateItemsMeta(meta: ResourceMeta): ResourceMeta {
+  const remainsComplete = meta.status === 'ready';
+  return {
+    status: remainsComplete ? 'ready' : 'idle',
+    key: meta.key,
+    loadedAt: remainsComplete ? Date.now() : null,
+    revision: meta.revision + 1,
+  };
+}
+
+function memoryTitle(content: string): string {
+  const collapsed = content.replace(/\s+/gu, ' ');
+  return Array.from(collapsed).slice(0, 50).join('');
+}
+
 interface MemoryState {
   namespaces: MemoryNamespace[];
   items: MemoryItem[];
@@ -36,7 +51,7 @@ interface MemoryState {
   ensureItemsLoaded: (namespaceId: string, options?: EnsureLoadedOptions) => Promise<void>;
   invalidateItems: (reason: ResourceInvalidationReason) => void;
   loadItems: (namespaceId: string) => Promise<void>;
-  addItem: (namespaceId: string, title: string, content: string) => Promise<void>;
+  saveText: (namespaceId: string, content: string) => Promise<MemoryItem>;
   deleteItem: (namespaceId: string, itemId: string) => Promise<void>;
   updateItem: (namespaceId: string, itemId: string, input: UpdateMemoryItemInput) => Promise<void>;
   setSelectedNamespaceId: (id: string | null) => void;
@@ -236,10 +251,37 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   loadItems: (namespaceId) => get().ensureItemsLoaded(namespaceId, { force: true }),
 
-  addItem: async (namespaceId, title, content) => {
+  saveText: async (namespaceId, content) => {
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      const error = new Error('Memory content cannot be empty');
+      set({ error: String(error) });
+      throw error;
+    }
+
     try {
-      await invoke('add_memory_item', { input: { namespaceId, title, content } });
-      await get().loadItems(namespaceId);
+      const item = await invoke<MemoryItem>('add_memory_item', {
+        input: {
+          namespaceId,
+          title: memoryTitle(trimmedContent),
+          content: trimmedContent,
+          source: 'manual',
+        },
+      });
+      set((state) => {
+        if (state.itemsMeta.key !== namespaceId) return { error: null };
+        return {
+          items: [
+            item,
+            ...state.items.filter((existing) => (
+              existing.namespaceId === namespaceId && existing.id !== item.id
+            )),
+          ],
+          error: null,
+          itemsMeta: mutateItemsMeta(state.itemsMeta),
+        };
+      });
+      return item;
     } catch (e) {
       set({ error: String(e) });
       throw e;

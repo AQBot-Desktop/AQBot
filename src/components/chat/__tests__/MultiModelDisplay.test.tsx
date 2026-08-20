@@ -26,6 +26,22 @@ vi.mock('../ModelSelector', () => ({
   ModelSelector: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }));
 
+vi.mock('../SaveToMemoryPopover', () => ({
+  SaveToMemoryPopover: ({
+    children,
+    content,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    content: string;
+    disabled?: boolean;
+  }) => (
+    <span data-memory-content={content} data-memory-disabled={disabled ? 'true' : 'false'}>
+      {children}
+    </span>
+  ),
+}));
+
 function makeMessage(overrides: Partial<Message> & Pick<Message, 'id' | 'model_id' | 'content'>): Message {
   return {
     id: overrides.id,
@@ -286,6 +302,57 @@ describe('MultiModelDisplay', () => {
     expect(screen.getByTestId('multi-model-set-context-assistant-b').closest('.multi-model-card-header-actions')).not.toBeNull();
     expect(screen.getByTestId('multi-model-set-context-assistant-b').closest('.multi-model-card-footer-actions')).toBeNull();
     expect(screen.getByTestId('multi-model-regenerate-assistant-b').closest('.multi-model-card-footer-actions')).not.toBeNull();
+  });
+
+  it('places save-memory after each branch action and passes that card cleaned content', () => {
+    const modelA = makeMessage({
+      id: 'assistant-a',
+      model_id: 'model-a',
+      content: '<think>private</think>\nalpha **answer**',
+    });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'beta answer',
+      is_active: false,
+      version_index: 1,
+    });
+
+    render(renderDisplay([modelA, modelB], modelA.id, 'side-by-side', {
+      onBranchVersion: vi.fn(),
+    }));
+
+    for (const [message, expected] of [[modelA, 'alpha **answer**'], [modelB, 'beta answer']] as const) {
+      const branch = screen.getByTestId(`multi-model-branch-${message.id}`);
+      const save = screen.getByTestId(`multi-model-save-memory-${message.id}`);
+      const deleteButton = screen.getByTestId(`multi-model-delete-${message.id}`);
+      const wrapper = save.closest('[data-memory-content]');
+
+      expect(branch.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      expect(save.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      expect(wrapper).toHaveAttribute('data-memory-content', expected);
+      expect(wrapper).toHaveAttribute('data-memory-disabled', 'false');
+    }
+  });
+
+  it('disables save-memory while a card is partial', () => {
+    const modelA = makeMessage({ id: 'assistant-a', model_id: 'model-a', content: 'alpha' });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'partial beta',
+      is_active: false,
+      status: 'partial',
+      version_index: 1,
+    });
+
+    render(renderDisplay([modelA, modelB], modelA.id, 'side-by-side', {
+      onBranchVersion: vi.fn(),
+    }));
+
+    const save = screen.getByTestId('multi-model-save-memory-assistant-b');
+    expect(save).toBeDisabled();
+    expect(save.closest('[data-memory-disabled]')).toHaveAttribute('data-memory-disabled', 'true');
   });
 
   it('uses localized context tooltip keys', () => {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { Alert, Button, Dropdown, Popconfirm, Tag, Tooltip, Typography, theme } from 'antd';
-import { ArrowLeftRight, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { OverlayScrollbars } from 'overlayscrollbars';
@@ -14,6 +14,7 @@ import {
   useConversationStore,
 } from '@/stores';
 import { ModelSelector } from './ModelSelector';
+import { SaveToMemoryPopover } from './SaveToMemoryPopover';
 
 export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
 
@@ -495,6 +496,8 @@ function MultiModelCardActions({
   const currentVersionIndex = sameModelVersions.findIndex((version) => version.id === message.id);
   const canUseVersionPagination = Boolean(parentMessageId && sameModelVersions.length > 1 && onDisplayVersionChange);
   const actionsDisabled = isVersionStreaming || message.status === 'partial';
+  const memoryContent = stripAqbotTags(message.content ?? '');
+  const memoryActionDisabled = actionsDisabled || !memoryContent.trim();
   const currentModelOverride = message.provider_id && message.model_id
     ? { providerId: message.provider_id, modelId: message.model_id }
     : null;
@@ -616,6 +619,18 @@ function MultiModelCardActions({
             />
           </Tooltip>
         </Dropdown>
+        <SaveToMemoryPopover content={memoryContent} disabled={memoryActionDisabled}>
+          <Tooltip title={t('chat.memory.save')}>
+            <Button
+              aria-label={t('chat.memory.save')}
+              data-testid={`multi-model-save-memory-${message.id}`}
+              disabled={memoryActionDisabled}
+              icon={<Brain size={13} />}
+              size="small"
+              type="text"
+            />
+          </Tooltip>
+        </SaveToMemoryPopover>
         {onDeleteVersion && displayVersions.length > 1 && (
           <Popconfirm
             title={t('chat.deleteConfirm')}

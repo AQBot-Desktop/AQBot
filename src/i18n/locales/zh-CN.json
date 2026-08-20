@@ -298,7 +298,16 @@
     },
     "memory": {
       "title": "记忆",
-      "empty": "请先在设置中添加记忆命名空间"
+      "empty": "请先在设置中添加记忆命名空间",
+      "save": "保存至记忆",
+      "selectNamespace": "选择记忆命名空间",
+      "saving": "正在保存…",
+      "saveSuccess": "已保存至「{{namespace}}」",
+      "saveSkipped": "已保存至「{{namespace}}」，但该命名空间未配置向量索引",
+      "saveFailed": "保存至记忆失败：{{error}}",
+      "loadFailed": "加载记忆命名空间失败：{{error}}",
+      "retry": "重试",
+      "manage": "管理记忆"
     },
     "memoryRetrieval": {
       "searching": "正在检索记忆...",

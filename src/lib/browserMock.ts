@@ -1820,14 +1820,20 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const mns3 = getStore<any[]>('memory_namespaces', []);
       const inputMem = (args as any)?.input ?? args;
       const mni = mns3.findIndex(n => n.id === inputMem?.namespaceId);
-      if (mni >= 0) {
-        const item = { id: genId(), ...inputMem, created_at: nowTs() };
-        mns3[mni].items = [...(mns3[mni].items || []), item];
-        mns3[mni].updated_at = nowTs();
-        setStore('memory_namespaces', mns3);
-        return item as T;
-      }
-      return undefined as T;
+      if (mni < 0) throw new Error(`Memory namespace not found: ${inputMem?.namespaceId ?? ''}`);
+      const item = {
+        id: genId(),
+        namespaceId: inputMem.namespaceId,
+        title: inputMem.title,
+        content: inputMem.content,
+        source: inputMem.source ?? 'manual',
+        indexStatus: mns3[mni].embeddingProvider ? 'indexing' : 'skipped',
+        updatedAt: new Date().toISOString(),
+      };
+      mns3[mni].items = [item, ...(mns3[mni].items || [])];
+      mns3[mni].updated_at = nowTs();
+      setStore('memory_namespaces', mns3);
+      return item as T;
     }
     case 'list_memory_items': {
       const mns4 = getStore<any[]>('memory_namespaces', []);

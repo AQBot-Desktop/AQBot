@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "메모리",
-      "empty": "설정에서 먼저 메모리 네임스페이스를 추가하세요"
+      "empty": "설정에서 먼저 메모리 네임스페이스를 추가하세요",
+      "save": "메모리에 저장",
+      "selectNamespace": "메모리 네임스페이스 선택",
+      "saving": "저장 중…",
+      "saveSuccess": "‘{{namespace}}’에 저장했습니다",
+      "saveSkipped": "‘{{namespace}}’에 저장했지만 이 네임스페이스에는 벡터 인덱스가 구성되어 있지 않습니다",
+      "saveFailed": "메모리에 저장하지 못했습니다: {{error}}",
+      "loadFailed": "메모리 네임스페이스를 불러오지 못했습니다: {{error}}",
+      "retry": "다시 시도",
+      "manage": "메모리 관리"
     },
     "memoryRetrieval": {
       "searching": "메모리 검색 중...",

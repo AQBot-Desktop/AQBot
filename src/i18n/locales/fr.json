@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "Mémoire",
-      "empty": "Veuillez d'abord ajouter un espace de noms mémoire dans les paramètres"
+      "empty": "Veuillez d'abord ajouter un espace de noms mémoire dans les paramètres",
+      "save": "Enregistrer dans la mémoire",
+      "selectNamespace": "Sélectionner un espace de noms mémoire",
+      "saving": "Enregistrement…",
+      "saveSuccess": "Enregistré dans « {{namespace}} »",
+      "saveSkipped": "Enregistré dans « {{namespace}} », mais aucun index vectoriel n’est configuré pour cet espace de noms",
+      "saveFailed": "Échec de l’enregistrement dans la mémoire : {{error}}",
+      "loadFailed": "Échec du chargement des espaces de noms mémoire : {{error}}",
+      "retry": "Réessayer",
+      "manage": "Gérer la mémoire"
     },
     "memoryRetrieval": {
       "searching": "Recherche dans la mémoire…",

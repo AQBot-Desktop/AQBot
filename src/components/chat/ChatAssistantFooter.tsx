@@ -14,6 +14,7 @@ import {
   ArrowUp,
   ArrowUpRight,
   Bot,
+  Brain,
   ChartNoAxesColumn,
   Check,
   ChevronLeft,
@@ -36,6 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { formatDuration, formatSpeed, formatTokenCount } from '../gateway/tokenFormat';
 import { ModelSelector } from './ModelSelector';
 import { LayoutSwitcher, type MultiModelDisplayMode } from './MultiModelDisplay';
+import { SaveToMemoryPopover } from './SaveToMemoryPopover';
 
 // ── Version pagination component for multi-version AI replies ──────────
 
@@ -542,6 +544,25 @@ export function AssistantFooter({
                   </Tooltip>
                 </Dropdown>
               ),
+            },
+            {
+              key: 'save-memory',
+              actionRender: () => {
+                const disabled = !assistantCopyText.trim();
+                return (
+                  <SaveToMemoryPopover content={assistantCopyText} disabled={disabled}>
+                    <Tooltip title={t('chat.memory.save')}>
+                      <Button
+                        aria-label={t('chat.memory.save')}
+                        disabled={disabled}
+                        icon={<Brain size={14} />}
+                        size="small"
+                        type="text"
+                      />
+                    </Tooltip>
+                  </SaveToMemoryPopover>
+                );
+              },
             },
             {
               key: 'delete',

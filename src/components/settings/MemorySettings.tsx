@@ -235,7 +235,7 @@ function MemoryItemsPanel({
   namespace: MemoryNamespace;
 }) {
   const { t } = useTranslation();
-  const { items, loading, ensureItemsLoaded, loadItems, addItem, deleteItem, updateItem, updateNamespace } = useMemoryStore();
+  const { items, loading, ensureItemsLoaded, loadItems, saveText, deleteItem, updateItem, updateNamespace } = useMemoryStore();
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MemoryItem | null>(null);
   const [itemForm] = Form.useForm();
@@ -298,7 +298,7 @@ function MemoryItemsPanel({
     try {
       const values = await itemForm.validateFields();
       const content: string = values.content;
-      await addItem(namespace.id, content.slice(0, 50), content);
+      await saveText(namespace.id, content);
       setItemModalOpen(false);
       itemForm.resetFields();
     } catch {

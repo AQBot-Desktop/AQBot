@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "記憶",
-      "empty": "請先在設定中新增記憶命名空間"
+      "empty": "請先在設定中新增記憶命名空間",
+      "save": "儲存至記憶",
+      "selectNamespace": "選擇記憶命名空間",
+      "saving": "正在儲存…",
+      "saveSuccess": "已儲存至「{{namespace}}」",
+      "saveSkipped": "已儲存至「{{namespace}}」，但該命名空間尚未設定向量索引",
+      "saveFailed": "儲存至記憶失敗：{{error}}",
+      "loadFailed": "載入記憶命名空間失敗：{{error}}",
+      "retry": "重試",
+      "manage": "管理記憶"
     },
     "memoryRetrieval": {
       "searching": "正在檢索記憶...",

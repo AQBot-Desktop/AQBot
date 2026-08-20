@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "メモリ",
-      "empty": "先に設定でメモリ名前空間を追加してください"
+      "empty": "先に設定でメモリ名前空間を追加してください",
+      "save": "メモリに保存",
+      "selectNamespace": "メモリの名前空間を選択",
+      "saving": "保存中…",
+      "saveSuccess": "「{{namespace}}」に保存しました",
+      "saveSkipped": "「{{namespace}}」に保存しましたが、この名前空間にはベクトルインデックスが設定されていません",
+      "saveFailed": "メモリへの保存に失敗しました：{{error}}",
+      "loadFailed": "メモリの名前空間の読み込みに失敗しました：{{error}}",
+      "retry": "再試行",
+      "manage": "メモリを管理"
     },
     "memoryRetrieval": {
       "searching": "メモリを検索中...",

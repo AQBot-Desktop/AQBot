@@ -262,7 +262,16 @@
     },
     "memory": {
       "title": "Gedächtnis",
-      "empty": "Bitte fügen Sie zuerst einen Gedächtnis-Namespace in den Einstellungen hinzu"
+      "empty": "Bitte fügen Sie zuerst einen Gedächtnis-Namespace in den Einstellungen hinzu",
+      "save": "Im Gedächtnis speichern",
+      "selectNamespace": "Gedächtnis-Namespace auswählen",
+      "saving": "Wird gespeichert…",
+      "saveSuccess": "In „{{namespace}}“ gespeichert",
+      "saveSkipped": "In „{{namespace}}“ gespeichert, aber für diesen Namespace ist kein Vektorindex konfiguriert",
+      "saveFailed": "Speichern im Gedächtnis fehlgeschlagen: {{error}}",
+      "loadFailed": "Gedächtnis-Namespaces konnten nicht geladen werden: {{error}}",
+      "retry": "Erneut versuchen",
+      "manage": "Gedächtnis verwalten"
     },
     "memoryRetrieval": {
       "searching": "Gedächtnis wird durchsucht…",
