@@ -5,6 +5,14 @@ use tauri::{LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow
 const MAIN_WINDOW_LABEL: &str = "main";
 
 pub fn configure_main_window(app: &tauri::AppHandle, main_window: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    if let Err(error) = crate::linux_webkit::enable_input_method_preedit(main_window) {
+        tracing::warn!(
+            error = %error,
+            "Failed to enable WebKitGTK input method preedit"
+        );
+    }
+
     // On Windows, hide native decorations so the custom TitleBar is
     // the only title bar. macOS keeps its Overlay style (traffic lights).
     // After removing decorations, re-enable minimize/maximize capabilities

@@ -99,6 +99,25 @@ pub fn should_create_main_window_in_setup() -> bool {
     !should_use_tauri_auto_window_from_env()
 }
 
+#[cfg(target_os = "linux")]
+pub fn enable_input_method_preedit(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.with_webview(|webview| {
+        use webkit2gtk::{InputMethodContextExt, WebViewExt};
+
+        // wry disables preedit while creating Linux WebViews. Restore it after
+        // construction so WebKit emits inline DOM composition events.
+        let Some(input_context) = webview.inner().input_method_context() else {
+            tracing::warn!(
+                "WebKitGTK input method context is unavailable; IME preedit was not enabled"
+            );
+            return;
+        };
+
+        input_context.set_enable_preedit(true);
+        tracing::info!("Enabled WebKitGTK input method preedit");
+    })
+}
+
 fn decide_workaround(
     opt_out: Option<&str>,
     user_configured_dmabuf: bool,
