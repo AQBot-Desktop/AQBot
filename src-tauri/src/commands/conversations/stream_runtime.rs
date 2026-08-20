@@ -448,6 +448,7 @@ where
 
 async fn execute_tool_call(
     db: &sea_orm::DatabaseConnection,
+    mcp_stdio_clients: &StdioClientManager,
     tool_call: &ToolCall,
     mcp_server_ids: &[String],
     cancel_flag: &AtomicBool,
@@ -508,12 +509,17 @@ async fn execute_tool_call(
                 .and_then(|s| serde_json::from_str(s).ok())
                 .unwrap_or_default();
             execute_tool_future(
-                aqbot_core::mcp_client::call_tool_stdio(
-                    &command,
-                    &args,
-                    &env,
-                    &tool_call.function.name,
-                    arguments,
+                mcp_stdio_clients.call_tool(
+                    StdioServerLaunch {
+                        server_id: server.id.clone(),
+                        command,
+                        args,
+                        env,
+                    },
+                    StdioToolCall {
+                        name: tool_call.function.name.clone(),
+                        arguments,
+                    },
                 ),
                 timeout_secs,
                 timeout_duration,

@@ -397,7 +397,9 @@ pub async fn find_server_for_tool(
         if let Ok(tools) = list_tools_for_server(db, server_id).await {
             if let Some(td) = tools.into_iter().find(|t| t.name == tool_name) {
                 if let Ok(server) = get_mcp_server(db, server_id).await {
-                    return Ok(Some((server, td)));
+                    if server.enabled {
+                        return Ok(Some((server, td)));
+                    }
                 }
             }
         }
@@ -511,5 +513,29 @@ mod tests {
 
         let fetched = get_mcp_server(db, &created.id).await.unwrap();
         assert_eq!(fetched.headers_json, None);
+    }
+
+    #[tokio::test]
+    async fn find_server_for_tool_skips_disabled_servers() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let created = create_mcp_server(db, remote_server_input(None))
+            .await
+            .unwrap();
+        save_tool_descriptors(
+            db,
+            &created.id,
+            vec![crate::mcp_client::DiscoveredTool {
+                name: "remote_tool".into(),
+                description: None,
+                input_schema: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let found = find_server_for_tool(db, "remote_tool", &[created.id]).await;
+
+        assert!(found.unwrap().is_none());
     }
 }

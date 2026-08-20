@@ -21,6 +21,7 @@ pub struct StreamCancelEntry {
 pub struct AppState {
     pub sea_db: DatabaseConnection,
     pub master_key: [u8; 32],
+    pub mcp_stdio_clients: Arc<aqbot_core::mcp_client::StdioClientManager>,
     pub gateway: Arc<Mutex<Option<aqbot_gateway::server::GatewayServer>>>,
     pub close_to_tray: Arc<AtomicBool>,
     pub release_webview_on_tray: Arc<AtomicBool>,
@@ -854,6 +855,9 @@ pub fn run() {
             app.manage(AppState {
                 sea_db: db_handle.conn,
                 master_key,
+                mcp_stdio_clients: Arc::new(
+                    aqbot_core::mcp_client::StdioClientManager::new(),
+                ),
                 gateway: Arc::new(Mutex::new(None)),
                 close_to_tray: Arc::new(AtomicBool::new(app_settings.minimize_to_tray)),
                 release_webview_on_tray: Arc::new(AtomicBool::new(app_settings.release_webview_on_tray)),
@@ -1215,6 +1219,20 @@ pub fn run() {
     tracing::info!("Starting Tauri application event loop");
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            let mcp_stdio_clients = app.state::<AppState>().mcp_stdio_clients.clone();
+            match tauri::async_runtime::block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    mcp_stdio_clients.close_all(),
+                )
+                .await
+            }) {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "Could not close all MCP stdio clients during exit")
+                }
+                Err(_) => tracing::warn!("Timed out closing all MCP stdio clients during exit"),
+            }
             let toolbar = app.state::<AppState>().selection_toolbar.clone();
             tauri::async_runtime::block_on(toolbar.shutdown(app));
             if let Err(error) = app

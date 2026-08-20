@@ -2,18 +2,23 @@ use crate::error::{AQBotError, Result};
 use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::{
     model::{CallToolRequestParams, CallToolResult, Tool},
+    service::{QuitReason, RunningService, RunningServiceCancellationToken},
     transport::streamable_http_client::{
         StreamableHttpClientTransportConfig, StreamableHttpClientWorker,
     },
-    transport::{ConfigureCommandExt, TokioChildProcess},
-    ServiceExt,
+    RoleClient, ServiceError, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio_util::sync::CancellationToken;
 
 /// Result of a tool call via MCP.
 #[derive(Debug, Clone)]
@@ -429,77 +434,604 @@ fn extract_call_result(result: &CallToolResult) -> (String, bool) {
 // Stdio transport
 // ---------------------------------------------------------------------------
 
-/// Execute a tool call against an MCP server via stdio transport.
-pub async fn call_tool_stdio(
-    command: &str,
-    args: &[String],
-    env: &HashMap<String, String>,
-    tool_name: &str,
-    tool_arguments: Value,
-) -> Result<McpToolResult> {
-    let env_clone = env.clone();
-    let args_clone: Vec<String> = args.to_vec();
-    let resolution = resolve_stdio_command(command, env);
-    let program = resolution.program.clone();
+const STDIO_CLOSE_TIMEOUT: Duration = Duration::from_secs(4);
+const STDIO_CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 
-    let transport =
-        TokioChildProcess::new(tokio::process::Command::new(program).configure(move |cmd| {
-            cmd.args(&args_clone);
-            configure_stdio_env(cmd, &env_clone);
-            hide_windows_console_window(cmd);
-        }))
-        .map_err(|e| spawn_mcp_stdio_error(command, &resolution, e))?;
+type StdioClient = RunningService<RoleClient, ()>;
 
-    let client = ()
-        .serve(transport)
-        .await
-        .map_err(|e| AQBotError::Gateway(format!("MCP handshake failed: {}", e)))?;
-
-    let params = CallToolRequestParams::new(tool_name.to_string())
-        .with_arguments(value_to_map(tool_arguments));
-    let result = client
-        .call_tool(params)
-        .await
-        .map_err(|e| AQBotError::Gateway(format!("MCP tool call failed: {}", e)))?;
-
-    let _ = client.cancel().await;
-
-    let (content, is_error) = extract_call_result(&result);
-    Ok(McpToolResult { content, is_error })
+struct StdioConnection {
+    client: StdioClient,
+    child: tokio::process::Child,
 }
 
-/// Discover tools from an MCP server via stdio transport.
-pub async fn discover_tools_stdio(
-    command: &str,
-    args: &[String],
-    env: &HashMap<String, String>,
-) -> Result<Vec<DiscoveredTool>> {
-    let env_clone = env.clone();
-    let args_clone: Vec<String> = args.to_vec();
-    let resolution = resolve_stdio_command(command, env);
+/// Immutable launch configuration used to identify a persistent stdio server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StdioServerLaunch {
+    pub server_id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+}
+
+/// A single MCP tool invocation routed through a persistent stdio connection.
+#[derive(Debug, Clone)]
+pub struct StdioToolCall {
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Default)]
+struct StdioSlotState {
+    launch: Option<StdioServerLaunch>,
+    client: Option<StdioClient>,
+}
+
+#[derive(Default)]
+struct StdioClientSlot {
+    state: Mutex<StdioSlotState>,
+    child: Mutex<Option<tokio::process::Child>>,
+    connection_token: Mutex<Option<CancellationToken>>,
+    retired: AtomicBool,
+}
+
+#[derive(Debug, Clone)]
+enum StdioLaunchPolicy {
+    Enabled(StdioServerLaunch),
+    Disabled(Option<StdioServerLaunch>),
+    Removed,
+}
+
+#[derive(Clone, Copy)]
+enum StdioOperation {
+    Discover,
+    CallTool,
+}
+
+/// Maintains one persistent, independently synchronized stdio connection per server.
+#[derive(Clone, Default)]
+pub struct StdioClientManager {
+    slots: Arc<Mutex<HashMap<String, Arc<StdioClientSlot>>>>,
+    launch_policies: Arc<Mutex<HashMap<String, StdioLaunchPolicy>>>,
+    lifecycle_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    generations: Arc<Mutex<HashMap<String, u64>>>,
+    shutting_down: Arc<AtomicBool>,
+}
+
+impl StdioClientManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Serialize database mutation and runtime policy updates for one server ID.
+    pub async fn lock_lifecycle(&self, server_id: &str) -> OwnedMutexGuard<()> {
+        let lock = self
+            .lifecycle_locks
+            .lock()
+            .await
+            .entry(server_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        lock.lock_owned().await
+    }
+
+    /// Discover tools without tearing down a healthy connection afterwards.
+    pub async fn discover_tools(&self, launch: StdioServerLaunch) -> Result<Vec<DiscoveredTool>> {
+        validate_stdio_launch(&launch)?;
+        let generation = self.generation(&launch.server_id).await;
+        self.ensure_launch_allowed(&launch, StdioOperation::Discover)
+            .await?;
+        let slot = self.slot_for(&launch.server_id).await?;
+        let mut state = slot.state.lock().await;
+        ensure_stdio_slot_active(&slot, &launch.server_id)?;
+        self.ensure_generation_current(&launch.server_id, generation)
+            .await?;
+        self.ensure_launch_allowed(&launch, StdioOperation::Discover)
+            .await?;
+        let client = ensure_stdio_client(&slot, &mut state, &launch).await?;
+        let invalidate_on_drop = InvalidateStdioConnectionOnDrop::new(client.cancellation_token());
+        ensure_stdio_slot_active(&slot, &launch.server_id)?;
+        self.ensure_generation_current(&launch.server_id, generation)
+            .await?;
+        self.ensure_launch_allowed(&launch, StdioOperation::Discover)
+            .await?;
+
+        let tools = match client.list_all_tools().await {
+            Ok(tools) => tools,
+            Err(error) => {
+                if matches!(&error, ServiceError::McpError(_)) {
+                    invalidate_on_drop.disarm();
+                }
+                return Err(AQBotError::Gateway(format!(
+                    "MCP tools/list failed for '{}': {}",
+                    launch.server_id, error
+                )));
+            }
+        };
+
+        invalidate_on_drop.disarm();
+        Ok(tools.iter().map(tool_to_discovered).collect())
+    }
+
+    /// Call a tool exactly once. A cancelled caller invalidates the connection
+    /// instead of retrying a call whose side effects may already have happened.
+    pub async fn call_tool(
+        &self,
+        launch: StdioServerLaunch,
+        tool_call: StdioToolCall,
+    ) -> Result<McpToolResult> {
+        validate_stdio_launch(&launch)?;
+        let generation = self.generation(&launch.server_id).await;
+        self.ensure_launch_allowed(&launch, StdioOperation::CallTool)
+            .await?;
+        let slot = self.slot_for(&launch.server_id).await?;
+        let mut state = slot.state.lock().await;
+        ensure_stdio_slot_active(&slot, &launch.server_id)?;
+        self.ensure_generation_current(&launch.server_id, generation)
+            .await?;
+        self.ensure_launch_allowed(&launch, StdioOperation::CallTool)
+            .await?;
+        let client = ensure_stdio_client(&slot, &mut state, &launch).await?;
+        let invalidate_on_drop = InvalidateStdioConnectionOnDrop::new(client.cancellation_token());
+        ensure_stdio_slot_active(&slot, &launch.server_id)?;
+        self.ensure_generation_current(&launch.server_id, generation)
+            .await?;
+        self.ensure_launch_allowed(&launch, StdioOperation::CallTool)
+            .await?;
+        let params = CallToolRequestParams::new(tool_call.name)
+            .with_arguments(value_to_map(tool_call.arguments));
+
+        let result = match client.call_tool(params).await {
+            Ok(result) => result,
+            Err(error) => {
+                if matches!(&error, ServiceError::McpError(_)) {
+                    invalidate_on_drop.disarm();
+                }
+                return Err(AQBotError::Gateway(format!(
+                    "MCP tool call failed for '{}': {}",
+                    launch.server_id, error
+                )));
+            }
+        };
+
+        invalidate_on_drop.disarm();
+        let (content, is_error) = extract_call_result(&result);
+        Ok(McpToolResult { content, is_error })
+    }
+
+    /// Close and forget one server connection. Calling this for an unknown ID is idempotent.
+    pub async fn disconnect(&self, server_id: &str) -> Result<()> {
+        self.disconnect_slot(server_id).await
+    }
+
+    /// Allow tool calls for this exact launch configuration.
+    pub async fn authorize(&self, launch: StdioServerLaunch) -> Result<()> {
+        validate_stdio_launch(&launch)?;
+        let server_id = launch.server_id.clone();
+        self.set_launch_policy(&server_id, StdioLaunchPolicy::Enabled(launch))
+            .await
+    }
+
+    /// Replace an enabled server configuration and close any connection using the old one.
+    pub async fn reconfigure(&self, launch: StdioServerLaunch) -> Result<()> {
+        validate_stdio_launch(&launch)?;
+        let server_id = launch.server_id.clone();
+        self.set_launch_policy(&server_id, StdioLaunchPolicy::Enabled(launch))
+            .await?;
+        self.disconnect_slot(&server_id).await
+    }
+
+    /// Block tool calls while retaining the configured launch for explicit discovery.
+    pub async fn disable(&self, server_id: &str, launch: Option<StdioServerLaunch>) -> Result<()> {
+        if let Some(launch) = &launch {
+            validate_stdio_launch(launch)?;
+            if launch.server_id != server_id {
+                return Err(AQBotError::Gateway(format!(
+                    "MCP stdio launch ID '{}' does not match disabled server '{}'",
+                    launch.server_id, server_id
+                )));
+            }
+        }
+        self.set_launch_policy(server_id, StdioLaunchPolicy::Disabled(launch))
+            .await?;
+        self.disconnect_slot(server_id).await
+    }
+
+    /// Permanently reject stale work for a deleted server ID.
+    pub async fn remove(&self, server_id: &str) -> Result<()> {
+        self.launch_policies
+            .lock()
+            .await
+            .insert(server_id.to_string(), StdioLaunchPolicy::Removed);
+        self.disconnect_slot(server_id).await
+    }
+
+    async fn disconnect_slot(&self, server_id: &str) -> Result<()> {
+        self.advance_generation(server_id).await;
+        let slot = {
+            let mut slots = self.slots.lock().await;
+            let slot = slots.remove(server_id);
+            if let Some(slot) = &slot {
+                slot.retired.store(true, Ordering::Release);
+            }
+            slot
+        };
+        let Some(slot) = slot else {
+            return Ok(());
+        };
+
+        close_stdio_slot(slot, server_id).await
+    }
+
+    /// Close all currently known connections concurrently so total shutdown remains bounded.
+    pub async fn close_all(&self) -> Result<()> {
+        self.shutting_down.store(true, Ordering::Release);
+        let slots = {
+            let mut slots = self.slots.lock().await;
+            slots
+                .drain()
+                .inspect(|(_, slot)| slot.retired.store(true, Ordering::Release))
+                .collect::<Vec<_>>()
+        };
+        let results =
+            futures::future::join_all(slots.into_iter().map(|(server_id, slot)| async move {
+                close_stdio_slot(slot, &server_id)
+                    .await
+                    .map_err(|error| format!("{}: {}", server_id, error))
+            }))
+            .await;
+        let errors = results
+            .into_iter()
+            .filter_map(|result| result.err())
+            .collect::<Vec<_>>();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(AQBotError::Gateway(format!(
+                "Failed to close stdio MCP connections: {}",
+                errors.join("; ")
+            )))
+        }
+    }
+
+    async fn slot_for(&self, server_id: &str) -> Result<Arc<StdioClientSlot>> {
+        let mut slots = self.slots.lock().await;
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(AQBotError::Gateway(
+                "MCP stdio client manager is shutting down".to_string(),
+            ));
+        }
+
+        Ok(slots
+            .entry(server_id.to_string())
+            .or_insert_with(|| Arc::new(StdioClientSlot::default()))
+            .clone())
+    }
+
+    async fn set_launch_policy(&self, server_id: &str, policy: StdioLaunchPolicy) -> Result<()> {
+        let mut policies = self.launch_policies.lock().await;
+        if matches!(policies.get(server_id), Some(StdioLaunchPolicy::Removed)) {
+            return Err(AQBotError::Gateway(format!(
+                "MCP stdio server '{}' was removed",
+                server_id
+            )));
+        }
+        policies.insert(server_id.to_string(), policy);
+        Ok(())
+    }
+
+    async fn generation(&self, server_id: &str) -> u64 {
+        self.generations
+            .lock()
+            .await
+            .get(server_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    async fn advance_generation(&self, server_id: &str) {
+        let mut generations = self.generations.lock().await;
+        let generation = generations.entry(server_id.to_string()).or_default();
+        *generation = generation.wrapping_add(1);
+    }
+
+    async fn ensure_generation_current(&self, server_id: &str, expected: u64) -> Result<()> {
+        if self.generation(server_id).await == expected {
+            Ok(())
+        } else {
+            Err(AQBotError::Gateway(format!(
+                "MCP stdio connection '{}' was disconnected",
+                server_id
+            )))
+        }
+    }
+
+    async fn ensure_launch_allowed(
+        &self,
+        launch: &StdioServerLaunch,
+        operation: StdioOperation,
+    ) -> Result<()> {
+        let policies = self.launch_policies.lock().await;
+        match policies.get(&launch.server_id) {
+            None => Ok(()),
+            Some(StdioLaunchPolicy::Enabled(expected)) if expected == launch => Ok(()),
+            Some(StdioLaunchPolicy::Disabled(Some(expected)))
+                if matches!(operation, StdioOperation::Discover) && expected == launch =>
+            {
+                Ok(())
+            }
+            Some(StdioLaunchPolicy::Disabled(_)) => Err(AQBotError::Gateway(format!(
+                "MCP stdio server '{}' is disabled",
+                launch.server_id
+            ))),
+            Some(StdioLaunchPolicy::Removed) => Err(AQBotError::Gateway(format!(
+                "MCP stdio server '{}' was removed",
+                launch.server_id
+            ))),
+            Some(StdioLaunchPolicy::Enabled(_)) => Err(AQBotError::Gateway(format!(
+                "MCP stdio server '{}' configuration changed",
+                launch.server_id
+            ))),
+        }
+    }
+}
+
+fn ensure_stdio_slot_active(slot: &StdioClientSlot, server_id: &str) -> Result<()> {
+    if slot.retired.load(Ordering::Acquire) {
+        Err(AQBotError::Gateway(format!(
+            "MCP stdio connection '{}' was disconnected",
+            server_id
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+struct InvalidateStdioConnectionOnDrop {
+    cancellation_token: Option<RunningServiceCancellationToken>,
+}
+
+impl InvalidateStdioConnectionOnDrop {
+    fn new(cancellation_token: RunningServiceCancellationToken) -> Self {
+        Self {
+            cancellation_token: Some(cancellation_token),
+        }
+    }
+
+    fn disarm(mut self) {
+        self.cancellation_token.take();
+    }
+}
+
+impl Drop for InvalidateStdioConnectionOnDrop {
+    fn drop(&mut self) {
+        if let Some(cancellation_token) = self.cancellation_token.take() {
+            cancellation_token.cancel();
+        }
+    }
+}
+
+fn validate_stdio_launch(launch: &StdioServerLaunch) -> Result<()> {
+    if launch.server_id.trim().is_empty() {
+        return Err(AQBotError::Gateway(
+            "MCP stdio server ID must not be empty".to_string(),
+        ));
+    }
+    if launch.command.trim().is_empty() {
+        return Err(AQBotError::Gateway(format!(
+            "MCP stdio command must not be empty for '{}'",
+            launch.server_id
+        )));
+    }
+    Ok(())
+}
+
+async fn ensure_stdio_client<'a>(
+    slot: &StdioClientSlot,
+    state: &'a mut StdioSlotState,
+    launch: &StdioServerLaunch,
+) -> Result<&'a StdioClient> {
+    let has_child = slot.child.lock().await.is_some();
+    let should_close = state.client.as_ref().is_some_and(|client| {
+        client.is_closed() || client.is_transport_closed() || state.launch.as_ref() != Some(launch)
+    }) || (state.client.is_none() && has_child);
+    if should_close {
+        close_stdio_client(slot, state, &launch.server_id).await?;
+    }
+
+    if state.client.is_none() {
+        state.launch = None;
+        let connection_token = CancellationToken::new();
+        {
+            let mut active_token = slot.connection_token.lock().await;
+            *active_token = Some(connection_token.clone());
+            ensure_stdio_slot_active(slot, &launch.server_id)?;
+        }
+        let connection = match connect_stdio_client(launch, connection_token).await {
+            Ok(connection) => connection,
+            Err(error) => {
+                slot.connection_token.lock().await.take();
+                return Err(error);
+            }
+        };
+        state.launch = Some(launch.clone());
+        *slot.child.lock().await = Some(connection.child);
+        state.client = Some(connection.client);
+    }
+
+    state.client.as_ref().ok_or_else(|| {
+        AQBotError::Gateway(format!(
+            "MCP stdio connection was not initialized for '{}'",
+            launch.server_id
+        ))
+    })
+}
+
+async fn connect_stdio_client(
+    launch: &StdioServerLaunch,
+    connection_token: CancellationToken,
+) -> Result<StdioConnection> {
+    let env = launch.env.clone();
+    let args = launch.args.clone();
+    let resolution = resolve_stdio_command(&launch.command, &launch.env);
     let program = resolution.program.clone();
 
-    let transport =
-        TokioChildProcess::new(tokio::process::Command::new(program).configure(move |cmd| {
-            cmd.args(&args_clone);
-            configure_stdio_env(cmd, &env_clone);
-            hide_windows_console_window(cmd);
-        }))
-        .map_err(|e| spawn_mcp_stdio_error(command, &resolution, e))?;
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    configure_stdio_env(&mut command, &env);
+    hide_windows_console_window(&mut command);
+    let mut child = command
+        .spawn()
+        .map_err(|error| spawn_mcp_stdio_error(&launch.command, &resolution, error))?;
+    let child_stdout = take_stdio_pipe(child.stdout.take(), "stdout", launch, &mut child).await?;
+    let child_stdin = take_stdio_pipe(child.stdin.take(), "stdin", launch, &mut child).await?;
 
-    let client = ()
-        .serve(transport)
-        .await
-        .map_err(|e| AQBotError::Gateway(format!("MCP handshake failed: {}", e)))?;
+    match ().serve_with_ct((child_stdout, child_stdin), connection_token).await {
+        Ok(client) => Ok(StdioConnection { client, child }),
+        Err(error) => {
+            let handshake_error = AQBotError::Gateway(format!(
+                "MCP handshake failed for '{}': {}",
+                launch.server_id, error
+            ));
+            match terminate_stdio_child(&mut child, &launch.server_id).await {
+                Ok(()) => Err(handshake_error),
+                Err(cleanup_error) => Err(AQBotError::Gateway(format!(
+                    "{}; cleanup also failed: {}",
+                    handshake_error, cleanup_error
+                ))),
+            }
+        }
+    }
+}
 
-    let tools = client
-        .list_all_tools()
-        .await
-        .map_err(|e| AQBotError::Gateway(format!("MCP tools/list failed: {}", e)))?;
+async fn take_stdio_pipe<T>(
+    pipe: Option<T>,
+    pipe_name: &str,
+    launch: &StdioServerLaunch,
+    child: &mut tokio::process::Child,
+) -> Result<T> {
+    if let Some(pipe) = pipe {
+        return Ok(pipe);
+    }
 
-    let _ = client.cancel().await;
+    let pipe_error = AQBotError::Gateway(format!(
+        "MCP stdio {} was not captured for '{}'",
+        pipe_name, launch.server_id
+    ));
+    match terminate_stdio_child(child, &launch.server_id).await {
+        Ok(()) => Err(pipe_error),
+        Err(cleanup_error) => Err(AQBotError::Gateway(format!(
+            "{}; cleanup also failed: {}",
+            pipe_error, cleanup_error
+        ))),
+    }
+}
 
-    Ok(tools.iter().map(tool_to_discovered).collect())
+async fn terminate_stdio_child(child: &mut tokio::process::Child, server_id: &str) -> Result<()> {
+    match child.try_wait() {
+        Ok(Some(_)) => return Ok(()),
+        Ok(None) => {}
+        Err(error) => {
+            return Err(AQBotError::Gateway(format!(
+                "Failed to inspect MCP stdio process '{}': {}",
+                server_id, error
+            )))
+        }
+    }
+
+    child.kill().await.map_err(|error| {
+        AQBotError::Gateway(format!(
+            "Failed to terminate MCP stdio process '{}': {}",
+            server_id, error
+        ))
+    })
+}
+
+async fn close_stdio_slot(slot: Arc<StdioClientSlot>, server_id: &str) -> Result<()> {
+    cancel_active_stdio_client(&slot).await;
+    let child_result = take_and_close_stdio_child(&slot, server_id).await;
+    let client_result = match tokio::time::timeout(STDIO_CLOSE_TIMEOUT, slot.state.lock()).await {
+        Ok(mut state) => close_stdio_client(&slot, &mut state, server_id).await,
+        Err(_) => Err(AQBotError::Gateway(format!(
+            "Timed out after {:?} waiting to close active MCP stdio connection '{}'",
+            STDIO_CLOSE_TIMEOUT, server_id
+        ))),
+    };
+    combine_stdio_close_results(client_result, child_result)
+}
+
+async fn cancel_active_stdio_client(slot: &StdioClientSlot) {
+    if let Some(cancellation_token) = slot.connection_token.lock().await.take() {
+        cancellation_token.cancel();
+    }
+}
+
+async fn close_stdio_client(
+    slot: &StdioClientSlot,
+    state: &mut StdioSlotState,
+    server_id: &str,
+) -> Result<()> {
+    cancel_active_stdio_client(slot).await;
+    state.launch = None;
+    let child_result = take_and_close_stdio_child(slot, server_id).await;
+    let client_result = match state.client.take() {
+        Some(client) => close_running_stdio_client(client, server_id).await,
+        None => Ok(()),
+    };
+    combine_stdio_close_results(client_result, child_result)
+}
+
+fn combine_stdio_close_results(first: Result<()>, second: Result<()>) -> Result<()> {
+    match (first, second) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first_error), Err(second_error)) => Err(AQBotError::Gateway(format!(
+            "{}; {}",
+            first_error, second_error
+        ))),
+    }
+}
+
+async fn close_running_stdio_client(mut client: StdioClient, server_id: &str) -> Result<()> {
+    match client.close_with_timeout(STDIO_CLOSE_TIMEOUT).await {
+        Ok(Some(QuitReason::JoinError(error))) => Err(AQBotError::Gateway(format!(
+            "MCP stdio connection '{}' closed after task failure: {}",
+            server_id, error
+        ))),
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(AQBotError::Gateway(format!(
+            "Timed out after {:?} closing MCP stdio connection '{}'",
+            STDIO_CLOSE_TIMEOUT, server_id
+        ))),
+        Err(error) => Err(AQBotError::Gateway(format!(
+            "Failed to close MCP stdio connection '{}': {}",
+            server_id, error
+        ))),
+    }
+}
+
+async fn close_stdio_child(mut child: tokio::process::Child, server_id: &str) -> Result<()> {
+    match tokio::time::timeout(STDIO_CHILD_EXIT_TIMEOUT, child.wait()).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(error)) => Err(AQBotError::Gateway(format!(
+            "Failed to wait for MCP stdio process '{}': {}",
+            server_id, error
+        ))),
+        Err(_) => terminate_stdio_child(&mut child, server_id).await,
+    }
+}
+
+async fn take_and_close_stdio_child(slot: &StdioClientSlot, server_id: &str) -> Result<()> {
+    let child = slot.child.lock().await.take();
+    match child {
+        Some(child) => close_stdio_child(child, server_id).await,
+        None => Ok(()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -889,6 +1421,86 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
 
+    const TEST_MCP_SERVER: &str = r#"
+import json
+import os
+import pathlib
+import sys
+import time
+
+counter_path = pathlib.Path(sys.argv[1])
+start_count = int(counter_path.read_text()) + 1 if counter_path.exists() else 1
+counter_path.write_text(str(start_count))
+call_counter_path = pathlib.Path(str(counter_path) + ".calls")
+identity = f"{os.getpid()}:{start_count}"
+
+def send(response):
+    try:
+        print(json.dumps(response), flush=True)
+    except BrokenPipeError:
+        sys.exit(0)
+
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request.get("method")
+    if method == "initialize":
+        time.sleep(int(os.environ.get("AQBOT_TEST_INIT_DELAY_MS", "0")) / 1000)
+        result = {
+            "protocolVersion": request["params"]["protocolVersion"],
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "aqbot-test", "version": "1.0.0"},
+        }
+    elif method == "tools/list":
+        result = {
+            "tools": [{
+                "name": "echo",
+                "description": identity,
+                "inputSchema": {"type": "object"},
+            }]
+        }
+    elif method == "tools/call":
+        call_count = int(call_counter_path.read_text()) + 1 if call_counter_path.exists() else 1
+        call_counter_path.write_text(str(call_count))
+        arguments = request.get("params", {}).get("arguments", {})
+        if arguments.get("rpcError"):
+            response = {
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "error": {"code": -32000, "message": "expected tool error"},
+            }
+            send(response)
+            continue
+        time.sleep(arguments.get("delayMs", 0) / 1000)
+        result = {"content": [{"type": "text", "text": identity}], "isError": False}
+    else:
+        continue
+
+    response = {"jsonrpc": "2.0", "id": request["id"], "result": result}
+    send(response)
+    if method == "tools/list" and os.environ.get("AQBOT_TEST_EXIT_AFTER_LIST") == "1":
+        sys.exit(0)
+    if method == "initialize":
+        pathlib.Path(str(counter_path) + ".initialized").write_text("1")
+        time.sleep(int(os.environ.get("AQBOT_TEST_STOP_READING_MS", "0")) / 1000)
+"#;
+
+    fn test_stdio_launch(server_id: &str, counter_path: &std::path::Path) -> StdioServerLaunch {
+        let env = std::env::var("PATH")
+            .map(|path| HashMap::from([("PATH".to_string(), path)]))
+            .unwrap_or_default();
+        StdioServerLaunch {
+            server_id: server_id.to_string(),
+            command: "python3".to_string(),
+            args: vec![
+                "-u".to_string(),
+                "-c".to_string(),
+                TEST_MCP_SERVER.to_string(),
+                counter_path.to_string_lossy().to_string(),
+            ],
+            env,
+        }
+    }
+
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
@@ -1031,15 +1643,27 @@ mod tests {
 
     #[tokio::test]
     async fn call_tool_stdio_does_not_hang_when_initialize_stdout_is_non_json_then_eof() {
-        let args = vec!["-c".to_string(), "print('npm notice')".to_string()];
         let mut env = HashMap::new();
         if let Ok(path) = std::env::var("PATH") {
             env.insert("PATH".to_string(), path);
         }
+        let manager = StdioClientManager::new();
+        let launch = StdioServerLaunch {
+            server_id: "non-json-stdout".to_string(),
+            command: "python3".to_string(),
+            args: vec!["-c".to_string(), "print('npm notice')".to_string()],
+            env,
+        };
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            call_tool_stdio("python3", &args, &env, "fetch_url", serde_json::json!({})),
+            manager.call_tool(
+                launch,
+                StdioToolCall {
+                    name: "fetch_url".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            ),
         )
         .await;
 
@@ -1050,6 +1674,542 @@ mod tests {
 
         let err = result.unwrap().unwrap_err().to_string();
         assert!(err.contains("MCP") || err.contains("handshake") || err.contains("spawn"));
+    }
+
+    #[tokio::test]
+    async fn stdio_client_reuses_process_between_discovery_and_tool_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("reuse", &counter_path);
+        let manager = StdioClientManager::new();
+
+        let tools = manager.discover_tools(launch.clone()).await.unwrap();
+        assert_eq!(tools.len(), 1);
+
+        let result = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            tools[0].description.as_deref(),
+            Some(result.content.as_str())
+        );
+
+        let start_count = fs::read_to_string(counter_path).unwrap();
+        assert_eq!(start_count, "1", "stdio MCP server must stay connected");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn lifecycle_lock_serializes_same_server_only() {
+        let manager = StdioClientManager::new();
+        let first = manager.lock_lifecycle("same").await;
+        let waiting = manager.lock_lifecycle("same");
+        futures::pin_mut!(waiting);
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+
+        let other =
+            tokio::time::timeout(Duration::from_millis(100), manager.lock_lifecycle("other"))
+                .await
+                .unwrap();
+        drop(other);
+        drop(first);
+
+        tokio::time::timeout(Duration::from_millis(100), waiting)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn stdio_client_single_flights_concurrent_first_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("single-flight", &counter_path);
+        let manager = StdioClientManager::new();
+
+        let (first, second) = tokio::join!(
+            manager.discover_tools(launch.clone()),
+            manager.discover_tools(launch)
+        );
+
+        assert_eq!(first.unwrap().len(), 1);
+        assert_eq!(second.unwrap().len(), 1);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "1");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stdio_client_keeps_different_server_ids_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let first_launch = test_stdio_launch("first", &counter_path);
+        let mut second_launch = first_launch.clone();
+        second_launch.server_id = "second".to_string();
+        let manager = StdioClientManager::new();
+
+        let first = manager.discover_tools(first_launch).await.unwrap();
+        let second = manager.discover_tools(second_launch).await.unwrap();
+
+        assert_ne!(first[0].description, second[0].description);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stdio_client_reconnects_when_launch_snapshot_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let first_launch = test_stdio_launch("configured", &counter_path);
+        let mut changed_launch = first_launch.clone();
+        changed_launch
+            .args
+            .push("ignored-config-change".to_string());
+        let manager = StdioClientManager::new();
+
+        let first = manager.discover_tools(first_launch).await.unwrap();
+        let second = manager.discover_tools(changed_launch).await.unwrap();
+
+        assert_ne!(first[0].description, second[0].description);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stdio_client_reconnects_before_call_after_transport_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let mut launch = test_stdio_launch("closed-transport", &counter_path);
+        launch
+            .env
+            .insert("AQBOT_TEST_EXIT_AFTER_LIST".to_string(), "1".to_string());
+        let manager = StdioClientManager::new();
+
+        manager.discover_tools(launch.clone()).await.unwrap();
+        let slot = manager.slot_for(&launch.server_id).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let transport_closed = slot
+                    .state
+                    .lock()
+                    .await
+                    .client
+                    .as_ref()
+                    .is_some_and(|client| client.is_transport_closed());
+                if transport_closed {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let result = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(result.content.ends_with(":2"), "{}", result.content);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stdio_client_reconnects_after_disconnect() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("disconnect", &counter_path);
+        let manager = StdioClientManager::new();
+
+        manager.discover_tools(launch.clone()).await.unwrap();
+        manager.disconnect(&launch.server_id).await.unwrap();
+        manager.discover_tools(launch).await.unwrap();
+
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disabled_server_allows_discovery_but_blocks_calls_until_authorized() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("disabled", &counter_path);
+        let manager = StdioClientManager::new();
+
+        manager
+            .disable(&launch.server_id, Some(launch.clone()))
+            .await
+            .unwrap();
+        let tools = manager.discover_tools(launch.clone()).await.unwrap();
+        let error = manager
+            .call_tool(
+                launch.clone(),
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("disabled"), "{error}");
+
+        manager.authorize(launch.clone()).await.unwrap();
+        let result = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tools[0].description.as_deref(),
+            Some(result.content.as_str())
+        );
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "1");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reconfigure_rejects_stale_launch_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("reconfigured", &counter_path);
+        let mut changed_launch = launch.clone();
+        changed_launch.args.push("new-config".to_string());
+        let manager = StdioClientManager::new();
+
+        manager.discover_tools(launch.clone()).await.unwrap();
+        manager.reconfigure(changed_launch.clone()).await.unwrap();
+        let error = manager
+            .discover_tools(launch)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("configuration changed"), "{error}");
+
+        manager.discover_tools(changed_launch).await.unwrap();
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removed_server_rejects_stale_discovery_and_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("removed", &counter_path);
+        let manager = StdioClientManager::new();
+
+        manager.discover_tools(launch.clone()).await.unwrap();
+        manager.remove(&launch.server_id).await.unwrap();
+        let discover_error = manager
+            .discover_tools(launch.clone())
+            .await
+            .unwrap_err()
+            .to_string();
+        let call_error = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(discover_error.contains("removed"), "{discover_error}");
+        assert!(call_error.contains("removed"), "{call_error}");
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "1");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disabling_server_cancels_active_tool_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let call_counter_path =
+            std::path::PathBuf::from(format!("{}.calls", counter_path.to_string_lossy()));
+        let launch = test_stdio_launch("active-disable", &counter_path);
+        let manager = StdioClientManager::new();
+        manager.discover_tools(launch.clone()).await.unwrap();
+
+        let call_manager = manager.clone();
+        let call_launch = launch.clone();
+        let active_call = tokio::spawn(async move {
+            call_manager
+                .call_tool(
+                    call_launch,
+                    StdioToolCall {
+                        name: "echo".to_string(),
+                        arguments: serde_json::json!({"delayMs": 10_000}),
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !call_counter_path.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let server_id = launch.server_id.clone();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            manager.disable(&server_id, Some(launch)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(active_call.await.unwrap().is_err());
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disabling_server_terminates_child_when_request_write_stalls() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let initialized_path =
+            std::path::PathBuf::from(format!("{}.initialized", counter_path.to_string_lossy()));
+        let mut launch = test_stdio_launch("stalled-write", &counter_path);
+        launch.env.insert(
+            "AQBOT_TEST_STOP_READING_MS".to_string(),
+            "10000".to_string(),
+        );
+        let manager = StdioClientManager::new();
+
+        let call_manager = manager.clone();
+        let call_launch = launch.clone();
+        let active_call = tokio::spawn(async move {
+            call_manager
+                .call_tool(
+                    call_launch,
+                    StdioToolCall {
+                        name: "echo".to_string(),
+                        arguments: serde_json::json!({"payload": "x".repeat(2 * 1024 * 1024)}),
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !initialized_path.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let server_id = launch.server_id.clone();
+        tokio::time::timeout(
+            Duration::from_secs(6),
+            manager.disable(&server_id, Some(launch)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(active_call.await.unwrap().is_err());
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disabling_server_cancels_initialization_handshake() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let mut launch = test_stdio_launch("handshake-disable", &counter_path);
+        launch
+            .env
+            .insert("AQBOT_TEST_INIT_DELAY_MS".to_string(), "10000".to_string());
+        let manager = StdioClientManager::new();
+
+        let discovery_manager = manager.clone();
+        let discovery_launch = launch.clone();
+        let discovery =
+            tokio::spawn(async move { discovery_manager.discover_tools(discovery_launch).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !counter_path.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let server_id = launch.server_id.clone();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            manager.disable(&server_id, Some(launch)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(discovery.await.unwrap().is_err());
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disconnect_rejects_operation_waiting_before_slot_creation() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("pre-slot-disconnect", &counter_path);
+        let manager = StdioClientManager::new();
+
+        let policy_guard = manager.launch_policies.lock().await;
+        let pending_discovery = manager.discover_tools(launch.clone());
+        futures::pin_mut!(pending_discovery);
+        assert!(futures::poll!(pending_discovery.as_mut()).is_pending());
+
+        manager.disconnect(&launch.server_id).await.unwrap();
+        drop(policy_guard);
+
+        let error = pending_discovery.await.unwrap_err().to_string();
+        assert!(error.contains("disconnected"), "{error}");
+        assert!(!counter_path.exists());
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn queued_call_on_disconnected_slot_is_rejected_before_reconnect() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("retired", &counter_path);
+        let manager = StdioClientManager::new();
+        manager.discover_tools(launch.clone()).await.unwrap();
+
+        let slot = manager.slot_for(&launch.server_id).await.unwrap();
+        let state_guard = slot.state.lock().await;
+        let queued = manager.discover_tools(launch.clone());
+        futures::pin_mut!(queued);
+        assert!(futures::poll!(queued.as_mut()).is_pending());
+
+        let server_id = launch.server_id.clone();
+        let disconnect = manager.disconnect(&server_id);
+        futures::pin_mut!(disconnect);
+        assert!(futures::poll!(disconnect.as_mut()).is_pending());
+        assert!(slot.retired.load(Ordering::Acquire));
+
+        drop(state_guard);
+        let error = queued.await.unwrap_err().to_string();
+        assert!(error.contains("disconnected"), "{error}");
+        disconnect.await.unwrap();
+
+        manager.discover_tools(launch).await.unwrap();
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn close_all_rejects_new_stdio_connections() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("shutdown", &counter_path);
+        let manager = StdioClientManager::new();
+
+        manager.discover_tools(launch.clone()).await.unwrap();
+        manager.close_all().await.unwrap();
+        let error = manager
+            .discover_tools(launch)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("shutting down"), "{error}");
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "1");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_application_error_keeps_stdio_connection_reusable() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let launch = test_stdio_launch("application-error", &counter_path);
+        let manager = StdioClientManager::new();
+
+        let error = manager
+            .call_tool(
+                launch.clone(),
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({"rpcError": true}),
+                },
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("expected tool error"), "{error}");
+
+        let result = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(result.content.ends_with(":1"), "{}", result.content);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "1");
+        manager.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_tool_call_invalidates_connection_without_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter_path = dir.path().join("starts.txt");
+        let call_counter_path =
+            std::path::PathBuf::from(format!("{}.calls", counter_path.to_string_lossy()));
+        let launch = test_stdio_launch("cancelled", &counter_path);
+        let manager = StdioClientManager::new();
+        manager.discover_tools(launch.clone()).await.unwrap();
+
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(50),
+            manager.call_tool(
+                launch.clone(),
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({"delayMs": 300}),
+                },
+            ),
+        )
+        .await;
+        assert!(timed_out.is_err());
+
+        let result = manager
+            .call_tool(
+                launch,
+                StdioToolCall {
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(result.content.ends_with(":2"), "{}", result.content);
+        assert_eq!(fs::read_to_string(counter_path).unwrap(), "2");
+        assert_eq!(fs::read_to_string(call_counter_path).unwrap(), "2");
+        manager.close_all().await.unwrap();
     }
 
     #[cfg(unix)]

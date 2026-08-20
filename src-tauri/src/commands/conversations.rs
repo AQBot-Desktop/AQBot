@@ -1,4 +1,5 @@
 use crate::AppState;
+use aqbot_core::mcp_client::{StdioClientManager, StdioServerLaunch, StdioToolCall};
 use aqbot_core::types::*;
 use aqbot_providers::{
     registry::ProviderRegistry, resolve_base_url_for_type, ProviderAdapter, ProviderRequestContext,
@@ -10,7 +11,7 @@ use std::future::Future;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 include!("conversations/provider_and_stream_config.rs");
 include!("conversations/message_persistence.rs");
