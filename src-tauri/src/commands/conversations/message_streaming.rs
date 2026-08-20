@@ -37,6 +37,7 @@ fn spawn_stream_task(
     skip_placeholder_create: bool,
 ) {
     let model_id = conversation.model_id.clone();
+    let mcp_stdio_clients = app.state::<AppState>().mcp_stdio_clients.clone();
 
     tokio::spawn(async move {
         let effective_chat_params = resolve_chat_model_params(
@@ -368,7 +369,8 @@ fn spawn_stream_task(
                 // Execute the tool
                 let start = std::time::Instant::now();
                 let (result_content, is_error) =
-                    execute_tool_call(&db, tc, &mcp_server_ids, &cancel_flag).await;
+                    execute_tool_call(&db, &mcp_stdio_clients, tc, &mcp_server_ids, &cancel_flag)
+                        .await;
                 let _duration_ms = start.elapsed().as_millis() as i64;
 
                 // Update execution record
