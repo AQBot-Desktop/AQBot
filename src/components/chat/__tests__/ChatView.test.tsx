@@ -108,6 +108,29 @@ describe('ChatView assistant display policy', () => {
     expect(codeBlock).not.toContain('--chat-font-family');
   });
 
+  it('uses the configured primary color for chat and ACP markdown links', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const acpSource = readFileSync(
+      resolve(process.cwd(), 'src/components/acp/AcpConversationPane.tsx'),
+      'utf8',
+    );
+    const linkThemeBlock = source.match(
+      /\.aqbot-chat-markdown \.link-node,[\s\S]*?\.aqbot-chat-markdown \.link-loading \{[\s\S]*?\}/,
+    )?.[0] ?? '';
+
+    expect(acpSource).toContain('className="aqbot-chat-markdown"');
+    expect(linkThemeBlock).toContain('color: var(--color-primary, #1677ff);');
+  });
+
+  it('uses a pure black tooltip background for dark markdown links', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const darkTooltipBlock = source.match(
+      /html\[data-theme=["']dark["']\] \.ms-tooltip\[data-dark=["']true["']\] \{[\s\S]*?\}/,
+    )?.[0] ?? '';
+
+    expect(darkTooltipBlock).toMatch(/background-color:\s*#(?:000|000000);/);
+  });
+
   it('gates custom user and ai message area styles behind separate chat settings', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
 

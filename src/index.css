@@ -658,6 +658,17 @@ html[data-theme="dark"] {
   --chat-text-color: rgba(255, 255, 255, 0.9);
 }
 
+.aqbot-chat-markdown .link-node,
+.aqbot-chat-markdown .link-loading {
+  color: var(--color-primary, #1677ff);
+}
+
+html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
+  background-color: #000;
+  border-color: #000;
+  color: #fff;
+}
+
 .aqbot-chat-markdown p,
 .aqbot-chat-markdown .paragraph-node {
   margin-block: 0.45em;
