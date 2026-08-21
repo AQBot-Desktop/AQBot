@@ -167,6 +167,7 @@ export function createConversationMessageActions(
 
       set((s) => ({
         messages: [...s.messages, optimisticUserMsg, placeholderAssistant],
+        multiModelParentId: runtime.isMultiModelActive ? optimisticUserMsg.id : s.multiModelParentId,
         ragDisplayByMessageId: placeholderRagDisplay
           ? { ...s.ragDisplayByMessageId, [tempAssistantId]: placeholderRagDisplay }
           : s.ragDisplayByMessageId,
@@ -323,11 +324,14 @@ export function createConversationMessageActions(
 
         // Replace optimistic user msg with real one, update placeholder parent
         set((s) => ({
+          multiModelParentId: s.multiModelParentId === optimisticUserMsg.id
+            ? userMessage.id
+            : s.multiModelParentId,
           messages: s.messages.map(m => {
             if (m.id === optimisticUserMsg.id) return userMessage;
             if (
               m.id === tempAssistantId
-              || (m.role === 'assistant' && m.parent_message_id === optimisticUserMsg.id && m.status === 'partial')
+              || (m.role === 'assistant' && m.parent_message_id === optimisticUserMsg.id)
             ) {
               return { ...m, parent_message_id: userMessage.id };
             }
@@ -341,6 +345,7 @@ export function createConversationMessageActions(
           set({ streaming: false, streamingMessageId: null, streamingConversationId: null, activeStreamId: null, thinkingActiveMessageIds: new Set<string>() });
           get().fetchMessages(conversationId);
         }
+        return userMessage;
       } catch (e) {
         console.error('[sendMessage] error:', e);
         const errMsg = String(e);
@@ -363,6 +368,9 @@ export function createConversationMessageActions(
           searchDisplayByMessageId: Object.fromEntries(
             Object.entries(s.searchDisplayByMessageId).filter(([messageId]) => messageId !== tempAssistantId),
           ),
+          multiModelParentId: s.multiModelParentId === optimisticUserMsg.id
+            ? null
+            : s.multiModelParentId,
           messages: s.messages.filter((m) => (
             m.id !== optimisticUserMsg.id && m.id !== tempAssistantId
           )),
@@ -381,6 +389,7 @@ export function createConversationMessageActions(
           void get().fetchMessages(conversationId);
         }
         runtime.multiModelStreamIds.delete(streamId);
+        return null;
       }
     },
     sendAgentMessage: async (content, attachments = []) => {
@@ -1040,6 +1049,7 @@ export function createConversationMessageActions(
       const conv = get().conversations.find((c) => c.id === conversationId);
       const originalProviderId = conv?.provider_id;
       const originalModelId = conv?.model_id;
+      const runId = ++runtime.multiModelRunId;
 
       // Track ALL models (first + companions) in a unified counter
       runtime.isMultiModelActive = true;
@@ -1069,25 +1079,27 @@ export function createConversationMessageActions(
       }
 
       // sendMessage returns after invoke (message created in DB), stream continues in background
-      await get().sendMessage(content, attachments, searchProviderId);
+      const sentUserMessage = await get().sendMessage(content, attachments, searchProviderId);
 
-      // Find the user message that was just created
-      const msgs = get().messages;
-      const lastUserMsg = [...msgs].reverse().find((m) => m.role === 'user');
-      if (!lastUserMsg) {
-        runtime.isMultiModelActive = false;
-        runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstTarget = null;
-        runtime.multiModelFirstMessageId = null;
-        runtime.multiModelHistoryMode = 'selected';
-        runtime.userManuallySelectedVersion = false;
-        runtime.multiModelStreamIds.clear();
-        set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
-        if (originalProviderId && originalModelId) {
+      const isCurrentRun = runtime.multiModelRunId === runId;
+      if (!runtime.isMultiModelActive || !isCurrentRun || !sentUserMessage) {
+        if (isCurrentRun) {
+          runtime.isMultiModelActive = false;
+          runtime.multiModelTotalRemaining = 0;
+          runtime.multiModelFirstTarget = null;
+          runtime.multiModelFirstMessageId = null;
+          runtime.multiModelHistoryMode = 'selected';
+          runtime.userManuallySelectedVersion = false;
+          runtime.multiModelStreamIds.clear();
+          set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
+        }
+        const cancelledWithoutReplacement = runtime.multiModelRunId === runId + 1 && !runtime.isMultiModelActive;
+        if ((isCurrentRun || cancelledWithoutReplacement) && originalProviderId && originalModelId) {
           void get().updateConversation(conversationId, { provider_id: originalProviderId, model_id: originalModelId });
         }
         return;
       }
+      const lastUserMsg = sentUserMessage;
 
       // Scope loading indicators to this message and set parent_message_id
       // on the streaming placeholder so ModelTags renders immediately
@@ -1216,12 +1228,33 @@ export function createConversationMessageActions(
       // Wait for ALL streams to complete (first + companions)
       await allDone;
 
+      const clearFinalizedRunState = () => set((s) => s.multiModelParentId === lastUserMsg.id
+        ? { multiModelParentId: null, multiModelDoneMessageIds: [] }
+        : {});
+      if (runtime.multiModelRunId !== runId) {
+        clearFinalizedRunState();
+        const cancelledWithoutReplacement = runtime.multiModelRunId === runId + 1 && !runtime.isMultiModelActive;
+        if (cancelledWithoutReplacement && originalProviderId && originalModelId) {
+          void get().updateConversation(conversationId, { provider_id: originalProviderId, model_id: originalModelId });
+        }
+        return;
+      }
+
       // All done — cleanup
+      const firstMessageId = runtime.multiModelFirstMessageId;
+      const userManuallySelectedVersion = runtime.userManuallySelectedVersion;
       runtime.isMultiModelActive = false;
       runtime.multiModelFirstTarget = null;
+      runtime.multiModelFirstMessageId = null;
       runtime.multiModelHistoryMode = 'selected';
+      runtime.userManuallySelectedVersion = false;
       runtime.multiModelStreamIds.clear();
       set({ pendingCompanionModels: [], multiModelDoneMessageIds: [] });
+      const abortSupersededFinalization = () => {
+        if (runtime.multiModelRunId === runId && !get().streaming) return false;
+        clearFinalizedRunState();
+        return true;
+      };
 
       // Restore original conversation model
       if (originalProviderId && originalModelId) {
@@ -1234,22 +1267,23 @@ export function createConversationMessageActions(
           console.error('[sendMultiModelMessage] failed to restore model:', e);
         }
       }
+      if (abortSupersededFinalization()) return;
 
       // Final fetch for consistency
       if (get().activeConversationId === conversationId) {
-        const parentId = get().multiModelParentId;
+        const parentId = lastUserMsg.id;
 
         // Determine which version to show: if user manually selected a version, respect that choice
-        const userSelectedMessageId = runtime.userManuallySelectedVersion
+        const userSelectedMessageId = userManuallySelectedVersion
           ? get().messages.find(
               (m) => m.parent_message_id === parentId && m.role === 'assistant' && m.is_active,
             )?.id ?? null
           : null;
 
-        if (parentId && !runtime.userManuallySelectedVersion) {
+        if (!userManuallySelectedVersion) {
           // No manual selection — switch to the first model's version
           const firstTarget = targetModels[0];
-          let targetMessageId = runtime.multiModelFirstMessageId;
+          let targetMessageId = firstMessageId;
           if (!targetMessageId) {
             const localMatch = get().messages.find(
               (m) => m.parent_message_id === parentId
@@ -1266,7 +1300,7 @@ export function createConversationMessageActions(
               messageId: targetMessageId,
             }).catch(() => {});
           }
-        } else if (parentId && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)) {
+        } else if (userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)) {
           // User manually selected a version — sync that to backend
           await invoke('switch_message_version', {
             conversationId,
@@ -1274,39 +1308,38 @@ export function createConversationMessageActions(
             messageId: userSelectedMessageId,
           }).catch(() => {});
         }
+        if (abortSupersededFinalization()) return;
 
         await get().fetchMessages(conversationId);
+        if (abortSupersededFinalization()) return;
 
-        if (parentId) {
-          const versions = await get().listMessageVersions(conversationId, parentId);
-          if (versions.length > 0) {
-            const firstTarget = targetModels[0];
-            const pendingSelection = runtime.pendingLocalVersionSelections.get(parentId) ?? null;
-            const resolvedManualSelection = pendingSelection
-              ? findResolvedVersionForPendingSelection(pendingSelection, versions)
-              : null;
-            const activeVersionId = (
-              (runtime.userManuallySelectedVersion && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)
-                ? versions.find((version) => version.id === userSelectedMessageId)
-                : null)
-              ?? (runtime.userManuallySelectedVersion ? resolvedManualSelection : null)
-              ?? (runtime.multiModelFirstMessageId
-                ? versions.find((version) => version.id === runtime.multiModelFirstMessageId)
-                : null)
-              ?? versions.find((version) => version.model_id === firstTarget.modelId
-                && version.provider_id === firstTarget.providerId)
-              ?? versions.find((version) => version.is_active)
-              ?? versions[0]
-            )?.id ?? null;
+        const versions = await get().listMessageVersions(conversationId, parentId);
+        if (abortSupersededFinalization()) return;
+        if (versions.length > 0) {
+          const firstTarget = targetModels[0];
+          const pendingSelection = runtime.pendingLocalVersionSelections.get(parentId) ?? null;
+          const resolvedManualSelection = pendingSelection
+            ? findResolvedVersionForPendingSelection(pendingSelection, versions)
+            : null;
+          const activeVersionId = (
+            (userManuallySelectedVersion && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)
+              ? versions.find((version) => version.id === userSelectedMessageId)
+              : null)
+            ?? (userManuallySelectedVersion ? resolvedManualSelection : null)
+            ?? (firstMessageId
+              ? versions.find((version) => version.id === firstMessageId)
+              : null)
+            ?? versions.find((version) => version.model_id === firstTarget.modelId
+              && version.provider_id === firstTarget.providerId)
+            ?? versions.find((version) => version.is_active)
+            ?? versions[0]
+          )?.id ?? null;
 
-            get().hydrateMessageVersions(parentId, versions, activeVersionId);
-          }
+          get().hydrateMessageVersions(parentId, versions, activeVersionId);
         }
       }
 
-      runtime.multiModelFirstMessageId = null;
-      runtime.userManuallySelectedVersion = false;
-      set({ multiModelParentId: null, multiModelDoneMessageIds: [] });
+      clearFinalizedRunState();
     },
     deleteMessage: async (messageId) => {
       const conversationId = get().activeConversationId;
@@ -1964,6 +1997,7 @@ export function createConversationMessageActions(
       runtime.pendingConversationRefresh.clear();
       // Clean up multi-model state on cancel
       if (runtime.isMultiModelActive) {
+        runtime.multiModelRunId++;
         runtime.isMultiModelActive = false;
         runtime.multiModelTotalRemaining = 0;
         runtime.multiModelFirstTarget = null;

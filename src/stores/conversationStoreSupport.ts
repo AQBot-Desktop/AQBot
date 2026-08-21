@@ -275,6 +275,7 @@ function getActiveMessageEdges(messages: Message[]): {
 let _multiModelTotalRemaining = 0; // counts ALL models (including first)
 let _multiModelDoneResolve: (() => void) | null = null;
 let _isMultiModelActive = false;
+let _multiModelRunId = 0;
 let _multiModelFirstTarget: MultiModelTarget | null = null; // first provider+model target (for auto-switch)
 let _multiModelFirstMessageId: string | null = null; // actual DB message_id of the first model's response
 let _multiModelHistoryMode: MultiModelContinuationMode = 'selected';
@@ -1329,7 +1330,7 @@ export interface ConversationState {
   batchDelete: (ids: string[]) => Promise<void>;
   batchArchive: (ids: string[]) => Promise<void>;
   batchMoveToCategory: (ids: string[], categoryId: string | null) => Promise<number>;
-  sendMessage: (content: string, attachments?: AttachmentInput[], searchProviderId?: string | null) => Promise<void>;
+  sendMessage: (content: string, attachments?: AttachmentInput[], searchProviderId?: string | null) => Promise<Message | null>;
   /** Send a message in agent mode (non-streaming MVP) */
   sendAgentMessage: (content: string, attachments?: AttachmentInput[]) => Promise<void>;
   regenerateMessage: (targetMessageId?: string) => Promise<Message>;
@@ -1632,6 +1633,7 @@ export interface ConversationRuntime {
   multiModelTotalRemaining: number;
   multiModelDoneResolve: (() => void) | null;
   isMultiModelActive: boolean;
+  multiModelRunId: number;
   multiModelFirstTarget: MultiModelTarget | null;
   multiModelFirstMessageId: string | null;
   multiModelHistoryMode: MultiModelContinuationMode;
@@ -1669,6 +1671,8 @@ export const conversationRuntime: ConversationRuntime = {
   set multiModelDoneResolve(value) { _multiModelDoneResolve = value; },
   get isMultiModelActive() { return _isMultiModelActive; },
   set isMultiModelActive(value) { _isMultiModelActive = value; },
+  get multiModelRunId() { return _multiModelRunId; },
+  set multiModelRunId(value) { _multiModelRunId = value; },
   get multiModelFirstTarget() { return _multiModelFirstTarget; },
   set multiModelFirstTarget(value) { _multiModelFirstTarget = value; },
   get multiModelFirstMessageId() { return _multiModelFirstMessageId; },

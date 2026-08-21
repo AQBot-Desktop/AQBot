@@ -255,12 +255,312 @@ describe('conversationStore multi-model messages', () => {
       targetModelId: 'shared-model',
       historyMode: 'per_model',
     }));
-    expect(useConversationStore.getState().streamingMessageId).toBe(firstVersion.id);
-    expect(useConversationStore.getState().messages.find((message) => message.id === firstVersion.id))
-      .toMatchObject({ provider_id: 'provider-a', model_id: 'shared-model' });
+    const streamingState = useConversationStore.getState();
+    expect(streamingState.multiModelParentId).toBe(user.id);
+    expect(streamingState.streamingMessageId).toBe(firstVersion.id);
+    expect(streamingState.messages.find((message) => message.id === firstVersion.id))
+      .toMatchObject({
+        parent_message_id: user.id,
+        provider_id: 'provider-a',
+        model_id: 'shared-model',
+      });
 
     useConversationStore.getState().cancelCurrentStream();
     await pending;
+  });
+
+  it('scopes pending model status to the optimistic user message before the backend responds', async () => {
+    tauriAvailable = true;
+    const conversation = makeConversation('conv-1');
+    const persistedUser = {
+      ...makeMessage(1),
+      id: 'user-persisted',
+      role: 'user' as const,
+      content: 'show progress immediately',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const sendMessage = deferred<typeof persistedUser>();
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        return Promise.resolve({ ...conversation, ...(args.input as Record<string, unknown>) });
+      }
+      if (command === 'send_message') return sendMessage.promise;
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') return Promise.resolve([]);
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: persistedUser.content,
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+
+    const optimisticState = useConversationStore.getState();
+    const optimisticUser = optimisticState.messages.find((message) => message.role === 'user');
+    const placeholder = optimisticState.messages.find((message) => message.role === 'assistant');
+    expect(optimisticUser?.id).toMatch(/^temp-user-/);
+    expect(optimisticState.multiModelParentId).toBe(optimisticUser?.id);
+    expect(placeholder?.parent_message_id).toBe(optimisticUser?.id);
+
+    sendMessage.resolve(persistedUser);
+    await flushPromises();
+    const persistedState = useConversationStore.getState();
+    expect(persistedState.multiModelParentId).toBe(persistedUser.id);
+    expect(persistedState.messages.find((message) => message.role === 'assistant')?.parent_message_id)
+      .toBe(persistedUser.id);
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
+  it('reparents a completed first response when it finishes before the user message persists', async () => {
+    tauriAvailable = true;
+    const listeners = new Map<string, (event: any) => void>();
+    listenMock.mockImplementation(async (eventName: string, handler: (event: any) => void) => {
+      listeners.set(eventName, handler);
+      return () => {};
+    });
+    const conversation = makeConversation('conv-1');
+    const persistedUser = {
+      ...makeMessage(1),
+      id: 'user-persisted',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const sendMessage = deferred<typeof persistedUser>();
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        return Promise.resolve({ ...conversation, ...(args.input as Record<string, unknown>) });
+      }
+      if (command === 'send_message') return sendMessage.promise;
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') return Promise.resolve([]);
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'fast response',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+    const optimisticParentId = useConversationStore.getState().multiModelParentId;
+    const onChunk = listeners.get('chat-stream-chunk');
+    onChunk?.({
+      payload: {
+        conversation_id: conversation.id,
+        message_id: 'assistant-fast',
+        model_id: 'model-a',
+        provider_id: 'provider-a',
+        chunk: { content: 'fast', thinking: null, tool_calls: null, done: false, usage: null },
+      },
+    });
+    onChunk?.({
+      payload: {
+        conversation_id: conversation.id,
+        message_id: 'assistant-fast',
+        model_id: 'model-a',
+        provider_id: 'provider-a',
+        chunk: { content: null, thinking: null, tool_calls: null, done: true, is_final: true, usage: null },
+      },
+    });
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'assistant-fast'))
+      .toMatchObject({ parent_message_id: optimisticParentId, status: 'complete' });
+
+    sendMessage.resolve(persistedUser);
+    await flushPromises();
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'assistant-fast'))
+      .toMatchObject({ parent_message_id: persistedUser.id, status: 'complete' });
+
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
+  it('does not start companion models when the first request is cancelled before persistence', async () => {
+    tauriAvailable = true;
+    const conversation = makeConversation('conv-1');
+    const persistedUser = {
+      ...makeMessage(1),
+      id: 'user-persisted',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const sendMessage = deferred<typeof persistedUser>();
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        return Promise.resolve({ ...conversation, ...(args.input as Record<string, unknown>) });
+      }
+      if (command === 'send_message') return sendMessage.promise;
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'list_messages_page') return Promise.resolve(makePage([persistedUser], false));
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') return Promise.resolve([]);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'cancel me',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+    useConversationStore.getState().cancelCurrentStream();
+    sendMessage.resolve(persistedUser);
+    await flushPromises();
+
+    expect(invokeMock).not.toHaveBeenCalledWith('regenerate_with_model', expect.anything());
+    expect(useConversationStore.getState()).toMatchObject({
+      multiModelParentId: null,
+      pendingCompanionModels: [],
+    });
+    await pending;
+  });
+
+  it('does not reuse an older user message when the first multi-model request fails', async () => {
+    tauriAvailable = true;
+    const conversation = makeConversation('conv-1');
+    const oldUser = {
+      ...makeMessage(1),
+      id: 'user-old',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        return Promise.resolve({ ...conversation, ...(args.input as Record<string, unknown>) });
+      }
+      if (command === 'send_message') return Promise.reject(new Error('first request failed'));
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') return Promise.resolve([]);
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [oldUser],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'must not attach to old user',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+
+    expect(invokeMock).not.toHaveBeenCalledWith('regenerate_with_model', expect.anything());
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
+  it('does not let a cancelled run finalizer clear the next multi-model request', async () => {
+    tauriAvailable = true;
+    const conversation = makeConversation('conv-1');
+    const firstUser = {
+      ...makeMessage(1),
+      id: 'user-first',
+      role: 'user' as const,
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const nextUser = { ...firstUser, id: 'user-next', created_at: 2 };
+    const nextSendMessage = deferred<typeof nextUser>();
+    const restore = deferred<ReturnType<typeof makeConversation>>();
+    let sendCount = 0;
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        const input = args.input as Record<string, unknown>;
+        if (input.provider_id === conversation.provider_id && input.model_id === conversation.model_id) {
+          return restore.promise;
+        }
+        return Promise.resolve({ ...conversation, ...input });
+      }
+      if (command === 'send_message') {
+        sendCount++;
+        return sendCount === 1 ? Promise.resolve(firstUser) : nextSendMessage.promise;
+      }
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') return Promise.resolve([]);
+      if (command === 'list_messages_page') return Promise.resolve(makePage([firstUser], false));
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const firstPending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'first run',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+    useConversationStore.getState().cancelCurrentStream();
+
+    const nextPending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'next run',
+      targetModels: [
+        { providerId: 'provider-c', modelId: 'model-c' },
+        { providerId: 'provider-d', modelId: 'model-d' },
+      ],
+    });
+    await flushPromises();
+    const nextOptimisticParentId = useConversationStore.getState().multiModelParentId;
+    expect(nextOptimisticParentId).toMatch(/^temp-user-/);
+
+    restore.resolve(conversation);
+    await flushPromises();
+    await flushPromises();
+    expect(useConversationStore.getState().multiModelParentId).toBe(nextOptimisticParentId);
+
+    nextSendMessage.resolve(nextUser);
+    await flushPromises();
+    useConversationStore.getState().cancelCurrentStream();
+    await Promise.all([firstPending, nextPending]);
   });
 
   it('adds a new model response as an inactive card when the parent already has multi-model versions', async () => {

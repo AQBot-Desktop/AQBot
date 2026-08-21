@@ -379,6 +379,8 @@ export function AssistantFooter({
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
   const storeMessages = useConversationStore((s) => s.messages);
+  const pendingCompanionModelCount = useConversationStore((s) => s.pendingCompanionModels.length);
+  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
   const allVersions = versions ?? [];
 
   // Merge DB-fetched versions with in-store companion messages for real-time visibility
@@ -391,8 +393,11 @@ export function AssistantFooter({
     return extra.length > 0 ? [...allVersions, ...extra] : allVersions;
   }, [allVersions, storeMessages, msg.parent_message_id]);
 
-  // Check if this message has multiple model versions
-  const hasMultiModels = useMemo(() => hasMultipleModelVersions(mergedVersions), [mergedVersions]);
+  // Keep multi-model controls visible while sibling model versions are still pending.
+  const hasMultiModels = useMemo(() => (
+    hasMultipleModelVersions(mergedVersions)
+    || (msg.parent_message_id === multiModelParentId && pendingCompanionModelCount > 1)
+  ), [mergedVersions, msg.parent_message_id, multiModelParentId, pendingCompanionModelCount]);
 
   // Report the latest version snapshot to parent so cached multi-model state
   // can be updated or cleared after deletes/switches.

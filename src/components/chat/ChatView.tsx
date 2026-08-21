@@ -178,6 +178,7 @@ export function ChatView() {
   const streamingMessageId = useConversationStore((s) => s.streamingMessageId);
   const streamActivityByMessageId = useConversationStore((s) => s.streamActivityByMessageId);
   const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
+  const pendingCompanionModelCount = useConversationStore((s) => s.pendingCompanionModels.length);
   const multiModelDoneMessageIds = useConversationStore((s) => s.multiModelDoneMessageIds);
   const thinkingActiveMessageIds = useConversationStore((s) => s.thinkingActiveMessageIds);
   const storeError = useConversationStore((s) => s.error);
@@ -1855,11 +1856,11 @@ export function ChatView() {
     const isAgentMsg = activeConversation?.mode === 'agent';
     const bubbleLoading = false;
 
-    // Determine effective display mode for this message
     const parentId = msg?.parent_message_id;
     // Check both store-based detection and ref-based detection (from AssistantFooter DB queries)
     const hasMultiModels = !!parentId && (
       multiModelResponseParents.has(parentId) || multiModelVersionsRef.current.has(parentId)
+      || (parentId === multiModelParentId && pendingCompanionModelCount > 1)
     );
     const effectiveDisplayMode: MultiModelDisplayMode = hasMultiModels
       ? (displayModeOverrides.get(parentId) ?? settings.multi_model_display_mode ?? 'tabs')
@@ -2179,20 +2180,19 @@ export function ChatView() {
               {renderStreamingStatusIndicator(msgActivity, true)}
             </div>
           )}
-          {!isStreaming && (
-            <AssistantFooter
-              msg={msg}
-              conversationId={activeConversationId}
-              versions={msg.parent_message_id ? currentMessageVersionsByParentId[msg.parent_message_id] : undefined}
-              assistantCopyText={assistantCopyText}
-              getModelDisplayInfo={getModelDisplayInfo}
-              onEditMessage={handleEditMessage}
-              displayMode={effectiveDisplayMode}
-              onDisplayModeChange={handleDisplayModeOverride}
-              onMultiModelDetected={handleMultiModelDetected}
-              onRegeneratedVersionCreated={handleGeneratedVersionCreated}
-            />
-          )}
+          {(!isStreaming || hasMultiModels) && <AssistantFooter
+            msg={msg}
+            conversationId={activeConversationId}
+            versions={msg.parent_message_id ? currentMessageVersionsByParentId[msg.parent_message_id] : undefined}
+            assistantCopyText={assistantCopyText}
+            getModelDisplayInfo={getModelDisplayInfo}
+            onEditMessage={handleEditMessage}
+            isStreaming={isStreaming}
+            displayMode={effectiveDisplayMode}
+            onDisplayModeChange={handleDisplayModeOverride}
+            onMultiModelDetected={handleMultiModelDetected}
+            onRegeneratedVersionCreated={handleGeneratedVersionCreated}
+          />}
         </div>
       ) : footerLoading ? (
         <div
@@ -2207,7 +2207,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, currentMessageVersionsByParentId, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, currentMessageVersionsByParentId, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

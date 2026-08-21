@@ -1,5 +1,5 @@
 import { App } from 'antd';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type React from 'react';
 import type { Message } from '@/types';
@@ -48,7 +48,7 @@ vi.mock('../ModelSelector', () => ({
 }));
 
 vi.mock('../MultiModelDisplay', () => ({
-  LayoutSwitcher: () => null,
+  LayoutSwitcher: () => <div data-testid="layout-switcher" />,
 }));
 
 vi.mock('../SaveToMemoryPopover', () => ({
@@ -147,5 +147,52 @@ describe('AssistantFooter memory action', () => {
     );
 
     expect(screen.getAllByTestId('model-icon')).toHaveLength(2);
+  });
+
+  it('shows and switches model progress while the first model is streaming', () => {
+    const message = { ...makeMessage(), status: 'partial' as const };
+    const companion = {
+      ...message,
+      id: 'assistant-2',
+      provider_id: 'provider-2',
+      model_id: 'model-2',
+      is_active: false,
+    };
+    const switchMessageVersion = vi.fn().mockResolvedValue(undefined);
+    useConversationStore.setState({
+      messages: [message, companion],
+      pendingCompanionModels: [
+        { providerId: 'provider-1', modelId: 'model-1' },
+        { providerId: 'provider-2', modelId: 'model-2' },
+        { providerId: 'provider-3', modelId: 'model-3' },
+      ],
+      multiModelParentId: 'user-1',
+      multiModelDoneMessageIds: [],
+      switchMessageVersion,
+    });
+
+    render(
+      <App>
+        <AssistantFooter
+          assistantCopyText=""
+          conversationId="conversation-1"
+          displayMode="tabs"
+          getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? '', providerName: 'Provider' })}
+          isStreaming
+          msg={message}
+          onDisplayModeChange={vi.fn()}
+          onEditMessage={vi.fn()}
+          versions={[message]}
+        />
+      </App>,
+    );
+
+    expect(screen.getAllByTestId('model-icon')).toHaveLength(3);
+    expect(screen.getByTestId('layout-switcher')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-actions')).not.toBeInTheDocument();
+    const companionIcon = screen.getAllByTestId('model-icon')
+      .find((icon) => icon.getAttribute('data-model') === 'model-2');
+    fireEvent.click(companionIcon!.parentElement!);
+    expect(switchMessageVersion).toHaveBeenCalledWith('conversation-1', 'user-1', 'assistant-2');
   });
 });

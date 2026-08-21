@@ -64,13 +64,13 @@ describe('ChatView assistant display policy', () => {
     expect(source).not.toContain('copyTranscript(messages,');
   });
 
-  it('does not mount AssistantFooter while an assistant message is streaming', () => {
+  it('mounts the streaming footer so multi-model status and switching are immediately available', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
     const footerIndex = source.indexOf('<AssistantFooter');
     const footerBranch = footerIndex >= 0 ? source.slice(footerIndex - 200, footerIndex + 500) : '';
 
-    expect(footerBranch).toContain('{!isStreaming && (');
-    expect(footerBranch).not.toContain('isStreaming={isStreaming}');
+    expect(footerBranch).toContain('{(!isStreaming || hasMultiModels) && <AssistantFooter');
+    expect(footerBranch).toContain('isStreaming={isStreaming}');
   });
 
   it('temporarily closes live streaming think content before rendering', () => {
