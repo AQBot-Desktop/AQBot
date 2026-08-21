@@ -294,6 +294,30 @@ describe('SelectionToolbarSettings', () => {
     }));
   });
 
+  it('preserves the physical Control modifier when recording on macOS', async () => {
+    const platform = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    mocks.toolbar.value = {
+      ...mocks.toolbar.value,
+      trigger_mode: 'shortcut',
+    };
+    const user = userEvent.setup();
+    render(<SelectionToolbarSettings />);
+
+    const input = screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.triggerShortcut',
+    });
+    await user.click(screen.getByRole('button', { name: 'settings.recordShortcut' }));
+    fireEvent.keyDown(input, { key: 'D', ctrlKey: true });
+
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
+      selection_toolbar: expect.objectContaining({
+        trigger_mode: 'shortcut',
+        trigger_shortcut: 'Control+D',
+      }),
+    }));
+    platform.mockRestore();
+  });
+
   it('persists shortcut trigger mode and resets its binding to the default', async () => {
     mocks.toolbar.value = {
       ...mocks.toolbar.value,

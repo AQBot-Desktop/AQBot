@@ -226,7 +226,8 @@ export function normalizeShortcutFromKeyboardEvent(
   event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'key'>,
 ): string | null {
   const parts: string[] = [];
-  if (event.metaKey || event.ctrlKey) parts.push('CmdOrCtrl');
+  if (event.metaKey) parts.push('CmdOrCtrl');
+  else if (event.ctrlKey) parts.push(isMacPlatform() ? 'Control' : 'CmdOrCtrl');
   if (event.shiftKey) parts.push('Shift');
   if (event.altKey) parts.push('Alt');
 

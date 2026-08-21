@@ -90,6 +90,21 @@ describe('selection toolbar global shortcut registration', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('selection_toolbar_trigger');
   });
 
+  it('registers an explicit Control shortcut without converting it to CommandOrControl', async () => {
+    mocks.settings.value = {
+      ...mocks.settings.value,
+      selection_toolbar: {
+        ...mocks.settings.value.selection_toolbar,
+        trigger_shortcut: 'Control+D',
+      },
+    };
+
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.callbacks.has('Control+D')).toBe(true));
+    expect(mocks.callbacks.has('CommandOrControl+D')).toBe(false);
+  });
+
   it('does not register the toolbar shortcut in automatic selection mode', async () => {
     mocks.settings.value = {
       ...mocks.settings.value,
