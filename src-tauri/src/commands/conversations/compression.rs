@@ -1,12 +1,18 @@
 // Conversation context compression.
 
-/// Internal helper: call LLM to compress messages into a summary and persist it.
-async fn do_compress(
+struct GeneratedCompression {
+    summary_text: String,
+    used_model: String,
+    source_text: String,
+    token_count: u32,
+}
+
+/// Internal helper: call the configured LLM to compress messages without
+/// deciding whether the generated summary should be persisted.
+async fn generate_compression(
     db: &sea_orm::DatabaseConnection,
-    conversation_id: &str,
     history_messages: &[ChatMessage],
     existing_summary: Option<&str>,
-    compressed_until_message_id: Option<&str>,
     provider: &ProviderConfig,
     decrypted_key: &str,
     key_id: &str,
@@ -15,7 +21,7 @@ async fn do_compress(
     use_max_completion_tokens: Option<bool>,
     settings: &AppSettings,
     master_key: &[u8; 32],
-) -> Result<(ConversationSummary, Message), String> {
+) -> Result<GeneratedCompression, String> {
     // Resolve compression model: settings override → fallback to conversation model
     let (comp_provider, comp_key, comp_key_id, comp_proxy, comp_model_id, comp_use_max) = if let (
         Some(ref pid),
@@ -110,26 +116,95 @@ async fn do_compress(
     )
     .await?;
 
-    let token_count = aqbot_core::token_counter::estimate_tokens(&response_content);
+    Ok(GeneratedCompression {
+        token_count: aqbot_core::token_counter::estimate_tokens(&response_content) as u32,
+        summary_text: response_content,
+        used_model,
+        source_text,
+    })
+}
+
+/// Call the compression LLM and persist the shared conversation summary and
+/// marker atomically. This remains the selected-history behavior.
+async fn do_compress(
+    db: &sea_orm::DatabaseConnection,
+    conversation_id: &str,
+    history_messages: &[ChatMessage],
+    existing_summary: Option<&str>,
+    compressed_until_message_id: Option<&str>,
+    provider: &ProviderConfig,
+    decrypted_key: &str,
+    key_id: &str,
+    proxy_config: &Option<ProviderProxyConfig>,
+    model_id: &str,
+    use_max_completion_tokens: Option<bool>,
+    settings: &AppSettings,
+    master_key: &[u8; 32],
+) -> Result<(ConversationSummary, Message), String> {
+    let generated = generate_compression(
+        db,
+        history_messages,
+        existing_summary,
+        provider,
+        decrypted_key,
+        key_id,
+        proxy_config,
+        model_id,
+        use_max_completion_tokens,
+        settings,
+        master_key,
+    )
+    .await?;
     let (summary, marker_message) = aqbot_core::repo::conversation::upsert_summary_with_marker(
         db,
         conversation_id,
-        &response_content,
+        &generated.summary_text,
         compressed_until_message_id,
-        Some(token_count as u32),
-        Some(&used_model),
-        Some(&source_text),
+        Some(generated.token_count),
+        Some(&generated.used_model),
+        Some(&generated.source_text),
         crate::context_manager::COMPRESSION_MARKER,
     )
     .await
-    .map_err(|e| format!("Failed to save summary and marker atomically: {}", e))?;
+    .map_err(|e| format!("Failed to save summary and marker atomically: {e}"))?;
 
     tracing::debug!(
         "Compressed context for {} ({} tokens)",
         conversation_id,
-        token_count
+        generated.token_count
     );
     Ok((summary, marker_message))
+}
+
+/// Per-model continuation summaries are request-local: the shared summary and
+/// compression marker must not be updated with a model-specific projection.
+async fn do_compress_temporary(
+    db: &sea_orm::DatabaseConnection,
+    history_messages: &[ChatMessage],
+    provider: &ProviderConfig,
+    decrypted_key: &str,
+    key_id: &str,
+    proxy_config: &Option<ProviderProxyConfig>,
+    model_id: &str,
+    use_max_completion_tokens: Option<bool>,
+    settings: &AppSettings,
+    master_key: &[u8; 32],
+) -> Result<String, String> {
+    generate_compression(
+        db,
+        history_messages,
+        None,
+        provider,
+        decrypted_key,
+        key_id,
+        proxy_config,
+        model_id,
+        use_max_completion_tokens,
+        settings,
+        master_key,
+    )
+    .await
+    .map(|generated| generated.summary_text)
 }
 
 async fn generate_compression_summary(

@@ -117,6 +117,7 @@ function renderDisplayWithStreamingLabel(versions: Message[], streamingMessageId
 
 describe('MultiModelDisplay', () => {
   beforeEach(() => {
+    localStorage.clear();
     useConversationStore.setState({
       messages: [],
       activeConversationId: 'conv-1',
@@ -355,17 +356,56 @@ describe('MultiModelDisplay', () => {
     expect(save.closest('[data-memory-disabled]')).toHaveAttribute('data-memory-disabled', 'true');
   });
 
-  it('uses localized context tooltip keys', () => {
+  it('uses localized shared and fallback context tooltip keys', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/MultiModelDisplay.tsx'), 'utf8');
     const zh = JSON.parse(readFileSync(resolve(process.cwd(), 'src/i18n/locales/zh-CN.json'), 'utf8'));
     const en = JSON.parse(readFileSync(resolve(process.cwd(), 'src/i18n/locales/en-US.json'), 'utf8'));
 
-    expect(source).toContain("t('chat.multiModelCurrentContext')");
-    expect(source).toContain("t('chat.multiModelUseAsContext')");
-    expect(source).not.toContain('Current context');
-    expect(source).not.toContain('Use as context');
-    expect(zh.chat.multiModelCurrentContext).toBe('当前上下文');
-    expect(en.chat.multiModelCurrentContext).toBe('Current Context');
+    expect(source).toContain('chat.multiModel.currentSharedContext');
+    expect(source).toContain('chat.multiModel.useAsSharedContext');
+    expect(source).toContain('chat.multiModel.currentFallbackContext');
+    expect(source).toContain('chat.multiModel.useAsFallbackContext');
+    expect(zh.chat.multiModel.currentFallbackContext).toBeTruthy();
+    expect(en.chat.multiModel.currentFallbackContext).toBeTruthy();
+  });
+
+  it('describes card selection as fallback context in per-model mode', async () => {
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+    const modelA = makeMessage({ id: 'assistant-a', model_id: 'model-a', content: 'alpha' });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'beta',
+      is_active: false,
+      version_index: 1,
+    });
+
+    render(renderDisplay([modelA, modelB], modelA.id));
+    fireEvent.mouseEnter(screen.getByTestId('multi-model-set-context-assistant-b'));
+
+    expect(await screen.findByText('chat.multiModel.useAsFallbackContext')).toBeInTheDocument();
+  });
+
+  it('keeps identical model ids from different providers in separate cards', () => {
+    const providerA = makeMessage({
+      id: 'assistant-a',
+      provider_id: 'provider-a',
+      model_id: 'shared-model',
+      content: 'provider A answer',
+    });
+    const providerB = makeMessage({
+      id: 'assistant-b',
+      provider_id: 'provider-b',
+      model_id: 'shared-model',
+      content: 'provider B answer',
+      is_active: false,
+      version_index: 1,
+    });
+
+    render(renderDisplay([providerA, providerB], providerA.id));
+
+    expect(screen.getByText('provider A answer')).toBeInTheDocument();
+    expect(screen.getByText('provider B answer')).toBeInTheDocument();
   });
 
   it('stretches card content so footer actions stay pinned to the bottom', () => {

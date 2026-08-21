@@ -27,3 +27,5 @@ include!("conversations/message_streaming.rs");
 include!("conversations/message_versions.rs");
 include!("conversations/compression.rs");
 include!("conversations/tests.rs");
+#[cfg(test)]
+include!("conversations/multi_model_continuation_tests.rs");

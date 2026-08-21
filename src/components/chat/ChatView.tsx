@@ -1147,10 +1147,10 @@ export function ChatView() {
         if (!modelsByParent.has(msg.parent_message_id)) {
           modelsByParent.set(msg.parent_message_id, new Set());
         }
-        // Use model_id if available; fall back to a per-message key so that
-        // error messages (which may lack model_id) are still counted as
-        // distinct model responses and don't break multi-model detection.
-        modelsByParent.get(msg.parent_message_id)!.add(msg.model_id || `__no_model_${msg.id}`);
+        // Group by provider + model; fall back to a per-message key so that
+        // error messages with incomplete metadata are still counted as
+        // distinct responses and don't break multi-model detection.
+        modelsByParent.get(msg.parent_message_id)!.add(getMessageVersionGroupKey(msg));
       }
     }
     const result = new Set<string>();

@@ -307,7 +307,16 @@
     "loadingConversation": "正在載入對話內容…",
     "multiModel": {
       "selectTitle": "選擇同時回答的模型",
-      "selectedCount": "已選 {{count}} 個模型"
+      "selectedCount": "已選 {{count}} 個模型",
+      "followUpMode": "續問方式",
+      "followUpModeSelected": "指定回答",
+      "followUpModeSelectedDesc": "所有模型都基於目前選取的回答繼續",
+      "followUpModePerModel": "各自延續",
+      "followUpModePerModelDesc": "每個模型都基於自己上一輪的回答繼續",
+      "currentSharedContext": "目前統一上下文",
+      "useAsSharedContext": "設為統一上下文",
+      "currentFallbackContext": "目前回退上下文",
+      "useAsFallbackContext": "設為回退上下文"
     },
     "multiModelUseAsContext": "用作上下文",
     "multiModelCurrentContext": "當前上下文",

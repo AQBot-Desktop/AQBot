@@ -13,6 +13,10 @@ import {
 } from '@/lib/searchUtils';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
 import { appendStreamErrorToContent } from '@/lib/streamStatus';
+import {
+  getMultiModelContinuationMode,
+  normalizeMultiModelContinuationMode,
+} from '@/lib/multiModelContinuation';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import { useSearchStore } from '@/stores/searchStore';
 import type {
@@ -312,6 +316,9 @@ export function createConversationMessageActions(
           thinkingLevel,
           enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
+          historyMode: runtime.isMultiModelActive
+            ? runtime.multiModelHistoryMode
+            : getMultiModelContinuationMode(conversationId),
         });
 
         // Replace optimistic user msg with real one, update placeholder parent
@@ -851,6 +858,9 @@ export function createConversationMessageActions(
           thinkingLevel: rThinkingLevel,
           enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
           enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
+          historyMode: runtime.isMultiModelActive
+            ? runtime.multiModelHistoryMode
+            : getMultiModelContinuationMode(conversationId),
         });
 
         // In browser mode, simulate brief loading then fetch the mock AI response
@@ -981,6 +991,9 @@ export function createConversationMessageActions(
           enabledKnowledgeBaseIds: rKbIds.length > 0 ? rKbIds : undefined,
           enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
           isCompanion: appendAsCompanion ? true : undefined,
+          historyMode: runtime.isMultiModelActive
+            ? runtime.multiModelHistoryMode
+            : getMultiModelContinuationMode(conversationId),
         });
 
         if (!isTauri()) {
@@ -1009,10 +1022,19 @@ export function createConversationMessageActions(
       }
       return placeholderAssistant;
     },
-    sendMultiModelMessage: async (content, companionModels, attachments = [], searchProviderId = null) => {
+    sendMultiModelMessage: async ({
+      content,
+      targetModels,
+      historyMode,
+      attachments = [],
+      searchProviderId = null,
+    }) => {
       const conversationId = get().activeConversationId;
-      if (!conversationId || companionModels.length === 0) return;
+      if (!conversationId || targetModels.length === 0) return;
       if (get().loading) throw new Error('Conversation messages are still loading');
+      const resolvedHistoryMode = normalizeMultiModelContinuationMode(
+        historyMode ?? getMultiModelContinuationMode(conversationId),
+      );
 
       // Save original conversation model to restore later
       const conv = get().conversations.find((c) => c.id === conversationId);
@@ -1021,12 +1043,13 @@ export function createConversationMessageActions(
 
       // Track ALL models (first + companions) in a unified counter
       runtime.isMultiModelActive = true;
-      runtime.multiModelTotalRemaining = companionModels.length;
-      runtime.multiModelFirstModelId = companionModels[0].modelId;
-      set({ pendingCompanionModels: [...companionModels] });
+      runtime.multiModelTotalRemaining = targetModels.length;
+      runtime.multiModelFirstTarget = { ...targetModels[0] };
+      runtime.multiModelHistoryMode = resolvedHistoryMode;
+      set({ pendingCompanionModels: [...targetModels] });
 
       // Switch to the first selected model and send
-      const firstModel = companionModels[0];
+      const firstModel = targetModels[0];
       try {
         await get().updateConversation(conversationId, {
           provider_id: firstModel.providerId,
@@ -1036,8 +1059,9 @@ export function createConversationMessageActions(
         console.error('[sendMultiModelMessage] failed to switch model:', e);
         runtime.isMultiModelActive = false;
         runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstModelId = null;
+        runtime.multiModelFirstTarget = null;
         runtime.multiModelFirstMessageId = null;
+        runtime.multiModelHistoryMode = 'selected';
         runtime.userManuallySelectedVersion = false;
         runtime.multiModelStreamIds.clear();
         set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
@@ -1053,8 +1077,9 @@ export function createConversationMessageActions(
       if (!lastUserMsg) {
         runtime.isMultiModelActive = false;
         runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstModelId = null;
+        runtime.multiModelFirstTarget = null;
         runtime.multiModelFirstMessageId = null;
+        runtime.multiModelHistoryMode = 'selected';
         runtime.userManuallySelectedVersion = false;
         runtime.multiModelStreamIds.clear();
         set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
@@ -1083,7 +1108,7 @@ export function createConversationMessageActions(
       });
 
       // Fire remaining companions in PARALLEL (concurrent with first model's stream)
-      const remaining = companionModels.slice(1);
+      const remaining = targetModels.slice(1);
       if (remaining.length > 0) {
         runtime.streamBuffer = null;
 
@@ -1112,6 +1137,7 @@ export function createConversationMessageActions(
             enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
             enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
             isCompanion: true,
+            historyMode: resolvedHistoryMode,
           }).then(async () => {
             // Each invoke returns after message creation — immediately enrich the store
             // so ModelTags can render this companion as clickable right away.
@@ -1125,9 +1151,11 @@ export function createConversationMessageActions(
                   const updates: Partial<ConversationState> = {};
 
                   let resolvedFirstModelId: string | null = null;
-                  if (s.streamingMessageId?.startsWith('temp-') && runtime.multiModelFirstModelId) {
+                  if (s.streamingMessageId?.startsWith('temp-') && runtime.multiModelFirstTarget) {
                     const firstDbVersion = versions.find(
-                      (v) => v.model_id === runtime.multiModelFirstModelId && !existingIds.has(v.id),
+                      (v) => v.model_id === runtime.multiModelFirstTarget?.modelId
+                        && v.provider_id === runtime.multiModelFirstTarget.providerId
+                        && !existingIds.has(v.id),
                     );
                     if (firstDbVersion) {
                       resolvedFirstModelId = firstDbVersion.id;
@@ -1190,7 +1218,8 @@ export function createConversationMessageActions(
 
       // All done — cleanup
       runtime.isMultiModelActive = false;
-      runtime.multiModelFirstModelId = null;
+      runtime.multiModelFirstTarget = null;
+      runtime.multiModelHistoryMode = 'selected';
       runtime.multiModelStreamIds.clear();
       set({ pendingCompanionModels: [], multiModelDoneMessageIds: [] });
 
@@ -1219,11 +1248,14 @@ export function createConversationMessageActions(
 
         if (parentId && !runtime.userManuallySelectedVersion) {
           // No manual selection — switch to the first model's version
-          const firstModelId = companionModels[0].modelId;
+          const firstTarget = targetModels[0];
           let targetMessageId = runtime.multiModelFirstMessageId;
           if (!targetMessageId) {
             const localMatch = get().messages.find(
-              (m) => m.parent_message_id === parentId && m.role === 'assistant' && m.model_id === firstModelId,
+              (m) => m.parent_message_id === parentId
+                && m.role === 'assistant'
+                && m.model_id === firstTarget.modelId
+                && m.provider_id === firstTarget.providerId,
             );
             targetMessageId = localMatch?.id ?? null;
           }
@@ -1248,7 +1280,7 @@ export function createConversationMessageActions(
         if (parentId) {
           const versions = await get().listMessageVersions(conversationId, parentId);
           if (versions.length > 0) {
-            const firstModelId = companionModels[0].modelId;
+            const firstTarget = targetModels[0];
             const pendingSelection = runtime.pendingLocalVersionSelections.get(parentId) ?? null;
             const resolvedManualSelection = pendingSelection
               ? findResolvedVersionForPendingSelection(pendingSelection, versions)
@@ -1261,7 +1293,8 @@ export function createConversationMessageActions(
               ?? (runtime.multiModelFirstMessageId
                 ? versions.find((version) => version.id === runtime.multiModelFirstMessageId)
                 : null)
-              ?? versions.find((version) => version.model_id === firstModelId)
+              ?? versions.find((version) => version.model_id === firstTarget.modelId
+                && version.provider_id === firstTarget.providerId)
               ?? versions.find((version) => version.is_active)
               ?? versions[0]
             )?.id ?? null;
@@ -1933,8 +1966,9 @@ export function createConversationMessageActions(
       if (runtime.isMultiModelActive) {
         runtime.isMultiModelActive = false;
         runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstModelId = null;
+        runtime.multiModelFirstTarget = null;
         runtime.multiModelFirstMessageId = null;
+        runtime.multiModelHistoryMode = 'selected';
         runtime.userManuallySelectedVersion = false;
         runtime.multiModelStreamIds.clear();
         if (runtime.multiModelDoneResolve) {

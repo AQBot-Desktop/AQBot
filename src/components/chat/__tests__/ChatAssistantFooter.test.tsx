@@ -1,5 +1,5 @@
 import { App } from 'antd';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type React from 'react';
 import type { Message } from '@/types';
@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@lobehub/icons', () => ({
-  ModelIcon: () => <span />,
+  ModelIcon: ({ model }: { model: string }) => <span data-model={model} data-testid="model-icon" />,
 }));
 
 vi.mock('@ant-design/x/es/actions', () => ({
@@ -121,5 +121,31 @@ describe('AssistantFooter memory action', () => {
     expect(keys.indexOf('delete')).toBe(keys.indexOf('save-memory') + 1);
     expect(container.querySelector('[data-memory-content]'))
       .toHaveAttribute('data-memory-content', 'cleaned **answer**');
+  });
+
+  it('renders separate model tags for identical model ids from different providers', () => {
+    const providerA = makeMessage();
+    const providerB = {
+      ...makeMessage(),
+      id: 'assistant-2',
+      provider_id: 'provider-2',
+      is_active: false,
+      version_index: 1,
+    };
+
+    render(
+      <App>
+        <AssistantFooter
+          assistantCopyText="answer"
+          conversationId="conversation-1"
+          getModelDisplayInfo={() => ({ modelName: 'Model', providerName: 'Provider' })}
+          msg={providerA}
+          onEditMessage={vi.fn()}
+          versions={[providerA, providerB]}
+        />
+      </App>,
+    );
+
+    expect(screen.getAllByTestId('model-icon')).toHaveLength(2);
   });
 });

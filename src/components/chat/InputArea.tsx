@@ -22,10 +22,13 @@ import {
   shouldNotifyContextExclusion,
 } from '@/lib/contextStrategy';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
+import { getModelVersionGroupKey } from '@/lib/chatMultiModel';
+import { useMultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
 import { ModelSelector } from './ModelSelector';
+import { MultiModelFollowUpModeControl } from './MultiModelFollowUpModeControl';
 import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
 import { ModelIcon } from '@lobehub/icons';
 import {
@@ -106,6 +109,7 @@ export function InputArea() {
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
+  const [multiModelHistoryMode, setMultiModelHistoryMode] = useMultiModelContinuationMode(activeConversationId);
   const compressing = activeConversationId !== null
     && compressingConversationId === activeConversationId;
   const sendMessage = useConversationStore((s) => s.sendMessage);
@@ -321,7 +325,12 @@ export function InputArea() {
     (async () => {
       try {
         if (companionModels.length > 0) {
-          await sendMultiModelMessage(text, companionModels, undefined, searchEnabled ? searchProviderId : null);
+          await sendMultiModelMessage({
+            content: text,
+            targetModels: companionModels,
+            historyMode: multiModelHistoryMode,
+            searchProviderId: searchEnabled ? searchProviderId : null,
+          });
         } else {
           await sendMessage(text, undefined, searchEnabled ? searchProviderId : null);
         }
@@ -1210,7 +1219,13 @@ export function InputArea() {
       if (currentMode === 'agent') {
         await sendAgentMessage(finalContent, attachments);
       } else if (companionModels.length > 0) {
-        await sendMultiModelMessage(finalContent, companionModels, attachments, searchEnabled ? searchProviderId : null);
+        await sendMultiModelMessage({
+          content: finalContent,
+          targetModels: companionModels,
+          historyMode: multiModelHistoryMode,
+          attachments,
+          searchProviderId: searchEnabled ? searchProviderId : null,
+        });
       } else {
         await sendMessage(finalContent, attachments, searchEnabled ? searchProviderId : null);
       }
@@ -1233,7 +1248,7 @@ export function InputArea() {
         }
       });
     }
-  }, [value, attachedFiles, pastedSnippets, sendMessage, sendAgentMessage, sendMultiModelMessage, companionModels, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, currentMode, detachAttachments, restoreAttachments]);
+  }, [value, attachedFiles, pastedSnippets, sendMessage, sendAgentMessage, sendMultiModelMessage, companionModels, multiModelHistoryMode, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, currentMode, detachAttachments, restoreAttachments]);
 
   const handleFillLastMessage = useCallback(() => {
     if (loading || streaming) return;
@@ -1515,7 +1530,7 @@ export function InputArea() {
             </span>
             {companionDisplayInfos.map((cm, idx) => (
               <span
-                key={`${cm.providerId}-${cm.modelId}`}
+                key={getModelVersionGroupKey(cm.providerId, cm.modelId)}
                 className="inline-flex items-center gap-1.5 pl-1.5 pr-1 py-0.5 text-xs"
                 style={{
                   backgroundColor: token.colorFillSecondary,
@@ -1540,6 +1555,12 @@ export function InputArea() {
                 />
               </span>
             ))}
+            {companionModels.length >= 2 && (
+              <MultiModelFollowUpModeControl
+                value={multiModelHistoryMode}
+                onChange={setMultiModelHistoryMode}
+              />
+            )}
             {/* Clear all companion models */}
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs cursor-pointer"

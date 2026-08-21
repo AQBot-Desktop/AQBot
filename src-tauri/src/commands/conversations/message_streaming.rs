@@ -695,6 +695,7 @@ pub async fn send_message(
     state: State<'_, AppState>,
     conversation_id: String,
     stream_id: String,
+    history_mode: Option<MultiModelContinuationMode>,
     content: String,
     content_prefix: Option<String>,
     attachments: Vec<AttachmentInput>,
@@ -704,6 +705,7 @@ pub async fn send_message(
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<Message, String> {
+    let history_mode = history_mode.unwrap_or_default();
     if has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id).await
     {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
@@ -833,10 +835,15 @@ pub async fn send_message(
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // 4. Build ChatRequest from conversation messages
-    let db_messages =
-        aqbot_core::repo::message::list_messages_for_model_context(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    let db_messages = aqbot_core::repo::message::list_messages_for_continuation(
+        &state.sea_db,
+        &conversation_id,
+        history_mode,
+        &conversation.provider_id,
+        &conversation.model_id,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let file_store = aqbot_core::file_store::FileStore::new();
 
     let mut chat_messages: Vec<ChatMessage> = Vec::new();
@@ -926,9 +933,7 @@ pub async fn send_message(
 
     let context_strategy = effective_context_strategy(&conversation, &global_settings);
     let existing_summary =
-        aqbot_core::repo::conversation::get_summary(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|error| format!("Failed to load context summary: {error}"))?;
+        load_continuation_summary(&state.sea_db, &conversation_id, history_mode).await?;
     let context_boundary = resolve_context_boundary_for_strategy(
         &db_messages,
         existing_summary.as_ref(),
@@ -1004,6 +1009,7 @@ pub async fn send_message(
         proxy_config: &resolved_proxy,
         model_id: &conversation.model_id,
         use_max_completion_tokens,
+        persist_generated_summary: should_persist_generated_summary(history_mode),
     })
     .await?;
 
@@ -1140,6 +1146,7 @@ pub async fn regenerate_message(
     state: State<'_, AppState>,
     conversation_id: String,
     stream_id: String,
+    history_mode: Option<MultiModelContinuationMode>,
     user_message_id: Option<String>,
     enabled_mcp_server_ids: Option<Vec<String>>,
     thinking_budget: Option<u32>,
@@ -1147,6 +1154,7 @@ pub async fn regenerate_message(
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let history_mode = history_mode.unwrap_or_default();
     if has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id).await
     {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
@@ -1232,11 +1240,16 @@ pub async fn regenerate_message(
         .and_then(|model| model.max_output_tokens);
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
-    // 6. Rebuild chat messages (active messages only — old inactive versions excluded)
-    let remaining_messages =
-        aqbot_core::repo::message::list_messages_for_model_context(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    // 6. Rebuild chat messages from the selected or per-model projected history.
+    let remaining_messages = aqbot_core::repo::message::list_messages_for_continuation(
+        &state.sea_db,
+        &conversation_id,
+        history_mode,
+        &conversation.provider_id,
+        &conversation.model_id,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let file_store = aqbot_core::file_store::FileStore::new();
 
     let mut chat_messages: Vec<ChatMessage> = Vec::new();
@@ -1330,9 +1343,7 @@ pub async fn regenerate_message(
 
     let context_strategy = effective_context_strategy(&conversation, &global_settings);
     let existing_summary =
-        aqbot_core::repo::conversation::get_summary(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|error| format!("Failed to load context summary: {error}"))?;
+        load_continuation_summary(&state.sea_db, &conversation_id, history_mode).await?;
     let context_boundary = resolve_context_boundary_for_strategy(
         &remaining_messages,
         existing_summary.as_ref(),
@@ -1401,6 +1412,7 @@ pub async fn regenerate_message(
         proxy_config: &resolved_proxy,
         model_id: &conversation.model_id,
         use_max_completion_tokens,
+        persist_generated_summary: should_persist_generated_summary(history_mode),
     })
     .await?;
     if context_result.overflow {
@@ -1485,6 +1497,7 @@ pub async fn regenerate_with_model(
     state: State<'_, AppState>,
     conversation_id: String,
     stream_id: String,
+    history_mode: Option<MultiModelContinuationMode>,
     user_message_id: String,
     target_provider_id: String,
     target_model_id: String,
@@ -1495,6 +1508,7 @@ pub async fn regenerate_with_model(
     enabled_memory_namespace_ids: Option<Vec<String>>,
     is_companion: Option<bool>,
 ) -> Result<(), String> {
+    let history_mode = history_mode.unwrap_or_default();
     let companion = is_companion.unwrap_or(false);
     if !companion
         && has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id)
@@ -1559,10 +1573,15 @@ pub async fn regenerate_with_model(
     let document_attachment_reading_enabled = global_settings.document_attachment_reading_enabled;
 
     // Build context messages (same logic as regenerate_message)
-    let remaining_messages =
-        aqbot_core::repo::message::list_messages_for_model_context(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    let remaining_messages = aqbot_core::repo::message::list_messages_for_continuation(
+        &state.sea_db,
+        &conversation_id,
+        history_mode,
+        &conversation.provider_id,
+        &conversation.model_id,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let file_store = aqbot_core::file_store::FileStore::new();
     let mut chat_messages: Vec<ChatMessage> = Vec::new();
 
@@ -1664,9 +1683,7 @@ pub async fn regenerate_with_model(
 
     let context_strategy = effective_context_strategy(&conversation, &global_settings);
     let existing_summary =
-        aqbot_core::repo::conversation::get_summary(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|error| format!("Failed to load context summary: {error}"))?;
+        load_continuation_summary(&state.sea_db, &conversation_id, history_mode).await?;
     let context_boundary = resolve_context_boundary_for_strategy(
         &remaining_messages,
         existing_summary.as_ref(),
@@ -1735,6 +1752,7 @@ pub async fn regenerate_with_model(
         proxy_config: &resolved_proxy,
         model_id: &conversation.model_id,
         use_max_completion_tokens,
+        persist_generated_summary: should_persist_generated_summary(history_mode),
     })
     .await?;
     if context_result.overflow {

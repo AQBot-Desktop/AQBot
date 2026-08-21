@@ -7,7 +7,9 @@ import type { AppSettings, Message } from '@/types';
 import { InputArea } from '../InputArea';
 
 const sendMessage = vi.fn();
+const sendMultiModelMessage = vi.fn();
 const createConversation = vi.fn();
+const setPendingPromptText = vi.fn();
 const setSearchEnabled = vi.fn();
 const setSearchProviderId = vi.fn();
 const loadSearchProviders = vi.fn();
@@ -34,7 +36,10 @@ const conversationState = {
   activeConversationId: 'conv-1' as string | null,
   loading: false,
   sendMessage,
+  sendMultiModelMessage,
   createConversation,
+  pendingPromptText: null as string | null,
+  setPendingPromptText,
   messages: [] as Message[],
   conversations: [
     {
@@ -236,6 +241,7 @@ vi.mock('../ModelSelector', () => ({
 describe('InputArea', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     providerState.providers.splice(1);
     providerState.providers[0].enabled = true;
     providerState.providers[0].provider_type = 'gemini';
@@ -251,6 +257,7 @@ describe('InputArea', () => {
     conversationState.activeConversationId = 'conv-1';
     conversationState.loading = false;
     conversationState.streaming = false;
+    conversationState.pendingPromptText = null;
     getContextUsage.mockResolvedValue(null);
     settingsState.settings.default_provider_id = null;
     settingsState.settings.default_model_id = null;
@@ -413,6 +420,71 @@ describe('InputArea', () => {
     expect(textarea.value).toBe('');
 
     resolveSend();
+  });
+
+  it('persists and sends the per-model follow-up mode for a multi-model request', async () => {
+    localStorage.setItem('aqbot:companion-models:conv-1', JSON.stringify([
+      { providerId: 'provider-1', modelId: 'model-1' },
+      { providerId: 'provider-2', modelId: 'model-1' },
+    ]));
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    expect(await screen.findByTestId('multi-model-follow-up-mode')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('chat.multiModel.followUpModePerModel'));
+    expect(localStorage.getItem('aqbot:multi-model-continuation-mode:conv-1')).toBe('per_model');
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    await userEvent.type(textarea, 'continue each answer');
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => expect(sendMultiModelMessage).toHaveBeenCalledWith({
+      content: 'continue each answer',
+      targetModels: [
+        { providerId: 'provider-1', modelId: 'model-1' },
+        { providerId: 'provider-2', modelId: 'model-1' },
+      ],
+      historyMode: 'per_model',
+      attachments: undefined,
+      searchProviderId: 'search-1',
+    }));
+  });
+
+  it('uses the stored follow-up mode when a welcome-card prompt is sent', async () => {
+    localStorage.setItem('aqbot:companion-models:conv-1', JSON.stringify([
+      { providerId: 'provider-1', modelId: 'model-1' },
+      { providerId: 'provider-2', modelId: 'model-1' },
+    ]));
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+
+    const view = render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+    expect(await screen.findByTestId('multi-model-follow-up-mode')).toBeInTheDocument();
+
+    conversationState.pendingPromptText = 'welcome follow-up';
+    view.rerender(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await waitFor(() => expect(sendMultiModelMessage).toHaveBeenCalledWith({
+      content: 'welcome follow-up',
+      targetModels: [
+        { providerId: 'provider-1', modelId: 'model-1' },
+        { providerId: 'provider-2', modelId: 'model-1' },
+      ],
+      historyMode: 'per_model',
+      searchProviderId: 'search-1',
+    }));
+    expect(setPendingPromptText).toHaveBeenCalledWith(null);
   });
 
   it('renders model-specific reasoning options for Gemini 3.1 models', async () => {

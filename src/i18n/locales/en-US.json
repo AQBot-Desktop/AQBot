@@ -331,7 +331,16 @@
     "loadingConversation": "Loading conversation…",
     "multiModel": {
       "selectTitle": "Select models to respond simultaneously",
-      "selectedCount": "{{count}} model(s) selected"
+      "selectedCount": "{{count}} model(s) selected",
+      "followUpMode": "Follow-up Mode",
+      "followUpModeSelected": "Selected Answer",
+      "followUpModeSelectedDesc": "All models continue from the currently selected answer",
+      "followUpModePerModel": "Continue Individually",
+      "followUpModePerModelDesc": "Each model continues from its own previous answer",
+      "currentSharedContext": "Current Shared Context",
+      "useAsSharedContext": "Use as Shared Context",
+      "currentFallbackContext": "Current Fallback Context",
+      "useAsFallbackContext": "Use as Fallback Context"
     },
     "multiModelUseAsContext": "Use as Context",
     "multiModelCurrentContext": "Current Context",

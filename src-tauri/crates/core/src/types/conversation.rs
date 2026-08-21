@@ -7,6 +7,14 @@ pub const MAX_COMPRESSION_KEEP_LAST_N: u32 = 1000;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum MultiModelContinuationMode {
+    #[default]
+    Selected,
+    PerModel,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ContextStrategy {
     SmartSummary,
     #[default]
@@ -387,4 +395,25 @@ pub struct RoleMarketplaceSource {
     pub id: String,
     pub name: String,
     pub default: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MultiModelContinuationMode;
+
+    #[test]
+    fn multi_model_continuation_mode_uses_frontend_wire_values() {
+        assert_eq!(
+            serde_json::to_string(&MultiModelContinuationMode::Selected).unwrap(),
+            r#""selected""#
+        );
+        assert_eq!(
+            serde_json::from_str::<MultiModelContinuationMode>(r#""per_model""#).unwrap(),
+            MultiModelContinuationMode::PerModel
+        );
+        assert_eq!(
+            MultiModelContinuationMode::default(),
+            MultiModelContinuationMode::Selected
+        );
+    }
 }

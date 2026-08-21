@@ -13,6 +13,7 @@ vi.mock('@/lib/invoke', () => ({
 import {
   deferred,
   flushPromises,
+  makeConversation,
   makeMessage,
   makePage,
 } from './conversationStore.testUtils';
@@ -21,6 +22,7 @@ describe('conversationStore multi-model messages', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
+    localStorage.clear();
     tauriAvailable = false;
     listenMock.mockResolvedValue(() => {});
     const { useConversationStore } = await import('../conversationStore');
@@ -151,7 +153,118 @@ describe('conversationStore multi-model messages', () => {
     ]);
   });
 
+  it('forwards the conversation follow-up mode for an ordinary message', async () => {
+    tauriAvailable = true;
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+    const conversation = makeConversation('conv-1');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      content: 'follow up',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'send_message') return Promise.resolve(user);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    await useConversationStore.getState().sendMessage(user.content);
+
+    expect(invokeMock).toHaveBeenCalledWith('send_message', expect.objectContaining({
+      conversationId: conversation.id,
+      content: user.content,
+      historyMode: 'per_model',
+    }));
+  });
+
+  it('uses the object API, locks one mode for every target, and resolves provider collisions', async () => {
+    tauriAvailable = true;
+    const conversation = makeConversation('conv-1');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      content: 'continue both',
+      provider_id: null,
+      model_id: null,
+      parent_message_id: null,
+    };
+    const companionVersion = {
+      ...makeMessage(3),
+      id: 'assistant-provider-b',
+      provider_id: 'provider-b',
+      model_id: 'shared-model',
+      parent_message_id: user.id,
+      version_index: 1,
+      is_active: false,
+    };
+    const firstVersion = {
+      ...makeMessage(2),
+      id: 'assistant-provider-a',
+      provider_id: 'provider-a',
+      model_id: 'shared-model',
+      parent_message_id: user.id,
+      version_index: 0,
+      is_active: true,
+    };
+    invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
+      if (command === 'update_conversation') {
+        return Promise.resolve({ ...conversation, ...(args.input as Record<string, unknown>) });
+      }
+      if (command === 'send_message') return Promise.resolve(user);
+      if (command === 'regenerate_with_model') return Promise.resolve(undefined);
+      if (command === 'list_message_versions') {
+        // Companion first exposes model-id-only matching bugs.
+        return Promise.resolve([companionVersion, firstVersion]);
+      }
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'list_messages_page') return Promise.resolve(makePage([user, firstVersion], false));
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: user.content,
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'shared-model' },
+        { providerId: 'provider-b', modelId: 'shared-model' },
+      ],
+      historyMode: 'per_model',
+    });
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('send_message', expect.objectContaining({
+      historyMode: 'per_model',
+    }));
+    expect(invokeMock).toHaveBeenCalledWith('regenerate_with_model', expect.objectContaining({
+      targetProviderId: 'provider-b',
+      targetModelId: 'shared-model',
+      historyMode: 'per_model',
+    }));
+    expect(useConversationStore.getState().streamingMessageId).toBe(firstVersion.id);
+    expect(useConversationStore.getState().messages.find((message) => message.id === firstVersion.id))
+      .toMatchObject({ provider_id: 'provider-a', model_id: 'shared-model' });
+
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
   it('adds a new model response as an inactive card when the parent already has multi-model versions', async () => {
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
     invokeMock.mockResolvedValue(undefined);
     const { useConversationStore } = await import('../conversationStore');
     const user = {
@@ -198,6 +311,7 @@ describe('conversationStore multi-model messages', () => {
       targetProviderId: 'provider-c',
       targetModelId: 'model-c',
       isCompanion: true,
+      historyMode: 'per_model',
     }));
 
     const messages = useConversationStore.getState().messages;
@@ -335,6 +449,7 @@ describe('conversationStore multi-model messages', () => {
 
   it('keeps the same-model regenerate placeholder active while the new answer streams', async () => {
     vi.useFakeTimers();
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
     const regenerate = deferred<void>();
     const { useConversationStore } = await import('../conversationStore');
     const user = {
@@ -378,6 +493,7 @@ describe('conversationStore multi-model messages', () => {
     expect(invokeMock).toHaveBeenCalledWith('regenerate_message', expect.objectContaining({
       conversationId: 'conv-1',
       userMessageId: user.id,
+      historyMode: 'per_model',
     }));
 
     const messages = useConversationStore.getState().messages;

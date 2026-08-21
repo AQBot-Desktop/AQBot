@@ -2,6 +2,7 @@ import { invoke, type UnlistenFn } from '@/lib/invoke';
 import { supportsReasoning, supportsFunctionCalling, findModelByIds } from '@/lib/modelCapabilities';
 import { coerceReasoningOptionKey, resolveReasoningProfile } from '@/lib/reasoningProfile';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
+import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import type { StreamActivity } from '@/lib/streamStatus';
 import type {
   EnsureLoadedOptions,
@@ -274,8 +275,9 @@ function getActiveMessageEdges(messages: Message[]): {
 let _multiModelTotalRemaining = 0; // counts ALL models (including first)
 let _multiModelDoneResolve: (() => void) | null = null;
 let _isMultiModelActive = false;
-let _multiModelFirstModelId: string | null = null; // model_id of the first selected model (for auto-switch)
+let _multiModelFirstTarget: MultiModelTarget | null = null; // first provider+model target (for auto-switch)
 let _multiModelFirstMessageId: string | null = null; // actual DB message_id of the first model's response
+let _multiModelHistoryMode: MultiModelContinuationMode = 'selected';
 let _userManuallySelectedVersion = false; // tracks if user manually switched version during multi-model streaming
 const _multiModelStreamIds = new Set<string>();
 export interface PendingLocalVersionSelection {
@@ -1362,21 +1364,29 @@ export interface ConversationState {
   /** Regenerate the title of a conversation using AI */
   regenerateTitle: (conversationId: string) => Promise<void>;
   /** Companion models pending or currently streaming (for multi-model simultaneous response) */
-  pendingCompanionModels: Array<{ providerId: string; modelId: string }>;
+  pendingCompanionModels: MultiModelTarget[];
   /** User message ID of the current multi-model request (for scoping UI indicators) */
   multiModelParentId: string | null;
   /** Message IDs of models that have completed their streams (for per-model loading indicators) */
   multiModelDoneMessageIds: string[];
   /** Send a message and generate responses from multiple companion models */
-  sendMultiModelMessage: (
-    content: string,
-    companionModels: Array<{ providerId: string; modelId: string }>,
-    attachments?: AttachmentInput[],
-    searchProviderId?: string | null,
-  ) => Promise<void>;
+  sendMultiModelMessage: (input: SendMultiModelMessageInput) => Promise<void>;
   /** Pending prompt text from welcome cards — InputArea picks it up and sends with companion awareness */
   pendingPromptText: string | null;
   setPendingPromptText: (text: string | null) => void;
+}
+
+export interface MultiModelTarget {
+  providerId: string;
+  modelId: string;
+}
+
+export interface SendMultiModelMessageInput {
+  content: string;
+  targetModels: MultiModelTarget[];
+  historyMode?: MultiModelContinuationMode;
+  attachments?: AttachmentInput[];
+  searchProviderId?: string | null;
 }
 
 function appendStreamChunk(
@@ -1622,8 +1632,9 @@ export interface ConversationRuntime {
   multiModelTotalRemaining: number;
   multiModelDoneResolve: (() => void) | null;
   isMultiModelActive: boolean;
-  multiModelFirstModelId: string | null;
+  multiModelFirstTarget: MultiModelTarget | null;
   multiModelFirstMessageId: string | null;
+  multiModelHistoryMode: MultiModelContinuationMode;
   userManuallySelectedVersion: boolean;
   multiModelStreamIds: Set<string>;
   pendingLocalVersionSelections: Map<string, PendingLocalVersionSelection>;
@@ -1658,10 +1669,12 @@ export const conversationRuntime: ConversationRuntime = {
   set multiModelDoneResolve(value) { _multiModelDoneResolve = value; },
   get isMultiModelActive() { return _isMultiModelActive; },
   set isMultiModelActive(value) { _isMultiModelActive = value; },
-  get multiModelFirstModelId() { return _multiModelFirstModelId; },
-  set multiModelFirstModelId(value) { _multiModelFirstModelId = value; },
+  get multiModelFirstTarget() { return _multiModelFirstTarget; },
+  set multiModelFirstTarget(value) { _multiModelFirstTarget = value; },
   get multiModelFirstMessageId() { return _multiModelFirstMessageId; },
   set multiModelFirstMessageId(value) { _multiModelFirstMessageId = value; },
+  get multiModelHistoryMode() { return _multiModelHistoryMode; },
+  set multiModelHistoryMode(value) { _multiModelHistoryMode = value; },
   get userManuallySelectedVersion() { return _userManuallySelectedVersion; },
   set userManuallySelectedVersion(value) { _userManuallySelectedVersion = value; },
   multiModelStreamIds: _multiModelStreamIds,

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '@/types';
 import {
   getMessageVersionGroupKey,
+  getModelVersionGroupKey,
   getLatestVersionsByModel,
   hasMultipleModelVersions,
   applyMultiModelStreamError,
@@ -52,6 +53,16 @@ describe('chatMultiModel helpers', () => {
     ]);
 
     expect(latest.map((message) => message.id)).toEqual(['error-1', 'error-2', 'model-2']);
+  });
+
+  it('groups identical model ids separately for different providers', () => {
+    const providerA = makeMessage({ id: 'provider-a', provider_id: 'provider-a', model_id: 'shared-model' });
+    const providerB = makeMessage({ id: 'provider-b', provider_id: 'provider-b', model_id: 'shared-model' });
+
+    expect(getModelVersionGroupKey('provider-a', 'shared-model')).toBe('provider-a:shared-model');
+    expect(getMessageVersionGroupKey(providerA)).not.toBe(getMessageVersionGroupKey(providerB));
+    expect(getLatestVersionsByModel([providerA, providerB])).toEqual([providerA, providerB]);
+    expect(hasMultipleModelVersions([providerA, providerB])).toBe(true);
   });
 
   it('keeps the current active answer visible while adding a new model response', () => {
@@ -288,6 +299,30 @@ describe('chatMultiModel helpers', () => {
     const deleted = makeMessage({ id: 'deleted', model_id: 'model-a', version_index: 1, created_at: 2, status: 'error' });
 
     expect(selectNextAssistantVersion([fallback, deleted], deleted.id)?.id).toBe('fallback');
+  });
+
+  it('prefers another version from the same provider and model after deletion', () => {
+    const sameTarget = makeMessage({
+      id: 'same-target',
+      provider_id: 'provider-a',
+      model_id: 'shared-model',
+      version_index: 0,
+    });
+    const providerCollision = makeMessage({
+      id: 'provider-collision',
+      provider_id: 'provider-b',
+      model_id: 'shared-model',
+      version_index: 9,
+    });
+    const deleted = makeMessage({
+      id: 'deleted',
+      provider_id: 'provider-a',
+      model_id: 'shared-model',
+      version_index: 1,
+    });
+
+    expect(selectNextAssistantVersion([sameTarget, providerCollision, deleted], deleted.id)?.id)
+      .toBe('same-target');
   });
 
   it('merges a complete version group back after an active-only message refresh', () => {

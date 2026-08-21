@@ -307,7 +307,16 @@
     "loadingConversation": "대화 불러오는 중…",
     "multiModel": {
       "selectTitle": "동시에 응답할 모델 선택",
-      "selectedCount": "{{count}}개 모델 선택됨"
+      "selectedCount": "{{count}}개 모델 선택됨",
+      "followUpMode": "후속 질문 방식",
+      "followUpModeSelected": "답변 지정",
+      "followUpModeSelectedDesc": "모든 모델이 현재 선택한 답변을 이어서 답합니다",
+      "followUpModePerModel": "각자 이어가기",
+      "followUpModePerModelDesc": "각 모델이 자신의 이전 답변을 이어서 답합니다",
+      "currentSharedContext": "현재 공통 컨텍스트",
+      "useAsSharedContext": "공통 컨텍스트로 설정",
+      "currentFallbackContext": "현재 대체 컨텍스트",
+      "useAsFallbackContext": "대체 컨텍스트로 설정"
     },
     "multiModelUseAsContext": "컨텍스트로 사용",
     "multiModelCurrentContext": "현재 컨텍스트",

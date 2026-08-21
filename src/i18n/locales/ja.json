@@ -307,7 +307,16 @@
     "loadingConversation": "会話を読み込み中…",
     "multiModel": {
       "selectTitle": "同時に回答するモデルを選択",
-      "selectedCount": "{{count}} 件のモデルを選択済み"
+      "selectedCount": "{{count}} 件のモデルを選択済み",
+      "followUpMode": "続けて質問する方法",
+      "followUpModeSelected": "回答を指定",
+      "followUpModeSelectedDesc": "すべてのモデルが現在選択中の回答を引き継いで続けます",
+      "followUpModePerModel": "個別に続ける",
+      "followUpModePerModelDesc": "各モデルが前回の自身の回答を引き継いで続けます",
+      "currentSharedContext": "現在の共通コンテキスト",
+      "useAsSharedContext": "共通コンテキストに設定",
+      "currentFallbackContext": "現在のフォールバックコンテキスト",
+      "useAsFallbackContext": "フォールバックコンテキストに設定"
     },
     "multiModelUseAsContext": "コンテキストとして使用",
     "multiModelCurrentContext": "現在のコンテキスト",

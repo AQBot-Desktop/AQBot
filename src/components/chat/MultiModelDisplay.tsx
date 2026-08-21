@@ -8,6 +8,7 @@ import type { Message } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { stripAqbotTags } from '@/lib/chatMarkdown';
 import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
+import { useMultiModelContinuationMode, type MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
@@ -175,6 +176,7 @@ function MultiModelDisplayInner({
   const storeMessages = useConversationStore((state) => state.messages);
   const storeStreaming = useConversationStore((state) => state.streaming);
   const streamingConversationId = useConversationStore((state) => state.streamingConversationId);
+  const [multiModelHistoryMode] = useMultiModelContinuationMode(conversationId);
   const liveVersions = useMemo(() => {
     if (!parentMessageId) return [];
     return storeMessages.filter((message) =>
@@ -354,6 +356,7 @@ function MultiModelDisplayInner({
                   message={vMsg}
                   isActive={isActive}
                   parentMessageId={parentMessageId}
+                  historyMode={multiModelHistoryMode}
                   token={token}
                   t={t}
                   onSwitchVersion={onSwitchVersion}
@@ -403,6 +406,7 @@ function MultiModelContextButton({
   message,
   isActive,
   parentMessageId,
+  historyMode,
   token,
   t,
   onSwitchVersion,
@@ -411,11 +415,15 @@ function MultiModelContextButton({
   message: Message;
   isActive: boolean;
   parentMessageId?: string | null;
+  historyMode: MultiModelContinuationMode;
   token: ReturnType<typeof theme.useToken>['token'];
   t: ReturnType<typeof useTranslation>['t'];
   onSwitchVersion: (parentMessageId: string, messageId: string) => void;
   onSetContextVersion?: (message: Message) => void;
 }) {
+  const tooltipKey = historyMode === 'per_model'
+    ? (isActive ? 'chat.multiModel.currentFallbackContext' : 'chat.multiModel.useAsFallbackContext')
+    : (isActive ? 'chat.multiModel.currentSharedContext' : 'chat.multiModel.useAsSharedContext');
   const setContext = () => {
     if (isActive || !parentMessageId) return;
     if (onSetContextVersion) {
@@ -426,7 +434,7 @@ function MultiModelContextButton({
   };
 
   return (
-    <Tooltip title={isActive ? t('chat.multiModelCurrentContext') : t('chat.multiModelUseAsContext')}>
+    <Tooltip title={t(tooltipKey)}>
       <button
         type="button"
         data-testid={`multi-model-set-context-${message.id}`}

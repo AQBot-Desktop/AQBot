@@ -307,7 +307,16 @@
     "loadingConversation": "جارٍ تحميل المحادثة…",
     "multiModel": {
       "selectTitle": "اختر النماذج للرد في آنٍ واحد",
-      "selectedCount": "تم اختيار {{count}} نموذج"
+      "selectedCount": "تم اختيار {{count}} نموذج",
+      "followUpMode": "طريقة متابعة الحوار",
+      "followUpModeSelected": "إجابة محددة",
+      "followUpModeSelectedDesc": "تتابع جميع النماذج انطلاقًا من الإجابة المحددة حاليًا",
+      "followUpModePerModel": "متابعة مستقلة",
+      "followUpModePerModelDesc": "يتابع كل نموذج انطلاقًا من إجابته السابقة",
+      "currentSharedContext": "السياق الموحّد الحالي",
+      "useAsSharedContext": "استخدام كسياق موحّد",
+      "currentFallbackContext": "السياق الاحتياطي الحالي",
+      "useAsFallbackContext": "استخدام كسياق احتياطي"
     },
     "multiModelUseAsContext": "استخدام كسياق",
     "multiModelCurrentContext": "السياق الحالي",

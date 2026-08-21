@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use crate::entity::{conversation_summaries, conversations, messages};
 use crate::error::{AQBotError, Result};
 use crate::types::{
-    Attachment, ConversationStats, Message, MessagePage, MessageRole, MessageSummary, MessageWindow,
+    Attachment, ConversationStats, Message, MessagePage, MessageRole, MessageSummary,
+    MessageWindow, MultiModelContinuationMode,
 };
 use crate::utils::{gen_id, now_ts};
 
@@ -106,6 +107,229 @@ pub async fn list_messages_for_model_context(
         .await?;
 
     rows.into_iter().map(message_from_entity).collect()
+}
+
+pub async fn list_messages_for_model_context_candidates(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+) -> Result<Vec<Message>> {
+    let rows = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(messages::Column::IsActive.eq(1))
+                        .add(messages::Column::Role.is_in(["user", "system"])),
+                )
+                .add(
+                    Condition::all()
+                        .add(messages::Column::Role.eq("assistant"))
+                        .add(messages::Column::VersionIndex.gte(0)),
+                )
+                .add(
+                    Condition::all()
+                        .add(messages::Column::VersionIndex.eq(-1))
+                        .add(messages::Column::Role.is_in(["assistant", "tool"])),
+                ),
+        )
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
+        .all(db)
+        .await?;
+
+    rows.into_iter().map(message_from_entity).collect()
+}
+
+fn continuation_version_priority(left: &Message, right: &Message) -> std::cmp::Ordering {
+    left.version_index
+        .cmp(&right.version_index)
+        .then_with(|| left.created_at.cmp(&right.created_at))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
+fn latest_matching_index<F>(messages: &[Message], indices: &[usize], predicate: F) -> Option<usize>
+where
+    F: Fn(&Message) -> bool,
+{
+    indices
+        .iter()
+        .copied()
+        .filter(|index| predicate(&messages[*index]))
+        .max_by(|left, right| continuation_version_priority(&messages[*left], &messages[*right]))
+}
+
+fn select_per_model_version(
+    messages: &[Message],
+    indices: &[usize],
+    provider_id: &str,
+    model_id: &str,
+) -> Option<usize> {
+    let exact_non_error = |message: &Message| {
+        message.provider_id.as_deref() == Some(provider_id)
+            && message.model_id.as_deref() == Some(model_id)
+            && message.status != "error"
+    };
+
+    latest_matching_index(messages, indices, |message| {
+        exact_non_error(message) && message.is_active
+    })
+    .or_else(|| {
+        latest_matching_index(messages, indices, |message| {
+            exact_non_error(message) && message.status == "complete"
+        })
+    })
+    .or_else(|| {
+        latest_matching_index(messages, indices, |message| {
+            exact_non_error(message) && message.status == "partial"
+        })
+    })
+    .or_else(|| {
+        latest_matching_index(messages, indices, |message| {
+            message.is_active && message.status != "error"
+        })
+    })
+}
+
+fn extract_continuation_tool_call_ids(content: &str) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    let mut remaining = content;
+
+    while let Some(start) = remaining.find(":::mcp ") {
+        let after_marker = &remaining[start + ":::mcp ".len()..];
+        let line_end = after_marker.find('\n').unwrap_or(after_marker.len());
+        if let Ok(value) =
+            serde_json::from_str::<serde_json::Value>(after_marker[..line_end].trim())
+        {
+            if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+                if !id.trim().is_empty() {
+                    ids.insert(id.to_string());
+                }
+            }
+        }
+        remaining = &after_marker[line_end..];
+    }
+
+    ids
+}
+
+fn scaffold_tool_call_ids(message: &Message) -> Option<HashSet<String>> {
+    let calls =
+        serde_json::from_str::<Vec<serde_json::Value>>(message.tool_calls_json.as_deref()?).ok()?;
+    let ids = calls
+        .iter()
+        .filter_map(|call| call.get("id").and_then(serde_json::Value::as_str))
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    (!ids.is_empty() && ids.len() == calls.len()).then_some(ids)
+}
+
+fn allowed_tool_scaffold_ids(
+    messages: &[Message],
+    selected_indices: &HashSet<usize>,
+) -> HashSet<String> {
+    let mut allowed = HashSet::new();
+    for selected_index in selected_indices {
+        let selected = &messages[*selected_index];
+        let (Some(provider_id), Some(model_id), Some(parent_id)) = (
+            selected.provider_id.as_deref(),
+            selected.model_id.as_deref(),
+            selected.parent_message_id.as_deref(),
+        ) else {
+            continue;
+        };
+        let display_ids = extract_continuation_tool_call_ids(&selected.content);
+        if display_ids.is_empty() {
+            continue;
+        }
+
+        for scaffold in messages.iter().filter(|message| {
+            message.role == MessageRole::Assistant
+                && message.version_index == -1
+                && message.parent_message_id.as_deref() == Some(parent_id)
+                && message.provider_id.as_deref() == Some(provider_id)
+                && message.model_id.as_deref() == Some(model_id)
+        }) {
+            if scaffold_tool_call_ids(scaffold).is_some_and(|ids| ids.is_subset(&display_ids)) {
+                allowed.insert(scaffold.id.clone());
+            }
+        }
+    }
+    allowed
+}
+
+pub fn project_messages_for_model_continuation(
+    mut messages: Vec<Message>,
+    provider_id: &str,
+    model_id: &str,
+) -> Vec<Message> {
+    let mut versions_by_parent: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, message) in messages.iter().enumerate() {
+        if message.role != MessageRole::Assistant || message.version_index < 0 {
+            continue;
+        }
+        if let Some(parent_id) = message.parent_message_id.as_ref() {
+            versions_by_parent
+                .entry(parent_id.clone())
+                .or_default()
+                .push(index);
+        }
+    }
+
+    let selected_indices = versions_by_parent
+        .values()
+        .filter_map(|indices| select_per_model_version(&messages, indices, provider_id, model_id))
+        .collect::<HashSet<_>>();
+    let allowed_scaffold_ids = allowed_tool_scaffold_ids(&messages, &selected_indices);
+
+    for (index, message) in messages.iter_mut().enumerate() {
+        if message.role == MessageRole::Assistant
+            && message.version_index >= 0
+            && message.parent_message_id.is_some()
+        {
+            message.is_active = selected_indices.contains(&index);
+        }
+    }
+
+    messages.retain(|message| {
+        if message.version_index != -1 {
+            return true;
+        }
+        match message.role {
+            MessageRole::Assistant => allowed_scaffold_ids.contains(&message.id),
+            MessageRole::Tool => message
+                .parent_message_id
+                .as_ref()
+                .is_some_and(|id| allowed_scaffold_ids.contains(id)),
+            _ => true,
+        }
+    });
+
+    messages
+}
+
+pub async fn list_messages_for_continuation(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    mode: MultiModelContinuationMode,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<Vec<Message>> {
+    match mode {
+        MultiModelContinuationMode::Selected => {
+            list_messages_for_model_context(db, conversation_id).await
+        }
+        MultiModelContinuationMode::PerModel => {
+            let candidates =
+                list_messages_for_model_context_candidates(db, conversation_id).await?;
+            Ok(project_messages_for_model_continuation(
+                candidates,
+                provider_id,
+                model_id,
+            ))
+        }
+    }
 }
 
 pub async fn mark_stale_partial_assistant_messages_failed(db: &DatabaseConnection) -> Result<u64> {
@@ -1040,8 +1264,41 @@ pub async fn get_conversation_stats(
 mod tests {
     use super::*;
     use crate::db::create_test_pool;
-    use crate::repo::conversation;
     use crate::entity::conversation_summaries;
+    use crate::repo::conversation;
+
+    fn assistant_version(
+        id: &str,
+        parent_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        status: &str,
+        version_index: i32,
+        is_active: bool,
+    ) -> Message {
+        Message {
+            id: id.to_string(),
+            conversation_id: "conversation".to_string(),
+            role: MessageRole::Assistant,
+            content: id.to_string(),
+            provider_id: Some(provider_id.to_string()),
+            model_id: Some(model_id.to_string()),
+            token_count: None,
+            prompt_tokens: None,
+            completion_tokens: None,
+            attachments: Vec::new(),
+            thinking: None,
+            created_at: version_index as i64,
+            parent_message_id: Some(parent_id.to_string()),
+            version_index,
+            is_active,
+            tool_calls_json: None,
+            tool_call_id: None,
+            status: status.to_string(),
+            tokens_per_second: None,
+            first_token_latency_ms: None,
+        }
+    }
 
     async fn set_created_at(db: &DatabaseConnection, id: &str, created_at: i64) {
         let row = messages::Entity::find_by_id(id).one(db).await.unwrap().unwrap();
@@ -1190,6 +1447,276 @@ mod tests {
                 .count(),
             1
         );
+
+        let candidates = list_messages_for_model_context_candidates(db, &conv.id)
+            .await
+            .unwrap();
+        assert!(candidates
+            .iter()
+            .any(|message| message.id == stale_version.id));
+        assert!(candidates.iter().any(|message| message.id == scaffold_id));
+
+        let selected = list_messages_for_continuation(
+            db,
+            &conv.id,
+            MultiModelContinuationMode::Selected,
+            "ignored-provider",
+            "ignored-model",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            selected
+                .iter()
+                .map(|message| (&message.id, message.is_active))
+                .collect::<Vec<_>>(),
+            context_messages
+                .iter()
+                .map(|message| (&message.id, message.is_active))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn per_model_continuation_projects_each_turn_to_the_target_model() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv =
+            conversation::create_conversation(db, "Multi Model", "model-a", "provider-a", None)
+                .await
+                .unwrap();
+
+        let user = create_message(db, &conv.id, MessageRole::User, "question", &[], None, 0)
+            .await
+            .unwrap();
+        let answer_a = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "answer-a",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        let answer_b = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "answer-b",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await
+        .unwrap();
+
+        for (message, provider_id, model_id, is_active) in [
+            (&answer_a, "provider-a", "model-a", 1),
+            (&answer_b, "provider-b", "model-b", 0),
+        ] {
+            let row = messages::Entity::find_by_id(&message.id)
+                .one(db)
+                .await
+                .unwrap()
+                .unwrap();
+            let mut am: messages::ActiveModel = row.into();
+            am.provider_id = Set(Some(provider_id.to_string()));
+            am.model_id = Set(Some(model_id.to_string()));
+            am.is_active = Set(is_active);
+            am.update(db).await.unwrap();
+        }
+
+        let projected = list_messages_for_continuation(
+            db,
+            &conv.id,
+            crate::types::MultiModelContinuationMode::PerModel,
+            "provider-b",
+            "model-b",
+        )
+        .await
+        .unwrap();
+
+        assert!(projected
+            .iter()
+            .any(|message| message.id == user.id && message.is_active));
+        assert!(projected
+            .iter()
+            .any(|message| message.id == answer_b.id && message.is_active));
+        assert!(projected
+            .iter()
+            .any(|message| message.id == answer_a.id && !message.is_active));
+    }
+
+    #[test]
+    fn per_model_selection_honors_status_priority_and_provider_identity() {
+        let messages = vec![
+            // Active exact beats a later complete exact version.
+            assistant_version(
+                "turn-1-active",
+                "turn-1",
+                "provider-a",
+                "model",
+                "partial",
+                0,
+                true,
+            ),
+            assistant_version(
+                "turn-1-complete",
+                "turn-1",
+                "provider-a",
+                "model",
+                "complete",
+                1,
+                false,
+            ),
+            // Same model ID from a different provider is not an exact match.
+            assistant_version(
+                "turn-2-other-provider",
+                "turn-2",
+                "provider-b",
+                "model",
+                "complete",
+                2,
+                true,
+            ),
+            assistant_version(
+                "turn-2-exact",
+                "turn-2",
+                "provider-a",
+                "model",
+                "complete",
+                1,
+                false,
+            ),
+            // An exact error is skipped in favor of an exact partial.
+            assistant_version(
+                "turn-3-error",
+                "turn-3",
+                "provider-a",
+                "model",
+                "error",
+                2,
+                true,
+            ),
+            assistant_version(
+                "turn-3-partial",
+                "turn-3",
+                "provider-a",
+                "model",
+                "partial",
+                1,
+                false,
+            ),
+            // With no usable exact version, use a non-error active fallback.
+            assistant_version(
+                "turn-4-error",
+                "turn-4",
+                "provider-a",
+                "model",
+                "error",
+                1,
+                true,
+            ),
+            assistant_version(
+                "turn-4-fallback",
+                "turn-4",
+                "provider-b",
+                "other",
+                "complete",
+                0,
+                true,
+            ),
+            // No usable exact version and only an errored fallback means none.
+            assistant_version(
+                "turn-5-error",
+                "turn-5",
+                "provider-a",
+                "model",
+                "error",
+                1,
+                true,
+            ),
+            assistant_version(
+                "turn-5-fallback-error",
+                "turn-5",
+                "provider-b",
+                "other",
+                "error",
+                0,
+                true,
+            ),
+        ];
+
+        let projected = project_messages_for_model_continuation(messages, "provider-a", "model");
+        let active_ids = projected
+            .iter()
+            .filter(|message| message.is_active)
+            .map(|message| message.id.as_str())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(
+            active_ids,
+            HashSet::from([
+                "turn-1-active",
+                "turn-2-exact",
+                "turn-3-partial",
+                "turn-4-fallback",
+            ])
+        );
+    }
+
+    #[test]
+    fn per_model_projection_drops_unreferenced_tool_scaffolding() {
+        let answer_a = assistant_version(
+            "answer-a",
+            "turn",
+            "provider-a",
+            "model-a",
+            "complete",
+            0,
+            true,
+        );
+        let answer_b = assistant_version(
+            "answer-b",
+            "turn",
+            "provider-b",
+            "model-b",
+            "complete",
+            1,
+            false,
+        );
+        let mut scaffold_a = assistant_version(
+            "scaffold-a",
+            "turn",
+            "provider-a",
+            "model-a",
+            "complete",
+            -1,
+            false,
+        );
+        scaffold_a.tool_calls_json = Some(
+            r#"[{"id":"call-a","type":"function","function":{"name":"read","arguments":"{}"}}]"#
+                .to_string(),
+        );
+        let mut tool_a = scaffold_a.clone();
+        tool_a.id = "tool-a".to_string();
+        tool_a.role = MessageRole::Tool;
+        tool_a.parent_message_id = Some(scaffold_a.id.clone());
+        tool_a.tool_calls_json = None;
+        tool_a.tool_call_id = Some("call-a".to_string());
+
+        let projected = project_messages_for_model_continuation(
+            vec![answer_a, scaffold_a, tool_a, answer_b],
+            "provider-b",
+            "model-b",
+        );
+
+        assert!(projected
+            .iter()
+            .any(|message| message.id == "answer-b" && message.is_active));
+        assert!(projected.iter().all(|message| message.version_index >= 0));
     }
 
     #[tokio::test]

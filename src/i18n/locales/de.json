@@ -307,7 +307,16 @@
     "loadingConversation": "Gespräch wird geladen…",
     "multiModel": {
       "selectTitle": "Modelle für gleichzeitige Antwort auswählen",
-      "selectedCount": "{{count}} Modell(e) ausgewählt"
+      "selectedCount": "{{count}} Modell(e) ausgewählt",
+      "followUpMode": "Art der Fortsetzung",
+      "followUpModeSelected": "Ausgewählte Antwort",
+      "followUpModeSelectedDesc": "Alle Modelle setzen die Unterhaltung auf Grundlage der aktuell ausgewählten Antwort fort",
+      "followUpModePerModel": "Individuell fortsetzen",
+      "followUpModePerModelDesc": "Jedes Modell setzt die Unterhaltung auf Grundlage seiner eigenen vorherigen Antwort fort",
+      "currentSharedContext": "Aktueller gemeinsamer Kontext",
+      "useAsSharedContext": "Als gemeinsamen Kontext verwenden",
+      "currentFallbackContext": "Aktueller Ausweichkontext",
+      "useAsFallbackContext": "Als Ausweichkontext verwenden"
     },
     "multiModelUseAsContext": "Als Kontext verwenden",
     "multiModelCurrentContext": "Aktueller Kontext",

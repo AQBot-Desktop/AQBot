@@ -307,7 +307,16 @@
     "loadingConversation": "Загрузка разговора…",
     "multiModel": {
       "selectTitle": "Выберите модели для одновременного ответа",
-      "selectedCount": "Выбрано моделей: {{count}}"
+      "selectedCount": "Выбрано моделей: {{count}}",
+      "followUpMode": "Режим продолжения",
+      "followUpModeSelected": "Выбранный ответ",
+      "followUpModeSelectedDesc": "Все модели продолжают диалог на основе выбранного сейчас ответа",
+      "followUpModePerModel": "Продолжать отдельно",
+      "followUpModePerModelDesc": "Каждая модель продолжает диалог на основе своего предыдущего ответа",
+      "currentSharedContext": "Текущий общий контекст",
+      "useAsSharedContext": "Использовать как общий контекст",
+      "currentFallbackContext": "Текущий резервный контекст",
+      "useAsFallbackContext": "Использовать как резервный контекст"
     },
     "multiModelUseAsContext": "Использовать как контекст",
     "multiModelCurrentContext": "Текущий контекст",

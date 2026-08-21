@@ -136,6 +136,24 @@ fn effective_context_strategy(
     )
 }
 
+fn should_persist_generated_summary(history_mode: MultiModelContinuationMode) -> bool {
+    history_mode == MultiModelContinuationMode::Selected
+}
+
+async fn load_continuation_summary(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    history_mode: MultiModelContinuationMode,
+) -> Result<Option<ConversationSummary>, String> {
+    if !should_persist_generated_summary(history_mode) {
+        return Ok(None);
+    }
+
+    aqbot_core::repo::conversation::get_summary(db, conversation_id)
+        .await
+        .map_err(|error| format!("Failed to load context summary: {error}"))
+}
+
 fn is_compressible_boundary_message(message: &Message) -> bool {
     message.is_active
         && message.status != "error"
@@ -420,6 +438,7 @@ struct AutoSummaryContextParams<'a> {
     proxy_config: &'a Option<ProviderProxyConfig>,
     model_id: &'a str,
     use_max_completion_tokens: Option<bool>,
+    persist_generated_summary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -674,39 +693,56 @@ async fn prepare_context_with_auto_summary(
     )
     .map_err(|error| error.to_string())?;
 
-    let (summary, marker_message) = do_compress(
-        params.db,
-        params.conversation_id,
-        &messages_to_compress,
-        params
-            .existing_summary
-            .map(|summary| summary.summary_text.as_str()),
-        Some(&boundary.compressed_until_message_id),
-        params.provider,
-        params.decrypted_key,
-        params.key_id,
-        params.proxy_config,
-        params.model_id,
-        params.use_max_completion_tokens,
-        params.settings,
-        params.master_key,
-    )
-    .await?;
+    let generated_summary = if params.persist_generated_summary {
+        let (summary, marker_message) = do_compress(
+            params.db,
+            params.conversation_id,
+            &messages_to_compress,
+            params
+                .existing_summary
+                .map(|summary| summary.summary_text.as_str()),
+            Some(&boundary.compressed_until_message_id),
+            params.provider,
+            params.decrypted_key,
+            params.key_id,
+            params.proxy_config,
+            params.model_id,
+            params.use_max_completion_tokens,
+            params.settings,
+            params.master_key,
+        )
+        .await?;
 
-    if let Err(error) = params.app.emit(
-        "conversation:compressed",
-        CompressionEvent {
-            conversation_id: params.conversation_id.to_string(),
-            marker_message,
-            summary: summary.clone(),
-        },
-    ) {
-        tracing::warn!(
-            conversation_id = params.conversation_id,
-            %error,
-            "Failed to emit automatic context compression event"
-        );
-    }
+        if let Err(error) = params.app.emit(
+            "conversation:compressed",
+            CompressionEvent {
+                conversation_id: params.conversation_id.to_string(),
+                marker_message,
+                summary: summary.clone(),
+            },
+        ) {
+            tracing::warn!(
+                conversation_id = params.conversation_id,
+                %error,
+                "Failed to emit automatic context compression event"
+            );
+        }
+        summary.summary_text
+    } else {
+        do_compress_temporary(
+            params.db,
+            &messages_to_compress,
+            params.provider,
+            params.decrypted_key,
+            params.key_id,
+            params.proxy_config,
+            params.model_id,
+            params.use_max_completion_tokens,
+            params.settings,
+            params.master_key,
+        )
+        .await?
+    };
 
     let (limited_post_history, post_count_excluded) = limit_provider_history_with_count(
         post_compression_history,
@@ -716,7 +752,7 @@ async fn prepare_context_with_auto_summary(
     let result = crate::context_manager::build_context_for_strategy(
         params.base_messages,
         &limited_post_history,
-        Some(&summary.summary_text),
+        Some(&generated_summary),
         params.strategy,
         params.input_budget,
     )?;

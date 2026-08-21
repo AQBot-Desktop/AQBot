@@ -1,8 +1,15 @@
 import type { Message } from '@/types';
 
+export function getModelVersionGroupKey(
+  providerId: string | null | undefined,
+  modelId: string,
+): string {
+  return `${providerId ?? '__provider__'}:${modelId}`;
+}
+
 export function getMessageVersionGroupKey(version: Message): string {
   if (version.model_id) {
-    return `${version.provider_id ?? '__provider__'}:${version.model_id}`;
+    return getModelVersionGroupKey(version.provider_id, version.model_id);
   }
   if (version.provider_id) {
     return `${version.provider_id}:${version.id}`;
@@ -134,8 +141,11 @@ export function selectNextAssistantVersion(
     return null;
   }
 
-  const sameModelVersions = deletedVersion.model_id
-    ? remainingVersions.filter((version) => version.model_id === deletedVersion.model_id)
+  const deletedModelKey = deletedVersion.model_id
+    ? getMessageVersionGroupKey(deletedVersion)
+    : null;
+  const sameModelVersions = deletedModelKey
+    ? remainingVersions.filter((version) => getMessageVersionGroupKey(version) === deletedModelKey)
     : [];
   const candidates = sameModelVersions.length > 0 ? sameModelVersions : remainingVersions;
 

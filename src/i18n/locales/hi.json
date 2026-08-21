@@ -307,7 +307,16 @@
     "loadingConversation": "बातचीत लोड हो रही है…",
     "multiModel": {
       "selectTitle": "एक साथ उत्तर देने के लिए मॉडल चुनें",
-      "selectedCount": "{{count}} मॉडल चुने गए"
+      "selectedCount": "{{count}} मॉडल चुने गए",
+      "followUpMode": "आगे पूछने का तरीका",
+      "followUpModeSelected": "चुना हुआ उत्तर",
+      "followUpModeSelectedDesc": "सभी मॉडल वर्तमान में चुने गए उत्तर से आगे जारी रखते हैं",
+      "followUpModePerModel": "अलग-अलग जारी रखें",
+      "followUpModePerModelDesc": "हर मॉडल अपने पिछले उत्तर से आगे जारी रखता है",
+      "currentSharedContext": "वर्तमान साझा संदर्भ",
+      "useAsSharedContext": "साझा संदर्भ के रूप में सेट करें",
+      "currentFallbackContext": "वर्तमान वैकल्पिक संदर्भ",
+      "useAsFallbackContext": "वैकल्पिक संदर्भ के रूप में सेट करें"
     },
     "multiModelUseAsContext": "संदर्भ के रूप में उपयोग करें",
     "multiModelCurrentContext": "वर्तमान संदर्भ",

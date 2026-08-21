@@ -1,6 +1,10 @@
 import { usePageSuspendCleanup, usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
-import { hasMultipleModelVersions } from '@/lib/chatMultiModel';
+import {
+  getMessageVersionGroupKey,
+  getModelVersionGroupKey,
+  hasMultipleModelVersions,
+} from '@/lib/chatMultiModel';
 import { useConversationStore } from '@/stores';
 import type { ConversationStats, Message } from '@/types';
 import Actions from '@ant-design/x/es/actions';
@@ -54,8 +58,10 @@ function VersionPagination({
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
 
   // Scope to current model's versions
-  const currentModelId = msg.model_id;
-  const modelVersions = allVersions.filter((v) => v.model_id === currentModelId);
+  const currentModelKey = getMessageVersionGroupKey(msg);
+  const modelVersions = allVersions.filter(
+    (version) => getMessageVersionGroupKey(version) === currentModelKey,
+  );
 
   if (modelVersions.length <= 1) return null;
 
@@ -131,6 +137,7 @@ function ModelTags({
   getModelDisplayInfo: (modelId?: string | null, providerId?: string | null) => { modelName: string; providerName: string };
 }) {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
   const pendingCompanionModels = useConversationStore((s) => s.pendingCompanionModels);
   const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
@@ -142,7 +149,7 @@ function ModelTags({
   const modelGroups = useMemo(() => {
     const groups = new Map<string, Message[]>();
     for (const v of allVersions) {
-      const key = v.model_id ?? '__unknown__';
+      const key = getMessageVersionGroupKey(v);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(v);
     }
@@ -152,19 +159,22 @@ function ModelTags({
   // Pending companions that haven't generated a version yet
   const pendingModels = useMemo(() => {
     if (!isMultiModelTarget || !pendingCompanionModels.length) return [];
-    return pendingCompanionModels.filter((cm) => !modelGroups.has(cm.modelId));
+    return pendingCompanionModels.filter(
+      (cm) => !modelGroups.has(getModelVersionGroupKey(cm.providerId, cm.modelId)),
+    );
   }, [isMultiModelTarget, pendingCompanionModels, modelGroups]);
 
   // Check if a model is currently streaming (has a version but not yet completed)
-  const streamingModelIds = useMemo(() => {
+  const streamingModelKeys = useMemo(() => {
     const ids = new Set<string>();
     if (!isMultiModelTarget) return ids;
     for (const cm of pendingCompanionModels) {
-      if (modelGroups.has(cm.modelId)) {
+      const modelKey = getModelVersionGroupKey(cm.providerId, cm.modelId);
+      if (modelGroups.has(modelKey)) {
         // Check if this model's version has completed (per-model tracking)
-        const versions = modelGroups.get(cm.modelId)!;
+        const versions = modelGroups.get(modelKey)!;
         const isDone = versions.some((v) => multiModelDoneMessageIds.includes(v.id));
-        if (!isDone) ids.add(cm.modelId);
+        if (!isDone) ids.add(modelKey);
       }
     }
     return ids;
@@ -172,11 +182,11 @@ function ModelTags({
 
   if (modelGroups.size <= 1 && pendingModels.length === 0) return null;
 
-  const currentModelId = msg.model_id ?? '__unknown__';
+  const currentModelKey = getMessageVersionGroupKey(msg);
 
-  const handleTagClick = (modelId: string) => {
-    if (modelId === currentModelId || !msg.parent_message_id) return;
-    const versions = modelGroups.get(modelId);
+  const handleTagClick = (modelKey: string) => {
+    if (modelKey === currentModelKey || !msg.parent_message_id) return;
+    const versions = modelGroups.get(modelKey);
     if (!versions || versions.length === 0) return;
     const sorted = [...versions].sort((a, b) => b.version_index - a.version_index);
     switchMessageVersion(conversationId, msg.parent_message_id, sorted[0].id);
@@ -184,14 +194,16 @@ function ModelTags({
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      {Array.from(modelGroups.keys()).map((modelId) => {
-        const isActive = modelId === currentModelId;
-        const isStreaming = streamingModelIds.has(modelId);
-        const { modelName } = getModelDisplayInfo(modelId, modelGroups.get(modelId)?.[0]?.provider_id);
+      {Array.from(modelGroups.keys()).map((modelKey) => {
+        const firstVersion = modelGroups.get(modelKey)?.[0];
+        const modelId = firstVersion?.model_id ?? '';
+        const isActive = modelKey === currentModelKey;
+        const isStreaming = streamingModelKeys.has(modelKey);
+        const { modelName } = getModelDisplayInfo(modelId, firstVersion?.provider_id);
         return (
-          <Tooltip key={modelId} title={modelName} mouseEnterDelay={0.3}>
+          <Tooltip key={modelKey} title={modelName} mouseEnterDelay={0.3}>
             <div
-              onClick={() => handleTagClick(modelId)}
+              onClick={() => handleTagClick(modelKey)}
               className={isStreaming ? 'model-tag-streaming' : undefined}
               style={{
                 display: 'flex',
@@ -215,7 +227,11 @@ function ModelTags({
       {pendingModels.map((cm) => {
         const { modelName } = getModelDisplayInfo(cm.modelId, cm.providerId);
         return (
-          <Tooltip key={`pending-${cm.modelId}`} title={`${modelName} (waiting...)`} mouseEnterDelay={0.3}>
+          <Tooltip
+            key={`pending-${getModelVersionGroupKey(cm.providerId, cm.modelId)}`}
+            title={`${modelName} (${t('chat.streamingStatus.waitingProvider')})`}
+            mouseEnterDelay={0.3}
+          >
             <div
               className="model-tag-pending"
               style={{
