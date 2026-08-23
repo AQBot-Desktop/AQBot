@@ -206,6 +206,7 @@ pub async fn import_chatgpt_export_from_path(
             )),
             context_message_limit: Set(None),
             compression_keep_last_n: Set(None),
+            multi_model_display_mode_override: Set(None),
             category_id: Set(None),
             parent_conversation_id: Set(None),
             sort_order: Set(0),
@@ -725,6 +726,7 @@ mod tests {
             conversation.context_strategy_override.as_deref(),
             Some("raw_truncate")
         );
+        assert_eq!(conversation.multi_model_display_mode_override, None);
 
         let imported_messages = messages::Entity::find()
             .filter(messages::Column::ConversationId.eq("chatgpt-conv-1"))

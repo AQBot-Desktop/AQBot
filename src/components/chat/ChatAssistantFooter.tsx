@@ -6,7 +6,7 @@ import {
   hasMultipleModelVersions,
 } from '@/lib/chatMultiModel';
 import { useConversationStore } from '@/stores';
-import type { ConversationStats, Message } from '@/types';
+import type { ConversationStats, Message, MultiModelDisplayMode } from '@/types';
 import Actions from '@ant-design/x/es/actions';
 import { ModelIcon } from '@lobehub/icons';
 import { App, Button, Dropdown, Input, Modal, Popconfirm, Popover, Spin, Tooltip, Typography, theme } from 'antd';
@@ -36,11 +36,11 @@ import {
   User,
   Zap,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatDuration, formatSpeed, formatTokenCount } from '../gateway/tokenFormat';
 import { ModelSelector } from './ModelSelector';
-import { LayoutSwitcher, type MultiModelDisplayMode } from './MultiModelDisplay';
+import { LayoutSwitcher } from './MultiModelDisplay';
 import { SaveToMemoryPopover } from './SaveToMemoryPopover';
 
 // ── Version pagination component for multi-version AI replies ──────────
@@ -344,7 +344,6 @@ export function AssistantFooter({
   isStreaming = false,
   displayMode,
   onDisplayModeChange,
-  onMultiModelDetected,
   onRegeneratedVersionCreated,
 }: {
   msg: Message;
@@ -356,7 +355,6 @@ export function AssistantFooter({
   isStreaming?: boolean;
   displayMode?: MultiModelDisplayMode;
   onDisplayModeChange?: (parentMsgId: string, mode: MultiModelDisplayMode) => void;
-  onMultiModelDetected?: (parentMsgId: string, versions: Message[]) => void;
   onRegeneratedVersionCreated?: (message: Message) => void;
 }) {
   const { token } = theme.useToken();
@@ -378,34 +376,15 @@ export function AssistantFooter({
   });
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
-  const storeMessages = useConversationStore((s) => s.messages);
   const pendingCompanionModelCount = useConversationStore((s) => s.pendingCompanionModels.length);
   const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
-  const allVersions = versions ?? [];
-
-  // Merge DB-fetched versions with in-store companion messages for real-time visibility
-  const mergedVersions = useMemo(() => {
-    if (!msg.parent_message_id) return allVersions;
-    const dbIds = new Set(allVersions.map((v) => v.id));
-    const extra = storeMessages.filter(
-      (m) => m.parent_message_id === msg.parent_message_id && m.role === 'assistant' && !dbIds.has(m.id) && m.model_id,
-    );
-    return extra.length > 0 ? [...allVersions, ...extra] : allVersions;
-  }, [allVersions, storeMessages, msg.parent_message_id]);
+  const mergedVersions = versions ?? [msg];
 
   // Keep multi-model controls visible while sibling model versions are still pending.
   const hasMultiModels = useMemo(() => (
     hasMultipleModelVersions(mergedVersions)
     || (msg.parent_message_id === multiModelParentId && pendingCompanionModelCount > 1)
   ), [mergedVersions, msg.parent_message_id, multiModelParentId, pendingCompanionModelCount]);
-
-  // Report the latest version snapshot to parent so cached multi-model state
-  // can be updated or cleared after deletes/switches.
-  useEffect(() => {
-    if (versions !== undefined && msg.parent_message_id && onMultiModelDetected) {
-      onMultiModelDetected(msg.parent_message_id, mergedVersions);
-    }
-  }, [msg.parent_message_id, mergedVersions, onMultiModelDetected, versions]);
 
   // Current message's model for ModelSelector highlight
   const currentModelOverride = useMemo(() => {
@@ -631,10 +610,11 @@ export function AssistantFooter({
         />
       </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
         {hasMultiModels && displayMode && onDisplayModeChange && msg.parent_message_id && (
           <LayoutSwitcher
             currentMode={displayMode}
+            parentMessageId={msg.parent_message_id}
             onModeChange={(mode) => onDisplayModeChange(msg.parent_message_id!, mode)}
           />
         )}

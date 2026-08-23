@@ -414,6 +414,11 @@ html[data-theme="dark"] .drawing-image-action-button.ant-btn-variant-filled:hove
   background: var(--ant-color-bg-text-hover, rgba(0, 0, 0, 0.06));
 }
 
+.aqbot-layout-mode-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* Model sync picker/metadata rows: whole row is clickable to toggle selection */
 .model-sync-row {
   cursor: pointer;

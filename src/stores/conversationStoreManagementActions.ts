@@ -6,7 +6,6 @@ import {
 } from '@/lib/conversationOrder';
 import {
   mergeAssistantVersionGroup,
-  mergeAssistantVersionsAfterSwitch,
 } from '@/lib/chatMultiModel';
 import { perfNow, perfTrace, perfTraceDuration } from '@/lib/perfTrace';
 import { isResourceFresh } from '@/lib/resourceState';
@@ -20,6 +19,7 @@ import type {
   ConversationSummary,
   ConversationWorkspaceSnapshot,
   Message,
+  MultiModelDisplayMode,
 } from '@/types';
 import {
   CONVERSATIONS_RESOURCE_KEY,
@@ -31,6 +31,7 @@ import {
   conversationRuntime as runtime,
   emptyConversationPreferenceUpdate,
   findResolvedVersionForPendingSelection,
+  getMessageVersionGroupResourceKey,
   invalidateConversationMessageCache,
   isTemporaryMessageId,
   mergeConversationCollections,
@@ -76,6 +77,7 @@ type ConversationManagementActions = Pick<ConversationState,
   | 'setActiveConversation'
   | 'createConversation'
   | 'updateConversation'
+  | 'setConversationMultiModelDisplayMode'
   | 'renameConversation'
   | 'regenerateTitle'
   | 'deleteConversation'
@@ -86,6 +88,9 @@ type ConversationManagementActions = Pick<ConversationState,
   | 'batchDelete'
   | 'batchArchive'
   | 'batchMoveToCategory'
+  | 'ensureMessageVersionGroupsLoaded'
+  | 'invalidateMessageVersionGroups'
+  | 'applyMessageVersionSnapshot'
   | 'hydrateMessageVersions'
   | 'switchMessageVersion'
   | 'listMessageVersions'
@@ -134,10 +139,64 @@ function buildTargetContainerOrder(
   }).map((conversation) => conversation.id);
 }
 
+function updateConversationDisplayModeState(
+  state: ConversationState,
+  input: { conversationId: string; mode: MultiModelDisplayMode | null },
+): Pick<ConversationState, 'conversations' | 'archivedConversations' | 'conversationsMeta'> {
+  const update = (conversation: Conversation) => conversation.id === input.conversationId
+    ? { ...conversation, multi_model_display_mode_override: input.mode }
+    : conversation;
+  return {
+    conversations: state.conversations.map(update),
+    archivedConversations: state.archivedConversations.map(update),
+    conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
+  };
+}
+
 export function createConversationManagementActions(
   set: ConversationStoreSet,
   get: () => ConversationState,
 ): ConversationManagementActions {
+  const nextMessageVersionGroupRevision = (currentRevision = 0): number => {
+    const revision = Math.max(runtime.messageVersionGroupRevision, currentRevision) + 1;
+    runtime.messageVersionGroupRevision = revision;
+    return revision;
+  };
+  const commitMessageVersionSnapshot = (
+    conversationId: string,
+    parentMessageId: string,
+    versions: Message[],
+  ) => {
+    const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+    set((state) => {
+      const current = state.messageVersionGroups[key];
+      if (
+        current?.versions === versions
+        && current.meta.status === 'ready'
+        && current.error === null
+      ) {
+        return {};
+      }
+      return {
+        messageVersionGroups: {
+          ...state.messageVersionGroups,
+          [key]: {
+            conversationId,
+            parentMessageId,
+            versions,
+            error: null,
+            meta: {
+              status: 'ready' as const,
+              key,
+              loadedAt: Date.now(),
+              revision: nextMessageVersionGroupRevision(current?.meta.revision),
+            },
+          },
+        },
+      };
+    });
+  };
+
   return {
     setSearchEnabled: (enabled) => {
       const previous = get().searchEnabled;
@@ -728,6 +787,61 @@ export function createConversationManagementActions(
         throw e;
       }
     },
+    setConversationMultiModelDisplayMode: async (conversationId, mode) => {
+      const current = get().conversations.find((conversation) => conversation.id === conversationId)
+        ?? get().archivedConversations.find((conversation) => conversation.id === conversationId);
+      if (!current) {
+        throw new Error(`Conversation not found: ${conversationId}`);
+      }
+      let mutation = runtime.conversationDisplayModeMutations.get(conversationId);
+      if (!mutation) {
+        mutation = {
+          tail: Promise.resolve(),
+          latestSequence: 0,
+          confirmedMode: current.multi_model_display_mode_override,
+        };
+        runtime.conversationDisplayModeMutations.set(conversationId, mutation);
+      }
+      const sequence = mutation.latestSequence + 1;
+      mutation.latestSequence = sequence;
+      set((state) => updateConversationDisplayModeState(state, { conversationId, mode }));
+
+      const save = mutation.tail.then(async () => {
+        let updated: Conversation;
+        try {
+          updated = await invoke<Conversation>('update_conversation', {
+            id: conversationId,
+            input: { multi_model_display_mode_override: mode },
+          });
+        } catch (error) {
+          if (mutation.latestSequence === sequence) {
+            const rollbackMode = mutation.confirmedMode;
+            set((state) => updateConversationDisplayModeState(state, {
+              conversationId,
+              mode: rollbackMode,
+            }));
+          }
+          throw error;
+        }
+        mutation.confirmedMode = updated.multi_model_display_mode_override;
+        if (mutation.latestSequence !== sequence) return;
+        const confirmedMode = mutation.confirmedMode;
+        set((state) => updateConversationDisplayModeState(state, {
+          conversationId,
+          mode: confirmedMode,
+        }));
+      });
+      mutation.tail = save.then(() => undefined, () => undefined);
+      void mutation.tail.then(() => {
+        if (
+          runtime.conversationDisplayModeMutations.get(conversationId) === mutation
+          && mutation.latestSequence === sequence
+        ) {
+          runtime.conversationDisplayModeMutations.delete(conversationId);
+        }
+      });
+      return save;
+    },
     renameConversation: async (id, title) => {
       await get().updateConversation(id, { title });
     },
@@ -919,7 +1033,152 @@ export function createConversationManagementActions(
       }
       return successfulIds.size;
     },
+    ensureMessageVersionGroupsLoaded: async (conversationId, parentMessageIds, options) => {
+      const uniqueParentIds = Array.from(new Set(parentMessageIds));
+      const existingRequests: Promise<void>[] = [];
+      const parentIdsToLoad: string[] = [];
+
+      for (const parentMessageId of uniqueParentIds) {
+        const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+        const resource = get().messageVersionGroups[key];
+        if (!options?.force && resource?.meta.status === 'ready') {
+          continue;
+        }
+        const existingRequest = runtime.messageVersionGroupRequests.get(key);
+        if (!options?.force && existingRequest) {
+          existingRequests.push(existingRequest);
+          continue;
+        }
+        parentIdsToLoad.push(parentMessageId);
+      }
+
+      if (parentIdsToLoad.length > 0) {
+        const revisions = new Map<string, number>();
+        set((state) => {
+          const messageVersionGroups = { ...state.messageVersionGroups };
+          for (const parentMessageId of parentIdsToLoad) {
+            const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+            const current = messageVersionGroups[key];
+            const revision = nextMessageVersionGroupRevision(current?.meta.revision);
+            revisions.set(key, revision);
+            messageVersionGroups[key] = {
+              conversationId,
+              parentMessageId,
+              versions: current?.versions ?? [],
+              error: null,
+              meta: {
+                status: 'loading',
+                key,
+                loadedAt: current?.meta.loadedAt ?? null,
+                revision,
+              },
+            };
+          }
+          return { messageVersionGroups };
+        });
+
+        const request = (async () => {
+          try {
+            const snapshots = await get().listMessageVersionsBatch(conversationId, parentIdsToLoad);
+            for (const parentMessageId of parentIdsToLoad) {
+              if (!Object.prototype.hasOwnProperty.call(snapshots, parentMessageId)) {
+                throw new Error(`Missing message version snapshot for parent ${parentMessageId}`);
+              }
+            }
+            for (const parentMessageId of parentIdsToLoad) {
+              const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+              if (get().messageVersionGroups[key]?.meta.revision !== revisions.get(key)) {
+                continue;
+              }
+              get().applyMessageVersionSnapshot(
+                conversationId,
+                parentMessageId,
+                snapshots[parentMessageId],
+              );
+            }
+          } catch (error) {
+            const errorMessage = String(error);
+            let hasCurrentFailure = false;
+            set((state) => {
+              const messageVersionGroups = { ...state.messageVersionGroups };
+              let changed = false;
+              for (const parentMessageId of parentIdsToLoad) {
+                const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+                const current = messageVersionGroups[key];
+                if (!current || current.meta.revision !== revisions.get(key)) {
+                  continue;
+                }
+                changed = true;
+                hasCurrentFailure = true;
+                messageVersionGroups[key] = {
+                  ...current,
+                  error: errorMessage,
+                  meta: {
+                    ...current.meta,
+                    status: 'error',
+                  },
+                };
+              }
+              return changed ? { messageVersionGroups } : {};
+            });
+            if (hasCurrentFailure) throw error;
+          }
+        })();
+
+        for (const parentMessageId of parentIdsToLoad) {
+          const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+          runtime.messageVersionGroupRequests.set(key, request);
+        }
+        existingRequests.push(request.finally(() => {
+          for (const parentMessageId of parentIdsToLoad) {
+            const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+            if (runtime.messageVersionGroupRequests.get(key) === request) {
+              runtime.messageVersionGroupRequests.delete(key);
+            }
+          }
+        }));
+      }
+
+      await Promise.all(existingRequests);
+    },
+    invalidateMessageVersionGroups: (conversationId, parentMessageIds) => {
+      const uniqueParentMessageIds = Array.from(new Set(parentMessageIds));
+      for (const parentMessageId of uniqueParentMessageIds) {
+        const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+        runtime.messageVersionGroupRequests.delete(key);
+      }
+      set((state) => {
+        const messageVersionGroups = { ...state.messageVersionGroups };
+        for (const parentMessageId of uniqueParentMessageIds) {
+          const key = getMessageVersionGroupResourceKey(conversationId, parentMessageId);
+          const current = messageVersionGroups[key];
+          messageVersionGroups[key] = {
+            conversationId,
+            parentMessageId,
+            versions: current?.versions ?? [],
+            error: null,
+            meta: {
+              status: 'idle',
+              key,
+              loadedAt: current?.meta.loadedAt ?? null,
+              revision: nextMessageVersionGroupRevision(current?.meta.revision),
+            },
+          };
+        }
+        return { messageVersionGroups };
+      });
+    },
+    applyMessageVersionSnapshot: (conversationId, parentMessageId, versions, activeMessageId) => {
+      commitMessageVersionSnapshot(conversationId, parentMessageId, versions);
+      if (get().activeConversationId === conversationId) {
+        get().hydrateMessageVersions(parentMessageId, versions, activeMessageId);
+      }
+    },
     hydrateMessageVersions: (parentMessageId, versions, activeMessageId) => {
+      const conversationId = versions[0]?.conversation_id ?? get().activeConversationId;
+      if (conversationId) {
+        commitMessageVersionSnapshot(conversationId, parentMessageId, versions);
+      }
       const resolvedPendingSelections: Array<{ pending: PendingLocalVersionSelection; messageId: string }> = [];
       set((s) => {
         let versionsForMerge = versions;
@@ -1021,98 +1280,93 @@ export function createConversationManagementActions(
       }
     },
     switchMessageVersion: async (conversationId, parentMessageId, messageId) => {
-      try {
-        const targetMessage = get().messages.find(
-          (message) => message.id === messageId
-            && message.parent_message_id === parentMessageId
-            && message.role === 'assistant',
-        );
-        if (isTemporaryMessageId(messageId)) {
-          if (!targetMessage) return;
-          runtime.userManuallySelectedVersion = true;
-          rememberPendingLocalVersionSelection(conversationId, parentMessageId, targetMessage);
-          set((s) => ({
-            messages: s.messages.map((message) => {
-              if (message.parent_message_id !== parentMessageId || message.role !== 'assistant') {
-                return message;
-              }
-              return { ...message, is_active: message.id === messageId };
+      const targetMessage = get().messages.find(
+        (message) => message.id === messageId
+          && message.parent_message_id === parentMessageId
+          && message.role === 'assistant',
+      );
+      if (isTemporaryMessageId(messageId)) {
+        if (!targetMessage) return;
+        runtime.userManuallySelectedVersion = true;
+        rememberPendingLocalVersionSelection(conversationId, parentMessageId, targetMessage);
+        set((s) => ({
+          messages: s.messages.map((message) => {
+            if (message.parent_message_id !== parentMessageId || message.role !== 'assistant') {
+              return message;
+            }
+            return { ...message, is_active: message.id === messageId };
+          }),
+        }));
+        return;
+      }
+
+      runtime.pendingLocalVersionSelections.delete(parentMessageId);
+      if (runtime.isMultiModelActive) {
+        // During multi-model streaming, skip the backend call entirely to avoid:
+        // 1. Race conditions with concurrent regenerate_with_model calls
+        // 2. invoke delay causing stale content display
+        // 3. Potential invoke failures during active streaming
+        // Just swap is_active flags in-memory; backend will be synced during cleanup.
+        runtime.userManuallySelectedVersion = true;
+        set((s) => {
+          const targetExists = s.messages.some(
+            (m) => m.id === messageId && m.parent_message_id === parentMessageId && m.role === 'assistant',
+          );
+          if (!targetExists) return {}; // Target not in memory yet, no-op
+          return {
+            messages: s.messages.map((m) => {
+              if (m.parent_message_id !== parentMessageId || m.role !== 'assistant') return m;
+              return m.id === messageId
+                ? { ...m, is_active: true }
+                : { ...m, is_active: false };
             }),
-          }));
-          return;
-        }
+          };
+        });
+        return;
+      }
 
-        runtime.pendingLocalVersionSelections.delete(parentMessageId);
-        if (runtime.isMultiModelActive) {
-          // During multi-model streaming, skip the backend call entirely to avoid:
-          // 1. Race conditions with concurrent regenerate_with_model calls
-          // 2. invoke delay causing stale content display
-          // 3. Potential invoke failures during active streaming
-          // Just swap is_active flags in-memory; backend will be synced during cleanup.
-          runtime.userManuallySelectedVersion = true;
-          set((s) => {
-            const targetExists = s.messages.some(
-              (m) => m.id === messageId && m.parent_message_id === parentMessageId && m.role === 'assistant',
-            );
-            if (!targetExists) return {}; // Target not in memory yet, no-op
-            return {
-              messages: s.messages.map((m) => {
-                if (m.parent_message_id !== parentMessageId || m.role !== 'assistant') return m;
-                return m.id === messageId
-                  ? { ...m, is_active: true }
-                  : { ...m, is_active: false };
-              }),
-            };
-          });
-          return;
-        }
-
+      try {
         await invoke('switch_message_version', { conversationId, parentMessageId, messageId });
-
-        // Normal path: fetch all versions from DB and keep them all in store
-        // with correct is_active flags. This preserves multi-model detection
-        // (multiModelResponseParents) which needs multiple versions visible.
-        const versions = await get().listMessageVersions(conversationId, parentMessageId);
-        if (versions.length > 0) {
-          set((s) => ({
-            messages: mergeAssistantVersionsAfterSwitch(
-              s.messages,
-              parentMessageId,
-              versions,
-              messageId,
-            ),
-          }));
-        }
       } catch (e) {
         set({ error: String(e) });
         await get().fetchMessages(conversationId);
+        return;
+      }
+
+      invalidateConversationMessageCache(conversationId);
+      set((state) => ({
+        messages: state.messages.map((message) => (
+          message.parent_message_id === parentMessageId && message.role === 'assistant'
+            ? { ...message, is_active: message.id === messageId }
+            : message
+        )),
+      }));
+      get().invalidateMessageVersionGroups(conversationId, [parentMessageId]);
+      try {
+        await get().ensureMessageVersionGroupsLoaded(
+          conversationId,
+          [parentMessageId],
+          { force: true },
+        );
+      } catch (e) {
+        set({ error: String(e) });
       }
     },
     listMessageVersions: async (conversationId, parentMessageId) => {
-      try {
-        return await invoke<Message[]>('list_message_versions', { conversationId, parentMessageId });
-      } catch (e) {
-        set({ error: String(e) });
-        return [];
-      }
+      return invoke<Message[]>('list_message_versions', { conversationId, parentMessageId });
     },
     listMessageVersionsBatch: async (conversationId, parentMessageIds) => {
       if (parentMessageIds.length === 0) return {};
       const startedAt = perfNow();
-      try {
-        const result = await invoke<Record<string, Message[]>>('list_message_versions_batch', {
-          conversationId,
-          parentMessageIds,
-        });
-        perfTraceDuration('chat.messageVersions.batch', startedAt, {
-          conversationId,
-          parentCount: parentMessageIds.length,
-        });
-        return result;
-      } catch (e) {
-        set({ error: String(e) });
-        return {};
-      }
+      const result = await invoke<Record<string, Message[]>>('list_message_versions_batch', {
+        conversationId,
+        parentMessageIds,
+      });
+      perfTraceDuration('chat.messageVersions.batch', startedAt, {
+        conversationId,
+        parentCount: parentMessageIds.length,
+      });
+      return result;
     },
     updateMessageContent: async (messageId, content) => {
       if (get().loading) throw new Error('Conversation messages are still loading');
@@ -1138,6 +1392,8 @@ export function createConversationManagementActions(
       }
       try {
         await invoke('delete_message_group', { conversationId, userMessageId });
+        get().applyMessageVersionSnapshot(conversationId, userMessageId, []);
+        invalidateConversationMessageCache(conversationId);
         set((s) => ({
           messages: s.messages.filter(m =>
             m.id !== userMessageId && m.parent_message_id !== userMessageId

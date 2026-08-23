@@ -182,7 +182,7 @@ describe('AssistantFooter memory action', () => {
           msg={message}
           onDisplayModeChange={vi.fn()}
           onEditMessage={vi.fn()}
-          versions={[message]}
+          versions={[message, companion]}
         />
       </App>,
     );

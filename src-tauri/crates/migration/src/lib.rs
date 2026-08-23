@@ -50,6 +50,7 @@ mod m20260812_000001_acp_thread_pin_sort;
 mod m20260813_000001_acp_project_kind;
 mod m20260814_000001_add_context_strategy;
 mod m20260815_000001_add_conversation_sort_order;
+mod m20260823_000001_add_conversation_multi_model_display_mode_override;
 
 pub struct Migrator;
 
@@ -107,6 +108,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20260813_000001_acp_project_kind::Migration),
             Box::new(m20260814_000001_add_context_strategy::Migration),
             Box::new(m20260815_000001_add_conversation_sort_order::Migration),
+            Box::new(
+                m20260823_000001_add_conversation_multi_model_display_mode_override::Migration,
+            ),
         ]
     }
 }
@@ -692,6 +696,73 @@ mod tests {
         Migrator::refresh(&db)
             .await
             .expect("refresh sqlite migrations");
+    }
+
+    #[tokio::test]
+    async fn migrations_add_nullable_multi_model_display_mode_override_to_conversations() {
+        let db = sqlite_test_db().await;
+
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+
+        let columns = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(conversations)".to_string(),
+            ))
+            .await
+            .expect("inspect conversations schema");
+        let column = columns
+            .iter()
+            .find(|row| {
+                row.try_get::<String>("", "name").expect("column name")
+                    == "multi_model_display_mode_override"
+            })
+            .expect("multi-model display mode override column");
+
+        assert_eq!(
+            column.try_get::<i64>("", "notnull").expect("notnull"),
+            0
+        );
+        assert_eq!(
+            column
+                .try_get::<Option<String>>("", "dflt_value")
+                .expect("default value"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn multi_model_display_mode_override_migration_leaves_existing_rows_null() {
+        let db = sqlite_test_db().await;
+        db.execute_unprepared(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY NOT NULL); \
+             INSERT INTO conversations (id) VALUES ('existing');",
+        )
+        .await
+        .expect("create legacy conversations");
+
+        let manager = SchemaManager::new(&db);
+        m20260823_000001_add_conversation_multi_model_display_mode_override::Migration
+            .up(&manager)
+            .await
+            .expect("run multi-model display mode migration");
+
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT multi_model_display_mode_override FROM conversations WHERE id = 'existing'"
+                    .to_string(),
+            ))
+            .await
+            .expect("query migrated conversation")
+            .expect("existing conversation row");
+        assert_eq!(
+            row.try_get::<Option<String>>("", "multi_model_display_mode_override")
+                .expect("read display mode override"),
+            None
+        );
     }
 
     #[tokio::test]

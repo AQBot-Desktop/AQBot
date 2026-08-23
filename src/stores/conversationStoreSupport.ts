@@ -24,6 +24,7 @@ import type {
   ConversationSummary,
   ConversationWorkspaceSnapshot,
   Message,
+  MultiModelDisplayMode,
   UpdateConversationInput,
 } from '@/types';
 
@@ -67,6 +68,9 @@ const _liveStreamContentByMessageId = new Map<string, string>();
 const _liveStreamListenersByMessageId = new Map<string, Set<() => void>>();
 let _activeMessageLoadSeq = 0;
 const _conversationPreferenceSaveSeq = new Map<string, number>();
+const _conversationDisplayModeMutations = new Map<string, ConversationDisplayModeMutation>();
+const _messageVersionGroupRequests = new Map<string, Promise<void>>();
+let _messageVersionGroupRevision = 0;
 export const MESSAGE_PAGE_SIZE = 10;
 export const MAX_LOADED_MESSAGES = 40;
 const CONVERSATIONS_RESOURCE_KEY = 'conversations';
@@ -1242,6 +1246,7 @@ function sanitizeActiveConversationCapabilityIds(
 export interface ConversationState {
   conversations: Conversation[];
   conversationsMeta: ResourceMeta;
+  messageVersionGroups: Record<string, MessageVersionGroupResource>;
   activeConversationId: string | null;
   messages: Message[];
   ragDisplayByMessageId: Record<string, string>;
@@ -1320,6 +1325,10 @@ export interface ConversationState {
     options?: { categoryId?: string | null },
   ) => Promise<Conversation>;
   updateConversation: (id: string, input: UpdateConversationInput) => Promise<void>;
+  setConversationMultiModelDisplayMode: (
+    conversationId: string,
+    mode: MultiModelDisplayMode | null,
+  ) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   branchConversation: (conversationId: string, untilMessageId: string, asChild: boolean, title?: string) => Promise<Conversation>;
@@ -1352,6 +1361,18 @@ export interface ConversationState {
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
   listMessageVersionsBatch: (conversationId: string, parentMessageIds: string[]) => Promise<Record<string, Message[]>>;
+  ensureMessageVersionGroupsLoaded: (
+    conversationId: string,
+    parentMessageIds: string[],
+    options?: { force?: boolean },
+  ) => Promise<void>;
+  invalidateMessageVersionGroups: (conversationId: string, parentMessageIds: string[]) => void;
+  applyMessageVersionSnapshot: (
+    conversationId: string,
+    parentMessageId: string,
+    versions: Message[],
+    activeMessageId?: string | null,
+  ) => void;
   hydrateMessageVersions: (parentMessageId: string, versions: Message[], activeMessageId?: string | null) => void;
   updateMessageContent: (messageId: string, content: string) => Promise<void>;
   deleteMessageGroup: (conversationId: string, userMessageId: string) => Promise<void>;
@@ -1380,6 +1401,29 @@ export interface ConversationState {
 export interface MultiModelTarget {
   providerId: string;
   modelId: string;
+}
+
+export interface MessageVersionGroupResource {
+  conversationId: string;
+  parentMessageId: string;
+  /** Exact persisted membership from the most recent successful query. */
+  versions: Message[];
+  error: string | null;
+  /** A non-null loadedAt means versions remain authoritative during reload/error states. */
+  meta: ResourceMeta;
+}
+
+export function hasAuthoritativeMessageVersionSnapshot(
+  resource: MessageVersionGroupResource | null | undefined,
+): resource is MessageVersionGroupResource {
+  return resource?.meta.loadedAt != null;
+}
+
+export function getMessageVersionGroupResourceKey(
+  conversationId: string,
+  parentMessageId: string,
+): string {
+  return JSON.stringify([conversationId, parentMessageId]);
 }
 
 export interface SendMultiModelMessageInput {
@@ -1630,6 +1674,9 @@ export interface ConversationRuntime {
   agentStreamSeq: number;
   activeAgentCancel: (() => void) | null;
   conversationsRequest: { revision: number; promise: Promise<void> } | null;
+  conversationDisplayModeMutations: Map<string, ConversationDisplayModeMutation>;
+  messageVersionGroupRequests: Map<string, Promise<void>>;
+  messageVersionGroupRevision: number;
   multiModelTotalRemaining: number;
   multiModelDoneResolve: (() => void) | null;
   isMultiModelActive: boolean;
@@ -1640,6 +1687,12 @@ export interface ConversationRuntime {
   userManuallySelectedVersion: boolean;
   multiModelStreamIds: Set<string>;
   pendingLocalVersionSelections: Map<string, PendingLocalVersionSelection>;
+}
+
+export interface ConversationDisplayModeMutation {
+  tail: Promise<void>;
+  latestSequence: number;
+  confirmedMode: MultiModelDisplayMode | null;
 }
 
 /** Shared mutable runtime used by both action slices and stream helpers. */
@@ -1665,6 +1718,10 @@ export const conversationRuntime: ConversationRuntime = {
   set activeAgentCancel(value) { _activeAgentCancel = value; },
   get conversationsRequest() { return _conversationsRequest; },
   set conversationsRequest(value) { _conversationsRequest = value; },
+  conversationDisplayModeMutations: _conversationDisplayModeMutations,
+  messageVersionGroupRequests: _messageVersionGroupRequests,
+  get messageVersionGroupRevision() { return _messageVersionGroupRevision; },
+  set messageVersionGroupRevision(value) { _messageVersionGroupRevision = value; },
   get multiModelTotalRemaining() { return _multiModelTotalRemaining; },
   set multiModelTotalRemaining(value) { _multiModelTotalRemaining = value; },
   get multiModelDoneResolve() { return _multiModelDoneResolve; },

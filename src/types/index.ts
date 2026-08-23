@@ -348,6 +348,7 @@ export interface ModelParamOverrides {
 // === Conversation & Message ===
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 export type ContextStrategy = 'smart_summary' | 'raw_truncate' | 'raw_strict';
+export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
 
 export interface ConversationCategory {
   id: string;
@@ -384,6 +385,8 @@ export interface Conversation {
   enabled_mcp_server_ids: string[];
   enabled_knowledge_base_ids: string[];
   enabled_memory_namespace_ids: string[];
+  /** Per-conversation multi-model layout. null = use the global default. */
+  multi_model_display_mode_override: MultiModelDisplayMode | null;
   is_pinned: boolean;
   is_archived: boolean;
   /** Legacy compatibility flag. Prefer context_strategy_override. */
@@ -550,6 +553,8 @@ export interface UpdateConversationInput {
   enabled_mcp_server_ids?: string[];
   enabled_knowledge_base_ids?: string[];
   enabled_memory_namespace_ids?: string[];
+  /** Set null to clear the override and use the global default layout. */
+  multi_model_display_mode_override?: MultiModelDisplayMode | null;
   /** Legacy compatibility flag. Prefer context_strategy_override. */
   context_compression?: boolean;
   /** Set null to clear the override and use the global default strategy. */
@@ -847,7 +852,7 @@ export interface AppSettings {
   /** Include Image models in the conversation model selector. Default: false */
   show_image_models_in_model_selector?: boolean;
   /** Multi-model response display mode */
-  multi_model_display_mode?: 'tabs' | 'side-by-side' | 'stacked';
+  multi_model_display_mode?: MultiModelDisplayMode;
   /** Render user messages as Markdown (like AI messages). Default: false */
   render_user_markdown?: boolean;
   /** Agent default workspace root. Null uses ~/.aqbot/workspace. */

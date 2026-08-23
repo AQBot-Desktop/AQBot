@@ -13,6 +13,37 @@ pub enum MultiModelContinuationMode {
     PerModel,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MultiModelDisplayMode {
+    Tabs,
+    SideBySide,
+    Stacked,
+}
+
+impl MultiModelDisplayMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tabs => "tabs",
+            Self::SideBySide => "side-by-side",
+            Self::Stacked => "stacked",
+        }
+    }
+}
+
+impl std::str::FromStr for MultiModelDisplayMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "tabs" => Ok(Self::Tabs),
+            "side-by-side" => Ok(Self::SideBySide),
+            "stacked" => Ok(Self::Stacked),
+            _ => Err(format!("unsupported multi-model display mode: {value}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextStrategy {
@@ -78,6 +109,10 @@ pub struct Conversation {
     /// Keep the last N compressible messages out of compression.
     /// `None` uses the default (3). `Some(0)` keeps none (compress all eligible).
     pub compression_keep_last_n: Option<u32>,
+    /// Per-conversation multi-model response layout override.
+    /// `None` follows the global `AppSettings::multi_model_display_mode`.
+    #[serde(default)]
+    pub multi_model_display_mode_override: Option<MultiModelDisplayMode>,
     pub category_id: Option<String>,
     pub parent_conversation_id: Option<String>,
     pub sort_order: i32,
@@ -241,6 +276,9 @@ pub struct UpdateConversationInput {
     /// Set to `Some(None)` to clear and use the default keep-last-N (3).
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub compression_keep_last_n: Option<Option<i64>>,
+    /// Set to `Some(None)` to clear the override and follow the global layout.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub multi_model_display_mode_override: Option<Option<MultiModelDisplayMode>>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub category_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_double_option")]

@@ -59,6 +59,313 @@ describe('conversationStore multi-model messages', () => {
     });
   });
 
+  it('treats a ready empty version snapshot as authoritative', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+    };
+    const oldAssistant = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: user.id,
+      role: 'assistant' as const,
+    };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, oldAssistant],
+    });
+
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      user.id,
+      [],
+    );
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource).toMatchObject({
+      conversationId: 'conv-1',
+      parentMessageId: user.id,
+      versions: [],
+      error: null,
+      meta: { status: 'ready' },
+    });
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual([user.id]);
+  });
+
+  it('rejects version queries and preserves a non-empty resource error', async () => {
+    const queryError = new Error('version query unavailable');
+    invokeMock.mockRejectedValue(queryError);
+    const { useConversationStore } = await import('../conversationStore');
+    const version = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+    };
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      'user-1',
+      [version],
+    );
+    useConversationStore.getState().invalidateMessageVersionGroups('conv-1', ['user-1']);
+
+    await expect(useConversationStore.getState().listMessageVersions('conv-1', 'user-1'))
+      .rejects.toThrow('version query unavailable');
+    await expect(useConversationStore.getState().listMessageVersionsBatch('conv-1', ['user-1']))
+      .rejects.toThrow('version query unavailable');
+    await expect(useConversationStore.getState().ensureMessageVersionGroupsLoaded('conv-1', ['user-1']))
+      .rejects.toThrow('version query unavailable');
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual(['answer-a']);
+    expect(resource.meta.status).toBe('error');
+    expect(resource.meta.loadedAt).not.toBeNull();
+    expect(resource.error).toContain('version query unavailable');
+  });
+
+  it('keeps the last successful snapshot authoritative during a force reload', async () => {
+    const reload = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_message_versions_batch') return reload.promise;
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const [{ useConversationStore, hasAuthoritativeMessageVersionSnapshot }, { selectRenderableVersionSet }] = await Promise.all([
+      import('../conversationStore'),
+      import('@/lib/chatMultiModel'),
+    ]);
+    const snapshotA = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      content: 'persisted-a',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+    };
+    const snapshotB = {
+      ...makeMessage(4),
+      id: 'answer-b',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+    };
+    const liveA = { ...snapshotA, content: 'live-a' };
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      'user-1',
+      [snapshotA, snapshotB],
+    );
+
+    const loading = useConversationStore.getState()
+      .ensureMessageVersionGroupsLoaded('conv-1', ['user-1'], { force: true });
+    await flushPromises();
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.meta.status).toBe('loading');
+    expect(hasAuthoritativeMessageVersionSnapshot(resource)).toBe(true);
+    expect(selectRenderableVersionSet(resource.versions, [liveA])).toEqual([liveA, snapshotB]);
+
+    reload.resolve({ 'user-1': [snapshotA, snapshotB] });
+    await loading;
+  });
+
+  it('ignores an older version request after the group revision changes', async () => {
+    const staleRequest = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_message_versions_batch') return staleRequest.promise;
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    const freshA = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+      content: 'fresh',
+    };
+    const staleB = {
+      ...makeMessage(4),
+      id: 'answer-b',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+    };
+
+    const loading = useConversationStore.getState()
+      .ensureMessageVersionGroupsLoaded('conv-1', ['user-1']);
+    await flushPromises();
+    useConversationStore.getState().invalidateMessageVersionGroups('conv-1', ['user-1']);
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      'user-1',
+      [freshA],
+    );
+    staleRequest.resolve({ 'user-1': [freshA, staleB] });
+    await loading;
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual(['answer-a']);
+    expect(resource.versions[0]?.content).toBe('fresh');
+  });
+
+  it('starts a fresh request after invalidation and pruning while an older request is pending', async () => {
+    const staleRequest = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    const freshRequest = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    let requestCount = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command !== 'list_message_versions_batch') {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      requestCount += 1;
+      return requestCount === 1 ? staleRequest.promise : freshRequest.promise;
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    const freshA = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+      content: 'fresh',
+    };
+    const staleB = {
+      ...makeMessage(4),
+      id: 'answer-b',
+      parent_message_id: 'user-1',
+      role: 'assistant' as const,
+    };
+
+    const staleLoading = useConversationStore.getState()
+      .ensureMessageVersionGroupsLoaded('conv-1', ['user-1']);
+    await flushPromises();
+    useConversationStore.getState().invalidateMessageVersionGroups('conv-1', ['user-1']);
+    useConversationStore.setState({ messageVersionGroups: {} });
+    const freshLoading = useConversationStore.getState()
+      .ensureMessageVersionGroupsLoaded('conv-1', ['user-1']);
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    freshRequest.resolve({ 'user-1': [freshA] });
+    await freshLoading;
+    staleRequest.reject(new Error(`stale response included ${staleB.id}`));
+    await expect(staleLoading).resolves.toBeUndefined();
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual(['answer-a']);
+    expect(resource.versions[0]?.content).toBe('fresh');
+  });
+
+  it('keeps the latest active version when switch refreshes complete out of order', async () => {
+    const staleRefresh = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    const freshRefresh = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
+    let refreshCount = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'switch_message_version') return Promise.resolve();
+      if (command === 'list_message_versions_batch') {
+        refreshCount += 1;
+        return refreshCount === 1 ? staleRefresh.promise : freshRefresh.promise;
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    const user = { ...makeMessage(1), id: 'user-1', role: 'user' as const };
+    const answerA = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: user.id,
+      role: 'assistant' as const,
+      is_active: true,
+    };
+    const answerB = {
+      ...makeMessage(3),
+      id: 'answer-b',
+      parent_message_id: user.id,
+      role: 'assistant' as const,
+      is_active: false,
+    };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, answerA, answerB],
+    });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      user.id,
+      [answerA, answerB],
+    );
+
+    const switchToB = useConversationStore.getState()
+      .switchMessageVersion('conv-1', user.id, answerB.id);
+    await vi.waitFor(() => expect(refreshCount).toBe(1));
+    const switchBackToA = useConversationStore.getState()
+      .switchMessageVersion('conv-1', user.id, answerA.id);
+    await vi.waitFor(() => expect(refreshCount).toBe(2));
+
+    freshRefresh.resolve({
+      [user.id]: [
+        { ...answerA, is_active: true },
+        { ...answerB, is_active: false },
+      ],
+    });
+    await switchBackToA;
+    staleRefresh.resolve({
+      [user.id]: [
+        { ...answerA, is_active: false },
+        { ...answerB, is_active: true },
+      ],
+    });
+    await switchToB;
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.find((version) => version.is_active)?.id).toBe(answerA.id);
+    expect(useConversationStore.getState().messages.find((message) => (
+      message.role === 'assistant' && message.is_active
+    ))?.id)
+      .toBe(answerA.id);
+  });
+
+  it('retains but invalidates a complete snapshot after an active-only message refresh', async () => {
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+    };
+    const activeA = {
+      ...makeMessage(2),
+      id: 'answer-a',
+      parent_message_id: user.id,
+      role: 'assistant' as const,
+      is_active: true,
+    };
+    const inactiveB = {
+      ...makeMessage(4),
+      id: 'answer-b',
+      parent_message_id: user.id,
+      role: 'assistant' as const,
+      is_active: false,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_messages_page') {
+        return Promise.resolve(makePage([user, activeA], false));
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore, hasAuthoritativeMessageVersionSnapshot } = await import('../conversationStore');
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      messages: [user, activeA, inactiveB],
+    });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      user.id,
+      [activeA, inactiveB],
+    );
+
+    await useConversationStore.getState().fetchMessages('conv-1');
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.meta.status).toBe('idle');
+    expect(hasAuthoritativeMessageVersionSnapshot(resource)).toBe(true);
+    expect(resource.versions.map((message) => message.id)).toEqual(['answer-a', 'answer-b']);
+    expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual(['user-1', 'answer-a']);
+  });
+
   it('hydrates inactive assistant versions into the store for multi-model rendering', async () => {
     const { useConversationStore } = await import('../conversationStore');
     const user = {
@@ -156,7 +463,10 @@ describe('conversationStore multi-model messages', () => {
   it('forwards the conversation follow-up mode for an ordinary message', async () => {
     tauriAvailable = true;
     localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const user = {
       ...makeMessage(1),
       id: 'user-1',
@@ -188,7 +498,10 @@ describe('conversationStore multi-model messages', () => {
 
   it('uses the object API, locks one mode for every target, and resolves provider collisions', async () => {
     tauriAvailable = true;
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const user = {
       ...makeMessage(1),
       id: 'user-1',
@@ -271,7 +584,10 @@ describe('conversationStore multi-model messages', () => {
 
   it('scopes pending model status to the optimistic user message before the backend responds', async () => {
     tauriAvailable = true;
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const persistedUser = {
       ...makeMessage(1),
       id: 'user-persisted',
@@ -332,7 +648,10 @@ describe('conversationStore multi-model messages', () => {
       listeners.set(eventName, handler);
       return () => {};
     });
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const persistedUser = {
       ...makeMessage(1),
       id: 'user-persisted',
@@ -401,7 +720,10 @@ describe('conversationStore multi-model messages', () => {
 
   it('does not start companion models when the first request is cancelled before persistence', async () => {
     tauriAvailable = true;
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const persistedUser = {
       ...makeMessage(1),
       id: 'user-persisted',
@@ -451,7 +773,10 @@ describe('conversationStore multi-model messages', () => {
 
   it('does not reuse an older user message when the first multi-model request fails', async () => {
     tauriAvailable = true;
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const oldUser = {
       ...makeMessage(1),
       id: 'user-old',
@@ -493,7 +818,10 @@ describe('conversationStore multi-model messages', () => {
 
   it('does not let a cancelled run finalizer clear the next multi-model request', async () => {
     tauriAvailable = true;
-    const conversation = makeConversation('conv-1');
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
     const firstUser = {
       ...makeMessage(1),
       id: 'user-first',

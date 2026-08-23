@@ -1,28 +1,32 @@
 import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useMessageVersionGroups } from '@/hooks/useMessageVersionGroups';
+import { useMultiModelLayoutState } from '@/hooks/useMultiModelLayoutState';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { safeParseChatMarkdown, shouldUsePlainTextChatContent, type ChatMarkdownNode } from '@/lib/chatMarkdown';
 import { createChatContentFingerprint, getCachedChatMarkdown, setCachedChatMarkdown } from '@/lib/chatMarkdownCache';
 import {
   getMessageVersionGroupKey,
-  hasMultipleModelVersions,
   resolvePendingDisplayVersionSelection,
-  selectRenderableVersionSet,
   shouldRenderStandaloneAssistantError,
   type PendingDisplayVersionSelection,
 } from '@/lib/chatMultiModel';
 import { getConvIcon } from '@/lib/convIcon';
 import { normalizeAutoConversationTitle } from '@/lib/conversationTitle';
 import { invoke } from '@/lib/invoke';
-import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import { getRoleIntro } from '@/lib/roleIntro';
 import { parseSearchContent } from '@/lib/searchUtils';
 import { normalizeStoredMediaUrlsForPlatform } from '@/lib/storedMedia';
 import { useAgentStore, useConversationStore, useProviderStore, useSettingsStore } from '@/stores';
 import { MAX_LOADED_MESSAGES } from '@/stores/conversationStore';
 import { useUserProfileStore, type AvatarType } from '@/stores/userProfileStore';
-import type { ConversationStats, ConversationSummary, Message } from '@/types';
+import type {
+  ConversationStats,
+  ConversationSummary,
+  Message,
+  MultiModelDisplayMode,
+} from '@/types';
 import { SyncOutlined } from '@ant-design/icons';
 import Actions from '@ant-design/x/es/actions';
 import Bubble from '@ant-design/x/es/bubble';
@@ -83,7 +87,7 @@ import { ConversationModelIcon } from './ConversationModelIcon';
 import { InputArea } from './InputArea';
 import { MessageAttachmentPreview } from './MessageAttachmentPreview';
 import { ModelSelector } from './ModelSelector';
-import { MultiModelDisplay, type MultiModelDisplayMode } from './MultiModelDisplay';
+import { MultiModelDisplay } from './MultiModelDisplay';
 import PermissionCard from './PermissionCard';
 import { getChatCodeThemes, setCodeBlockPreviewHandler, setMermaidOpenModalHandler } from './chatMarkdownShared';
 import { resolveAssistantMessageForBubbleKey } from './chatMessageLookup';
@@ -180,6 +184,7 @@ export function ChatView() {
   const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
   const pendingCompanionModelCount = useConversationStore((s) => s.pendingCompanionModels.length);
   const multiModelDoneMessageIds = useConversationStore((s) => s.multiModelDoneMessageIds);
+  const setConversationMultiModelDisplayMode = useConversationStore((s) => s.setConversationMultiModelDisplayMode);
   const thinkingActiveMessageIds = useConversationStore((s) => s.thinkingActiveMessageIds);
   const storeError = useConversationStore((s) => s.error);
   const updateConversation = useConversationStore((s) => s.updateConversation);
@@ -200,8 +205,6 @@ export function ChatView() {
   const retryCompression = useConversationStore((s) => s.retryCompression);
   const deleteCompression = useConversationStore((s) => s.deleteCompression);
   const openCompressionSummaryToken = useConversationStore((s) => s.openCompressionSummaryToken);
-  const listMessageVersionsBatch = useConversationStore((s) => s.listMessageVersionsBatch);
-  const hydrateMessageVersions = useConversationStore((s) => s.hydrateMessageVersions);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [summaryModalText, setSummaryModalText] = useState('');
   const [summaryModalSummary, setSummaryModalSummary] = useState<ConversationSummary | null>(null);
@@ -289,6 +292,27 @@ export function ChatView() {
   }, []);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const persistConversationDisplayMode = useCallback(async (mode: MultiModelDisplayMode) => {
+    if (!activeConversationId) {
+      throw new Error('Cannot persist a layout without an active conversation');
+    }
+    await setConversationMultiModelDisplayMode(activeConversationId, mode);
+  }, [activeConversationId, setConversationMultiModelDisplayMode]);
+  const {
+    getDisplayMode,
+    retainDisplayModes,
+    setDisplayMode,
+  } = useMultiModelLayoutState({
+    conversationId: activeConversationId,
+    globalDisplayMode: settings.multi_model_display_mode ?? 'tabs',
+    conversationDisplayMode: activeConversation?.multi_model_display_mode_override,
+    persistConversationDisplayMode,
+  });
+  const handleDisplayModeChange = useCallback((parentMessageId: string, mode: MultiModelDisplayMode) => {
+    void setDisplayMode(parentMessageId, mode).catch(() => {
+      messageApi.error(t('chat.multiModel.displayModeSaveFailed'));
+    });
+  }, [messageApi, setDisplayMode, t]);
   useEffect(() => {
     const agentStore = useAgentStore.getState();
     const visibleAgentConversationId = activeConversation?.mode === 'agent'
@@ -1011,123 +1035,27 @@ export function ChatView() {
     () => messages.filter((msg) => msg.is_active !== false),
     [messages],
   );
-  const assistantVersionParentIdsKey = useMemo(() => {
-    const ids = new Set<string>();
-    for (const msg of activeMessages) {
-      if (msg.role === 'assistant' && msg.parent_message_id) {
-        ids.add([
-          msg.parent_message_id,
-          msg.id,
-          msg.version_index,
-          createChatContentFingerprint(msg.content),
-        ].join('\0'));
-      }
-    }
-    return Array.from(ids).join('\n');
-  }, [activeMessages]);
-  const [messageVersionsByParentId, setMessageVersionsByParentId] = useState<Record<string, Message[]>>({});
-  const messageVersionsCacheRef = useRef(new Map<string, Record<string, string[]>>());
+  const retainedChatCacheKeys = useMemo(() => collectRetainedChatCacheKeys(
+    messages,
+    MAX_LOADED_MESSAGES,
+    streamingMessageId ? [streamingMessageId] : [],
+  ), [messages, streamingMessageId]);
+  const {
+    multiModelResponseParents,
+    renderableVersionsByParentId,
+  } = useMessageVersionGroups({
+    conversationId: activeConversationId,
+    messages,
+    visibleMessages: activeMessages,
+    retainedParentMessageIds: retainedChatCacheKeys.parentIds,
+    multiModelParentId,
+    pendingCompanionModelCount,
+    multiModelDoneMessageIds,
+  });
   const messageById = useMemo(
     () => new Map(messages.map((msg) => [msg.id, msg])),
     [messages],
   );
-  const currentMessageVersionsByParentId = useMemo(() => Object.fromEntries(
-    Object.entries(messageVersionsByParentId).map(([parentId, versions]) => [
-      parentId,
-      versions.map((version) => messageById.get(version.id) ?? version),
-    ]),
-  ), [messageById, messageVersionsByParentId]);
-
-  useEffect(() => {
-    if (!activeConversationId || !assistantVersionParentIdsKey) {
-      setMessageVersionsByParentId((prev) => (Object.keys(prev).length > 0 ? {} : prev));
-      return;
-    }
-
-    const resourceKey = `${activeConversationId}\n${assistantVersionParentIdsKey}`;
-    const cachedVersionIds = messageVersionsCacheRef.current.get(resourceKey);
-    if (cachedVersionIds) {
-      const currentMessagesById = new Map(
-        useConversationStore.getState().messages.map((message) => [message.id, message]),
-      );
-      const cachedVersions: Record<string, Message[]> = {};
-      let cacheComplete = true;
-      for (const [parentId, versionIds] of Object.entries(cachedVersionIds)) {
-        const versions = versionIds
-          .map((messageId) => currentMessagesById.get(messageId))
-          .filter((message): message is Message => Boolean(message));
-        if (versions.length !== versionIds.length) {
-          cacheComplete = false;
-          break;
-        }
-        cachedVersions[parentId] = versions;
-      }
-      if (!cacheComplete) {
-        messageVersionsCacheRef.current.delete(resourceKey);
-      } else {
-        messageVersionsCacheRef.current.delete(resourceKey);
-        messageVersionsCacheRef.current.set(resourceKey, cachedVersionIds);
-        setMessageVersionsByParentId(cachedVersions);
-        return;
-      }
-    }
-
-    let cancelled = false;
-    let frameId = 0;
-    let idleId: number | null = null;
-    const win = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const parentMessageIds = assistantVersionParentIdsKey
-      .split('\n')
-      .map((entry) => entry.split('\0', 1)[0])
-      .filter(Boolean);
-    const startedAt = perfNow();
-    const load = () => {
-      listMessageVersionsBatch(activeConversationId, parentMessageIds).then((result) => {
-        perfTraceDuration('chat.messageVersions.ready', startedAt, {
-          conversationId: activeConversationId,
-          parentCount: parentMessageIds.length,
-        });
-        if (cancelled) return;
-        messageVersionsCacheRef.current.set(
-          resourceKey,
-          Object.fromEntries(parentMessageIds.map((parentId) => [
-            parentId,
-            (result[parentId] ?? []).map((message) => message.id),
-          ])),
-        );
-        while (messageVersionsCacheRef.current.size > 8) {
-          const oldestKey = messageVersionsCacheRef.current.keys().next().value;
-          if (!oldestKey) break;
-          messageVersionsCacheRef.current.delete(oldestKey);
-        }
-        setMessageVersionsByParentId(result);
-        for (const [parentId, versions] of Object.entries(result)) {
-          if (versions.length > 0) {
-            hydrateMessageVersions(parentId, versions);
-          }
-        }
-      });
-    };
-
-    frameId = window.requestAnimationFrame(() => {
-      if (typeof win.requestIdleCallback === 'function') {
-        idleId = win.requestIdleCallback(load, { timeout: 500 });
-      } else {
-        load();
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frameId);
-      if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
-        win.cancelIdleCallback(idleId);
-      }
-    };
-  }, [activeConversationId, assistantVersionParentIdsKey, hydrateMessageVersions, listMessageVersionsBatch]);
   // Separate lookup: parent message id → active assistant message (for stable bubble keys)
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();
@@ -1138,91 +1066,29 @@ export function ChatView() {
     }
     return map;
   }, [messages]);
-
-  // Pre-compute parent IDs that have responses from multiple distinct models
-  // (from in-store messages — may be incomplete after fetchMessages since DB only returns active)
-  const multiModelResponseParents = useMemo(() => {
-    const modelsByParent = new Map<string, Set<string>>();
-    for (const msg of messages) {
-      if (msg.role === 'assistant' && msg.parent_message_id) {
-        if (!modelsByParent.has(msg.parent_message_id)) {
-          modelsByParent.set(msg.parent_message_id, new Set());
-        }
-        // Group by provider + model; fall back to a per-message key so that
-        // error messages with incomplete metadata are still counted as
-        // distinct responses and don't break multi-model detection.
-        modelsByParent.get(msg.parent_message_id)!.add(getMessageVersionGroupKey(msg));
-      }
-    }
-    const result = new Set<string>();
-    for (const [parentId, models] of modelsByParent) {
-      if (models.size > 1) result.add(parentId);
-    }
-    return result;
-  }, [messages]);
-
-  // Ref-based multi-model version cache — updated by AssistantFooter when it
-  // loads all versions from DB (which includes inactive versions not in store).
-  const multiModelVersionsRef = useRef<Map<string, Message[]>>(new Map());
-  const handleMultiModelDetected = useCallback((parentMsgId: string, versions: Message[]) => {
-    const hadCached = multiModelVersionsRef.current.has(parentMsgId);
-    const stillMultiModel = hasMultipleModelVersions(versions);
-
-    if (stillMultiModel) {
-      multiModelVersionsRef.current.set(parentMsgId, versions);
-    } else {
-      multiModelVersionsRef.current.delete(parentMsgId);
-    }
-
-    if (hadCached !== stillMultiModel || !multiModelResponseParents.has(parentMsgId)) {
-      // Trigger re-render so aiRole picks up the updated cache state.
-      setDisplayModeOverrides((prev) => new Map(prev));
-    }
-  }, [multiModelResponseParents]);
-
-  // Per-message display mode overrides (temporary, not persisted)
-  const [displayModeOverrides, setDisplayModeOverrides] = useState<Map<string, MultiModelDisplayMode>>(new Map());
   const [displayVersionOverrides, setDisplayVersionOverrides] = useState<Map<string, Map<string, string>>>(new Map());
   const [pendingDisplayVersionSelections, setPendingDisplayVersionSelections] = useState<Map<string, Map<string, PendingDisplayVersionSelection>>>(new Map());
-  const retainedChatCacheKeys = useMemo(() => collectRetainedChatCacheKeys(
-    messages,
-    MAX_LOADED_MESSAGES,
-    streamingMessageId ? [streamingMessageId] : [],
-  ), [messages, streamingMessageId]);
   const transientCacheConversationIdRef = useRef(activeConversationId);
 
   useEffect(() => {
     if (transientCacheConversationIdRef.current === activeConversationId) return;
     transientCacheConversationIdRef.current = activeConversationId;
-    multiModelVersionsRef.current.clear();
     contentRendererMessageIdsRef.current.clear();
     if (streamingMessageId) contentRendererMessageIdsRef.current.add(streamingMessageId);
-    setDisplayModeOverrides((prev) => (prev.size > 0 ? new Map() : prev));
     setDisplayVersionOverrides((prev) => (prev.size > 0 ? new Map() : prev));
     setPendingDisplayVersionSelections((prev) => (prev.size > 0 ? new Map() : prev));
   }, [activeConversationId, streamingMessageId]);
 
   useEffect(() => {
-    multiModelVersionsRef.current = retainMapKeys(
-      multiModelVersionsRef.current,
-      retainedChatCacheKeys.parentIds,
-    );
     contentRendererMessageIdsRef.current = retainSetValues(
       contentRendererMessageIdsRef.current,
       retainedChatCacheKeys.messageIds,
     );
-    setDisplayModeOverrides((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
+    retainDisplayModes(retainedChatCacheKeys.parentIds);
     setDisplayVersionOverrides((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
     setPendingDisplayVersionSelections((prev) => retainMapKeys(prev, retainedChatCacheKeys.parentIds));
-  }, [retainedChatCacheKeys]);
+  }, [retainDisplayModes, retainedChatCacheKeys]);
 
-  const handleDisplayModeOverride = useCallback((parentMsgId: string, mode: MultiModelDisplayMode) => {
-    setDisplayModeOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(parentMsgId, mode);
-      return next;
-    });
-  }, []);
   const handleDisplayVersionOverride = useCallback((parentMsgId: string, modelKey: string, messageId: string) => {
     setDisplayVersionOverrides((prev) => {
       const next = new Map(prev);
@@ -1857,13 +1723,12 @@ export function ChatView() {
     const bubbleLoading = false;
 
     const parentId = msg?.parent_message_id;
-    // Check both store-based detection and ref-based detection (from AssistantFooter DB queries)
     const hasMultiModels = !!parentId && (
-      multiModelResponseParents.has(parentId) || multiModelVersionsRef.current.has(parentId)
+      multiModelResponseParents.has(parentId)
       || (parentId === multiModelParentId && pendingCompanionModelCount > 1)
     );
     const effectiveDisplayMode: MultiModelDisplayMode = hasMultiModels
-      ? (displayModeOverrides.get(parentId) ?? settings.multi_model_display_mode ?? 'tabs')
+      ? getDisplayMode(parentId)
       : 'tabs';
     const isNonTabsMultiModel = hasMultiModels && effectiveDisplayMode !== 'tabs';
     const renderVersionContent = (versionMessage: Message, isVersionStreaming: boolean) => {
@@ -1951,13 +1816,7 @@ export function ChatView() {
           const msgMarker = <span data-aqbot-msg={msg?.id} style={{ height: 0, overflow: 'hidden', lineHeight: 0 }} />;
           // Multi-model non-tabs mode: render all versions in side-by-side or stacked layout
           if (isNonTabsMultiModel && parentId && activeConversationId) {
-            // Prefer ref-based versions (from AssistantFooter DB query, includes inactive)
-            // Fall back to store-based versions (only has active during normal load)
-            const refVersions = multiModelVersionsRef.current.get(parentId);
-            const storeVersions = messages.filter(
-              (m) => m.parent_message_id === parentId && m.role === 'assistant',
-            );
-            const allVersions = selectRenderableVersionSet(storeVersions, refVersions);
+            const allVersions = renderableVersionsByParentId[parentId] ?? [];
             return (
               <>
                 {msgMarker}
@@ -2183,14 +2042,13 @@ export function ChatView() {
           {(!isStreaming || hasMultiModels) && <AssistantFooter
             msg={msg}
             conversationId={activeConversationId}
-            versions={msg.parent_message_id ? currentMessageVersionsByParentId[msg.parent_message_id] : undefined}
+            versions={msg.parent_message_id ? renderableVersionsByParentId[msg.parent_message_id] : undefined}
             assistantCopyText={assistantCopyText}
             getModelDisplayInfo={getModelDisplayInfo}
             onEditMessage={handleEditMessage}
             isStreaming={isStreaming}
             displayMode={effectiveDisplayMode}
-            onDisplayModeChange={handleDisplayModeOverride}
-            onMultiModelDetected={handleMultiModelDetected}
+            onDisplayModeChange={handleDisplayModeChange}
             onRegeneratedVersionCreated={handleGeneratedVersionCreated}
           />}
         </div>
@@ -2207,7 +2065,7 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, currentMessageVersionsByParentId, deleteMessage, displayModeOverrides, displayVersionOverrides, formatTime, getBubbleVariant, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeOverride, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleMultiModelDetected, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayVersionOverrides, formatTime, getBubbleVariant, getDisplayMode, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeChange, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, renderableVersionsByParentId, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');

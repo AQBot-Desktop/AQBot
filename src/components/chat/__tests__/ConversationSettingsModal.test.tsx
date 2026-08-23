@@ -23,12 +23,14 @@ const conversation = {
   context_strategy_override: null,
   context_message_limit: null,
   compression_keep_last_n: null,
+  multi_model_display_mode_override: null as 'tabs' | 'side-by-side' | 'stacked' | null,
 };
 
 const settings = {
   default_context_count: 12,
   default_context_strategy: 'raw_truncate' as const,
   default_compression_keep_last_n: 3,
+  multi_model_display_mode: 'side-by-side' as const,
 };
 
 vi.mock('react-i18next', () => ({
@@ -137,6 +139,7 @@ describe('ConversationSettingsModal context controls', () => {
     conversation.context_strategy_override = null;
     conversation.context_message_limit = null;
     conversation.compression_keep_last_n = null;
+    conversation.multi_model_display_mode_override = null;
     localStorage.clear();
   });
 
@@ -144,8 +147,9 @@ describe('ConversationSettingsModal context controls', () => {
     render(<ConversationSettingsModal open onClose={mocks.close} />);
 
     const selects = screen.getAllByRole('combobox');
-    expect(selects).toHaveLength(3);
+    expect(selects).toHaveLength(4);
     expect(selects.map((select) => (select as HTMLSelectElement).value)).toEqual([
+      'inherit',
       'inherit',
       'inherit',
       'inherit',
@@ -160,6 +164,7 @@ describe('ConversationSettingsModal context controls', () => {
         context_strategy_override: null,
         context_compression: false,
         compression_keep_last_n: null,
+        multi_model_display_mode_override: null,
       }),
     ));
   });
@@ -185,6 +190,28 @@ describe('ConversationSettingsModal context controls', () => {
         context_compression: false,
         compression_keep_last_n: 1000,
       }),
+    ));
+  });
+
+  it('saves an explicit multi-model layout override for the conversation', async () => {
+    render(<ConversationSettingsModal open onClose={mocks.close} />);
+
+    const selects = screen.getAllByRole('combobox');
+    const layoutSelect = selects[3] as HTMLSelectElement;
+    expect(layoutSelect.value).toBe('inherit');
+    expect(Array.from(layoutSelect.options).map((option) => option.value)).toEqual([
+      'inherit',
+      'tabs',
+      'side-by-side',
+      'stacked',
+    ]);
+
+    fireEvent.change(layoutSelect, { target: { value: 'stacked' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => expect(mocks.updateConversation).toHaveBeenCalledWith(
+      'conv-1',
+      expect.objectContaining({ multi_model_display_mode_override: 'stacked' }),
     ));
   });
 });

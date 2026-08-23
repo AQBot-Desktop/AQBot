@@ -101,13 +101,21 @@ export function hasMultipleModelVersions(versions: Message[]): boolean {
 }
 
 export function selectRenderableVersionSet(
-  storeVersions: Message[],
-  cachedVersions: Message[] | null | undefined,
+  snapshotVersions: Message[],
+  liveVersions: Message[] | null | undefined,
+  pendingMessageIds: ReadonlySet<string> = new Set<string>(),
 ): Message[] {
-  if (storeVersions.length > 0) {
-    return storeVersions;
+  const liveById = new Map((liveVersions ?? []).map((version) => [version.id, version]));
+  const snapshotIds = new Set(snapshotVersions.map((version) => version.id));
+  const result = snapshotVersions.map((version) => liveById.get(version.id) ?? version);
+
+  for (const version of liveVersions ?? []) {
+    if (!snapshotIds.has(version.id) && pendingMessageIds.has(version.id)) {
+      result.push(version);
+    }
   }
-  return cachedVersions ?? storeVersions;
+
+  return result;
 }
 
 function compareVersionDesc(left: Message, right: Message): number {
@@ -194,10 +202,6 @@ export function mergeAssistantVersionGroup(
   versions: Message[],
   activeMessageId?: string | null,
 ): Message[] {
-  if (versions.length === 0) {
-    return messages;
-  }
-
   const versionGroup = [...versions]
     .sort(compareMessageAsc)
     .map((version) => activeMessageId

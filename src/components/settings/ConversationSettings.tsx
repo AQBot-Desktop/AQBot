@@ -14,6 +14,7 @@ import {
   normalizeChatInputActionsScale,
   type AgentWorkspaceNameStrategy,
   type ChatMessageAreaStyle,
+  type MultiModelDisplayMode,
 } from '@/types';
 import {
   COMPRESSION_KEEP_LAST_N_MAX,
@@ -451,7 +452,7 @@ export function ConversationSettings() {
           <span>{t('settings.multiModelDisplayMode')}</span>
           <SettingsSelect
             value={settings.multi_model_display_mode ?? 'tabs'}
-            onChange={(val) => saveSettings({ multi_model_display_mode: val as 'tabs' | 'side-by-side' | 'stacked' })}
+            onChange={(val) => saveSettings({ multi_model_display_mode: val as MultiModelDisplayMode })}
             options={[
               { label: t('settings.multiModelDisplayModeTabs'), value: 'tabs' },
               { label: t('settings.multiModelDisplayModeSideBySide'), value: 'side-by-side' },

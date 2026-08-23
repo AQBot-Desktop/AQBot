@@ -16,6 +16,7 @@ function mockConversation(id: string, overrides: Record<string, unknown> = {}) {
     is_archived: false,
     sort_order: 0,
     updated_at: 100,
+    multi_model_display_mode_override: null,
     ...overrides,
   };
 }
@@ -209,6 +210,49 @@ describe('browserMock conversation ordering', () => {
     const persisted = JSON.parse(localStorage.getItem('aqbot_conversations') ?? '[]');
     expect(persisted.find((conversation: any) => conversation.id === 'uncategorized').sort_order).toBe(3);
     expect(persisted.find((conversation: any) => conversation.id === 'categorized').sort_order).toBe(-10);
+  });
+
+  it('defaults legacy and newly created conversation layout overrides to null', async () => {
+    localStorage.setItem('aqbot_conversations', JSON.stringify([
+      mockConversation('legacy', { multi_model_display_mode_override: undefined }),
+    ]));
+
+    const [legacy] = await handleCommand<any[]>('list_conversations');
+    const created = await handleCommand<any>('create_conversation', {
+      title: 'Created',
+      modelId: 'model',
+      providerId: 'provider',
+    });
+
+    expect([
+      legacy.multi_model_display_mode_override,
+      created.multi_model_display_mode_override,
+    ]).toEqual([null, null]);
+  });
+
+  it('sets, preserves, and clears a conversation layout override', async () => {
+    localStorage.setItem('aqbot_conversations', JSON.stringify([
+      mockConversation('conversation'),
+    ]));
+
+    const setOverride = await handleCommand<any>('update_conversation', {
+      id: 'conversation',
+      input: { multi_model_display_mode_override: 'side-by-side' },
+    });
+    const preserved = await handleCommand<any>('update_conversation', {
+      id: 'conversation',
+      input: { title: 'Renamed' },
+    });
+    const cleared = await handleCommand<any>('update_conversation', {
+      id: 'conversation',
+      input: { multi_model_display_mode_override: null },
+    });
+
+    expect([
+      setOverride.multi_model_display_mode_override,
+      preserved.multi_model_display_mode_override,
+      cleared.multi_model_display_mode_override,
+    ]).toEqual(['side-by-side', 'side-by-side', null]);
   });
 
   it('atomically reorders a complete top-level conversation container without changing timestamps', async () => {

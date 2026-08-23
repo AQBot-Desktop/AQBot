@@ -29,6 +29,7 @@ function compareConversationListOrder(a: any, b: any): number {
 function withConversationSortOrder(conversation: any): any {
   return {
     ...conversation,
+    multi_model_display_mode_override: conversation.multi_model_display_mode_override ?? null,
     sort_order: Number.isInteger(conversation.sort_order) ? conversation.sort_order : 0,
   };
 }
@@ -1068,6 +1069,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         context_strategy_override: null,
         context_message_limit: null,
         compression_keep_last_n: null,
+        multi_model_display_mode_override: null,
         category_id: null,
         parent_conversation_id: null,
         mode: 'chat',

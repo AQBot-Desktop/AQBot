@@ -8,6 +8,7 @@ export {
   MESSAGE_PAGE_SIZE,
   clearLiveStreamContent,
   getLiveStreamContent,
+  hasAuthoritativeMessageVersionSnapshot,
   invalidateConversationMessageCache,
   setLiveStreamContent,
   subscribeLiveStreamContent,
@@ -16,6 +17,7 @@ export {
 export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
   conversationsMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
+  messageVersionGroups: {},
   activeConversationId: null,
   messages: [],
   ragDisplayByMessageId: {},

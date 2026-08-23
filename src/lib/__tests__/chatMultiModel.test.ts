@@ -428,4 +428,37 @@ describe('chatMultiModel helpers', () => {
     expect(selectRenderableVersionSet([active, remaining], [active, remaining, deleted]).map((message) => message.id))
       .toEqual(['active', 'remaining']);
   });
+
+  it('keeps every authoritative snapshot version while overlaying matching live content', () => {
+    const snapshotA = makeMessage({
+      id: 'answer-a',
+      content: 'persisted-a',
+      model_id: 'model-a',
+      is_active: true,
+    });
+    const snapshotB = makeMessage({
+      id: 'answer-b',
+      content: 'persisted-b',
+      model_id: 'model-b',
+      is_active: false,
+    });
+    const liveA = { ...snapshotA, content: 'streaming-a', status: 'partial' as const };
+
+    expect(selectRenderableVersionSet([snapshotA, snapshotB], [liveA])).toEqual([
+      liveA,
+      snapshotB,
+    ]);
+  });
+
+  it('only appends live versions that are explicitly pending', () => {
+    const snapshotA = makeMessage({ id: 'answer-a', model_id: 'model-a' });
+    const pendingB = makeMessage({ id: 'temp-answer-b', model_id: 'model-b', status: 'partial' });
+    const unrelatedC = makeMessage({ id: 'stale-answer-c', model_id: 'model-c' });
+
+    expect(selectRenderableVersionSet(
+      [snapshotA],
+      [snapshotA, pendingB, unrelatedC],
+      new Set([pendingB.id]),
+    ).map((message) => message.id)).toEqual(['answer-a', 'temp-answer-b']);
+  });
 });

@@ -3,7 +3,6 @@ import {
   applyMultiModelStreamError,
   hasMultipleModelVersions,
   insertModelVersionPlaceholder,
-  selectNextAssistantVersion,
 } from '@/lib/chatMultiModel';
 import {
   buildContextualSearchQuery,
@@ -50,9 +49,11 @@ import {
   getEffectiveMcpServerIds,
   getEffectiveThinkingBudget,
   getEffectiveThinkingLevel,
+  getMessageVersionGroupResourceKey,
   isActiveStreamExistsError,
   isCurrentStreamEvent,
   isTemporaryMessageId,
+  invalidateConversationMessageCache,
   materializeLiveStreamContent,
   mergeOlderPages,
   mergePreservedMessages,
@@ -81,6 +82,27 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'stopStreamListening'
   | 'cancelCurrentStream'
 >;
+
+function findMessageIncludingVersionResources(
+  state: ConversationState,
+  conversationId: string,
+  messageId: string,
+): Message | null {
+  const liveMessage = state.messages.find((message) => message.id === messageId);
+  if (liveMessage) return liveMessage;
+  for (const resource of Object.values(state.messageVersionGroups)) {
+    if (resource.conversationId !== conversationId) continue;
+    const version = resource.versions.find((message) => message.id === messageId);
+    if (version) return version;
+  }
+  return null;
+}
+
+function removeLocalMessage(set: ConversationStoreSet, messageId: string): void {
+  set((state) => ({
+    messages: state.messages.filter((message) => message.id !== messageId),
+  }));
+}
 
 export function createConversationMessageActions(
   set: ConversationStoreSet,
@@ -1313,30 +1335,40 @@ export function createConversationMessageActions(
         await get().fetchMessages(conversationId);
         if (abortSupersededFinalization()) return;
 
-        const versions = await get().listMessageVersions(conversationId, parentId);
-        if (abortSupersededFinalization()) return;
-        if (versions.length > 0) {
-          const firstTarget = targetModels[0];
-          const pendingSelection = runtime.pendingLocalVersionSelections.get(parentId) ?? null;
-          const resolvedManualSelection = pendingSelection
-            ? findResolvedVersionForPendingSelection(pendingSelection, versions)
-            : null;
-          const activeVersionId = (
-            (userManuallySelectedVersion && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)
-              ? versions.find((version) => version.id === userSelectedMessageId)
-              : null)
-            ?? (userManuallySelectedVersion ? resolvedManualSelection : null)
-            ?? (firstMessageId
-              ? versions.find((version) => version.id === firstMessageId)
-              : null)
-            ?? versions.find((version) => version.model_id === firstTarget.modelId
-              && version.provider_id === firstTarget.providerId)
-            ?? versions.find((version) => version.is_active)
-            ?? versions[0]
-          )?.id ?? null;
-
-          get().hydrateMessageVersions(parentId, versions, activeVersionId);
+        try {
+          await get().ensureMessageVersionGroupsLoaded(
+            conversationId,
+            [parentId],
+            { force: true },
+          );
+        } catch (error) {
+          clearFinalizedRunState();
+          throw error;
         }
+        if (abortSupersededFinalization()) return;
+        const versions = get().messageVersionGroups[
+          getMessageVersionGroupResourceKey(conversationId, parentId)
+        ]?.versions ?? [];
+        const firstTarget = targetModels[0];
+        const pendingSelection = runtime.pendingLocalVersionSelections.get(parentId) ?? null;
+        const resolvedManualSelection = pendingSelection
+          ? findResolvedVersionForPendingSelection(pendingSelection, versions)
+          : null;
+        const activeVersionId = (
+          (userManuallySelectedVersion && userSelectedMessageId && !isTemporaryMessageId(userSelectedMessageId)
+            ? versions.find((version) => version.id === userSelectedMessageId)
+            : null)
+          ?? (userManuallySelectedVersion ? resolvedManualSelection : null)
+          ?? (firstMessageId
+            ? versions.find((version) => version.id === firstMessageId)
+            : null)
+          ?? versions.find((version) => version.model_id === firstTarget.modelId
+            && version.provider_id === firstTarget.providerId)
+          ?? versions.find((version) => version.is_active)
+          ?? versions[0]
+        )?.id ?? null;
+
+        get().applyMessageVersionSnapshot(conversationId, parentId, versions, activeVersionId);
       }
 
       clearFinalizedRunState();
@@ -1346,68 +1378,58 @@ export function createConversationMessageActions(
       if (!conversationId) return;
       if (get().loading) throw new Error('Conversation messages are still loading');
 
-      const targetMessage = get().messages.find((message) => message.id === messageId) ?? null;
-      let nextActiveVersion: Message | null = null;
-      if (targetMessage?.role === 'assistant' && targetMessage.parent_message_id && targetMessage.is_active) {
-        try {
-          const versions = await get().listMessageVersions(conversationId, targetMessage.parent_message_id);
-          nextActiveVersion = selectNextAssistantVersion(versions, messageId);
-        } catch {
-          nextActiveVersion = selectNextAssistantVersion(
-            get().messages.filter((message) =>
-              message.parent_message_id === targetMessage.parent_message_id && message.role === 'assistant'
-            ),
-            messageId,
-          );
-        }
-      }
-
-      const applyLocalDelete = () => {
-        set((s) => {
-          const messages = s.messages
-            .filter((message) => message.id !== messageId)
-            .map((message) => {
-              if (!targetMessage?.parent_message_id || !nextActiveVersion) {
-                return message;
-              }
-              if (message.parent_message_id !== targetMessage.parent_message_id || message.role !== 'assistant') {
-                return message;
-              }
-              return { ...message, is_active: message.id === nextActiveVersion.id };
-            });
-          return { messages };
-        });
-      };
+      const targetMessage = findMessageIncludingVersionResources(get(), conversationId, messageId);
+      const parentMessageId = targetMessage?.role === 'assistant'
+        ? targetMessage.parent_message_id
+        : null;
+      const resource = parentMessageId
+        ? get().messageVersionGroups[
+          getMessageVersionGroupResourceKey(conversationId, parentMessageId)
+        ]
+        : undefined;
+      const authoritativeVersions = resource?.meta.loadedAt != null
+        ? resource.versions
+        : null;
 
       // Client-only messages (temp IDs) — just remove locally
       if (messageId.startsWith('temp-')) {
-        applyLocalDelete();
+        removeLocalMessage(set, messageId);
+        if (parentMessageId && authoritativeVersions) {
+          get().applyMessageVersionSnapshot(
+            conversationId,
+            parentMessageId,
+            authoritativeVersions.filter((version) => version.id !== messageId),
+          );
+        }
         return;
+      }
+
+      if (parentMessageId) {
+        get().invalidateMessageVersionGroups(conversationId, [parentMessageId]);
       }
       try {
         await invoke('delete_message', { id: messageId });
-        if (targetMessage?.parent_message_id && nextActiveVersion && !nextActiveVersion.id.startsWith('temp-')) {
-          await get().switchMessageVersion(
-            conversationId,
-            targetMessage.parent_message_id,
-            nextActiveVersion.id,
-          );
-          return;
-        }
-        if (targetMessage?.role === 'assistant') {
-          await get().fetchMessages(conversationId);
-          if (targetMessage.parent_message_id) {
-            const versions = await get().listMessageVersions(conversationId, targetMessage.parent_message_id);
-            if (versions.length > 0) {
-              get().hydrateMessageVersions(targetMessage.parent_message_id, versions);
-            }
-          }
-          return;
-        }
-        applyLocalDelete();
       } catch (e) {
         set({ error: String(e) });
+        throw e;
       }
+
+      invalidateConversationMessageCache(conversationId);
+      removeLocalMessage(set, messageId);
+      if (!parentMessageId) return;
+
+      if (authoritativeVersions) {
+        get().applyMessageVersionSnapshot(
+          conversationId,
+          parentMessageId,
+          authoritativeVersions.filter((version) => version.id !== messageId),
+        );
+      }
+      await get().ensureMessageVersionGroupsLoaded(
+        conversationId,
+        [parentMessageId],
+        { force: true },
+      );
     },
     fetchMessages: async (conversationId, preserveMessageIds = [], options) => {
       const requestSeq = runtime.activeMessageLoadSeq;
@@ -1464,6 +1486,17 @@ export function createConversationMessageActions(
             error: null,
           };
         });
+        const versionParentIds = new Set(
+          page.messages
+            .filter((message) => message.role === 'assistant' && message.parent_message_id)
+            .map((message) => message.parent_message_id as string),
+        );
+        for (const resource of Object.values(get().messageVersionGroups)) {
+          if (resource.conversationId === conversationId) {
+            versionParentIds.add(resource.parentMessageId);
+          }
+        }
+        get().invalidateMessageVersionGroups(conversationId, Array.from(versionParentIds));
         cacheMessageState(get(), conversationId);
       } catch (e) {
         if (requestSeq !== runtime.activeMessageLoadSeq || get().activeConversationId !== conversationId) {

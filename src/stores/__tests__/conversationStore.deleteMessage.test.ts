@@ -73,10 +73,11 @@ describe('conversationStore.deleteMessage', () => {
       activeConversationId: 'conv-1',
       error: null,
       messages: [],
+      messageVersionGroups: {},
     });
   });
 
-  it('promotes a remaining assistant version when deleting the active error version', async () => {
+  it('trusts the backend promotion when deleting the active error version', async () => {
     const userMessage = createMessage({
       id: 'user-1',
       role: 'user',
@@ -111,25 +112,13 @@ describe('conversationStore.deleteMessage', () => {
       messages: [userMessage, activeErrorVersion],
     });
 
-    let listVersionsCallCount = 0;
+    const promotedVersion = { ...remainingVersion, is_active: true };
     invokeMock.mockImplementation(async (command: string) => {
       switch (command) {
         case 'delete_message':
-        case 'switch_message_version':
           return undefined;
-        case 'list_message_versions': {
-          listVersionsCallCount += 1;
-          return listVersionsCallCount === 1
-            ? [remainingVersion, activeErrorVersion]
-            : [remainingVersion];
-        }
-        case 'list_messages_page':
-          return {
-            messages: [userMessage, remainingVersion],
-            has_older: false,
-            oldest_message_id: userMessage.id,
-            total_active_count: 2,
-          };
+        case 'list_message_versions_batch':
+          return { [userMessage.id]: [promotedVersion] };
         default:
           throw new Error(`Unexpected invoke: ${command}`);
       }
@@ -138,15 +127,118 @@ describe('conversationStore.deleteMessage', () => {
     await useConversationStore.getState().deleteMessage(activeErrorVersion.id);
 
     expect(invokeMock).toHaveBeenCalledWith('delete_message', { id: activeErrorVersion.id });
-    expect(invokeMock).toHaveBeenCalledWith('switch_message_version', {
-      conversationId: 'conv-1',
-      parentMessageId: userMessage.id,
-      messageId: remainingVersion.id,
-    });
+    expect(invokeMock).not.toHaveBeenCalledWith('switch_message_version', expect.anything());
+    const deleteCallIndex = invokeMock.mock.calls.findIndex(([command]) => command === 'delete_message');
+    const listCallIndex = invokeMock.mock.calls.findIndex(([command]) => command === 'list_message_versions_batch');
+    expect(invokeMock.mock.invocationCallOrder[deleteCallIndex])
+      .toBeLessThan(invokeMock.mock.invocationCallOrder[listCallIndex]);
 
     const messages = useConversationStore.getState().messages;
     expect(messages.find((message) => message.id === activeErrorVersion.id)).toBeUndefined();
     expect(messages.find((message) => message.id === remainingVersion.id)?.is_active).toBe(true);
+  });
+
+  it('deletes a persistent version that exists only in the authoritative resource', async () => {
+    const userMessage = createMessage({ id: 'user-1', role: 'user', content: 'hello' });
+    const activeVersion = createMessage({
+      id: 'assistant-active',
+      role: 'assistant',
+      content: 'active',
+      parent_message_id: userMessage.id,
+      is_active: true,
+    });
+    const inactiveVersion = createMessage({
+      id: 'assistant-inactive',
+      role: 'assistant',
+      content: 'inactive',
+      parent_message_id: userMessage.id,
+      is_active: false,
+    });
+    useConversationStore.setState({ messages: [userMessage, activeVersion] });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      userMessage.id,
+      [activeVersion, inactiveVersion],
+    );
+    useConversationStore.setState({ messages: [userMessage, activeVersion] });
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'delete_message') return undefined;
+      if (command === 'list_message_versions_batch') return { [userMessage.id]: [activeVersion] };
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+
+    await useConversationStore.getState().deleteMessage(inactiveVersion.id);
+
+    expect(invokeMock).toHaveBeenCalledWith('delete_message', { id: inactiveVersion.id });
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual([activeVersion.id]);
+  });
+
+  it('keeps the confirmed local deletion and marks the resource errored when refresh fails', async () => {
+    const userMessage = createMessage({ id: 'user-1', role: 'user', content: 'hello' });
+    const activeVersion = createMessage({
+      id: 'assistant-active',
+      role: 'assistant',
+      content: 'active',
+      parent_message_id: userMessage.id,
+      is_active: true,
+    });
+    const deletedVersion = createMessage({
+      id: 'assistant-deleted',
+      role: 'assistant',
+      content: 'deleted',
+      parent_message_id: userMessage.id,
+      is_active: false,
+    });
+    useConversationStore.setState({ messages: [userMessage, activeVersion, deletedVersion] });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      userMessage.id,
+      [activeVersion, deletedVersion],
+    );
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'delete_message') return undefined;
+      if (command === 'list_message_versions_batch') throw new Error('refresh failed');
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+
+    await expect(useConversationStore.getState().deleteMessage(deletedVersion.id))
+      .rejects.toThrow('refresh failed');
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual([activeVersion.id]);
+    expect(resource.meta.status).toBe('error');
+    expect(resource.error).toContain('refresh failed');
+  });
+
+  it('commits a ready empty snapshot after deleting the final version', async () => {
+    const userMessage = createMessage({ id: 'user-1', role: 'user', content: 'hello' });
+    const finalVersion = createMessage({
+      id: 'assistant-final',
+      role: 'assistant',
+      content: 'final',
+      parent_message_id: userMessage.id,
+      is_active: true,
+    });
+    useConversationStore.setState({ messages: [userMessage, finalVersion] });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      userMessage.id,
+      [finalVersion],
+    );
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'delete_message') return undefined;
+      if (command === 'list_message_versions_batch') return { [userMessage.id]: [] };
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+
+    await useConversationStore.getState().deleteMessage(finalVersion.id);
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.meta.status).toBe('ready');
+    expect(resource.versions).toEqual([]);
+    expect(useConversationStore.getState().messages.map((message) => message.id))
+      .toEqual([userMessage.id]);
   });
 
   it('keeps remaining multi-model versions hydrated after deleting an inactive version', async () => {
@@ -204,8 +296,8 @@ describe('conversationStore.deleteMessage', () => {
             oldest_message_id: userMessage.id,
             total_active_count: 2,
           };
-        case 'list_message_versions':
-          return [activeVersion, inactiveRemaining];
+        case 'list_message_versions_batch':
+          return { [userMessage.id]: [activeVersion, inactiveRemaining] };
         default:
           throw new Error(`Unexpected invoke: ${command}`);
       }
@@ -220,5 +312,136 @@ describe('conversationStore.deleteMessage', () => {
       'assistant-other',
     ]);
     expect(useConversationStore.getState().messages.find((message) => message.id === activeVersion.id)?.is_active).toBe(true);
+  });
+
+  it('removes a deleted version from the authoritative snapshot before refresh completes', async () => {
+    const userMessage = createMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'hello',
+      provider_id: null,
+      model_id: null,
+    });
+    const activeVersion = createMessage({
+      id: 'assistant-active',
+      role: 'assistant',
+      content: 'active',
+      parent_message_id: userMessage.id,
+      is_active: true,
+    });
+    const deletedVersion = createMessage({
+      id: 'assistant-deleted',
+      role: 'assistant',
+      content: 'deleted',
+      parent_message_id: userMessage.id,
+      is_active: false,
+    });
+    let resolvePage!: (value: {
+      messages: Message[];
+      has_older: boolean;
+      oldest_message_id: string;
+      total_active_count: number;
+    }) => void;
+    const page = new Promise<{
+      messages: Message[];
+      has_older: boolean;
+      oldest_message_id: string;
+      total_active_count: number;
+    }>((resolve) => {
+      resolvePage = resolve;
+    });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'delete_message') return Promise.resolve();
+      if (command === 'list_messages_page') return page;
+      if (command === 'list_message_versions_batch') {
+        return Promise.resolve({ [userMessage.id]: [activeVersion] });
+      }
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+    useConversationStore.setState({ messages: [userMessage, activeVersion, deletedVersion] });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      userMessage.id,
+      [activeVersion, deletedVersion],
+    );
+
+    const deletion = useConversationStore.getState().deleteMessage(deletedVersion.id);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const loadingResource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(loadingResource.meta.loadedAt).not.toBeNull();
+    expect(loadingResource.versions.map((message) => message.id)).toEqual([activeVersion.id]);
+
+    resolvePage({
+      messages: [userMessage, activeVersion],
+      has_older: false,
+      oldest_message_id: userMessage.id,
+      total_active_count: 2,
+    });
+    await deletion;
+  });
+
+  it('does not let an older delete refresh resurrect a version removed by a newer delete', async () => {
+    const userMessage = createMessage({ id: 'user-1', role: 'user', content: 'hello' });
+    const activeVersion = createMessage({
+      id: 'assistant-active',
+      role: 'assistant',
+      content: 'active',
+      parent_message_id: userMessage.id,
+      is_active: true,
+    });
+    const firstDeletedVersion = createMessage({
+      id: 'assistant-first-deleted',
+      role: 'assistant',
+      content: 'first',
+      parent_message_id: userMessage.id,
+      is_active: false,
+    });
+    const secondDeletedVersion = createMessage({
+      id: 'assistant-second-deleted',
+      role: 'assistant',
+      content: 'second',
+      parent_message_id: userMessage.id,
+      is_active: false,
+    });
+    let resolveStaleRefresh!: (versions: Record<string, Message[]>) => void;
+    let resolveFreshRefresh!: (versions: Record<string, Message[]>) => void;
+    const staleRefresh = new Promise<Record<string, Message[]>>((resolve) => {
+      resolveStaleRefresh = resolve;
+    });
+    const freshRefresh = new Promise<Record<string, Message[]>>((resolve) => {
+      resolveFreshRefresh = resolve;
+    });
+    let refreshCount = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'delete_message') return Promise.resolve();
+      if (command === 'list_message_versions_batch') {
+        refreshCount += 1;
+        return refreshCount === 1 ? staleRefresh : freshRefresh;
+      }
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+    useConversationStore.setState({
+      messages: [userMessage, activeVersion, firstDeletedVersion, secondDeletedVersion],
+    });
+    useConversationStore.getState().applyMessageVersionSnapshot(
+      'conv-1',
+      userMessage.id,
+      [activeVersion, firstDeletedVersion, secondDeletedVersion],
+    );
+
+    const firstDeletion = useConversationStore.getState().deleteMessage(firstDeletedVersion.id);
+    await vi.waitFor(() => expect(refreshCount).toBe(1));
+    const secondDeletion = useConversationStore.getState().deleteMessage(secondDeletedVersion.id);
+    await vi.waitFor(() => expect(refreshCount).toBe(2));
+
+    resolveFreshRefresh({ [userMessage.id]: [activeVersion] });
+    await secondDeletion;
+    resolveStaleRefresh({ [userMessage.id]: [activeVersion, secondDeletedVersion] });
+    await firstDeletion;
+
+    const resource = Object.values(useConversationStore.getState().messageVersionGroups)[0];
+    expect(resource.versions.map((message) => message.id)).toEqual([activeVersion.id]);
   });
 });

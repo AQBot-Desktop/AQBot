@@ -6,11 +6,11 @@ import { resolve } from 'node:path';
 import type React from 'react';
 import type { Message } from '@/types';
 import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
-import { MultiModelDisplay } from '../MultiModelDisplay';
+import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string) => key,
   }),
 }));
 
@@ -129,6 +129,27 @@ describe('MultiModelDisplay', () => {
     clearLiveStreamContent('assistant-b');
   });
 
+  it('exposes the layout switcher as keyboard-operable pressed buttons', () => {
+    const onModeChange = vi.fn();
+
+    render(
+      <LayoutSwitcher
+        currentMode="side-by-side"
+        onModeChange={onModeChange}
+      />,
+    );
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(3);
+    expect(screen.getByText('chat.multiModel.answerAndFutureDisplayMode')).toBeInTheDocument();
+    expect(buttons[1]).toHaveAccessibleName('chat.multiModel.setAnswerAndFutureDisplayMode');
+    expect(buttons[0]).toHaveAttribute('aria-pressed', 'false');
+    expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(buttons[2]);
+    expect(onModeChange).toHaveBeenCalledWith('stacked');
+  });
+
   it('does not fall back to the error boundary when deleting down to one model', () => {
     const modelA = makeMessage({ id: 'assistant-a', model_id: 'model-a', content: 'alpha' });
     const modelB = makeMessage({ id: 'assistant-b', model_id: 'model-b', content: 'beta', is_active: false, version_index: 1 });
@@ -142,6 +163,27 @@ describe('MultiModelDisplay', () => {
 
     expect(screen.queryByText('Multi-model display error')).not.toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
+  });
+
+  it('keeps every authoritative version visible when the live store only contains the active version', () => {
+    const modelA = makeMessage({
+      id: 'assistant-a',
+      model_id: 'model-a',
+      content: 'authoritative alpha',
+    });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: 'authoritative beta',
+      is_active: false,
+      version_index: 1,
+    });
+    useConversationStore.setState({ messages: [modelA] });
+
+    render(renderDisplay([modelA, modelB]));
+
+    expect(screen.getByText('authoritative alpha')).toBeInTheDocument();
+    expect(screen.getByText('authoritative beta')).toBeInTheDocument();
   });
 
   it('updates an inactive streaming card from the store without rerendering the parent bubble item', () => {

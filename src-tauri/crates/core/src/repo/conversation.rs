@@ -9,7 +9,7 @@ use crate::entity::{
 use crate::error::{AQBotError, Result};
 use crate::types::{
     Attachment, ContextStrategy, Conversation, ConversationSearchResult, ConversationSummary,
-    Message, UpdateConversationInput,
+    Message, MultiModelDisplayMode, UpdateConversationInput,
 };
 use crate::utils::{gen_id, now_ts};
 
@@ -47,6 +47,12 @@ fn conversation_from_entity(m: conversations::Model) -> Result<Conversation> {
         persisted_nonnegative_u32("context_message_limit", m.context_message_limit)?;
     let compression_keep_last_n =
         persisted_nonnegative_u32("compression_keep_last_n", m.compression_keep_last_n)?;
+    let multi_model_display_mode_override = m
+        .multi_model_display_mode_override
+        .as_deref()
+        .map(str::parse::<MultiModelDisplayMode>)
+        .transpose()
+        .map_err(AQBotError::Validation)?;
 
     Ok(Conversation {
         id: m.id,
@@ -72,6 +78,7 @@ fn conversation_from_entity(m: conversations::Model) -> Result<Conversation> {
         context_strategy_override,
         context_message_limit,
         compression_keep_last_n,
+        multi_model_display_mode_override,
         category_id: m.category_id,
         parent_conversation_id: m.parent_conversation_id,
         sort_order: m.sort_order,
@@ -522,6 +529,10 @@ pub async fn update_conversation(
     if let Some(compression_keep_last_n) = compression_keep_last_n {
         am.compression_keep_last_n = Set(compression_keep_last_n);
     }
+    if let Some(multi_model_display_mode_override) = input.multi_model_display_mode_override {
+        am.multi_model_display_mode_override =
+            Set(multi_model_display_mode_override.map(|mode| mode.as_str().to_string()));
+    }
     if let Some(category_id) = input.category_id {
         am.category_id = Set(category_id);
     }
@@ -888,6 +899,7 @@ pub async fn branch_conversation(
         context_strategy_override: Set(source.context_strategy_override.clone()),
         context_message_limit: Set(source.context_message_limit),
         compression_keep_last_n: Set(source.compression_keep_last_n),
+        multi_model_display_mode_override: Set(source.multi_model_display_mode_override.clone()),
         category_id: Set(source.category_id.clone()),
         parent_conversation_id: Set(parent_id),
         sort_order: Set(sort_order),
@@ -1766,6 +1778,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn multi_model_display_mode_override_is_a_nullable_conversation_preference() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Layout", "model", "provider", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&conversation).unwrap().get("multi_model_display_mode_override"),
+            Some(&serde_json::Value::Null)
+        );
+
+        let updated = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({
+                "multi_model_display_mode_override": "side-by-side"
+            })),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&updated)
+                .unwrap()
+                .get("multi_model_display_mode_override")
+                .and_then(serde_json::Value::as_str),
+            Some("side-by-side")
+        );
+
+        let preserved = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({"title": "Renamed"})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&preserved)
+                .unwrap()
+                .get("multi_model_display_mode_override")
+                .and_then(serde_json::Value::as_str),
+            Some("side-by-side")
+        );
+
+        let cleared = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({"multi_model_display_mode_override": null})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&cleared).unwrap().get("multi_model_display_mode_override"),
+            Some(&serde_json::Value::Null)
+        );
+    }
+
+    #[test]
+    fn invalid_multi_model_display_mode_override_input_is_rejected() {
+        assert!(serde_json::from_value::<UpdateConversationInput>(serde_json::json!({
+            "multi_model_display_mode_override": "grid"
+        }))
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn invalid_persisted_multi_model_display_mode_override_is_rejected() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Invalid layout", "model", "provider", None)
+            .await
+            .unwrap();
+        conversations::Entity::update_many()
+            .col_expr(
+                conversations::Column::MultiModelDisplayModeOverride,
+                Expr::value("grid"),
+            )
+            .filter(conversations::Column::Id.eq(&conversation.id))
+            .exec(db)
+            .await
+            .unwrap();
+
+        let error = get_conversation(db, &conversation.id).await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unsupported multi-model display mode: grid"));
+    }
+
+    #[tokio::test]
     async fn conversation_context_numeric_overrides_enforce_storage_bounds() {
         let h = create_test_pool().await.unwrap();
         let db = &h.conn;
@@ -1871,6 +1971,46 @@ mod tests {
             Some(ContextStrategy::RawStrict)
         );
         assert!(!branch.context_compression);
+    }
+
+    #[tokio::test]
+    async fn branch_copies_multi_model_display_mode_override() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let source = create_conversation(db, "Source", "model", "provider", None)
+            .await
+            .unwrap();
+        update_conversation(
+            db,
+            &source.id,
+            update_input(serde_json::json!({
+                "multi_model_display_mode_override": "stacked"
+            })),
+        )
+        .await
+        .unwrap();
+        let source_message = message::create_message(
+            db,
+            &source.id,
+            MessageRole::User,
+            "branch here",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let branch = branch_conversation(db, &source.id, &source_message.id, false, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&branch)
+                .unwrap()
+                .get("multi_model_display_mode_override")
+                .and_then(serde_json::Value::as_str),
+            Some("stacked")
+        );
     }
 
     #[tokio::test]

@@ -33,15 +33,23 @@ describe('chat retained caches', () => {
       resolve(process.cwd(), 'src/components/chat/ChatView.tsx'),
       'utf8',
     );
+    const versionGroupsHook = readFileSync(
+      resolve(process.cwd(), 'src/hooks/useMessageVersionGroups.ts'),
+      'utf8',
+    );
 
     expect(source).toContain('collectRetainedChatCacheKeys(');
-    expect(source).toContain('multiModelVersionsRef.current = retainMapKeys(');
     expect(source).toContain('contentRendererMessageIdsRef.current = retainSetValues(');
-    expect(source).toContain('setDisplayModeOverrides((prev) => retainMapKeys(');
+    expect(source).toContain('retainDisplayModes(retainedChatCacheKeys.parentIds);');
     expect(source).toContain('setDisplayVersionOverrides((prev) => retainMapKeys(');
     expect(source).toContain('setPendingDisplayVersionSelections((prev) => retainMapKeys(');
-    expect(source).toContain('multiModelVersionsRef.current.clear();');
     expect(source).toContain('contentRendererMessageIdsRef.current.clear();');
+    expect(versionGroupsHook).toContain(
+      'retainConversationResources(conversationId, retainedParentMessageIds);',
+    );
+    expect(versionGroupsHook).toContain(
+      'retainConversationResources(conversationId, new Set());',
+    );
   });
 
   it('bounds retained message keys to the current 40-message window and linked versions', () => {

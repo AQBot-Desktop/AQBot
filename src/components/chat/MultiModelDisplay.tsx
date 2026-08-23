@@ -4,7 +4,7 @@ import { ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitB
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { OverlayScrollbars } from 'overlayscrollbars';
-import type { Message } from '@/types';
+import type { Message, MultiModelDisplayMode } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { stripAqbotTags } from '@/lib/chatMarkdown';
 import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
@@ -16,8 +16,6 @@ import {
 } from '@/stores';
 import { ModelSelector } from './ModelSelector';
 import { SaveToMemoryPopover } from './SaveToMemoryPopover';
-
-export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
 
 function useLiveStreamContent(messageId: string | null | undefined, enabled: boolean): string | undefined {
   const subscribedMessageId = enabled ? messageId : null;
@@ -50,10 +48,10 @@ function MultiModelVersionContent({
 
 /** Error boundary to prevent white-screen crashes in multi-model display */
 class MultiModelErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback?: React.ReactNode },
+  { children: React.ReactNode; fallback: React.ReactNode },
   { hasError: boolean }
 > {
-  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -62,9 +60,7 @@ class MultiModelErrorBoundary extends React.Component<
   }
   render() {
     if (this.state.hasError) {
-      return this.props.fallback ?? (
-        <Alert type="warning" message="Multi-model display error" showIcon />
-      );
+      return this.props.fallback;
     }
     return this.props.children;
   }
@@ -122,7 +118,9 @@ export const MultiModelDisplay = React.memo(function MultiModelDisplay({
   if (!versions || versions.length === 0) return null;
 
   return (
-    <MultiModelErrorBoundary>
+    <MultiModelErrorBoundary
+      fallback={<Alert type="warning" message={t('chat.multiModel.displayError')} showIcon />}
+    >
       <MultiModelDisplayInner
         versions={versions}
         activeMessageId={activeMessageId}
@@ -183,7 +181,11 @@ function MultiModelDisplayInner({
       message.parent_message_id === parentMessageId && message.role === 'assistant'
     );
   }, [parentMessageId, storeMessages]);
-  const renderVersions = liveVersions.length > 0 ? liveVersions : versions;
+  const renderVersions = useMemo(() => {
+    if (liveVersions.length === 0) return versions;
+    const liveVersionsById = new Map(liveVersions.map((version) => [version.id, version]));
+    return versions.map((version) => liveVersionsById.get(version.id) ?? version);
+  }, [liveVersions, versions]);
   const displayVersions = useMemo(
     () => selectDisplayVersionsByModel(renderVersions, activeMessageId, displayVersionIdsByModelKey),
     [activeMessageId, displayVersionIdsByModelKey, renderVersions],
@@ -669,9 +671,11 @@ function MultiModelCardActions({
 export function LayoutSwitcher({
   currentMode,
   onModeChange,
+  parentMessageId,
 }: {
   currentMode: MultiModelDisplayMode;
   onModeChange: (mode: MultiModelDisplayMode) => void;
+  parentMessageId?: string;
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
@@ -681,19 +685,50 @@ export function LayoutSwitcher({
     { key: 'side-by-side', icon: <Columns2 size={14} />, label: t('settings.multiModelDisplayModeSideBySide') },
     { key: 'stacked', icon: <Rows3 size={14} />, label: t('settings.multiModelDisplayModeStacked') },
   ];
+  const scopeLabel = t('chat.multiModel.answerAndFutureDisplayMode');
+  const handleModeChange = (mode: MultiModelDisplayMode) => {
+    onModeChange(mode);
+    if (!parentMessageId) return;
+    window.requestAnimationFrame(() => {
+      const matchingButton = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[data-aqbot-layout-parent]'),
+      ).find((button) => (
+        button.dataset.aqbotLayoutParent === parentMessageId
+        && button.dataset.aqbotLayoutMode === mode
+      ));
+      matchingButton?.focus();
+    });
+  };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      {modes.map(({ key, icon, label }) => (
-        <Tooltip key={key} title={label} mouseEnterDelay={0.3}>
-          <div
-            onClick={() => onModeChange(key)}
+    <div
+      role="group"
+      aria-label={scopeLabel}
+      style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', maxWidth: '100%', gap: 2 }}
+    >
+      <span style={{ color: token.colorTextTertiary, fontSize: 11, marginInlineEnd: 2 }}>
+        {scopeLabel}
+      </span>
+      {modes.map(({ key, icon, label }) => {
+        const accessibleLabel = t('chat.multiModel.setAnswerAndFutureDisplayMode', { mode: label });
+        return (
+        <Tooltip key={key} title={accessibleLabel} mouseEnterDelay={0.3}>
+          <button
+            type="button"
+            className="aqbot-layout-mode-button"
+            data-aqbot-layout-parent={parentMessageId}
+            data-aqbot-layout-mode={key}
+            aria-label={accessibleLabel}
+            aria-pressed={currentMode === key}
+            onClick={() => handleModeChange(key)}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 24,
-              height: 24,
+              width: 32,
+              height: 32,
+              padding: 0,
+              border: 0,
               borderRadius: token.borderRadiusSM,
               cursor: currentMode === key ? 'default' : 'pointer',
               backgroundColor: currentMode === key ? token.colorPrimaryBg : 'transparent',
@@ -702,9 +737,11 @@ export function LayoutSwitcher({
             }}
           >
             {icon}
-          </div>
+            {currentMode === key && <Check aria-hidden="true" size={10} />}
+          </button>
         </Tooltip>
-      ))}
+        );
+      })}
     </div>
   );
 }

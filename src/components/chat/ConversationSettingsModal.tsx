@@ -19,7 +19,7 @@ import {
 } from '@/lib/contextStrategy';
 import { ConversationModelIcon } from './ConversationModelIcon';
 import type { MenuProps } from 'antd';
-import type { ContextStrategy } from '@/types';
+import type { ContextStrategy, MultiModelDisplayMode } from '@/types';
 
 interface ConversationSettingsModalProps {
   open: boolean;
@@ -35,6 +35,7 @@ const DEFAULT_CUSTOM_CONTEXT_LIMIT = 10;
 type ContextLimitMode = 'inherit' | 'unlimited' | 'custom';
 type KeepLastMode = 'inherit' | 'custom';
 type ContextStrategyMode = 'inherit' | ContextStrategy;
+type MultiModelDisplayModeSetting = 'inherit' | MultiModelDisplayMode;
 
 interface ContextLimitControlState {
   mode: ContextLimitMode;
@@ -102,6 +103,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
   const [contextStrategyMode, setContextStrategyMode] = useState<ContextStrategyMode>('inherit');
   const [keepLastMode, setKeepLastMode] = useState<KeepLastMode>('inherit');
   const [compressionKeepLastN, setCompressionKeepLastN] = useState(DEFAULT_COMPRESSION_KEEP_LAST_N);
+  const [multiModelDisplayMode, setMultiModelDisplayMode] = useState<MultiModelDisplayModeSetting>('inherit');
   const [temperature, setTemperature] = useState<number | null>(null);
   const [topP, setTopP] = useState<number | null>(null);
   const [maxTokens, setMaxTokens] = useState<number | null>(null);
@@ -139,6 +141,7 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
               : 'raw_truncate',
       );
       setKeepLastMode(conversation.compression_keep_last_n == null ? 'inherit' : 'custom');
+      setMultiModelDisplayMode(conversation.multi_model_display_mode_override ?? 'inherit');
       setCompressionKeepLastN(
         conversation.compression_keep_last_n != null
           && Number.isFinite(conversation.compression_keep_last_n)
@@ -206,6 +209,9 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
         compression_keep_last_n: keepLastMode === 'inherit'
           ? null
           : normalizeCompressionKeepLastN(compressionKeepLastN),
+        multi_model_display_mode_override: multiModelDisplayMode === 'inherit'
+          ? null
+          : multiModelDisplayMode,
       });
       // Drop legacy localStorage key after persisting to the database.
       try {
@@ -414,6 +420,31 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
                 style={{ width: '100%' }}
               />
             )}
+          </div>
+
+          {/* Multi-model display mode */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={labelStyle}>
+              {t('settings.multiModelDisplayModeConversation')}
+              <Tooltip title={t('settings.multiModelDisplayModeConversationDesc')}>
+                <Info size={14} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
+              </Tooltip>
+              <span style={{ marginLeft: 'auto' }}>
+                <SettingsSelect
+                  value={multiModelDisplayMode}
+                  onChange={(value) => setMultiModelDisplayMode(value as MultiModelDisplayModeSetting)}
+                  options={[
+                    { label: t('settings.followGlobal'), value: 'inherit' },
+                    { label: t('settings.multiModelDisplayModeTabs'), value: 'tabs' },
+                    { label: t('settings.multiModelDisplayModeSideBySide'), value: 'side-by-side' },
+                    { label: t('settings.multiModelDisplayModeStacked'), value: 'stacked' },
+                  ]}
+                />
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t('settings.multiModelDisplayModeConversationDesc')}
+            </div>
           </div>
 
           {/* Temperature / Top P / Max Tokens / Frequency Penalty */}

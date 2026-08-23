@@ -353,6 +353,7 @@ async fn test_conversation_update_input() {
         context_compression: None,
         context_message_limit: Some(Some(3)),
         compression_keep_last_n: None,
+        multi_model_display_mode_override: None,
         category_id: None,
         parent_conversation_id: None,
         mode: None,

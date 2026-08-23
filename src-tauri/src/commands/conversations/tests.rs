@@ -75,6 +75,7 @@ mod tests {
             context_strategy_override: None,
             context_message_limit: None,
             compression_keep_last_n: None,
+            multi_model_display_mode_override: None,
             category_id: None,
             parent_conversation_id: None,
             sort_order: 0,

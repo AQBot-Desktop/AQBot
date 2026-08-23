@@ -227,10 +227,19 @@ describe('ChatView assistant display policy', () => {
 
   it('does not refetch every assistant version when unrelated pages change message count', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    const versionGroupsHook = readFileSync(
+      resolve(process.cwd(), 'src/hooks/useMessageVersionGroups.ts'),
+      'utf8',
+    );
 
-    expect(source).toContain('listMessageVersionsBatch(activeConversationId, parentMessageIds)');
+    expect(source).toContain('useMessageVersionGroups({');
+    expect(versionGroupsHook).toContain('ensureMessageVersionGroupsLoaded(');
+    expect(versionGroupsHook).toContain('parentMessageIdsToLoadKey');
+    expect(versionGroupsHook).toContain(
+      '[conversationId, ensureMessageVersionGroupsLoaded, parentMessageIdsToLoadKey]',
+    );
     expect(source).not.toContain('const messagesLength = useConversationStore((s) => s.messages.length);');
-    expect(source).not.toMatch(/listMessageVersions\([\s\S]*?\], \[[^\]]*messagesLength[^\]]*\]\);/);
+    expect(versionGroupsHook).not.toMatch(/ensureMessageVersionGroupsLoaded\([\s\S]*?messages\.length/);
   });
 
   it('renders role intro prompts for empty role conversations', () => {

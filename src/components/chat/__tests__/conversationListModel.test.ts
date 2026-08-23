@@ -27,6 +27,7 @@ function conversation(
     enabled_mcp_server_ids: [],
     enabled_knowledge_base_ids: [],
     enabled_memory_namespace_ids: [],
+    multi_model_display_mode_override: null,
     is_pinned: false,
     is_archived: false,
     context_compression: false,
