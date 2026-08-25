@@ -18,7 +18,17 @@ import { invoke } from '@/lib/invoke';
 import { getRoleIntro } from '@/lib/roleIntro';
 import { parseSearchContent } from '@/lib/searchUtils';
 import { normalizeStoredMediaUrlsForPlatform } from '@/lib/storedMedia';
-import { useAgentStore, useConversationStore, useProviderStore, useSettingsStore } from '@/stores';
+import {
+  selectUiMultiModelDoneMessageIds,
+  selectUiMultiModelParentId,
+  selectUiPendingCompanionModels,
+  selectUiStreaming,
+  selectUiStreamingMessageId,
+  useAgentStore,
+  useConversationStore,
+  useProviderStore,
+  useSettingsStore,
+} from '@/stores';
 import { MAX_LOADED_MESSAGES } from '@/stores/conversationStore';
 import { useUserProfileStore, type AvatarType } from '@/stores/userProfileStore';
 import type {
@@ -79,6 +89,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useChatChrome } from '@/lib/chatChrome';
 import { getContextErrorMessage } from '@/lib/contextErrorMessage';
+import {
+  buildLaneColumns,
+  filterVersionsForLane,
+  selectLaneAnswer,
+  shouldHideMultiModelLayoutSwitcher,
+  shouldUseLaneWorkspace,
+  type LaneColumn,
+} from '@/lib/multiModelLanes';
 import { registerHighlight } from 'stream-markdown';
 import AskUserCard from './AskUserCard';
 import { ChatMessageRenderBoundary } from './ChatMessageRenderBoundary';
@@ -91,10 +109,9 @@ import { MessageAttachmentPreview } from './MessageAttachmentPreview';
 import { ModelSelector } from './ModelSelector';
 import { MultiModelDisplay } from './MultiModelDisplay';
 import { MultiModelLaneWorkspace } from './MultiModelLaneWorkspace';
-import { buildLaneColumns, comparisonDisplayModeForChrome, shouldUseLaneWorkspace } from '@/lib/multiModelLanes';
 import PermissionCard from './PermissionCard';
 import { getChatCodeThemes, setCodeBlockPreviewHandler, setMermaidOpenModalHandler } from './chatMarkdownShared';
-import { resolveAssistantMessageForBubbleKey } from './chatMessageLookup';
+import { normalizeAssistantBubbleParentKey, resolveAssistantMessageForBubbleKey } from './chatMessageLookup';
 import { collectRetainedChatCacheKeys, retainMapKeys, retainSetValues } from './chatRetainedCaches';
 import {
   CHAT_AUTO_SCROLL_BOTTOM_THRESHOLD,
@@ -181,16 +198,16 @@ export function ChatView() {
   const loadingNewer = useConversationStore((s) => s.loadingNewer);
   const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
   const hasNewerMessages = useConversationStore((s) => s.hasNewerMessages);
-  const streaming = useConversationStore((s) => s.streaming);
+  const streaming = useConversationStore(selectUiStreaming);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
-  const streamingMessageId = useConversationStore((s) => s.streamingMessageId);
+  const streamingMessageId = useConversationStore(selectUiStreamingMessageId);
   const streamActivityByMessageId = useConversationStore((s) => s.streamActivityByMessageId);
-  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
-  const pendingCompanionModels = useConversationStore((s) => s.pendingCompanionModels);
+  const multiModelParentId = useConversationStore(selectUiMultiModelParentId);
+  const pendingCompanionModels = useConversationStore(selectUiPendingCompanionModels);
   const pendingCompanionModelCount = pendingCompanionModels.length;
   const multiModelTargets = useConversationStore((s) => s.multiModelTargets);
   const chatChrome = useChatChrome();
-  const multiModelDoneMessageIds = useConversationStore((s) => s.multiModelDoneMessageIds);
+  const multiModelDoneMessageIds = useConversationStore(selectUiMultiModelDoneMessageIds);
   const setConversationMultiModelDisplayMode = useConversationStore((s) => s.setConversationMultiModelDisplayMode);
   const thinkingActiveMessageIds = useConversationStore((s) => s.thinkingActiveMessageIds);
   const storeError = useConversationStore((s) => s.error);
@@ -834,6 +851,20 @@ export function ChatView() {
     setStickToBottomState(true);
   }, [setStickToBottomState]);
 
+  const handleLaneBubbleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (loading || loadingOlder || !hasOlderMessages) return;
+    if (target.scrollHeight <= target.clientHeight + 24) return;
+    const distanceToHistoryTop = getDistanceToHistoryTop(
+      target.scrollHeight,
+      target.scrollTop,
+      target.clientHeight,
+      CHAT_SCROLL_IS_REVERSED,
+    );
+    if (distanceToHistoryTop > 24) return;
+    void handleLoadOlderMessages();
+  }, [handleLoadOlderMessages, hasOlderMessages, loading, loadingOlder]);
+
   useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return;
 
@@ -1074,10 +1105,6 @@ export function ChatView() {
     return buildLaneColumns([...primary, ...multiModelTargets]);
   }, [activeConversation, multiModelTargets, pendingCompanionModels]);
   const useLaneWorkspace = shouldUseLaneWorkspace(chatChrome.kind, laneColumns);
-  const laneUserMessages = useMemo(
-    () => activeMessages.filter((message) => message.role === 'user'),
-    [activeMessages],
-  );
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();
     for (const msg of messages) {
@@ -1493,36 +1520,6 @@ export function ChatView() {
     return { modelName: model?.name ?? mid, providerName: provider?.name ?? '' };
   }, [activeConversation, providers]);
 
-  const renderLaneUser = useCallback((message: Message) => (
-    <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-      {message.content}
-    </Typography.Paragraph>
-  ), []);
-
-  const renderLaneAnswer = useCallback((message: Message, isStreaming: boolean) => {
-    if (message.status === 'error') {
-      return <Alert type="error" message={message.content} showIcon />;
-    }
-    return (
-      <AssistantMarkdown
-        content={message.content}
-        cacheKey={message.id}
-        isDarkMode={isDarkMode}
-        isStreaming={isStreaming}
-        codeBlockDarkTheme={codeBlockDarkTheme}
-        codeBlockLightTheme={codeBlockLightTheme}
-        codeBlockThemes={codeBlockThemes}
-        codeFontFamily={settings.code_font_family || undefined}
-      />
-    );
-  }, [
-    codeBlockDarkTheme,
-    codeBlockLightTheme,
-    codeBlockThemes,
-    isDarkMode,
-    settings.code_font_family,
-  ]);
-
   const handleEditMessage = useCallback((messageId: string, content: string, role: 'user' | 'assistant') => {
     setEditingMessageId(messageId);
     setEditingMessageRole(role);
@@ -1743,9 +1740,32 @@ export function ChatView() {
     );
   }, [streaming, streamStatusNow, t, token.colorPrimary, token.colorWarning]);
 
-  const aiRole = useCallback((bubbleData: BubbleItemType) => {
+  const renderAiRole = useCallback((bubbleData: BubbleItemType, column: LaneColumn | null) => {
     // bubbleData.key is parent_message_id for stable rendering
-    const msg = resolveAssistantMessageForBubbleKey(bubbleData.key, assistantByParentId, messageById);
+    const parentKey = normalizeAssistantBubbleParentKey(bubbleData.key);
+    const msg = column
+      ? (selectLaneAnswer(
+          renderableVersionsByParentId[parentKey] ?? [],
+          column,
+          assistantByParentId.get(parentKey)?.id,
+          displayVersionOverrides.get(parentKey),
+        ) ?? undefined)
+      : resolveAssistantMessageForBubbleKey(bubbleData.key, assistantByParentId, messageById);
+    if (column && !msg) {
+      const { modelName } = getModelDisplayInfo(column.modelId, column.providerId);
+      return {
+        placement: 'start' as const,
+        ...getBubbleVariant(false),
+        avatar: renderConvIconForChat(32, column.modelId),
+        contentRender: () => (
+          <Typography.Text type="secondary">{t('chat.multiModel.lanePlaceholder')}</Typography.Text>
+        ),
+        header: (
+          <Typography.Text style={{ fontSize: 13 }}>{modelName}</Typography.Text>
+        ),
+        footer: null,
+      };
+    }
     const msgActivity = msg?.id ? streamActivityByMessageId[msg.id] : undefined;
     const isStreaming = isAssistantStreamingForRender({
       isStreaming: streaming,
@@ -1761,11 +1781,23 @@ export function ChatView() {
     const searchDisplayPrefix = msg?.id ? searchDisplayByMessageId[msg.id] : undefined;
     const ragDisplayPrefix = msg?.id ? ragDisplayByMessageId[msg.id] : undefined;
     const displayPrefix = `${searchDisplayPrefix ?? ''}${ragDisplayPrefix ?? ''}` || undefined;
-    const parsedNodes = shouldRenderFromContent || displayPrefix
+    const laneDisplayContent = msg
+      ? closeStreamingThinkBlock(
+          buildAssistantDisplayContent(msg, messageById),
+          thinkingActiveMessageIds.has(msg.id) || isStreaming,
+        )
+      : '';
+    const parsedNodes = column || shouldRenderFromContent || displayPrefix
       ? undefined
       : aiContentNodesById.get(String(bubbleData.key));
-    const { footerLoading: rawFooterLoading } = getStreamingLoadingState(isStreaming, bubbleData.content);
-    const hasModelText = hasModelVisibleContent(bubbleData.content, stripAssistantAqbotTags);
+    const { footerLoading: rawFooterLoading } = getStreamingLoadingState(
+      isStreaming,
+      column ? laneDisplayContent : bubbleData.content,
+    );
+    const hasModelText = hasModelVisibleContent(
+      column ? laneDisplayContent : bubbleData.content,
+      stripAssistantAqbotTags,
+    );
     const footerLoading = rawFooterLoading && hasModelText;
     // Never let Ant Design Bubble's loading state replace AI content while a
     // stream is active; the markdown renderer receives incremental content and
@@ -1774,12 +1806,13 @@ export function ChatView() {
     const bubbleLoading = false;
 
     const parentId = msg?.parent_message_id;
-    const hasMultiModels = !!parentId && (
+    const hasMultiModels = !column && !!parentId && (
       multiModelResponseParents.has(parentId)
       || (parentId === multiModelParentId && pendingCompanionModelCount > 1)
     );
+    const hideLayoutSwitcher = Boolean(column) || shouldHideMultiModelLayoutSwitcher(chatChrome.kind);
     const effectiveDisplayMode: MultiModelDisplayMode = hasMultiModels
-      ? comparisonDisplayModeForChrome(chatChrome.kind, getDisplayMode(parentId))
+      ? getDisplayMode(parentId)
       : 'tabs';
     const isNonTabsMultiModel = hasMultiModels && effectiveDisplayMode !== 'tabs';
     const renderVersionContent = (versionMessage: Message, isVersionStreaming: boolean) => {
@@ -1847,9 +1880,9 @@ export function ChatView() {
       loading: bubbleLoading,
       styles: getShareSelectBubbleStyles(msg?.id),
       contentRender: (content: string) => {
-        const baseRenderContent = typeof content === 'string' && content.length > 0
-          ? content
-          : (msg?.content ?? '');
+        const baseRenderContent = column
+          ? laneDisplayContent
+          : (typeof content === 'string' && content.length > 0 ? content : (msg?.content ?? ''));
         const renderContentNode = (renderContent: string) => {
           const renderContentHasSearchDisplay = /<(?:web-search-query|web-search)\b[^>]*data-aqbot=["']1["'][^>]*>/i.test(renderContent);
           const effectiveDisplayPrefix = `${renderContentHasSearchDisplay ? '' : searchDisplayPrefix ?? ''}${ragDisplayPrefix ?? ''}` || undefined;
@@ -2093,13 +2126,15 @@ export function ChatView() {
           {(!isStreaming || hasMultiModels) && <AssistantFooter
             msg={msg}
             conversationId={activeConversationId}
-            versions={msg.parent_message_id ? renderableVersionsByParentId[msg.parent_message_id] : undefined}
+            versions={column && msg.parent_message_id
+              ? filterVersionsForLane(renderableVersionsByParentId[msg.parent_message_id], column)
+              : msg.parent_message_id ? renderableVersionsByParentId[msg.parent_message_id] : undefined}
             assistantCopyText={assistantCopyText}
             getModelDisplayInfo={getModelDisplayInfo}
             onEditMessage={handleEditMessage}
             isStreaming={isStreaming}
-            displayMode={effectiveDisplayMode}
-            onDisplayModeChange={handleDisplayModeChange}
+            displayMode={hideLayoutSwitcher ? undefined : effectiveDisplayMode}
+            onDisplayModeChange={hideLayoutSwitcher ? undefined : handleDisplayModeChange}
             onRegeneratedVersionCreated={handleGeneratedVersionCreated}
           />}
         </div>
@@ -2116,7 +2151,12 @@ export function ChatView() {
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayVersionOverrides, formatTime, getBubbleVariant, getDisplayMode, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeChange, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, renderableVersionsByParentId, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, chatChrome.kind, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayVersionOverrides, formatTime, getBubbleVariant, getDisplayMode, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeChange, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, renderableVersionsByParentId, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, thinkingActiveMessageIds, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
+
+  const aiRole = useCallback(
+    (bubbleData: BubbleItemType) => renderAiRole(bubbleData, null),
+    [renderAiRole],
+  );
 
   const contextClearRole = useCallback((bubbleData: BubbleItemType) => {
     const msgId = String(bubbleData.content ?? '');
@@ -2243,6 +2283,14 @@ export function ChatView() {
     'context-compressed': contextCompressedRole,
     'context-compressing': contextCompressingRole,
   }), [aiRole, contextClearRole, contextCompressedRole, contextCompressingRole, userRole]);
+
+  const makeLaneRoles = useCallback((column: LaneColumn): RoleType => ({
+    user: userRole,
+    ai: (bubbleData) => renderAiRole(bubbleData, column),
+    'context-clear': contextClearRole,
+    'context-compressed': contextCompressedRole,
+    'context-compressing': contextCompressingRole,
+  }), [contextClearRole, contextCompressedRole, contextCompressingRole, renderAiRole, userRole]);
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
@@ -2545,15 +2593,21 @@ export function ChatView() {
                 }}
               >
                 <MultiModelLaneWorkspace
-                  userMessages={laneUserMessages}
-                  versionsByParentId={renderableVersionsByParentId}
                   columns={laneColumns}
-                  displayVersionIdsByParent={displayVersionOverrides}
                   getModelDisplayInfo={getModelDisplayInfo}
-                  renderUser={renderLaneUser}
-                  renderAnswer={renderLaneAnswer}
-                  streamingMessageId={streamingMessageId}
-                  onScroll={handleBubbleListScroll}
+                  renderConversation={(column) => (
+                    <Bubble.List
+                      items={finalBubbleItems}
+                      autoScroll
+                      onScroll={handleLaneBubbleScroll}
+                      role={makeLaneRoles(column)}
+                      style={{
+                        height: '100%',
+                        padding: '16px 16px',
+                        overflowX: 'hidden',
+                      }}
+                    />
+                  )}
                 />
               </div>
             ) : (
@@ -2651,10 +2705,14 @@ export function ChatView() {
                 </Button>
               </div>
             )}
-            <ChatScrollIndicator onUserScrollIntent={markUserScrollIntent} />
-            <MinimapScrollProvider scrollTo={minimapScrollTo} scrollBoxRef={scrollBoxRef}>
-              <ChatMinimap />
-            </MinimapScrollProvider>
+            {!useLaneWorkspace && (
+              <ChatScrollIndicator onUserScrollIntent={markUserScrollIntent} />
+            )}
+            {!useLaneWorkspace && (
+              <MinimapScrollProvider scrollTo={minimapScrollTo} scrollBoxRef={scrollBoxRef}>
+                <ChatMinimap />
+              </MinimapScrollProvider>
+            )}
             {showingPreviousConversationWindow && (
               <div
                 className="absolute inset-0 flex flex-col items-center justify-center"
@@ -2694,7 +2752,7 @@ export function ChatView() {
 
       {/* Input Area */}
       <div className="relative">
-        {showScrollToBottom && (
+        {!useLaneWorkspace && showScrollToBottom && (
           <Button
             size="small"
             shape="round"

@@ -6,7 +6,12 @@ import {
   getModelVersionGroupKey,
   hasMultipleModelVersions,
 } from '@/lib/chatMultiModel';
-import { useConversationStore } from '@/stores';
+import {
+  selectUiMultiModelDoneMessageIds,
+  selectUiMultiModelParentId,
+  selectUiPendingCompanionModels,
+  useConversationStore,
+} from '@/stores';
 import type { ConversationStats, Message, MultiModelDisplayMode } from '@/types';
 import Actions from '@ant-design/x/es/actions';
 import { ModelIcon } from '@lobehub/icons';
@@ -140,9 +145,9 @@ function ModelTags({
   const { token } = theme.useToken();
   const { t } = useTranslation();
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
-  const pendingCompanionModels = useConversationStore((s) => s.pendingCompanionModels);
-  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
-  const multiModelDoneMessageIds = useConversationStore((s) => s.multiModelDoneMessageIds);
+  const pendingCompanionModels = useConversationStore(selectUiPendingCompanionModels);
+  const multiModelParentId = useConversationStore(selectUiMultiModelParentId);
+  const multiModelDoneMessageIds = useConversationStore(selectUiMultiModelDoneMessageIds);
 
   // Only show pending/streaming indicators for the specific multi-model target message
   const isMultiModelTarget = msg.parent_message_id === multiModelParentId;
@@ -391,8 +396,8 @@ export function AssistantFooter({
   });
   const conversations = useConversationStore((s) => s.conversations);
   const currentConvTitle = conversations.find((c) => c.id === conversationId)?.title ?? '';
-  const pendingCompanionModelCount = useConversationStore((s) => s.pendingCompanionModels.length);
-  const multiModelParentId = useConversationStore((s) => s.multiModelParentId);
+  const pendingCompanionModelCount = useConversationStore((s) => selectUiPendingCompanionModels(s).length);
+  const multiModelParentId = useConversationStore(selectUiMultiModelParentId);
   const mergedVersions = versions ?? [msg];
 
   // Keep multi-model controls visible while sibling model versions are still pending.

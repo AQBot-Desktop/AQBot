@@ -1,4 +1,5 @@
 import { invoke, type UnlistenFn } from '@/lib/invoke';
+import type { ConversationStreamSyncState } from '@/lib/conversationSync';
 import { supportsReasoning, supportsFunctionCalling, findModelByIds } from '@/lib/modelCapabilities';
 import { coerceReasoningOptionKey, resolveReasoningProfile } from '@/lib/reasoningProfile';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
@@ -1278,6 +1279,8 @@ export interface ConversationState {
   oldestLoadedMessageId: string | null;
   newestLoadedMessageId: string | null;
   streaming: boolean;
+  /** Stream owned by another window of the same conversation. */
+  observedStream: (ConversationStreamSyncState & { conversationId: string }) | null;
   compressingConversationId: string | null;
   /** Incremented to request ChatView open the compression summary modal. */
   openCompressionSummaryToken: number;
@@ -1386,6 +1389,7 @@ export interface ConversationState {
     originWindow: string;
     conversationId: string;
     kind?: string;
+    stream?: ConversationStreamSyncState;
   }) => Promise<void>;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
@@ -1425,6 +1429,79 @@ export interface ConversationState {
   /** Pending prompt text from welcome cards — InputArea picks it up and sends with companion awareness */
   pendingPromptText: string | null;
   setPendingPromptText: (text: string | null) => void;
+}
+
+export function isObservedStreamingFor(
+  state: Pick<ConversationState, 'observedStream' | 'activeConversationId'>,
+  conversationId: string | null = state.activeConversationId,
+): boolean {
+  return Boolean(
+    conversationId
+    && state.observedStream?.streaming
+    && state.observedStream.conversationId === conversationId
+  );
+}
+
+export function selectUiStreaming(
+  state: Pick<ConversationState, 'streaming' | 'observedStream' | 'activeConversationId'>,
+): boolean {
+  return state.streaming || isObservedStreamingFor(state);
+}
+
+export function selectUiStreamingMessageId(
+  state: Pick<ConversationState, 'streaming' | 'streamingMessageId' | 'observedStream' | 'activeConversationId'>,
+): string | null {
+  if (state.streaming) return state.streamingMessageId;
+  if (isObservedStreamingFor(state)) return state.observedStream?.streamingMessageId ?? null;
+  return state.streamingMessageId;
+}
+
+export function selectUiStreamingConversationId(
+  state: Pick<ConversationState, 'streaming' | 'streamingConversationId' | 'observedStream' | 'activeConversationId'>,
+): string | null {
+  if (state.streaming) return state.streamingConversationId;
+  if (isObservedStreamingFor(state)) return state.observedStream?.conversationId ?? null;
+  return state.streamingConversationId;
+}
+
+export function selectUiMultiModelParentId(
+  state: Pick<ConversationState, 'streaming' | 'multiModelParentId' | 'observedStream' | 'activeConversationId'>,
+): string | null {
+  if (state.streaming || !isObservedStreamingFor(state)) return state.multiModelParentId;
+  return state.observedStream?.multiModelParentId ?? state.multiModelParentId;
+}
+
+export function selectUiPendingCompanionModels(
+  state: Pick<ConversationState, 'streaming' | 'pendingCompanionModels' | 'observedStream' | 'activeConversationId'>,
+): ConversationState['pendingCompanionModels'] {
+  if (state.streaming || !isObservedStreamingFor(state)) return state.pendingCompanionModels;
+  return state.observedStream?.pendingCompanionModels ?? state.pendingCompanionModels;
+}
+
+export function selectUiMultiModelDoneMessageIds(
+  state: Pick<ConversationState, 'streaming' | 'multiModelDoneMessageIds' | 'observedStream' | 'activeConversationId'>,
+): string[] {
+  if (state.streaming || !isObservedStreamingFor(state)) return state.multiModelDoneMessageIds;
+  return state.observedStream?.multiModelDoneMessageIds ?? state.multiModelDoneMessageIds;
+}
+
+export function snapshotStreamSyncState(
+  state: Pick<
+    ConversationState,
+    | 'streaming'
+    | 'streamingMessageId'
+    | 'multiModelParentId'
+    | 'pendingCompanionModels'
+    | 'multiModelDoneMessageIds'
+  >,
+): ConversationStreamSyncState {
+  return {
+    streaming: state.streaming,
+    streamingMessageId: state.streamingMessageId,
+    multiModelParentId: state.multiModelParentId,
+    pendingCompanionModels: [...state.pendingCompanionModels],
+    multiModelDoneMessageIds: [...state.multiModelDoneMessageIds],
+  };
 }
 
 export type { MultiModelTarget };

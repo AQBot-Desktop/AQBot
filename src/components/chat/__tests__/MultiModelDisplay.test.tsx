@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type React from 'react';
 import type { Message } from '@/types';
+import { ChatChromeContext } from '@/lib/chatChrome';
 import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
 import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
@@ -162,6 +163,22 @@ describe('MultiModelDisplay', () => {
 
     fireEvent.click(buttons[2]);
     expect(onModeChange).toHaveBeenCalledWith('stacked');
+  });
+
+  it('hides the layout switcher in the independent window', () => {
+    render(
+      <App>
+        <ChatChromeContext.Provider value={{ kind: 'popout' }}>
+          <LayoutSwitcher
+            currentMode="tabs"
+            onModeChange={vi.fn()}
+          />
+        </ChatChromeContext.Provider>
+      </App>,
+    );
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('layout-independent-window')).not.toBeInTheDocument();
   });
 
   it('opens an independent window without changing the in-place layout', async () => {

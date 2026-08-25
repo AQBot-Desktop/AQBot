@@ -18,6 +18,10 @@ vi.mock('markstream-react', () => ({
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
+vi.mock('@lobehub/icons', () => ({
+  ModelIcon: ({ model }: { model: string }) => <span data-testid="model-icon">{model}</span>,
+}));
+
 vi.mock('@/lib/convIcon', () => ({ getConvIcon: () => null }));
 vi.mock('../InputArea', () => ({ InputArea: () => null }));
 vi.mock('../ModelSelector', () => ({ ModelSelector: ({ children }: { children?: React.ReactNode }) => <>{children}</> }));
@@ -205,9 +209,11 @@ describe('ChatView issue #155 layout inheritance', () => {
       streaming: false,
       streamingMessageId: null,
       streamingConversationId: null,
+      observedStream: null,
       ragDisplayByMessageId: {},
       searchDisplayByMessageId: {},
       pendingCompanionModels: [],
+      multiModelTargets: [],
       multiModelParentId: null,
       multiModelDoneMessageIds: [],
       thinkingActiveMessageIds: new Set(),

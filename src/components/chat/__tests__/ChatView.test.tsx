@@ -67,10 +67,21 @@ describe('ChatView assistant display policy', () => {
   it('mounts the streaming footer so multi-model status and switching are immediately available', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
     const footerIndex = source.indexOf('<AssistantFooter');
-    const footerBranch = footerIndex >= 0 ? source.slice(footerIndex - 200, footerIndex + 500) : '';
+    const footerBranch = footerIndex >= 0 ? source.slice(footerIndex - 200, footerIndex + 900) : '';
 
     expect(footerBranch).toContain('{(!isStreaming || hasMultiModels) && <AssistantFooter');
     expect(footerBranch).toContain('isStreaming={isStreaming}');
+  });
+
+  it('renders independent-window multi-model replies as per-model conversation columns', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+
+    expect(source).toContain('renderConversation={(column) => (');
+    expect(source).toContain('makeLaneRoles(column)');
+    expect(source).toContain('shouldHideMultiModelLayoutSwitcher(chatChrome.kind)');
+    expect(source).toContain('<InputArea />');
+    expect(source).not.toContain('comparisonDisplayModeForChrome');
+    expect(source).not.toContain('renderLaneUser');
   });
 
   it('temporarily closes live streaming think content before rendering', () => {

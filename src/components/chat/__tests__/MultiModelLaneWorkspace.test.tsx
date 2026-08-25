@@ -1,124 +1,69 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Message } from '@/types';
 import { MultiModelLaneWorkspace } from '../MultiModelLaneWorkspace';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-function makeMessage(overrides: Partial<Message>): Message {
-  return {
-    id: 'msg-1',
-    conversation_id: 'conv-1',
-    role: 'assistant',
-    content: '',
-    provider_id: 'provider-a',
-    model_id: 'model-a',
-    token_count: null,
-    attachments: [],
-    thinking: null,
-    tool_calls_json: null,
-    tool_call_id: null,
-    created_at: 1,
-    parent_message_id: 'user-1',
-    version_index: 0,
-    is_active: true,
-    status: 'complete',
-    ...overrides,
-  };
-}
+vi.mock('@lobehub/icons', () => ({
+  ModelIcon: ({ model }: { model: string }) => <span data-testid="lane-model-icon">{model}</span>,
+}));
 
 describe('MultiModelLaneWorkspace', () => {
-  it('projects the same user question into each model column', () => {
-    const user = makeMessage({
-      id: 'user-1',
-      role: 'user',
-      content: 'compare these models',
-      parent_message_id: null,
-      model_id: null,
-      provider_id: null,
-    });
-    const answerA = makeMessage({
-      id: 'a',
-      content: 'answer A',
-      provider_id: 'provider-a',
-      model_id: 'model-a',
-      version_index: 0,
-    });
-    const answerB = makeMessage({
-      id: 'b',
-      content: 'answer B',
-      provider_id: 'provider-b',
-      model_id: 'model-b',
-      version_index: 1,
-      is_active: false,
-    });
-
+  it('renders a full conversation pane for each model column', () => {
     render(
       <MultiModelLaneWorkspace
-        userMessages={[user]}
-        versionsByParentId={{ 'user-1': [answerA, answerB] }}
         columns={[
           { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
           { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
         ]}
-        getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
-        renderUser={(message) => <div>{message.content}</div>}
-        renderAnswer={(message) => <div>{message.content}</div>}
+        getModelDisplayInfo={(modelId, providerId) => ({
+          modelName: modelId ?? 'AI',
+          providerName: providerId === 'provider-a' ? 'Provider A' : 'Provider B',
+        })}
+        renderConversation={(column) => <div>{`conversation:${column.modelId}`}</div>}
       />,
     );
 
-    expect(screen.getByLabelText('chat.multiModel.laneWorkspaceLabel')).toBeInTheDocument();
-    expect(screen.getAllByText('compare these models')).toHaveLength(2);
-    expect(screen.getByText('answer A')).toBeInTheDocument();
-    expect(screen.getByText('answer B')).toBeInTheDocument();
+    expect(screen.getByTestId('multi-model-lane-workspace')).toBeInTheDocument();
+    expect(screen.getByText('conversation:model-a')).toBeInTheDocument();
+    expect(screen.getByText('conversation:model-b')).toBeInTheDocument();
+    expect(screen.getAllByText('model-a').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('model-b').length).toBeGreaterThan(0);
+    expect(screen.getByText('Provider A')).toBeInTheDocument();
+    expect(screen.getByText('Provider B')).toBeInTheDocument();
+    expect(screen.queryByText('Provider A · model-a')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('chat.multiModel.expandColumn')).toHaveLength(2);
   });
 
-  it('uses split columns with expand and stop controls in the independent window', () => {
-    const user = makeMessage({
-      id: 'user-1',
-      role: 'user',
-      content: 'hello',
-      parent_message_id: null,
-      model_id: null,
-      provider_id: null,
-    });
-    const answerA = makeMessage({
-      id: 'a',
-      content: 'answer A',
-      provider_id: 'provider-a',
-      model_id: 'model-a',
-    });
-    const answerB = makeMessage({
-      id: 'b',
-      content: 'answer B',
-      provider_id: 'provider-b',
-      model_id: 'model-b',
-      version_index: 1,
-      is_active: false,
-    });
+  it('can expand one column and stop a streaming column', () => {
     const onStopColumn = vi.fn();
 
     render(
       <MultiModelLaneWorkspace
-        userMessages={[user]}
-        versionsByParentId={{ 'user-1': [answerA, answerB] }}
         columns={[
           { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
           { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
         ]}
         getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
-        renderUser={(message) => <div>{message.content}</div>}
-        renderAnswer={(message) => <div>{message.content}</div>}
-        streamingMessageId="a"
-        variant="split"
+        renderConversation={(column) => <div>{column.modelId}</div>}
+        streamingColumnKeys={new Set(['provider-a:model-a'])}
         onStopColumn={onStopColumn}
       />,
     );
 
-    expect(screen.getAllByLabelText('chat.multiModel.expandColumn')).toHaveLength(2);
-    screen.getAllByLabelText('chat.multiModel.stopColumn')[0]?.click();
-    expect(onStopColumn).toHaveBeenCalled();
+    fireEvent.click(screen.getAllByLabelText('chat.multiModel.expandColumn')[0]!);
+    expect(screen.getByTestId('multi-model-lane-column-provider-a:model-a')).toBeInTheDocument();
+    expect(screen.queryByTestId('multi-model-lane-column-provider-b:model-b')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('chat.multiModel.collapseColumn')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('chat.multiModel.stopColumn'));
+    expect(onStopColumn).toHaveBeenCalledWith({
+      key: 'provider-a:model-a',
+      providerId: 'provider-a',
+      modelId: 'model-a',
+      historical: false,
+    });
   });
 });

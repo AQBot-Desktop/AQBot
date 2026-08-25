@@ -10,7 +10,15 @@ export {
   getLiveStreamContent,
   hasAuthoritativeMessageVersionSnapshot,
   invalidateConversationMessageCache,
+  isObservedStreamingFor,
+  selectUiMultiModelDoneMessageIds,
+  selectUiMultiModelParentId,
+  selectUiPendingCompanionModels,
+  selectUiStreaming,
+  selectUiStreamingConversationId,
+  selectUiStreamingMessageId,
   setLiveStreamContent,
+  snapshotStreamSyncState,
   subscribeLiveStreamContent,
 } from './conversationStoreSupport';
 
@@ -31,6 +39,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   oldestLoadedMessageId: null,
   newestLoadedMessageId: null,
   streaming: false,
+  observedStream: null,
   compressingConversationId: null,
   openCompressionSummaryToken: 0,
   streamingMessageId: null,

@@ -12,6 +12,7 @@ import { useChatChrome } from '@/lib/chatChrome';
 import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
 import { openConversationPopout } from '@/lib/conversationPopout';
 import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
+import { shouldHideMultiModelLayoutSwitcher } from '@/lib/multiModelLanes';
 import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
@@ -175,8 +176,17 @@ function MultiModelDisplayInner({
 }: MultiModelDisplayInnerProps) {
   const parentMessageId = versions[0]?.parent_message_id;
   const storeMessages = useConversationStore((state) => state.messages);
-  const storeStreaming = useConversationStore((state) => state.streaming);
-  const streamingConversationId = useConversationStore((state) => state.streamingConversationId);
+  const storeStreaming = useConversationStore((state) => (
+    state.streaming
+    || Boolean(state.observedStream?.streaming && state.observedStream.conversationId === conversationId)
+  ));
+  const streamingConversationId = useConversationStore((state) => (
+    state.streaming
+      ? state.streamingConversationId
+      : (state.observedStream?.streaming && state.observedStream.conversationId === conversationId
+        ? conversationId
+        : state.streamingConversationId)
+  ));
   const multiModelHistoryMode = useConversationStore((state) => state.multiModelContinuationMode);
   const liveVersions = useMemo(() => {
     if (!parentMessageId) return [];
@@ -687,6 +697,10 @@ export function LayoutSwitcher({
   const chatChrome = useChatChrome();
   const independentWindowActive = chatChrome.kind === 'popout';
   const [independentWindowOpening, setIndependentWindowOpening] = useState(false);
+
+  if (shouldHideMultiModelLayoutSwitcher(chatChrome.kind)) {
+    return null;
+  }
 
   const modes: { key: MultiModelDisplayMode; icon: React.ReactNode; label: string }[] = [
     { key: 'tabs', icon: <LayoutList size={14} />, label: t('settings.multiModelDisplayModeTabs') },

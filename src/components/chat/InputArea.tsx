@@ -106,7 +106,9 @@ export function InputArea() {
   const setMultiModelContinuationMode = useConversationStore((s) => s.setMultiModelContinuationMode);
 
   const { message: messageApi, modal } = App.useApp();
-  const streaming = useConversationStore((s) => s.streaming);
+  const streaming = useConversationStore((s) => s.streaming || Boolean(
+    s.observedStream?.streaming && s.observedStream.conversationId === s.activeConversationId,
+  ));
   const loading = useConversationStore((s) => s.loading);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);

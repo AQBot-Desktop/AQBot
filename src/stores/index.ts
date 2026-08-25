@@ -3,7 +3,15 @@ export { useProviderStore } from './providerStore';
 export {
   clearLiveStreamContent,
   getLiveStreamContent,
+  isObservedStreamingFor,
+  selectUiMultiModelDoneMessageIds,
+  selectUiMultiModelParentId,
+  selectUiPendingCompanionModels,
+  selectUiStreaming,
+  selectUiStreamingConversationId,
+  selectUiStreamingMessageId,
   setLiveStreamContent,
+  snapshotStreamSyncState,
   subscribeLiveStreamContent,
   useConversationStore,
 } from './conversationStore';

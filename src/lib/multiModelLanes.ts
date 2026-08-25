@@ -1,4 +1,4 @@
-import type { Message, MultiModelDisplayMode, MultiModelTarget } from '@/types';
+import type { Message, MultiModelTarget } from '@/types';
 import { getMessageVersionGroupKey, getModelVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
 
 export interface LaneColumn {
@@ -29,18 +29,24 @@ export function buildLaneColumns(
   return columns;
 }
 
-export function comparisonDisplayModeForChrome(
-  chromeKind: 'main' | 'popout',
-  conversationMode: MultiModelDisplayMode,
-): MultiModelDisplayMode {
-  return chromeKind === 'popout' ? 'side-by-side' : conversationMode;
-}
-
 export function shouldUseLaneWorkspace(
   chromeKind: 'main' | 'popout',
   columns: LaneColumn[],
 ): boolean {
   return chromeKind === 'popout' && columns.length >= 2;
+}
+
+export function shouldHideMultiModelLayoutSwitcher(
+  chromeKind: 'main' | 'popout',
+): boolean {
+  return chromeKind === 'popout';
+}
+
+export function filterVersionsForLane(
+  versions: ReadonlyArray<Message> | undefined,
+  column: LaneColumn,
+): Message[] {
+  return (versions ?? []).filter((version) => getMessageVersionGroupKey(version) === column.key);
 }
 
 export function selectLaneAnswer(

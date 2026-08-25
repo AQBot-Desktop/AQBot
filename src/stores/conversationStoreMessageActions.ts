@@ -1,5 +1,6 @@
 import { invoke, isTauri, listen, type UnlistenFn } from '@/lib/invoke';
 import { listenConversationSync, notifyConversationChanged } from '@/lib/conversationSync';
+import { snapshotStreamSyncState } from './conversationStoreSupport';
 import { getCurrentWindowLabel } from '@/lib/windowKind';
 import {
   applyMultiModelStreamError,
@@ -364,7 +365,7 @@ export function createConversationMessageActions(
         }));
 
         // In browser mode, simulate brief loading then fetch the mock AI response
-        notifyConversationChanged(conversationId);
+        notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
         if (!isTauri()) {
           await new Promise((r) => setTimeout(r, 600));
           set({ streaming: false, streamingMessageId: null, streamingConversationId: null, activeStreamId: null, thinkingActiveMessageIds: new Set<string>() });
@@ -896,7 +897,7 @@ export function createConversationMessageActions(
             ? runtime.multiModelHistoryMode
             : get().multiModelContinuationMode,
         });
-        notifyConversationChanged(conversationId);
+        notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
 
         // In browser mode, simulate brief loading then fetch the mock AI response
         if (!isTauri()) {
@@ -1030,7 +1031,7 @@ export function createConversationMessageActions(
             ? runtime.multiModelHistoryMode
             : get().multiModelContinuationMode,
         });
-        notifyConversationChanged(conversationId);
+        notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
 
         if (!isTauri()) {
           await new Promise((r) => setTimeout(r, 600));
@@ -1138,6 +1139,7 @@ export function createConversationMessageActions(
             : m,
         ),
       }));
+      notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
 
       // Create a unified promise for ALL models (first model stream already running)
       const allDone = new Promise<void>((resolve) => {
@@ -1242,6 +1244,7 @@ export function createConversationMessageActions(
                   if (newVersions.length === 0 && !enriched && Object.keys(updates).length === 0) return {};
                   return { ...updates, messages: [...updatedMessages, ...newVersions] };
                 });
+                notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
               }
             } catch (e) {
               console.warn('[sendMultiModelMessage] failed to enrich companion:', e);
@@ -1434,7 +1437,7 @@ export function createConversationMessageActions(
 
       invalidateConversationMessageCache(conversationId);
       removeLocalMessage(set, messageId);
-      notifyConversationChanged(conversationId);
+      notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
       if (!parentMessageId) return;
 
       if (authoritativeVersions) {
@@ -1754,7 +1757,7 @@ export function createConversationMessageActions(
                 activeStreamId: null,
                 thinkingActiveMessageIds: new Set<string>(),
               });
-              notifyConversationChanged(conversation_id);
+              notifyConversationChanged(conversation_id, snapshotStreamSyncState(get()));
               if (runtime.multiModelDoneResolve) {
                 const resolve = runtime.multiModelDoneResolve;
                 runtime.multiModelDoneResolve = null;
@@ -1839,7 +1842,7 @@ export function createConversationMessageActions(
                 preserveMessageIds,
               );
             }, 120);
-            notifyConversationChanged(conversation_id);
+            notifyConversationChanged(conversation_id, snapshotStreamSyncState(get()));
           } else {
             // User is viewing a different conversation — keep buffer alive and
             // schedule a refresh so the completed message loads from DB when
@@ -2071,6 +2074,15 @@ export function createConversationMessageActions(
     applyRemoteConversationSync: async (payload) => {
       if (payload.originWindow === getCurrentWindowLabel()) return;
       if (!payload.conversationId) return;
+      if (payload.stream) {
+        set({
+          observedStream: payload.stream.streaming
+            ? { conversationId: payload.conversationId, ...payload.stream }
+            : get().observedStream?.conversationId === payload.conversationId
+              ? null
+              : get().observedStream,
+        });
+      }
       invalidateConversationMessageCache(payload.conversationId);
       if (get().activeConversationId !== payload.conversationId) {
         runtime.pendingConversationRefresh.add(payload.conversationId);
@@ -2150,7 +2162,7 @@ export function createConversationMessageActions(
           ? s.messages.map(m => m.id === streamMsgId ? { ...m, status: 'partial' as const } : m)
           : s.messages,
       }));
-      notifyConversationChanged(conversationId);
+      notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
     },
   };
 }

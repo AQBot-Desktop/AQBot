@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@/types';
-import { buildLaneColumns, comparisonDisplayModeForChrome, selectLaneAnswer, shouldUseLaneWorkspace } from '../multiModelLanes';
+import { buildLaneColumns, filterVersionsForLane, selectLaneAnswer, shouldHideMultiModelLayoutSwitcher, shouldUseLaneWorkspace } from '../multiModelLanes';
 
 function makeMessage(overrides: Partial<Message>): Message {
   return {
@@ -47,11 +47,24 @@ describe('multi-model lane helpers', () => {
     expect(shouldUseLaneWorkspace('popout', buildLaneColumns([]))).toBe(false);
   });
 
-  it('forces side-by-side model cards in the independent window', () => {
-    expect(comparisonDisplayModeForChrome('popout', 'tabs')).toBe('side-by-side');
-    expect(comparisonDisplayModeForChrome('popout', 'stacked')).toBe('side-by-side');
-    expect(comparisonDisplayModeForChrome('main', 'tabs')).toBe('tabs');
-    expect(comparisonDisplayModeForChrome('main', 'stacked')).toBe('stacked');
+  it('hides the multi-model layout switcher in the independent window', () => {
+    expect(shouldHideMultiModelLayoutSwitcher('popout')).toBe(true);
+    expect(shouldHideMultiModelLayoutSwitcher('main')).toBe(false);
+  });
+
+  it('keeps only the current lane versions for a column footer', () => {
+    const column = {
+      key: 'provider-b:model-b',
+      providerId: 'provider-b',
+      modelId: 'model-b',
+      historical: false,
+    };
+    const versions = [
+      makeMessage({ id: 'a', provider_id: 'provider-a', model_id: 'model-a', version_index: 0 }),
+      makeMessage({ id: 'b', provider_id: 'provider-b', model_id: 'model-b', version_index: 1 }),
+      makeMessage({ id: 'b2', provider_id: 'provider-b', model_id: 'model-b', version_index: 3 }),
+    ];
+    expect(filterVersionsForLane(versions, column).map((message) => message.id)).toEqual(['b', 'b2']);
   });
 
   it('projects the slotted answer for a lane even when versions arrive out of order', () => {

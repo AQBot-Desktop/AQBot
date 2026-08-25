@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from '@/lib/invoke';
 import { getCurrentWindowLabel } from '@/lib/windowKind';
+import type { MultiModelTarget } from '@/types';
 
 function canUseTauriEvents(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -9,19 +10,31 @@ export const CONVERSATION_SYNC_EVENT = 'aqbot:conversation-sync';
 
 export type ConversationSyncKind = 'messages-changed' | 'conversation-meta';
 
+export interface ConversationStreamSyncState {
+  streaming: boolean;
+  streamingMessageId: string | null;
+  multiModelParentId: string | null;
+  pendingCompanionModels: MultiModelTarget[];
+  multiModelDoneMessageIds: string[];
+}
+
 export interface ConversationSyncPayload {
   originWindow: string;
   conversationId: string;
   kind: ConversationSyncKind;
+  stream?: ConversationStreamSyncState;
 }
 
 type ConversationSyncHandler = (payload: ConversationSyncPayload) => void;
 
 const browserHandlers = new Set<ConversationSyncHandler>();
 
-export function notifyConversationChanged(conversationId: string | null | undefined): void {
+export function notifyConversationChanged(
+  conversationId: string | null | undefined,
+  stream?: ConversationStreamSyncState,
+): void {
   if (!conversationId) return;
-  void emitConversationSync({ conversationId, kind: 'messages-changed' }).catch(() => {});
+  void emitConversationSync({ conversationId, kind: 'messages-changed', stream }).catch(() => {});
 }
 
 export async function emitConversationSync(

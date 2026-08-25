@@ -295,7 +295,11 @@ export function ChatSidebar() {
   const batchArchive = useConversationStore((s) => s.batchArchive)
   const batchMoveToCategory = useConversationStore((s) => s.batchMoveToCategory)
   const reorderConversations = useConversationStore((s) => s.reorderConversations)
-  const streamingConversationId = useConversationStore((s) => s.streamingConversationId)
+  const streamingConversationId = useConversationStore((s) => (
+    s.streaming
+      ? s.streamingConversationId
+      : (s.observedStream?.streaming ? s.observedStream.conversationId : s.streamingConversationId)
+  ))
   const titleGeneratingConversationId = useConversationStore((s) => s.titleGeneratingConversationId)
   const regenerateTitle = useConversationStore((s) => s.regenerateTitle)
 
