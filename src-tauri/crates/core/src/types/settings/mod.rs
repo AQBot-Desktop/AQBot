@@ -689,6 +689,8 @@ pub struct AppSettings {
     pub chat_sidebar_collapsed: bool,
     /// Inherit current conversation capability preferences when creating a new conversation.
     pub inherit_conversation_preferences_on_create: bool,
+    /// Show conversation tabs in the main window title bar. Default: false.
+    pub conversation_tabs_enabled: bool,
     /// Timeout before the first chat stream packet in seconds. 0 disables.
     pub chat_stream_first_packet_timeout_secs: u64,
     /// Timeout between chat stream packets in seconds. 0 disables.
@@ -846,6 +848,7 @@ impl Default for AppSettings {
             chat_minimap_style: "faq".to_string(),
             chat_sidebar_collapsed: false,
             inherit_conversation_preferences_on_create: true,
+            conversation_tabs_enabled: false,
             chat_stream_first_packet_timeout_secs: 180,
             chat_stream_idle_timeout_secs: 90,
             mcp_tool_loop_max_iterations: DEFAULT_MCP_TOOL_LOOP_MAX_ITERATIONS,

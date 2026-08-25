@@ -401,6 +401,34 @@ describe('browserMock conversation ordering', () => {
     });
     expect(persisted.find((conversation: any) => conversation.id === 'uncategorized').sort_order).toBe(0);
   });
+
+  it('pins conversations to the tab bar without changing updated_at or sidebar pin state', async () => {
+    localStorage.setItem('aqbot_conversations', JSON.stringify([
+      mockConversation('first', { is_pinned: false, sort_order: 0, updated_at: 11, tab_pin_order: null }),
+      mockConversation('second', { is_pinned: true, sort_order: 1, updated_at: 22, tab_pin_order: null }),
+      mockConversation('archived', { is_archived: true, updated_at: 33, tab_pin_order: 1 }),
+    ]));
+
+    const first = await handleCommand<any>('set_conversation_tab_pinned', { id: 'first', pinned: true });
+    const second = await handleCommand<any>('set_conversation_tab_pinned', { id: 'second', pinned: true });
+    const firstAgain = await handleCommand<any>('set_conversation_tab_pinned', { id: 'first', pinned: true });
+    await expect(handleCommand('set_conversation_tab_pinned', {
+      id: 'archived',
+      pinned: true,
+    })).rejects.toThrow(/archived/);
+
+    expect(first.tab_pin_order).toBe(1);
+    expect(second.tab_pin_order).toBe(2);
+    expect(firstAgain.tab_pin_order).toBe(1);
+    expect(firstAgain.updated_at).toBe(11);
+    expect(firstAgain.is_pinned).toBe(false);
+    expect(second.is_pinned).toBe(true);
+
+    const unpinned = await handleCommand<any>('set_conversation_tab_pinned', { id: 'first', pinned: false });
+    expect(unpinned.tab_pin_order).toBeNull();
+    const archived = await handleCommand<any>('toggle_archive_conversation', { id: 'second' });
+    expect(archived.tab_pin_order).toBeNull();
+  });
 });
 
 describe('browserMock gateway templates', () => {

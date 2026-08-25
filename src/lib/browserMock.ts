@@ -37,7 +37,15 @@ function withConversationSortOrder(conversation: any): any {
       ? 'per_model'
       : 'selected',
     sort_order: Number.isInteger(conversation.sort_order) ? conversation.sort_order : 0,
+    tab_pin_order: Number.isInteger(conversation.tab_pin_order) ? conversation.tab_pin_order : null,
   };
+}
+
+function nextTabPinOrder(conversations: any[]): number {
+  return conversations.reduce((maximum: number, conversation: any) => {
+    if (conversation.is_archived || !Number.isInteger(conversation.tab_pin_order)) return maximum;
+    return Math.max(maximum, conversation.tab_pin_order);
+  }, 0) + 1;
 }
 
 function conversationSortPeers(
@@ -587,6 +595,7 @@ const DEFAULT_SETTINGS = {
   chat_ai_message_area_dark_color: 'rgba(255, 255, 255, 0.06)',
   chat_ai_message_area_border_width: 1,
   inherit_conversation_preferences_on_create: true,
+  conversation_tabs_enabled: false,
   chat_stream_first_packet_timeout_secs: 180,
   chat_stream_idle_timeout_secs: 90,
   agent_workspace_root: null,
@@ -1082,6 +1091,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         parent_conversation_id: null,
         mode: 'chat',
         sort_order: sortOrder,
+        tab_pin_order: null,
         created_at: nowTs(),
         updated_at: nowTs(),
       };
@@ -1114,6 +1124,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
           ...(movedSortOrder !== null
             ? { sort_order: movedSortOrder }
             : {}),
+          ...(input.is_archived ? { tab_pin_order: null } : {}),
           updated_at: nowTs(),
         };
         setStore('conversations', convs);
@@ -1151,6 +1162,25 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       }
       throw new Error('Conversation not found');
     }
+    case 'set_conversation_tab_pinned': {
+      const { id, pinned } = args as any;
+      const convs = getStore<any[]>('conversations', []);
+      const idx = convs.findIndex((c: any) => c.id === id);
+      if (idx === -1) throw new Error('Conversation not found');
+      if (pinned && convs[idx].is_archived) {
+        throw new Error('Cannot pin an archived conversation to the tab bar');
+      }
+      const currentlyPinned = Number.isInteger(convs[idx].tab_pin_order);
+      if (Boolean(pinned) === currentlyPinned) {
+        return withConversationSortOrder(convs[idx]) as T;
+      }
+      convs[idx] = {
+        ...convs[idx],
+        tab_pin_order: pinned ? nextTabPinOrder(convs) : null,
+      };
+      setStore('conversations', convs);
+      return withConversationSortOrder(convs[idx]) as T;
+    }
     case 'toggle_archive_conversation': {
       const { id } = args as any;
       const convs = getStore<any[]>('conversations', []);
@@ -1170,6 +1200,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
           );
         }
         convs[aidx].is_archived = !convs[aidx].is_archived;
+        if (convs[aidx].is_archived) convs[aidx].tab_pin_order = null;
         if (movesToTop) convs[aidx].sort_order = topSortOrder;
         convs[aidx].updated_at = nowTs();
         setStore('conversations', convs);

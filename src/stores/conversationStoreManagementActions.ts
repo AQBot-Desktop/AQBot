@@ -1,4 +1,5 @@
 import { invoke } from '@/lib/invoke';
+import { applyRemovedConversationIds } from '@/lib/conversationTabsActions';
 import { notifyConversationChanged } from '@/lib/conversationSync';
 import {
   clearLegacyMultiModelPreferenceKeys,
@@ -149,6 +150,7 @@ type ConversationManagementActions = Pick<ConversationState,
   | 'deleteConversation'
   | 'branchConversation'
   | 'togglePin'
+  | 'setConversationTabPinned'
   | 'toggleArchive'
   | 'fetchArchivedConversations'
   | 'batchDelete'
@@ -950,16 +952,18 @@ export function createConversationManagementActions(
     },
     deleteConversation: async (id) => {
       try {
+        const previous = get();
         await invoke('delete_conversation', { id });
         invalidateConversationMessageCache(id);
-        const state = get();
+        const nextActiveId = applyRemovedConversationIds([id]);
         set({
-          conversations: state.conversations.filter((c) => c.id !== id),
-          conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
-          activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
-          messages: state.activeConversationId === id ? [] : state.messages,
+          conversations: previous.conversations.filter((c) => c.id !== id),
+          conversationsMeta: mutateConversationsMeta(previous.conversationsMeta),
           error: null,
         });
+        if (previous.activeConversationId !== nextActiveId) {
+          get().setActiveConversation(nextActiveId);
+        }
       } catch (e) {
         set({ error: String(e) });
         throw e;
@@ -1001,21 +1005,38 @@ export function createConversationManagementActions(
         throw e;
       }
     },
+    setConversationTabPinned: async (id, pinned) => {
+      try {
+        const updated = await invoke<Conversation>('set_conversation_tab_pinned', { id, pinned });
+        set((s) => ({
+          ...mergeConversationCollections(s.conversations, s.archivedConversations, updated),
+          conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
+          error: null,
+        }));
+        return updated;
+      } catch (e) {
+        set({ error: String(e) });
+        throw e;
+      }
+    },
     toggleArchive: async (id) => {
       try {
+        const previous = get();
         const updated = await invoke<Conversation>('toggle_archive_conversation', { id });
+        const nextActiveId = updated.is_archived
+          ? applyRemovedConversationIds([id])
+          : previous.activeConversationId;
         if (updated.is_archived) {
-          // Moved to archive — remove from active list, add to archived
           set((s) => ({
             conversations: s.conversations.filter((c) => c.id !== id),
             conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
             archivedConversations: [updated, ...s.archivedConversations],
-            activeConversationId: s.activeConversationId === id ? null : s.activeConversationId,
-            messages: s.activeConversationId === id ? [] : s.messages,
             error: null,
           }));
+          if (previous.activeConversationId !== nextActiveId) {
+            get().setActiveConversation(nextActiveId);
+          }
         } else {
-          // Unarchived — remove from archived, add to active
           set((s) => ({
             conversations: [updated, ...s.conversations],
             conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
@@ -1023,6 +1044,7 @@ export function createConversationManagementActions(
             error: null,
           }));
         }
+        return;
       } catch (e) {
         set({ error: String(e) });
         throw e;
@@ -1038,21 +1060,26 @@ export function createConversationManagementActions(
     },
     batchDelete: async (ids) => {
       const errors: string[] = [];
+      const deletedIds: string[] = [];
       for (const id of ids) {
         try {
           await invoke('delete_conversation', { id });
           invalidateConversationMessageCache(id);
+          deletedIds.push(id);
         } catch (e) {
           errors.push(String(e));
         }
       }
+      const previous = get();
+      const nextActiveId = applyRemovedConversationIds(deletedIds);
       set((s) => ({
-        conversations: s.conversations.filter((c) => !ids.includes(c.id)),
+        conversations: s.conversations.filter((c) => !deletedIds.includes(c.id)),
         conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
-        activeConversationId: ids.includes(s.activeConversationId ?? '') ? null : s.activeConversationId,
-        messages: ids.includes(s.activeConversationId ?? '') ? [] : s.messages,
         error: errors.length ? errors.join('; ') : null,
       }));
+      if (previous.activeConversationId !== nextActiveId) {
+        get().setActiveConversation(nextActiveId);
+      }
     },
     batchArchive: async (ids) => {
       const archived: Conversation[] = [];
@@ -1062,14 +1089,18 @@ export function createConversationManagementActions(
           if (updated.is_archived) archived.push(updated);
         } catch (_) { /* skip */ }
       }
+      const archivedIds = archived.map((item) => item.id);
+      const previous = get();
+      const nextActiveId = applyRemovedConversationIds(archivedIds);
       set((s) => ({
-        conversations: s.conversations.filter((c) => !ids.includes(c.id)),
+        conversations: s.conversations.filter((c) => !archivedIds.includes(c.id)),
         conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
         archivedConversations: [...archived, ...s.archivedConversations],
-        activeConversationId: ids.includes(s.activeConversationId ?? '') ? null : s.activeConversationId,
-        messages: ids.includes(s.activeConversationId ?? '') ? [] : s.messages,
         error: null,
       }));
+      if (previous.activeConversationId !== nextActiveId) {
+        get().setActiveConversation(nextActiveId);
+      }
     },
     batchMoveToCategory: async (ids, categoryId) => {
       const updatedList: Conversation[] = [];

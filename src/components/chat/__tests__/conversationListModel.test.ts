@@ -43,6 +43,7 @@ function conversation(
     updated_at: 1_704_067_200,
     ...overrides,
     sort_order: overrides.sort_order ?? 0,
+    tab_pin_order: overrides.tab_pin_order ?? null,
   }
 }
 

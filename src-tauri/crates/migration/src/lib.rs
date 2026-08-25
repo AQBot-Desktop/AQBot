@@ -55,6 +55,7 @@ mod m20260825_000001_add_memory_l1_and_activation;
 mod m20260825_000002_add_memory_l1_sort_order;
 mod m20260825_000003_fix_assistant_version_slots;
 mod m20260825_000004_add_conversation_multi_model_preferences;
+mod m20260825_000005_add_conversation_tab_pin_order;
 
 pub struct Migrator;
 
@@ -119,6 +120,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260825_000002_add_memory_l1_sort_order::Migration),
             Box::new(m20260825_000003_fix_assistant_version_slots::Migration),
             Box::new(m20260825_000004_add_conversation_multi_model_preferences::Migration),
+            Box::new(m20260825_000005_add_conversation_tab_pin_order::Migration),
         ]
     }
 }
@@ -930,6 +932,72 @@ mod tests {
             )
             .await;
         assert!(insert_duplicate.is_err(), "duplicate slot should be rejected");
+    }
+
+    #[tokio::test]
+    async fn conversation_tab_pin_order_migration_adds_nullable_column() {
+        let db = sqlite_test_db().await;
+        db.execute_unprepared(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY NOT NULL); \
+             INSERT INTO conversations (id) VALUES ('existing');",
+        )
+        .await
+        .expect("create legacy conversations");
+
+        let manager = SchemaManager::new(&db);
+        m20260825_000005_add_conversation_tab_pin_order::Migration
+            .up(&manager)
+            .await
+            .expect("add conversation tab pin order");
+
+        let columns = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(conversations)".to_string(),
+            ))
+            .await
+            .expect("inspect conversations schema");
+        let column = columns
+            .iter()
+            .find(|row| row.try_get::<String>("", "name").expect("column name") == "tab_pin_order")
+            .expect("tab_pin_order column");
+        assert_eq!(column.try_get::<i64>("", "notnull").expect("notnull"), 0);
+        assert_eq!(
+            column
+                .try_get::<Option<String>>("", "dflt_value")
+                .expect("default value"),
+            None
+        );
+
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT tab_pin_order FROM conversations WHERE id = 'existing'".to_string(),
+            ))
+            .await
+            .expect("query migrated conversation")
+            .expect("existing conversation row");
+        assert_eq!(
+            row.try_get::<Option<i64>>("", "tab_pin_order")
+                .expect("read tab pin order"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn migrator_up_adds_nullable_conversation_tab_pin_order() {
+        let db = sqlite_test_db().await;
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+        let manager = SchemaManager::new(&db);
+        assert!(
+            manager
+                .has_column("conversations", "tab_pin_order")
+                .await
+                .expect("check tab_pin_order column"),
+            "missing conversations.tab_pin_order"
+        );
     }
 
     #[tokio::test]

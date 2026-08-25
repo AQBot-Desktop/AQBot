@@ -1360,6 +1360,7 @@ export interface ConversationState {
   deleteConversation: (id: string) => Promise<void>;
   branchConversation: (conversationId: string, untilMessageId: string, asChild: boolean, title?: string) => Promise<Conversation>;
   togglePin: (id: string) => Promise<void>;
+  setConversationTabPinned: (id: string, pinned: boolean) => Promise<Conversation>;
   toggleArchive: (id: string) => Promise<void>;
   archivedConversations: Conversation[];
   fetchArchivedConversations: () => Promise<void>;

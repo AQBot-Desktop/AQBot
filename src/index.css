@@ -457,6 +457,15 @@ svg.lucide {
   app-region: no-drag;
 }
 
+.conversation-tab-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.conversation-tab:focus-visible {
+  outline: 2px solid var(--ant-color-primary, #1677ff);
+  outline-offset: 1px;
+}
+
 /* Unify all Ant Design component borders via CSS variable */
 .ant-conversations .ant-conversations-list {
   border-color: var(--border-color) !important;

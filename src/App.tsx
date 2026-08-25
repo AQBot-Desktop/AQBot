@@ -19,6 +19,7 @@ import { useCommandPalette } from '@/hooks/useCommandPalette';
 import { useUIStore, useSettingsStore, useConversationStore } from '@/stores';
 import { useAcpStore } from '@/stores/acpStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useConversationTabsCoordinator } from '@/hooks/useConversationTabsCoordinator';
 import { useGlobalShortcutManager } from '@/hooks/useGlobalShortcutManager';
 import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { useGlobalOverlayScrollbars } from '@/hooks/useGlobalOverlayScrollbars';
@@ -66,6 +67,7 @@ function AppInner() {
   const frontendKind = frontendKindForWindow(windowLabel);
   const popoutConversationId = conversationIdFromPopoutLabel(windowLabel);
   const isConversationPopout = frontendKind === 'conversation-popout';
+  useConversationTabsCoordinator(!isConversationPopout);
   useProviderDeepLink({ modal, message });
   useTrayMenuActions();
   useGlobalOverlayScrollbars(appRootRef);

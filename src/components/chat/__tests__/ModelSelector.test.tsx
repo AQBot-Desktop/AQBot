@@ -60,6 +60,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     multi_model_targets: [],
     multi_model_continuation_mode: 'selected',
     is_pinned: false,
+    tab_pin_order: null,
     is_archived: false,
     context_compression: false,
     context_strategy_override: null,

@@ -398,6 +398,8 @@ export interface Conversation {
   /** Follow-up history strategy for multi-model replies. */
   multi_model_continuation_mode: MultiModelContinuationMode;
   is_pinned: boolean;
+  /** Null means the conversation is not pinned to the top tab bar. */
+  tab_pin_order: number | null;
   is_archived: boolean;
   /** Legacy compatibility flag. Prefer context_strategy_override. */
   context_compression: boolean;
@@ -853,6 +855,8 @@ export interface AppSettings {
   chat_sidebar_collapsed?: boolean;
   /** Inherit current conversation capability preferences when creating a new conversation. Default: true */
   inherit_conversation_preferences_on_create?: boolean;
+  /** Show conversation tabs in the main window title bar. Default: false */
+  conversation_tabs_enabled?: boolean;
   /** Timeout before the first chat stream packet in seconds. 0 disables. */
   chat_stream_first_packet_timeout_secs?: number;
   /** Timeout between chat stream packets in seconds. 0 disables. */

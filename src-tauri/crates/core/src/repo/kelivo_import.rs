@@ -406,6 +406,7 @@ pub async fn import_kelivo_backup_from_path_with_root(
                 parent_conversation_id: Set(None),
                 sort_order: Set(0),
                 mode: Set("chat".to_string()),
+                tab_pin_order: Set(None),
             }
             .insert(&txn)
             .await?;

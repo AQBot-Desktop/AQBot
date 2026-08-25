@@ -475,6 +475,21 @@ export function ConversationSettings() {
         </div>
       </SettingsGroup>
 
+      <SettingsGroup title={t('settings.conversationTabs')}>
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.conversationTabsEnabled')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t('settings.conversationTabsEnabledDesc')}
+            </div>
+          </div>
+          <Switch
+            checked={settings.conversation_tabs_enabled ?? false}
+            onChange={(checked) => saveSettings({ conversation_tabs_enabled: checked })}
+          />
+        </div>
+      </SettingsGroup>
+
       <SettingsGroup title={t('settings.newConversationDefaults')}>
         <div className="flex items-center justify-between" style={rowStyle}>
           <div>

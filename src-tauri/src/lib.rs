@@ -297,6 +297,7 @@ pub fn run() {
         commands::conversations::search_conversations,
         commands::conversations::send_message,
         commands::conversations::toggle_pin_conversation,
+        commands::conversations::set_conversation_tab_pinned,
         commands::conversations::toggle_archive_conversation,
         commands::conversations::list_archived_conversations,
         commands::conversations::regenerate_message,

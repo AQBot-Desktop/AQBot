@@ -160,6 +160,17 @@ pub async fn toggle_pin_conversation(
 }
 
 #[tauri::command]
+pub async fn set_conversation_tab_pinned(
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> Result<Conversation, String> {
+    aqbot_core::repo::conversation::set_conversation_tab_pinned(&state.sea_db, &id, pinned)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn toggle_archive_conversation(
     state: State<'_, AppState>,
     id: String,

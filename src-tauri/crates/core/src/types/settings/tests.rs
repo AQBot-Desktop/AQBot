@@ -702,6 +702,22 @@ fn chat_sidebar_collapsed_defaults_to_false_and_roundtrips() {
 }
 
 #[test]
+fn conversation_tabs_enabled_defaults_to_false_and_roundtrips() {
+    let settings = AppSettings::default();
+    assert!(!settings.conversation_tabs_enabled);
+
+    let settings: AppSettings = serde_json::from_value(json!({
+        "conversation_tabs_enabled": true
+    }))
+    .expect("settings should deserialize");
+    assert!(settings.conversation_tabs_enabled);
+
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert!(!settings.conversation_tabs_enabled);
+}
+
+#[test]
 fn inherit_conversation_preferences_on_create_defaults_to_enabled_and_roundtrips() {
     let settings = AppSettings::default();
     assert!(settings.inherit_conversation_preferences_on_create);

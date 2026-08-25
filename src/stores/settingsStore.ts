@@ -123,6 +123,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   chat_minimap_style: 'faq',
   chat_sidebar_collapsed: false,
   inherit_conversation_preferences_on_create: true,
+  conversation_tabs_enabled: false,
   chat_stream_first_packet_timeout_secs: 180,
   chat_stream_idle_timeout_secs: 90,
   mcp_tool_loop_max_iterations: DEFAULT_MCP_TOOL_LOOP_MAX_ITERATIONS,

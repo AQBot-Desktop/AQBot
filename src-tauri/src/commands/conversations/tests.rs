@@ -82,6 +82,7 @@ mod tests {
             parent_conversation_id: None,
             sort_order: 0,
             mode: "chat".to_string(),
+            tab_pin_order: None,
             created_at: 0,
             updated_at: 0,
         }

@@ -66,6 +66,7 @@ export function makeConversation(id: string, overrides: Record<string, unknown> 
     category_id: null,
     parent_conversation_id: null,
     is_pinned: false,
+    tab_pin_order: null,
     is_archived: false,
     context_compression: false,
     context_strategy_override: null,

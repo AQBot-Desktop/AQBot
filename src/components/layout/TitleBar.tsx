@@ -35,6 +35,7 @@ const THEME_ICONS: Record<string, React.ReactNode> = {
 };
 
 import { LANG_OPTIONS } from '@/lib/constants';
+import { ConversationTabBar } from './ConversationTabBar';
 
 
 export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) {
@@ -152,7 +153,9 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
   const [backupPopoverOpen, setBackupPopoverOpen] = useState(false);
   const [backingUp, setBackingUp] = useState<'local' | 'webdav' | null>(null);
   const [lastLocalBackup, setLastLocalBackup] = useState<string | null>(null);
+  const [lastLocalAt, setLastLocalAt] = useState<number | null>(null);
   const [lastWebDavSync, setLastWebDavSync] = useState<string | null>(null);
+  const [lastWebDavAt, setLastWebDavAt] = useState<number | null>(null);
   // Timestamps (ms) for next scheduled backups
   const [nextLocalTs, setNextLocalTs] = useState<number | null>(null);
   const [nextWebDavTs, setNextWebDavTs] = useState<number | null>(null);
@@ -183,6 +186,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
         const date = new Date(status.lastSyncTime);
         if (!Number.isNaN(date.getTime())) {
           setLastWebDavSync(date.toLocaleString());
+          setLastWebDavAt(date.getTime());
         }
       })
       .catch((error) => {
@@ -196,6 +200,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
         const date = new Date(raw.includes('T') || raw.includes('Z') ? raw : `${raw}Z`);
         if (!Number.isNaN(date.getTime())) {
           setLastLocalBackup(date.toLocaleString());
+          setLastLocalAt(date.getTime());
         }
       })
       .catch((error) => {
@@ -205,16 +210,14 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
 
   // Calculate next WebDAV sync timestamp (re-run when settings or lastWebDavSync change)
   useEffect(() => {
-    if (!lastWebDavSync) {
+    if (lastWebDavAt == null) {
       setNextWebDavTs(null);
       return;
     }
-    const d = new Date(lastWebDavSync);
-    if (Number.isNaN(d.getTime())) return;
     const interval = settings.webdav_sync_interval_minutes ?? 60;
     if (settings.webdav_sync_enabled && interval > 0) {
       const intervalMs = interval * 60000;
-      let next = d.getTime() + intervalMs;
+      let next = lastWebDavAt + intervalMs;
       // If overdue, advance to the next future interval
       while (next < Date.now()) {
         next += intervalMs;
@@ -223,7 +226,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
     } else {
       setNextWebDavTs(null);
     }
-  }, [settings.webdav_sync_enabled, settings.webdav_sync_interval_minutes, lastWebDavSync]);
+  }, [settings.webdav_sync_enabled, settings.webdav_sync_interval_minutes, lastWebDavAt]);
 
   // Calculate next local backup timestamp from backup settings
   useEffect(() => {
@@ -232,8 +235,8 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
       return;
     }
     const intervalMs = (backupSettings.intervalHours ?? 24) * 3600000;
-    if (lastLocalBackup) {
-      const lastTime = new Date(lastLocalBackup).getTime();
+    if (lastLocalAt != null) {
+      const lastTime = lastLocalAt;
       if (!Number.isNaN(lastTime)) {
         let next = lastTime + intervalMs;
         // If overdue, advance to the next future interval
@@ -246,7 +249,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
     }
     // No previous backup — next backup at now + interval
     setNextLocalTs(Date.now() + intervalMs);
-  }, [backupSettings, lastLocalBackup]);
+  }, [backupSettings, lastLocalAt]);
 
   // Live countdown on button — tick every second while any backup is scheduled
   useEffect(() => {
@@ -358,7 +361,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
 
   const handleDragMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (target.closest('button')) return;
+    if (target.closest('.title-bar-nodrag')) return;
     if (!isTauri()) return;
     e.preventDefault();
 
@@ -418,7 +421,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
         height: 36,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
         paddingLeft: IS_WINDOWS ? 12 : 72,
         paddingRight: IS_WINDOWS ? 0 : 12,
         backgroundColor: 'transparent',
@@ -432,9 +435,21 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
           <img src={appLogo} alt="AQBot" style={{ width: 18, height: 18 }} draggable={false} />
           <span style={{ fontSize: 13, fontWeight: 600, color: token.colorTextBase, userSelect: 'none' }}>AQBot</span>
         </div>
-      ) : <div />}
+      ) : <div style={{ flexShrink: 0 }} />}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+      {!isPopout && activePage === 'chat' && settings.conversation_tabs_enabled && (
+        <div
+          className="title-bar-nodrag"
+          style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'center' }}
+        >
+          <ConversationTabBar />
+        </div>
+      )}
+      {(isPopout || activePage !== 'chat' || !settings.conversation_tabs_enabled) && (
+        <div style={{ flex: 1, minWidth: 0 }} />
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
       <div className="title-bar-nodrag" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         {/* Pin Toggle */}
         {isTitlebarIconVisible(settings, 'pin') && (

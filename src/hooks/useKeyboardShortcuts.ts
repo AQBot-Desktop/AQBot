@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useSettingsStore, useUIStore } from '@/stores';
+import { closeActiveConversationTab } from '@/lib/conversationTabsActions';
 import {
   SHORTCUT_ACTIONS,
   getShortcutBinding,
@@ -57,7 +58,11 @@ export function useKeyboardShortcuts() {
           // Close active item only on the current workspace
           if (page === 'chat') {
             e.preventDefault();
-            useConversationStore.getState().setActiveConversation(null);
+            if (settings.conversation_tabs_enabled) {
+              void closeActiveConversationTab();
+            } else {
+              useConversationStore.getState().setActiveConversation(null);
+            }
           } else if (page === 'agent') {
             e.preventDefault();
             window.dispatchEvent(new CustomEvent('aqbot:close-agent-thread'));

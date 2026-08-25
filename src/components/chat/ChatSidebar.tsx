@@ -288,6 +288,7 @@ export function ChatSidebar() {
   const deleteConversation = useConversationStore((s) => s.deleteConversation)
   const updateConversation = useConversationStore((s) => s.updateConversation)
   const togglePin = useConversationStore((s) => s.togglePin)
+  const setConversationTabPinned = useConversationStore((s) => s.setConversationTabPinned)
   const toggleArchive = useConversationStore((s) => s.toggleArchive)
   const archivedConversations = useConversationStore((s) => s.archivedConversations)
   const fetchArchivedConversations = useConversationStore((s) => s.fetchArchivedConversations)
@@ -305,7 +306,6 @@ export function ChatSidebar() {
 
   const providers = useProviderStore((s) => s.providers)
   const settings = useSettingsStore((s) => s.settings)
-  const settingsLoading = useSettingsStore((s) => s.loading)
   const profile = useUserProfileStore((s) => s.profile)
 
   const categories = useCategoryStore((s) => s.categories)
@@ -452,50 +452,6 @@ export function ChatSidebar() {
       setExpandedParentIds((prev) => new Set(prev).add(active.parent_conversation_id!))
     }
   }, [activeConversationId, conversationById, expandedParentIds])
-
-  // Auto-select conversation: restore last selected, or fall back to first
-  useEffect(() => {
-    if (!activeConversationId && conversations.length > 0 && !settingsLoading) {
-      const lastId = settings.last_selected_conversation_id
-      const lastConv = lastId ? conversationById.get(lastId) : null
-      if (lastConv) {
-        setActiveConversation(lastConv.id)
-      } else {
-        const sorted = [...conversations].sort((a, b) => {
-          if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
-          return b.updated_at - a.updated_at
-        })
-        setActiveConversation(sorted[0].id)
-      }
-    }
-  }, [activeConversationId, conversationById, conversations, setActiveConversation, settings.last_selected_conversation_id, settingsLoading])
-
-  // Persist last selected conversation
-  useEffect(() => {
-    if (activeConversationId && activeConversationId !== settings.last_selected_conversation_id) {
-      let idleId: number | null = null
-      const win = window as Window & {
-        requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
-        cancelIdleCallback?: (handle: number) => void
-      }
-      const timeoutId = window.setTimeout(() => {
-        const persist = () => {
-          void useSettingsStore.getState().saveSettings({ last_selected_conversation_id: activeConversationId })
-        }
-        if (typeof win.requestIdleCallback === 'function') {
-          idleId = win.requestIdleCallback(persist, { timeout: 1000 })
-        } else {
-          persist()
-        }
-      }, 250)
-      return () => {
-        window.clearTimeout(timeoutId)
-        if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
-          win.cancelIdleCallback(idleId)
-        }
-      }
-    }
-  }, [activeConversationId, settings.last_selected_conversation_id])
 
   useEffect(() => {
     void ensureCategoriesLoaded().catch((error) => {
@@ -788,6 +744,12 @@ export function ChatSidebar() {
     },
     [deleteConversation, t, modal],
   )
+
+  const handleTabPin = useCallback((id: string, pinned: boolean) => {
+    void setConversationTabPinned(id, pinned).catch((error) => {
+      messageApi.error(String(error))
+    })
+  }, [messageApi, setConversationTabPinned])
 
   const syncDirectDeleteModeFromMouse = useCallback((event: DeleteShortcutEvent) => {
     const next = isDirectDeleteEvent(event)
@@ -1441,6 +1403,11 @@ export function ChatSidebar() {
             label: isPinned ? t('chat.unpin') : t('chat.pin'),
             icon: isPinned ? <PinOff size={14} /> : <Pin size={14} />,
           },
+          {
+            key: 'pin-tab',
+            label: conv?.tab_pin_order != null ? t('chat.unpinFromTab') : t('chat.pinToTab'),
+            icon: conv?.tab_pin_order != null ? <PinOff size={14} /> : <Pin size={14} />,
+          },
           { key: 'archive', label: t('chat.archive'), icon: <Archive size={14} /> },
           ...categoryItems,
           { key: 'rename', label: t('chat.rename'), icon: <Pencil size={14} /> },
@@ -1473,6 +1440,9 @@ export function ChatSidebar() {
             case 'pin':
               togglePin(String(item.key))
               break
+            case 'pin-tab':
+              handleTabPin(String(item.key), conv?.tab_pin_order == null)
+              break
             case 'archive':
               toggleArchive(String(item.key))
               break
@@ -1489,7 +1459,7 @@ export function ChatSidebar() {
         },
       }
     },
-    [t, conversationById, multiSelectMode, handleRename, handleGenerateTitle, handleDelete, togglePin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, directDeleteMode, directDeleteHint, titleGeneratingConversationId],
+    [t, conversationById, multiSelectMode, handleRename, handleGenerateTitle, handleDelete, togglePin, handleTabPin, toggleArchive, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, directDeleteMode, directDeleteHint, titleGeneratingConversationId],
   )
 
   const handleConversationClick = useCallback((key: string) => {
@@ -1528,6 +1498,11 @@ export function ChatSidebar() {
     return {
       items: [
         { key: 'pin', label: isPinned ? t('chat.unpin') : t('chat.pin'), icon: isPinned ? <PinOff size={14} /> : <Pin size={14} /> },
+        {
+          key: 'pin-tab',
+          label: conv.tab_pin_order != null ? t('chat.unpinFromTab') : t('chat.pinToTab'),
+          icon: conv.tab_pin_order != null ? <PinOff size={14} /> : <Pin size={14} />,
+        },
         { key: 'archive', label: t('chat.archive'), icon: <Archive size={14} /> },
         ...categoryItems,
         { key: 'rename', label: t('chat.rename'), icon: <Pencil size={14} /> },
@@ -1559,6 +1534,7 @@ export function ChatSidebar() {
         const item = { key: conv.id, label: conv.title } as ConversationItemType
         switch (menuInfo.key) {
           case 'pin': togglePin(conv.id); break
+          case 'pin-tab': handleTabPin(conv.id, conv.tab_pin_order == null); break
           case 'archive': toggleArchive(conv.id); break
           case 'rename': handleRename(item); break
           case 'generate-title': handleGenerateTitle(conv.id); break
@@ -1566,7 +1542,7 @@ export function ChatSidebar() {
         }
       },
     }
-  }, [rightClickedConvId, conversationById, t, togglePin, toggleArchive, handleRename, handleGenerateTitle, handleDelete, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, titleGeneratingConversationId])
+  }, [rightClickedConvId, conversationById, t, togglePin, handleTabPin, toggleArchive, handleRename, handleGenerateTitle, handleDelete, buildExportChildren, categories, moveToCategoryMenuItems, updateConversation, titleGeneratingConversationId])
 
   return (
     <div className="flex flex-col h-full">

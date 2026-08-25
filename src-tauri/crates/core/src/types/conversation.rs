@@ -182,6 +182,9 @@ pub struct Conversation {
     pub parent_conversation_id: Option<String>,
     pub sort_order: i32,
     pub mode: String,
+    /// Null means the conversation is not pinned to the top tab bar.
+    #[serde(default)]
+    pub tab_pin_order: Option<i32>,
     pub created_at: i64,
     pub updated_at: i64,
 }

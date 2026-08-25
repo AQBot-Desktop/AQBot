@@ -3,6 +3,10 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TitleBar } from '../TitleBar';
 
+vi.mock('../ConversationTabBar', () => ({
+  ConversationTabBar: () => <div data-testid="conversation-tab-bar" />,
+}));
+
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   loadBackupSettings: vi.fn(),

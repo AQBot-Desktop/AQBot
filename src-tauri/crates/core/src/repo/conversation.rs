@@ -91,6 +91,7 @@ fn conversation_from_entity(m: conversations::Model) -> Result<Conversation> {
         parent_conversation_id: m.parent_conversation_id,
         sort_order: m.sort_order,
         mode: m.mode,
+        tab_pin_order: m.tab_pin_order,
         created_at: m.created_at,
         updated_at: m.updated_at,
     })
@@ -482,6 +483,9 @@ pub async fn update_conversation(
     am.model_id = Set(model_id);
     am.is_pinned = Set(if is_pinned { 1 } else { 0 });
     am.is_archived = Set(if is_archived { 1 } else { 0 });
+    if is_archived {
+        am.tab_pin_order = Set(None);
+    }
     if let Some(ref sp) = input.system_prompt {
         am.system_prompt = Set(if sp.is_empty() {
             None
@@ -649,6 +653,58 @@ pub async fn toggle_pin(db: &DatabaseConnection, id: &str) -> Result<Conversatio
     get_conversation(db, id).await
 }
 
+pub async fn set_conversation_tab_pinned(
+    db: &DatabaseConnection,
+    id: &str,
+    pinned: bool,
+) -> Result<Conversation> {
+    let txn = db.begin().await?;
+    let row = conversations::Entity::find_by_id(id)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| AQBotError::NotFound(format!("Conversation {}", id)))?;
+
+    if pinned && row.is_archived != 0 {
+        let rollback = txn.rollback().await.err();
+        return Err(transaction_failure(
+            AQBotError::Validation("Cannot pin an archived conversation to the tab bar".into()),
+            rollback,
+        ));
+    }
+
+    let already_pinned = row.tab_pin_order.is_some();
+    if pinned == already_pinned {
+        txn.commit().await?;
+        return get_conversation(db, id).await;
+    }
+
+    let next_order = if pinned {
+        let current_max = conversations::Entity::find()
+            .filter(conversations::Column::TabPinOrder.is_not_null())
+            .order_by_desc(conversations::Column::TabPinOrder)
+            .one(&txn)
+            .await?
+            .and_then(|conversation| conversation.tab_pin_order);
+        Some(current_max.unwrap_or(0).saturating_add(1))
+    } else {
+        None
+    };
+
+    let mut am: conversations::ActiveModel = row.into();
+    am.tab_pin_order = Set(next_order);
+    let operation = async {
+        am.update(&txn).await?;
+        Ok(())
+    }
+    .await;
+    if let Err(error) = operation {
+        let rollback = txn.rollback().await.err();
+        return Err(transaction_failure(error, rollback));
+    }
+    txn.commit().await?;
+    get_conversation(db, id).await
+}
+
 pub async fn toggle_archive(db: &DatabaseConnection, id: &str) -> Result<Conversation> {
     let txn = db.begin().await?;
     let row = conversations::Entity::find_by_id(id)
@@ -664,6 +720,9 @@ pub async fn toggle_archive(db: &DatabaseConnection, id: &str) -> Result<Convers
 
     let mut am: conversations::ActiveModel = row.into();
     am.is_archived = Set(new_archived);
+    if new_archived != 0 {
+        am.tab_pin_order = Set(None);
+    }
     am.updated_at = Set(now);
     let operation = async {
         if move_to_container_top {
@@ -2482,5 +2541,139 @@ mod tests {
         assert_eq!(branched_messages[1].content, "Inactive answer");
         assert!(branched_messages[1].is_active);
         assert!(branched.sort_order < get_conversation(db, &conv.id).await.unwrap().sort_order);
+    }
+
+    #[tokio::test]
+    async fn new_conversations_are_not_tab_pinned() {
+        let h = create_test_pool().await.unwrap();
+        let conversation = create_conversation(&h.conn, "Tab", "model", "provider", None)
+            .await
+            .unwrap();
+        assert_eq!(conversation.tab_pin_order, None);
+    }
+
+    #[tokio::test]
+    async fn set_conversation_tab_pinned_assigns_stable_order_and_is_idempotent() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let first = create_conversation(db, "First", "model", "provider", None)
+            .await
+            .unwrap();
+        let second = create_conversation(db, "Second", "model", "provider", None)
+            .await
+            .unwrap();
+        let first_before = get_conversation(db, &first.id).await.unwrap();
+
+        let first_pinned = set_conversation_tab_pinned(db, &first.id, true)
+            .await
+            .unwrap();
+        let second_pinned = set_conversation_tab_pinned(db, &second.id, true)
+            .await
+            .unwrap();
+        let first_again = set_conversation_tab_pinned(db, &first.id, true)
+            .await
+            .unwrap();
+
+        assert_eq!(first_pinned.tab_pin_order, Some(1));
+        assert_eq!(second_pinned.tab_pin_order, Some(2));
+        assert_eq!(first_again.tab_pin_order, Some(1));
+        assert_eq!(first_again.updated_at, first_before.updated_at);
+        assert_eq!(first_again.sort_order, first_before.sort_order);
+        assert_eq!(first_again.is_pinned, first_before.is_pinned);
+    }
+
+    #[tokio::test]
+    async fn unpinning_then_pinning_appends_to_the_tab_pin_group() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let first = create_conversation(db, "First", "model", "provider", None)
+            .await
+            .unwrap();
+        let second = create_conversation(db, "Second", "model", "provider", None)
+            .await
+            .unwrap();
+        set_conversation_tab_pinned(db, &first.id, true)
+            .await
+            .unwrap();
+        set_conversation_tab_pinned(db, &second.id, true)
+            .await
+            .unwrap();
+        set_conversation_tab_pinned(db, &first.id, false)
+            .await
+            .unwrap();
+        let first_re_pinned = set_conversation_tab_pinned(db, &first.id, true)
+            .await
+            .unwrap();
+        assert_eq!(first_re_pinned.tab_pin_order, Some(3));
+        assert_eq!(
+            get_conversation(db, &second.id)
+                .await
+                .unwrap()
+                .tab_pin_order,
+            Some(2)
+        );
+    }
+
+    #[tokio::test]
+    async fn archiving_clears_tab_pin_order() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Pinned", "model", "provider", None)
+            .await
+            .unwrap();
+        set_conversation_tab_pinned(db, &conversation.id, true)
+            .await
+            .unwrap();
+        let archived = toggle_archive(db, &conversation.id).await.unwrap();
+        assert!(archived.is_archived);
+        assert_eq!(archived.tab_pin_order, None);
+    }
+
+    #[tokio::test]
+    async fn pinning_an_archived_conversation_is_rejected() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Archived", "model", "provider", None)
+            .await
+            .unwrap();
+        toggle_archive(db, &conversation.id).await.unwrap();
+        let error = set_conversation_tab_pinned(db, &conversation.id, true)
+            .await
+            .expect_err("archived conversations cannot be tab-pinned");
+        assert!(error.to_string().contains("archived"));
+        assert_eq!(
+            get_conversation(db, &conversation.id)
+                .await
+                .unwrap()
+                .tab_pin_order,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn tab_pin_update_rolls_back_on_database_failure() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Rollback", "model", "provider", None)
+            .await
+            .unwrap();
+        db.execute_unprepared(
+            "CREATE TRIGGER fail_tab_pin \
+             BEFORE UPDATE OF tab_pin_order ON conversations \
+             WHEN NEW.tab_pin_order IS NOT NULL \
+             BEGIN SELECT RAISE(FAIL, 'forced tab pin failure'); END;",
+        )
+        .await
+        .unwrap();
+
+        let result = set_conversation_tab_pinned(db, &conversation.id, true).await;
+        assert!(result.is_err());
+        assert_eq!(
+            get_conversation(db, &conversation.id)
+                .await
+                .unwrap()
+                .tab_pin_order,
+            None
+        );
     }
 }

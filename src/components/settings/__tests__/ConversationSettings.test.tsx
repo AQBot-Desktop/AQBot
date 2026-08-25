@@ -47,6 +47,9 @@ vi.mock('react-i18next', () => ({
         'settings.chatSidebar': '左侧对话栏',
         'settings.chatSidebarCollapsed': '左侧对话栏默认折叠',
         'settings.chatSidebarCollapsedDesc': '开启后，对话页左侧对话栏会默认收起，聊天区域获得更多横向空间。',
+        'settings.conversationTabs': '顶部会话标签',
+        'settings.conversationTabsEnabled': '显示顶部会话标签',
+        'settings.conversationTabsEnabledDesc': '开启后，聊天页顶部导航栏会显示最近打开的会话标签，便于在侧栏收起时快速切换。',
         'settings.documentAttachmentReading': '读取文档附件',
         'settings.documentAttachmentReadingDesc': '开启后，PDF、DOC、DOCX 附件会解析为文本并发送给模型，不会加入知识库。',
         'settings.showImageModelsInModelSelector': '模型选择器中显示绘画模型',
@@ -269,6 +272,7 @@ describe('ConversationSettings', () => {
       chat_stream_idle_timeout_secs: 90,
       mcp_tool_loop_max_iterations: 100,
       chat_sidebar_collapsed: false,
+      conversation_tabs_enabled: false,
       code_font_family: '',
       chat_font_size: 15,
       chat_line_height: 1.7,
@@ -572,6 +576,24 @@ describe('ConversationSettings', () => {
 
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       chat_sidebar_collapsed: true,
+    });
+  });
+
+  it('saves the conversation tabs title-bar setting when toggled', () => {
+    render(<ConversationSettings />);
+
+    const tabsGroup = screen.getByText('顶部会话标签').parentElement?.parentElement;
+    expect(tabsGroup).not.toBeNull();
+    const toggle = within(tabsGroup as HTMLElement).getByRole('switch');
+
+    expect(screen.getByText('显示顶部会话标签')).toBeInTheDocument();
+    expect(screen.getByText('开启后，聊天页顶部导航栏会显示最近打开的会话标签，便于在侧栏收起时快速切换。')).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(toggle);
+
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      conversation_tabs_enabled: true,
     });
   });
 
