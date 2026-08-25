@@ -2,9 +2,6 @@
 export const LONG_PASTE_CHAR_THRESHOLD = 2000;
 export const LONG_PASTE_LINE_THRESHOLD = 40;
 
-/** Soft cap when merging snippets into the outgoing message content. */
-export const PASTED_SNIPPET_CHAR_LIMIT = 96_000;
-
 /** Locale-independent inline reference placed in the composer textarea. */
 export const PASTE_TOKEN_RE = /\[\[paste:#(\d+)\]\]/g;
 
@@ -100,26 +97,9 @@ export function replacePasteTokensWithContent(
   return value.split(token).join(content);
 }
 
-function truncateToCharLimit(text: string, limit: number): { text: string; truncated: boolean } {
-  if (text.length <= limit) return { text, truncated: false };
-  // Prefer char-count over code-unit when truncating large pastes.
-  let out = '';
-  let count = 0;
-  for (const ch of text) {
-    if (count >= limit) return { text: out, truncated: true };
-    out += ch;
-    count += 1;
-  }
-  return { text: out, truncated: false };
-}
-
-function formatSnippetBlock(snippet: PastedSnippet, charLimit: number): string {
-  const { text, truncated } = truncateToCharLimit(snippet.content, charLimit);
+function formatSnippetBlock(snippet: PastedSnippet): string {
   const header = `[Pasted text #${snippet.index} · ${snippet.lineCount} lines]`;
-  const body = truncated
-    ? `${text}\n\n[Pasted text truncated for model context budget.]`
-    : text;
-  return `---\n${header}\n${body}\n---`;
+  return `---\n${header}\n${snippet.content}\n---`;
 }
 
 /**
@@ -129,7 +109,6 @@ function formatSnippetBlock(snippet: PastedSnippet, charLimit: number): string {
 export function mergePastedSnippetsIntoContent(
   userText: string,
   snippets: PastedSnippet[],
-  charLimit: number = PASTED_SNIPPET_CHAR_LIMIT,
 ): string {
   if (snippets.length === 0) return userText.trim();
 
@@ -147,7 +126,7 @@ export function mergePastedSnippetsIntoContent(
     const snippet = byIndex.get(idx);
     if (snippet) {
       referenced.add(idx);
-      result += formatSnippetBlock(snippet, charLimit);
+      result += formatSnippetBlock(snippet);
     }
     // else: drop dangling token
     lastIndex = match.index + match[0].length;
@@ -156,7 +135,7 @@ export function mergePastedSnippetsIntoContent(
 
   const orphans = snippets.filter((s) => !referenced.has(s.index));
   if (orphans.length > 0) {
-    const orphanBlocks = orphans.map((s) => formatSnippetBlock(s, charLimit)).join('\n\n');
+    const orphanBlocks = orphans.map((s) => formatSnippetBlock(s)).join('\n\n');
     const trimmed = result.trim();
     result = trimmed ? `${trimmed}\n\n${orphanBlocks}` : orphanBlocks;
   }

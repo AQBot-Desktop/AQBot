@@ -35,6 +35,7 @@ const conversationState = {
   compressingConversationId: null as string | null,
   activeConversationId: 'conv-1' as string | null,
   loading: false,
+  error: null as string | null,
   sendMessage,
   sendMultiModelMessage,
   createConversation,
@@ -285,6 +286,7 @@ describe('InputArea', () => {
     conversationState.pendingPromptText = null;
     conversationState.multiModelTargets = [];
     conversationState.multiModelContinuationMode = 'selected';
+    conversationState.error = null;
     getContextUsage.mockResolvedValue(null);
     settingsState.settings.default_provider_id = null;
     settingsState.settings.default_model_id = null;
@@ -1185,5 +1187,111 @@ describe('InputArea', () => {
     );
 
     expect(screen.getByLabelText('chat.clearConversation')).toBeDisabled();
+  });
+
+  function pastePlainText(textarea: HTMLElement, text: string) {
+    fireEvent(
+      textarea,
+      createEvent.paste(textarea, {
+        clipboardData: {
+          items: [],
+          getData: (type: string) => (type === 'text/plain' ? text : ''),
+        },
+      }),
+    );
+  }
+
+  it('sends a 61,440-byte pasted payload and an oversized snippet in full', async () => {
+    const ascii60KiB = `${'a'.repeat(61_440 - 8)}TAIL-END`;
+    expect(new TextEncoder().encode(ascii60KiB).byteLength).toBe(61_440);
+    const oversized = `${'b'.repeat(96_001)}TAIL-END`;
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '' } });
+    pastePlainText(textarea, ascii60KiB);
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalled();
+    });
+    const [firstContent] = sendMessage.mock.calls[0];
+    expect(firstContent).toContain(ascii60KiB);
+    expect(firstContent).toContain('TAIL-END');
+    expect(textarea).toHaveValue('');
+    expect(screen.queryByText(/Pasted text #1/)).not.toBeInTheDocument();
+
+    sendMessage.mockClear();
+    pastePlainText(textarea, oversized);
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalled();
+    });
+    const [secondContent] = sendMessage.mock.calls[0];
+    expect(secondContent).toContain(oversized);
+    expect(secondContent).toContain('TAIL-END');
+    expect(secondContent).not.toContain('[Pasted text truncated for model context budget.]');
+    expect(textarea).toHaveValue('');
+  });
+
+  it('restores the pasted draft and chip when sendMessage returns null', async () => {
+    conversationState.error = 'raw_strict context exceeds input budget';
+    sendMessage.mockResolvedValueOnce(null);
+    const oversized = `${'c'.repeat(96_001)}TAIL-END`;
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '' } });
+    pastePlainText(textarea, oversized);
+    expect(textarea).toHaveValue('[[paste:#1]]');
+    expect(screen.getByText(/Pasted text #1/)).toBeInTheDocument();
+
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalled();
+    });
+    expect(sendMessage.mock.calls[0][0]).toContain(oversized);
+    await waitFor(() => {
+      expect(textarea).toHaveValue('[[paste:#1]]');
+    });
+    expect(screen.getByText(/Pasted text #1/)).toBeInTheDocument();
+    expect(await screen.findByText('raw_strict context exceeds input budget')).toBeInTheDocument();
+  });
+
+  it('shows common.failed when sendMessage returns null without a store error', async () => {
+    conversationState.error = null;
+    sendMessage.mockResolvedValueOnce(null);
+    const longText = Array.from({ length: 45 }, (_, i) => `line ${i + 1}`).join('\n');
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '' } });
+    pastePlainText(textarea, longText);
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(textarea).toHaveValue('[[paste:#1]]');
+    });
+    expect(await screen.findByText('common.failed')).toBeInTheDocument();
   });
 });

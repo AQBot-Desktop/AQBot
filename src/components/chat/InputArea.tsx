@@ -1218,7 +1218,10 @@ export function InputArea() {
           searchProviderId: searchEnabled ? searchProviderId : null,
         });
       } else {
-        await sendMessage(finalContent, attachments, searchEnabled ? searchProviderId : null);
+        const sent = await sendMessage(finalContent, attachments, searchEnabled ? searchProviderId : null);
+        if (sent === null) {
+          throw useConversationStore.getState().error || t('common.failed');
+        }
       }
       revokeComposerAttachments(submittedAttachments);
     } catch (e) {

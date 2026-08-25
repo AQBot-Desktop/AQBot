@@ -108,12 +108,18 @@ describe('pastedText helpers', () => {
     expect(merged).toContain(' C');
   });
 
-  it('truncates oversized snippets when merging', () => {
-    const huge = 'x'.repeat(100);
+  it.each([
+    ['96,001 ASCII characters', `${'x'.repeat(96_001)}TAIL-END`],
+    ['130k ASCII characters', `${'y'.repeat(130_000)}TAIL-END`],
+    ['250k ASCII characters', `${'z'.repeat(250_000)}TAIL-END`],
+    ['oversized Chinese text', `${'中'.repeat(96_001)}尾哨兵`],
+    ['oversized emoji text', `${'🙂'.repeat(96_001)}TAIL-END`],
+  ])('preserves the full %s snippet when merging', (_label, huge) => {
     const snippets = [createPastedSnippet(huge, 1, () => 's1')];
-    const merged = mergePastedSnippetsIntoContent(`q\n${formatPasteToken(1)}`, snippets, 20);
-    expect(merged).toContain('[Pasted text truncated for model context budget.]');
-    expect(merged).not.toContain(huge);
+    const merged = mergePastedSnippetsIntoContent(`q\n${formatPasteToken(1)}`, snippets);
+    expect(merged).toContain(huge);
+    expect(merged).toContain(huge.slice(-8));
+    expect(merged).not.toContain('[Pasted text truncated for model context budget.]');
   });
 
   it('removes tokens when a chip is deleted', () => {
