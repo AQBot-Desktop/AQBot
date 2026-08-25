@@ -706,9 +706,6 @@ export function LayoutSwitcher({
       aria-label={scopeLabel}
       style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', maxWidth: '100%', gap: 2 }}
     >
-      <span style={{ color: token.colorTextTertiary, fontSize: 11, marginInlineEnd: 2 }}>
-        {scopeLabel}
-      </span>
       {modes.map(({ key, icon, label }) => {
         const accessibleLabel = t('chat.multiModel.setAnswerAndFutureDisplayMode', { mode: label });
         return (
@@ -737,7 +734,6 @@ export function LayoutSwitcher({
             }}
           >
             {icon}
-            {currentMode === key && <Check aria-hidden="true" size={10} />}
           </button>
         </Tooltip>
         );

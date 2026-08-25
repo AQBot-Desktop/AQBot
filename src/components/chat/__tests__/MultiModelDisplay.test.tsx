@@ -141,10 +141,12 @@ describe('MultiModelDisplay', () => {
 
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(3);
-    expect(screen.getByText('chat.multiModel.answerAndFutureDisplayMode')).toBeInTheDocument();
+    expect(screen.queryByText('chat.multiModel.answerAndFutureDisplayMode')).not.toBeInTheDocument();
+    expect(screen.getByRole('group')).toHaveAccessibleName('chat.multiModel.answerAndFutureDisplayMode');
     expect(buttons[1]).toHaveAccessibleName('chat.multiModel.setAnswerAndFutureDisplayMode');
     expect(buttons[0]).toHaveAttribute('aria-pressed', 'false');
     expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
+    expect(buttons[1].querySelector('.lucide-check')).toBeNull();
 
     fireEvent.click(buttons[2]);
     expect(onModeChange).toHaveBeenCalledWith('stacked');
