@@ -16,9 +16,12 @@ import {
   message,
   Spin,
   Tooltip,
+  Collapse,
+  Alert,
+  Switch,
 } from 'antd';
 import type { MenuProps } from 'antd';
-import { Plus, Trash2, Trash, Pencil, Search, Zap, Settings, GripVertical, MoreHorizontal } from 'lucide-react';
+import { Plus, Trash2, Trash, Pencil, Search, Zap, Settings, GripVertical, MoreHorizontal, Pin } from 'lucide-react';
 import { invoke } from '@/lib/invoke';
 import { useTranslation } from 'react-i18next';
 import { useMemoryStore } from '@/stores';
@@ -27,6 +30,11 @@ import { IconEditor } from '@/components/shared/IconEditor';
 import { NamespaceIcon } from '@/components/shared/NamespaceIcon';
 import { listen } from '@tauri-apps/api/event';
 import type { MemorySource, MemoryNamespace, MemoryItem } from '@/types';
+import { MEMORY_L1_SIDEBAR_ID } from '@/types';
+import { MemoryL1Card } from '@/components/settings/MemoryL1Card';
+import { mergeMemorySidebarItems } from '@/lib/memorySidebar';
+import { getContextErrorMessage } from '@/lib/contextErrorMessage';
+import { BUILTIN_EMBEDDING_DIMENSIONS, isBuiltinEmbeddingRef } from '@/lib/embeddingProfiles';
 import {
   DndContext,
   closestCenter,
@@ -157,6 +165,78 @@ function SortableNamespaceItem({
   );
 }
 
+function SortableL1Item({
+  isSelected,
+  onSelect,
+}: {
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const l1 = useMemoryStore((s) => s.l1);
+  const setL1Enabled = useMemoryStore((s) => s.setL1Enabled);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: MEMORY_L1_SIDEBAR_ID });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    borderRadius: token.borderRadius,
+    backgroundColor: isSelected ? token.colorPrimaryBg : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center cursor-pointer px-3 py-2.5 transition-colors"
+      onClick={onSelect}
+      onMouseEnter={(e) => {
+        if (!isSelected) e.currentTarget.style.backgroundColor = token.colorFillQuaternary;
+      }}
+      onMouseLeave={(e) => {
+        if (!isSelected) e.currentTarget.style.backgroundColor = isSelected ? token.colorPrimaryBg : '';
+      }}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="flex items-center mr-2 cursor-grab"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical size={14} style={{ color: token.colorTextQuaternary }} />
+      </div>
+      <div style={{ marginRight: 8, display: 'inline-flex' }}>
+        <Pin size={16} style={{ color: token.colorTextSecondary, flexShrink: 0 }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <span style={{ color: isSelected ? token.colorPrimary : undefined, opacity: l1?.enabled === false ? 0.55 : 1 }}>
+          {t('settings.memory.l1.title')}
+        </span>
+      </div>
+      <Tag style={{ marginRight: 4, fontSize: 11 }}>{t('settings.memory.l1.builtin')}</Tag>
+      <div onClick={(event) => event.stopPropagation()}>
+        <Switch
+          size="small"
+          checked={l1?.enabled ?? true}
+          aria-label={t('settings.memory.l1.enabled')}
+          onChange={(checked) => {
+            void setL1Enabled(checked);
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Left Sidebar: Namespace List ──────────────────────────
 
 function NamespaceList({
@@ -173,6 +253,8 @@ function NamespaceList({
   const { t } = useTranslation();
   const reorderNamespaces = useMemoryStore((s) => s.reorderNamespaces);
   const deleteNamespace = useMemoryStore((s) => s.deleteNamespace);
+  const l1 = useMemoryStore((s) => s.l1);
+  const items = mergeMemorySidebarItems(namespaces, l1?.sortOrder ?? 0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -181,37 +263,41 @@ function NamespaceList({
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = namespaces.findIndex((n) => n.id === active.id);
-    const newIndex = namespaces.findIndex((n) => n.id === over.id);
+    const oldIndex = items.findIndex((item) => item.id === active.id);
+    const newIndex = items.findIndex((item) => item.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-    const newOrder = [...namespaces];
+    const newOrder = [...items];
     const [moved] = newOrder.splice(oldIndex, 1);
     newOrder.splice(newIndex, 0, moved);
-    reorderNamespaces(newOrder.map((n) => n.id));
+    void reorderNamespaces(newOrder.map((item) => item.id));
   };
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-        {namespaces.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('settings.memory.empty')} />
-          </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={namespaces.map((n) => n.id)} strategy={verticalListSortingStrategy}>
-              {namespaces.map((ns) => (
-                <SortableNamespaceItem
-                  key={ns.id}
-                  ns={ns}
-                  isSelected={selectedId === ns.id}
-                  onSelect={() => onSelect(ns.id)}
-                  onDelete={() => deleteNamespace(ns.id)}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        )}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+            {items.map((item) => item.kind === 'l1' ? (
+              <SortableL1Item
+                key={item.id}
+                isSelected={selectedId === item.id}
+                onSelect={() => onSelect(item.id)}
+              />
+            ) : (
+              <SortableNamespaceItem
+                key={item.id}
+                ns={item.ns}
+                isSelected={selectedId === item.id}
+                onSelect={() => onSelect(item.id)}
+                onDelete={() => {
+                  void deleteNamespace(item.id).then(() => {
+                    if (selectedId === item.id) onSelect(MEMORY_L1_SIDEBAR_ID);
+                  });
+                }}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       </div>
       <div className="shrink-0 p-2 pt-0">
         <Button
@@ -360,7 +446,7 @@ function MemoryItemsPanel({
           </Tag>
         );
         if (status === 'failed' && record.indexError) {
-          return <Tooltip title={record.indexError}>{tag}</Tooltip>;
+          return <Tooltip title={getContextErrorMessage(record.indexError, t)}>{tag}</Tooltip>;
         }
         return tag;
       },
@@ -464,6 +550,27 @@ function MemoryItemsPanel({
           </Tooltip>
         </div>
       </div>
+      {namespace.migrationReviewRequired ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('settings.memory.migrationReviewBanner')}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                void updateNamespace(namespace.id, {
+                  migrationReviewRequired: false,
+                  updateMigrationReviewRequired: true,
+                }).then(() => messageApi.success(t('settings.memory.migrationReviewConfirmed')));
+              }}
+            >
+              {t('settings.memory.migrationReviewConfirm')}
+            </Button>
+          }
+        />
+      ) : null}
 
       {/* Settings Modal */}
       <Modal
@@ -504,11 +611,15 @@ function MemoryItemsPanel({
             />
           </div>
           <Divider style={{ margin: 0 }} />
-          <div className="flex items-center justify-between">
-            <span>{t('settings.memory.embeddingModel')}</span>
+          <div className="flex items-start justify-between gap-3">
+            <span className="shrink-0 leading-8">{t('settings.memory.embeddingModel')}</span>
             <EmbeddingModelSelect
               value={settingsForm.embeddingProvider}
-              onChange={(val) => setSettingsForm(s => ({ ...s, embeddingProvider: val || undefined }))}
+              onChange={(val) => setSettingsForm(s => ({
+                ...s,
+                embeddingProvider: val || undefined,
+                embeddingDimensions: isBuiltinEmbeddingRef(val) ? BUILTIN_EMBEDDING_DIMENSIONS : s.embeddingDimensions,
+              }))}
               placeholder={t('settings.memory.embeddingModelPlaceholder')}
               style={{ width: 280 }}
             />
@@ -755,23 +866,24 @@ function MemoryItemsPanel({
 
 export default function MemorySettings() {
   const { t } = useTranslation();
-  const { namespaces, ensureNamespacesLoaded, createNamespace, setSelectedNamespaceId } = useMemoryStore();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { namespaces, ensureNamespacesLoaded, ensureL1Loaded, createNamespace, setSelectedNamespaceId } = useMemoryStore();
+  const [selectedId, setSelectedId] = useState<string | null>(MEMORY_L1_SIDEBAR_ID);
   const [nsModalOpen, setNsModalOpen] = useState(false);
   const [nsForm] = Form.useForm();
 
   useEffect(() => {
     void ensureNamespacesLoaded();
-  }, [ensureNamespacesLoaded]);
+    void ensureL1Loaded();
+  }, [ensureNamespacesLoaded, ensureL1Loaded]);
 
   useEffect(() => {
-    if (!selectedId && namespaces.length > 0) {
-      setSelectedId(namespaces[0].id);
+    if (!selectedId) {
+      setSelectedId(MEMORY_L1_SIDEBAR_ID);
     }
-  }, [namespaces, selectedId]);
+  }, [selectedId]);
 
   useEffect(() => {
-    if (selectedId) {
+    if (selectedId && selectedId !== MEMORY_L1_SIDEBAR_ID) {
       setSelectedNamespaceId(selectedId);
     }
   }, [selectedId, setSelectedNamespaceId]);
@@ -805,7 +917,9 @@ export default function MemorySettings() {
         />
       </div>
       <div className="min-w-0 flex-1 overflow-y-auto">
-        {selectedNamespace ? (
+        {selectedId === MEMORY_L1_SIDEBAR_ID ? (
+          <MemoryL1Card embedded />
+        ) : selectedNamespace ? (
           <MemoryItemsPanel
             key={selectedNamespace.id}
             namespace={selectedNamespace}
@@ -831,17 +945,25 @@ export default function MemorySettings() {
           <Form.Item name="name" label={t('settings.memory.namespaceName')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item
-            name="embeddingProvider"
-            label={t('settings.memory.embeddingModel')}
-            rules={[{ required: true, message: t('settings.memory.embeddingModelPlaceholder') }]}
-          >
-            <EmbeddingModelSelect
-              value={nsForm.getFieldValue('embeddingProvider')}
-              onChange={(val) => nsForm.setFieldValue('embeddingProvider', val)}
-              placeholder={t('settings.memory.embeddingModelPlaceholder')}
-            />
-          </Form.Item>
+          <Collapse
+            ghost
+            items={[{
+              key: 'advanced',
+              label: t('settings.memory.semanticEngineAdvanced'),
+              children: (
+                <Form.Item
+                  name="embeddingProvider"
+                  label={t('settings.memory.embeddingModel')}
+                >
+                  <EmbeddingModelSelect
+                    value={nsForm.getFieldValue('embeddingProvider')}
+                    onChange={(val) => nsForm.setFieldValue('embeddingProvider', val)}
+                    placeholder={t('settings.memory.embeddingOptional')}
+                  />
+                </Form.Item>
+              ),
+            }]}
+          />
         </Form>
       </Modal>
     </div>

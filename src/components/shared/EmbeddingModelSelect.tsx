@@ -1,7 +1,10 @@
 import { useMemo, useEffect, type CSSProperties } from 'react';
 import { Select } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
+import { useTranslation } from 'react-i18next';
 import { useProviderStore } from '@/stores';
+import { BUILTIN_EMBEDDING_REF, isBuiltinEmbeddingRef } from '@/lib/embeddingProfiles';
+import { useEmbeddingArtifact } from '@/lib/useEmbeddingArtifact';
 import {
   MODEL_SELECT_CLASS,
   useProviderNameMap,
@@ -15,6 +18,7 @@ function isEmbeddingModel(model: { model_id: string; model_type?: string }) {
 
 /** Hook: returns grouped Select options filtered to embedding-capable models */
 function useEmbeddingModelOptions() {
+  const { t } = useTranslation();
   const providers = useProviderStore((s) => s.providers);
   const ensureProvidersLoaded = useProviderStore((s) => s.ensureProvidersLoaded);
 
@@ -23,7 +27,19 @@ function useEmbeddingModelOptions() {
   }, [ensureProvidersLoaded]);
 
   return useMemo(() => {
-    return providers
+    const builtinGroup = {
+      label: t('settings.localRetrieval.builtinGroup'),
+      title: t('settings.localRetrieval.builtinGroup'),
+      options: [
+        {
+          label: t('settings.localRetrieval.builtinModelId'),
+          value: BUILTIN_EMBEDDING_REF,
+          modelId: 'multilingual-e5-small',
+          providerName: t('settings.localRetrieval.builtinGroup'),
+        },
+      ],
+    };
+    const remoteGroups = providers
       .filter((p) => p.enabled)
       .map((p) => {
         const embeddingModels = p.models.filter(
@@ -47,7 +63,8 @@ function useEmbeddingModelOptions() {
         };
       })
       .filter((opt): opt is NonNullable<typeof opt> => opt !== null);
-  }, [providers]);
+    return [builtinGroup, ...remoteGroups];
+  }, [providers, t]);
 }
 
 /**
@@ -68,24 +85,47 @@ export function EmbeddingModelSelect({
   style?: CSSProperties;
   className?: string;
 }) {
+  const { t } = useTranslation();
+  const { currentStatus } = useEmbeddingArtifact();
   const embeddingOptions = useEmbeddingModelOptions();
   const providerNameMap = useProviderNameMap();
+  const labelMap = useMemo(() => {
+    const map = new Map(providerNameMap);
+    map.set('builtin', t('settings.localRetrieval.builtinGroup'));
+    return map;
+  }, [providerNameMap, t]);
   const optionRender = useModelSelectOptionRender();
-  const labelRender = useModelSelectLabelRender(providerNameMap);
+  const labelRender = useModelSelectLabelRender(labelMap);
+
+  const width = style?.width ?? '100%';
 
   return (
-    <Select
-      className={[MODEL_SELECT_CLASS, className].filter(Boolean).join(' ')}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      allowClear={allowClear}
-      showSearch
-      optionFilterProp="label"
-      optionRender={optionRender}
-      labelRender={labelRender}
-      options={embeddingOptions}
-      style={style}
-    />
+    <div className="aqbot-embedding-select" style={{ width, minWidth: 0 }}>
+      <Select
+        className={[MODEL_SELECT_CLASS, className].filter(Boolean).join(' ')}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        allowClear={allowClear}
+        showSearch
+        optionFilterProp="label"
+        optionRender={optionRender}
+        labelRender={labelRender}
+        options={embeddingOptions}
+        popupMatchSelectWidth
+        style={{ width: '100%' }}
+      />
+      {isBuiltinEmbeddingRef(value) ? (
+        <p className="aqbot-embedding-select-hint">
+          {t(
+            currentStatus === 'installed'
+              ? 'settings.localRetrieval.installedShort'
+              : currentStatus === 'downloading'
+                ? 'settings.localRetrieval.status.downloading'
+                : 'settings.localRetrieval.notInstalledShort',
+          )}
+        </p>
+      ) : null}
+    </div>
   );
 }

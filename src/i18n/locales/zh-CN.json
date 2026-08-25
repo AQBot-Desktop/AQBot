@@ -704,6 +704,7 @@
     "conversationSettings": "对话设置",
     "defaultModel": "默认模型",
     "general": "通用设置",
+    "localModels": "本地模型",
     "display": "显示设置",
     "proxy": "代理设置",
     "shortcuts": "快捷键",
@@ -1259,7 +1260,8 @@
       "statusLabel": "状态",
       "docType": "类型",
       "docTypeFile": "文件",
-      "docTitle": "文档"
+      "docTitle": "文档",
+      "retrievalEngine": "检索引擎"
     },
     "memory": {
       "title": "记忆",
@@ -1309,7 +1311,28 @@
       "searchPlaceholder": "检索记忆...",
       "searchResults": "搜索结果",
       "similarity": "相似度",
-      "updateSuccess": "更新成功"
+      "updateSuccess": "更新成功",
+      "l1": {
+        "title": "常驻记忆",
+        "description": "这份 Markdown 只保存在本机，并会注入每一轮本地对话。请写短、避免写入你不会在对话里输入的敏感信息。",
+        "enabled": "启用常驻记忆",
+        "edit": "编辑",
+        "preview": "预览",
+        "byteCount": "{{bytes}} / {{limit}} 字节",
+        "import": "导入 Markdown",
+        "export": "导出 Markdown",
+        "save": "保存记忆",
+        "saveSuccess": "常驻记忆已保存",
+        "placeholder": "希望助手始终记住的内容…",
+        "emptyPreview": "还没有内容",
+        "ariaLabel": "常驻记忆 Markdown",
+        "builtin": "内置"
+      },
+      "semanticEngineAdvanced": "高级：语义引擎",
+      "embeddingOptional": "可选向量模型",
+      "migrationReviewBanner": "该笔记本从旧版本迁移而来。确认后才会向模型开放。",
+      "migrationReviewConfirm": "允许模型访问",
+      "migrationReviewConfirmed": "该笔记本已向模型开放"
     },
     "desktopIntegration": {
       "title": "桌面集成"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "已启用",
     "disabledProviders": "未启用",
     "noMatchingIcons": "未找到匹配的图标",
-    "apiKey": "API 密钥"
+    "apiKey": "API 密钥",
+    "localRetrieval": {
+      "builtinGroup": "内置离线",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "已列出本机模型，但文件尚未安装。安装完成前不会做语义索引。MIT 许可，约 113 MB，保存在 ~/.aqbot/models/embeddings/。",
+      "title": "本机检索引擎",
+      "notInstalledShort": "模型文件尚未安装，请到 设置 → 本地模型 一键安装。",
+      "install": "安装",
+      "cancel": "取消",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "尚未安装",
+        "downloading": "正在下载…",
+        "installed": "文件已安装并校验，可用于本地检索。",
+        "corrupted": "已安装文件校验失败，请重新安装。",
+        "failed": "下载失败，请重试。"
+      },
+      "uninstall": "卸载",
+      "uninstallConfirm": "确定卸载本机检索引擎文件？卸载后需要重新下载才能使用本地检索。",
+      "installedShort": "已安装，可用于本地检索。"
+    }
   },
   "backup": {
     "title": "备份中心",
@@ -2344,5 +2387,24 @@
     "interactionPlanAddedToContext": "已带入上下文",
     "interactionPlanFeedbackLabel": "修改意见",
     "preparingConversation": "正在准备对话…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "常驻记忆为 {{bytes}} 字节，上限是 {{limit}}。",
+    "MEMORY_L1_REVISION_CONFLICT": "常驻记忆已在其他地方更新，已重新加载最新版本。",
+    "MEMORY_L1_READ_FAILED": "无法读取常驻记忆，修复前不能发送。",
+    "TOOL_CAPABILITY_REQUIRED": "已启用按需记忆，所选模型必须支持 Function Calling。",
+    "MEMORY_TOOL_SCOPE_DENIED": "该记忆条目不在本轮会话绑定的笔记本范围内。",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "找不到该记忆条目。",
+    "MEMORY_TOOL_INVALID_ACTION": "记忆工具请求无效。",
+    "MEMORY_INVALID_ACTIVATION_MODE": "记忆激活模式无效。",
+    "MEMORY_NAMESPACE_MISSING": "找不到已绑定的记忆笔记本。",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "已绑定的记忆笔记本仍需确认后才能给模型使用。",
+    "MEMORY_NEEDS_ENGINE": "该笔记本的自动召回需要检索引擎。",
+    "EMBEDDING_COUNT_MISMATCH": "嵌入后端返回的向量数量不正确。",
+    "EMBEDDING_DIMENSION_MISMATCH": "嵌入后端返回的向量维度不正确。",
+    "EMBEDDING_NON_FINITE": "嵌入后端返回了非有限数值。",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "所选嵌入引擎不可用。",
+    "EMBEDDING_ARTIFACT_MISSING": "本机嵌入模型尚未安装，请到设置 → 本地模型安装。",
+    "EMBEDDING_INFERENCE_FAILED": "本机嵌入推理失败。"
   }
 }

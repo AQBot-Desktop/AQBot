@@ -15,6 +15,8 @@ pub struct Model {
     pub icon_type: Option<String>,
     pub icon_value: Option<String>,
     pub sort_order: i32,
+    pub activation_mode: String,
+    pub migration_review_required: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

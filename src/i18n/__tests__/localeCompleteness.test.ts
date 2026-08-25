@@ -56,12 +56,14 @@ const languageNeutralKeys = new Set([
   'drawing.option.referenceImageMode.multipart',
   'drawing.option.referenceImageMode.base64',
   'drawing.warning.separator',
+  'settings.localRetrieval.builtinModelId',
 ]);
 
 const scriptNeutralKeys = new Set([
   ...languageNeutralKeys,
   'common.durationMs',
   'settings.selectionToolbar.aiFeatureTitle',
+  'settings.localRetrieval.meta',
 ]);
 
 const localeScripts: Record<string, RegExp> = {

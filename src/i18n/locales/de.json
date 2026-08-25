@@ -704,6 +704,7 @@
     "conversationSettings": "Gespräch",
     "defaultModel": "Standardmodell",
     "general": "Allgemein",
+    "localModels": "Lokale Modelle",
     "display": "Anzeige",
     "proxy": "Proxy",
     "shortcuts": "Tastenkürzel",
@@ -1223,7 +1224,8 @@
       "statusLabel": "Status",
       "docType": "Typ",
       "docTypeFile": "Datei",
-      "docTitle": "Dokument"
+      "docTitle": "Dokument",
+      "retrievalEngine": "Suchmaschine"
     },
     "memory": {
       "title": "Gedächtnis",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "Erinnerungen suchen...",
       "searchResults": "Suchergebnisse",
       "similarity": "Ähnlichkeit",
-      "updateSuccess": "Erfolgreich aktualisiert"
+      "updateSuccess": "Erfolgreich aktualisiert",
+      "l1": {
+        "title": "Dauerhaftes Gedächtnis",
+        "description": "Diese Markdown-Notiz bleibt auf diesem Gerät und wird in jede lokale Chat-Runde eingefügt. Halte sie kurz und speichere keine Geheimnisse, die du nicht ins Gespräch tippen würdest.",
+        "enabled": "Dauerhaftes Gedächtnis aktivieren",
+        "edit": "Bearbeiten",
+        "preview": "Vorschau",
+        "byteCount": "{{bytes}} / {{limit}} Bytes",
+        "import": "Markdown importieren",
+        "export": "Markdown exportieren",
+        "save": "Gedächtnis speichern",
+        "saveSuccess": "Dauerhaftes Gedächtnis gespeichert",
+        "placeholder": "Was der Assistent immer wissen soll…",
+        "emptyPreview": "Noch nichts gespeichert",
+        "ariaLabel": "Markdown für dauerhaftes Gedächtnis",
+        "builtin": "Integriert"
+      },
+      "semanticEngineAdvanced": "Erweitert: semantische Engine",
+      "embeddingOptional": "Optionales Embedding-Modell",
+      "migrationReviewBanner": "Dieses Notizbuch stammt aus einer älteren Version. Prüfe es, bevor das Modell es lesen darf.",
+      "migrationReviewConfirm": "Modellzugriff erlauben",
+      "migrationReviewConfirmed": "Das Modell darf dieses Notizbuch jetzt nutzen"
     },
     "desktopIntegration": {
       "title": "Desktop-Integration"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "Aktiviert",
     "disabledProviders": "Deaktiviert",
     "noMatchingIcons": "Keine passenden Symbole",
-    "apiKey": "API-Schlüssel"
+    "apiKey": "API-Schlüssel",
+    "localRetrieval": {
+      "builtinGroup": "Eingebaut, offline",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "Das lokale Modell steht in der Liste, die Dateien sind aber noch nicht installiert. Semantische Indexierung wartet auf die Installation. MIT-Lizenz, ca. 113 MB, Speicherort ~/.aqbot/models/embeddings/.",
+      "title": "Lokale Suchmaschine",
+      "notInstalledShort": "Modelldateien sind noch nicht installiert, Installation unter Einstellungen → Lokale Modelle.",
+      "install": "Installieren",
+      "cancel": "Abbrechen",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "Nicht installiert",
+        "downloading": "Wird heruntergeladen…",
+        "installed": "Dateien installiert und geprüft, bereit für die lokale Suche.",
+        "corrupted": "Installierte Dateien haben die Prüfung nicht bestanden. Bitte erneut installieren.",
+        "failed": "Download fehlgeschlagen. Bitte erneut versuchen."
+      },
+      "uninstall": "Deinstallieren",
+      "uninstallConfirm": "Die Dateien der lokalen Suchmaschine deinstallieren? Für die lokale Suche müssen sie erneut heruntergeladen werden.",
+      "installedShort": "Installiert, bereit für die lokale Suche."
+    }
   },
   "backup": {
     "title": "Sicherungscenter",
@@ -2344,5 +2387,24 @@
     "modelConfig": "Modelleinstellungen",
     "noModelConfig": "Keine Modelleinstellungen",
     "preparingConversation": "Gespräch vorbereiten…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "Das dauerhafte Gedächtnis ist {{bytes}} Bytes groß; das Limit ist {{limit}}.",
+    "MEMORY_L1_REVISION_CONFLICT": "Das dauerhafte Gedächtnis wurde woanders aktualisiert. Die neueste Version wurde neu geladen.",
+    "MEMORY_L1_READ_FAILED": "Das dauerhafte Gedächtnis konnte nicht gelesen werden. Senden ist gesperrt, bis das behoben ist.",
+    "TOOL_CAPABILITY_REQUIRED": "On-Demand-Gedächtnis ist aktiv; das gewählte Modell muss Function Calling unterstützen.",
+    "MEMORY_TOOL_SCOPE_DENIED": "Dieser Gedächtniseintrag liegt außerhalb der für dieses Gespräch gebundenen Notizbücher.",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "Gedächtniseintrag nicht gefunden.",
+    "MEMORY_TOOL_INVALID_ACTION": "Ungültige Anfrage an das Gedächtnis-Tool.",
+    "MEMORY_INVALID_ACTIVATION_MODE": "Ungültiger Aktivierungsmodus für das Gedächtnis.",
+    "MEMORY_NAMESPACE_MISSING": "Ein gebundenes Gedächtnis-Notizbuch wurde nicht gefunden.",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "Ein gebundenes Gedächtnis-Notizbuch muss noch geprüft werden, bevor das Modell es nutzen darf.",
+    "MEMORY_NEEDS_ENGINE": "Die automatische Erinnerung braucht eine Suchmaschine für dieses Notizbuch.",
+    "EMBEDDING_COUNT_MISMATCH": "Das Embedding-Backend hat die falsche Anzahl Vektoren geliefert.",
+    "EMBEDDING_DIMENSION_MISMATCH": "Das Embedding-Backend hat die falsche Vektordimension geliefert.",
+    "EMBEDDING_NON_FINITE": "Das Embedding-Backend hat einen nicht endlichen Wert geliefert.",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "Die gewählte Embedding-Engine ist nicht verfügbar.",
+    "EMBEDDING_ARTIFACT_MISSING": "Das lokale Embedding-Modell ist nicht installiert. Installation unter Einstellungen → Lokale Modelle.",
+    "EMBEDDING_INFERENCE_FAILED": "Lokale Embedding-Inferenz ist fehlgeschlagen."
   }
 }

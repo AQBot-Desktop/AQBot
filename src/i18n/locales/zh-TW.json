@@ -704,6 +704,7 @@
     "conversationSettings": "對話設定",
     "defaultModel": "預設模型",
     "general": "一般設定",
+    "localModels": "本機模型",
     "display": "顯示設定",
     "proxy": "代理設定",
     "shortcuts": "快捷鍵",
@@ -1234,7 +1235,8 @@
       "statusLabel": "狀態",
       "docType": "類型",
       "docTypeFile": "檔案",
-      "docTitle": "文件"
+      "docTitle": "文件",
+      "retrievalEngine": "檢索引擎"
     },
     "memory": {
       "title": "記憶",
@@ -1284,7 +1286,28 @@
       "searchPlaceholder": "搜尋記憶...",
       "searchResults": "搜尋結果",
       "similarity": "相似度",
-      "updateSuccess": "更新成功"
+      "updateSuccess": "更新成功",
+      "l1": {
+        "title": "常駐記憶",
+        "description": "這份 Markdown 只保存在本機，並會注入每一輪本機對話。請寫短、避免寫入你不會在對話中輸入的敏感資訊。",
+        "enabled": "啟用常駐記憶",
+        "edit": "編輯",
+        "preview": "預覽",
+        "byteCount": "{{bytes}} / {{limit}} 位元組",
+        "import": "匯入 Markdown",
+        "export": "匯出 Markdown",
+        "save": "儲存記憶",
+        "saveSuccess": "常駐記憶已儲存",
+        "placeholder": "希望助手始終記住的內容…",
+        "emptyPreview": "還沒有內容",
+        "ariaLabel": "常駐記憶 Markdown",
+        "builtin": "內建"
+      },
+      "semanticEngineAdvanced": "進階：語意引擎",
+      "embeddingOptional": "可選向量模型",
+      "migrationReviewBanner": "此筆記本從舊版本遷移而來。確認後才會向模型開放。",
+      "migrationReviewConfirm": "允許模型存取",
+      "migrationReviewConfirmed": "此筆記本已向模型開放"
     },
     "desktopIntegration": {
       "title": "桌面整合"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "已啟用",
     "disabledProviders": "未啟用",
     "noMatchingIcons": "找不到符合的圖標",
-    "apiKey": "API 金鑰"
+    "apiKey": "API 金鑰",
+    "localRetrieval": {
+      "builtinGroup": "內建離線",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "已列出本機模型，但檔案尚未安裝。安裝完成前不會做語意索引。MIT 授權，約 113 MB，存在 ~/.aqbot/models/embeddings/。",
+      "title": "本機檢索引擎",
+      "notInstalledShort": "模型檔尚未安裝，請到 設定 → 本機模型 一鍵安裝。",
+      "install": "安裝",
+      "cancel": "取消",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "尚未安裝",
+        "downloading": "正在下載…",
+        "installed": "檔案已安裝並校驗，可用於本機檢索。",
+        "corrupted": "已安裝檔案校驗失敗，請重新安裝。",
+        "failed": "下載失敗，請重試。"
+      },
+      "uninstall": "解除安裝",
+      "uninstallConfirm": "確定解除安裝本機檢索引擎檔案？解除後需要重新下載才能使用本機檢索。",
+      "installedShort": "已安裝，可用於本機檢索。"
+    }
   },
   "backup": {
     "title": "備份中心",
@@ -2344,5 +2387,24 @@
     "modelConfig": "模型配置",
     "noModelConfig": "暫無模型配置",
     "preparingConversation": "正在準備對話…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "常駐記憶為 {{bytes}} 位元組，上限是 {{limit}}。",
+    "MEMORY_L1_REVISION_CONFLICT": "常駐記憶已在其他地方更新，已重新載入最新版本。",
+    "MEMORY_L1_READ_FAILED": "無法讀取常駐記憶，修復前不能傳送。",
+    "TOOL_CAPABILITY_REQUIRED": "已啟用隨需記憶，所選模型必須支援 Function Calling。",
+    "MEMORY_TOOL_SCOPE_DENIED": "該記憶條目不在本輪會話綁定的筆記本範圍內。",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "找不到該記憶條目。",
+    "MEMORY_TOOL_INVALID_ACTION": "記憶工具請求無效。",
+    "MEMORY_INVALID_ACTIVATION_MODE": "記憶啟用模式無效。",
+    "MEMORY_NAMESPACE_MISSING": "找不到已綁定的記憶筆記本。",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "已綁定的記憶筆記本仍需確認後才能給模型使用。",
+    "MEMORY_NEEDS_ENGINE": "此筆記本的自動召回需要檢索引擎。",
+    "EMBEDDING_COUNT_MISMATCH": "嵌入後端回傳的向量數量不正確。",
+    "EMBEDDING_DIMENSION_MISMATCH": "嵌入後端回傳的向量維度不正確。",
+    "EMBEDDING_NON_FINITE": "嵌入後端回傳了非有限數值。",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "所選嵌入引擎不可用。",
+    "EMBEDDING_ARTIFACT_MISSING": "本機嵌入模型尚未安裝，請到設定 → 本機模型安裝。",
+    "EMBEDDING_INFERENCE_FAILED": "本機嵌入推論失敗。"
   }
 }

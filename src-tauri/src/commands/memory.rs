@@ -3,6 +3,23 @@ use aqbot_core::types::*;
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
+pub async fn get_memory_l1(state: State<'_, AppState>) -> Result<MemoryL1, String> {
+    aqbot_core::repo::memory::get_l1(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_memory_l1(
+    state: State<'_, AppState>,
+    input: SaveMemoryL1Input,
+) -> Result<MemoryL1, String> {
+    aqbot_core::repo::memory::save_l1(&state.sea_db, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_memory_namespaces(
     state: State<'_, AppState>,
 ) -> Result<Vec<MemoryNamespace>, String> {

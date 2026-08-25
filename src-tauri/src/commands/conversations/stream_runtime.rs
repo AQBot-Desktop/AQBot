@@ -452,7 +452,23 @@ async fn execute_tool_call(
     tool_call: &ToolCall,
     mcp_server_ids: &[String],
     cancel_flag: &AtomicBool,
+    memory_tool_scope: Option<&aqbot_core::context_engine::MemoryToolScope>,
 ) -> (String, bool) {
+    if tool_call.function.name == aqbot_core::context_engine::MEMORY_TOOL_NAME {
+        let Some(scope) = memory_tool_scope else {
+            return (
+                "Error: Memory tool is not bound for this turn".to_string(),
+                true,
+            );
+        };
+        let arguments: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        return match aqbot_core::context_engine::execute_memory_tool(db, scope, arguments).await {
+            Ok(content) => (content, false),
+            Err(error) => (error.to_string(), true),
+        };
+    }
+
     let server_and_tool = aqbot_core::repo::mcp_server::find_server_for_tool(
         db,
         &tool_call.function.name,

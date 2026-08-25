@@ -704,6 +704,7 @@
     "conversationSettings": "会話",
     "defaultModel": "デフォルトモデル",
     "general": "一般",
+    "localModels": "ローカルモデル",
     "display": "表示",
     "proxy": "プロキシ",
     "shortcuts": "ショートカット",
@@ -1223,7 +1224,8 @@
       "statusLabel": "ステータス",
       "docType": "タイプ",
       "docTypeFile": "ファイル",
-      "docTitle": "ドキュメント"
+      "docTitle": "ドキュメント",
+      "retrievalEngine": "検索エンジン"
     },
     "memory": {
       "title": "メモリ",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "メモリを検索...",
       "searchResults": "検索結果",
       "similarity": "類似度",
-      "updateSuccess": "更新しました"
+      "updateSuccess": "更新しました",
+      "l1": {
+        "title": "常時メモリ",
+        "description": "この Markdown はこの端末にだけ保存され、ローカルチャットの各ターンに注入されます。短く書き、会話に入力しない秘密は置かないでください。",
+        "enabled": "常時メモリを有効にする",
+        "edit": "編集",
+        "preview": "プレビュー",
+        "byteCount": "{{bytes}} / {{limit}} バイト",
+        "import": "Markdown を読み込む",
+        "export": "Markdown を書き出す",
+        "save": "メモリを保存",
+        "saveSuccess": "常時メモリを保存しました",
+        "placeholder": "アシスタントに常に知っておいてほしいこと…",
+        "emptyPreview": "まだ内容がありません",
+        "ariaLabel": "常時メモリの Markdown",
+        "builtin": "内蔵"
+      },
+      "semanticEngineAdvanced": "詳細: セマンティックエンジン",
+      "embeddingOptional": "任意の埋め込みモデル",
+      "migrationReviewBanner": "このノートは旧バージョンから移行されました。確認するまでモデルは読めません。",
+      "migrationReviewConfirm": "モデルの利用を許可",
+      "migrationReviewConfirmed": "このノートをモデルが利用できるようになりました"
     },
     "desktopIntegration": {
       "title": "デスクトップ統合"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "有効",
     "disabledProviders": "無効",
     "noMatchingIcons": "一致するアイコンがありません",
-    "apiKey": "API キー"
+    "apiKey": "API キー",
+    "localRetrieval": {
+      "builtinGroup": "内蔵オフライン",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "端末内モデルはここに出ますが、ファイルはまだ未インストールです。インストールが終わるまで意味検索は行いません。MIT ライセンス、約 113 MB、保存先は ~/.aqbot/models/embeddings/ です。",
+      "title": "端末内検索エンジン",
+      "notInstalledShort": "モデルファイルは未インストールです、設定 → ローカルモデル からインストールしてください。",
+      "install": "インストール",
+      "cancel": "キャンセル",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "未インストール",
+        "downloading": "ダウンロード中…",
+        "installed": "ファイルを検証して保存しました、端末内検索に利用できます。",
+        "corrupted": "保存ファイルの検証に失敗しました。再インストールしてください。",
+        "failed": "ダウンロードに失敗しました。再試行してください。"
+      },
+      "uninstall": "アンインストール",
+      "uninstallConfirm": "端末内検索エンジンのファイルを削除しますか？ローカル検索を使うには再ダウンロードが必要です。",
+      "installedShort": "インストール済みで、端末内検索に使えます。"
+    }
   },
   "backup": {
     "title": "バックアップセンター",
@@ -2344,5 +2387,24 @@
     "modelConfig": "モデル設定",
     "noModelConfig": "モデル設定なし",
     "preparingConversation": "会話を準備しています…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "常時メモリは {{bytes}} バイトで、上限は {{limit}} です。",
+    "MEMORY_L1_REVISION_CONFLICT": "常時メモリが別の場所で更新されたため、最新版を再読み込みしました。",
+    "MEMORY_L1_READ_FAILED": "常時メモリを読めません。修復するまで送信できません。",
+    "TOOL_CAPABILITY_REQUIRED": "オンデマンドメモリを使うため、選択したモデルは Function Calling に対応している必要があります。",
+    "MEMORY_TOOL_SCOPE_DENIED": "その記憶は、この会話に紐づいたノートの範囲外です。",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "記憶エントリが見つかりません。",
+    "MEMORY_TOOL_INVALID_ACTION": "メモリツールの要求が無効です。",
+    "MEMORY_INVALID_ACTIVATION_MODE": "メモリの有効化モードが無効です。",
+    "MEMORY_NAMESPACE_MISSING": "紐づいたメモリノートが見つかりません。",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "紐づいたメモリノートは、確認するまでモデルが使えません。",
+    "MEMORY_NEEDS_ENGINE": "このノートの自動想起には検索エンジンが必要です。",
+    "EMBEDDING_COUNT_MISMATCH": "埋め込みバックエンドが返すベクトル数が一致しません。",
+    "EMBEDDING_DIMENSION_MISMATCH": "埋め込みバックエンドが返す次元が一致しません。",
+    "EMBEDDING_NON_FINITE": "埋め込みバックエンドが有限でない値を返しました。",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "選択した埋め込みエンジンは利用できません。",
+    "EMBEDDING_ARTIFACT_MISSING": "端末内の埋め込みモデルは未インストールです。設定 → ローカルモデル からインストールしてください。",
+    "EMBEDDING_INFERENCE_FAILED": "端末内の埋め込み推論に失敗しました。"
   }
 }

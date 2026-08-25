@@ -77,6 +77,7 @@ import {
 import NodeRenderer, { type CodeBlockPreviewPayload } from 'markstream-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getContextErrorMessage } from '@/lib/contextErrorMessage';
 import { registerHighlight } from 'stream-markdown';
 import AskUserCard from './AskUserCard';
 import { ChatMessageRenderBoundary } from './ChatMessageRenderBoundary';
@@ -677,10 +678,10 @@ export function ChatView() {
   // Show store errors as notifications
   useEffect(() => {
     if (storeError) {
-      messageApi.error(storeError);
+      messageApi.error(getContextErrorMessage(storeError, t));
       useConversationStore.setState({ error: null });
     }
-  }, [storeError, messageApi]);
+  }, [storeError, messageApi, t]);
 
   const currentAgentStatus = useAgentStore(
     (s) => (activeConversationId ? s.agentStatus[activeConversationId] : undefined),

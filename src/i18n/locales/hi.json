@@ -704,6 +704,7 @@
     "conversationSettings": "बातचीत",
     "defaultModel": "डिफ़ॉल्ट मॉडल",
     "general": "सामान्य",
+    "localModels": "स्थानीय मॉडल",
     "display": "डिस्प्ले",
     "proxy": "प्रॉक्सी",
     "shortcuts": "शॉर्टकट",
@@ -1223,7 +1224,8 @@
       "statusLabel": "स्थिति",
       "docType": "प्रकार",
       "docTypeFile": "फ़ाइल",
-      "docTitle": "दस्तावेज़"
+      "docTitle": "दस्तावेज़",
+      "retrievalEngine": "खोज इंजन"
     },
     "memory": {
       "title": "स्मृति",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "मेमोरी खोजें...",
       "searchResults": "खोज परिणाम",
       "similarity": "समानता",
-      "updateSuccess": "सफलतापूर्वक अपडेट हुआ"
+      "updateSuccess": "सफलतापूर्वक अपडेट हुआ",
+      "l1": {
+        "title": "स्थायी स्मृति",
+        "description": "यह Markdown नोट केवल इस डिवाइस पर रहता है और हर स्थानीय चैट दौर में जोड़ा जाता है। इसे छोटा रखें और ऐसी गोपनीय बातें न लिखें जो आप बातचीत में नहीं टाइप करेंगे।",
+        "enabled": "स्थायी स्मृति चालू करें",
+        "edit": "संपादित करें",
+        "preview": "पूर्वावलोकन",
+        "byteCount": "{{bytes}} / {{limit}} बाइट",
+        "import": "Markdown आयात करें",
+        "export": "Markdown निर्यात करें",
+        "save": "स्मृति सहेजें",
+        "saveSuccess": "स्थायी स्मृति सहेज ली गई",
+        "placeholder": "सहायक को हमेशा क्या पता होना चाहिए…",
+        "emptyPreview": "अभी कुछ नहीं है",
+        "ariaLabel": "स्थायी स्मृति Markdown",
+        "builtin": "इन-बिल्ट"
+      },
+      "semanticEngineAdvanced": "उन्नत: अर्थ इंजन",
+      "embeddingOptional": "वैकल्पिक एम्बेडिंग मॉडल",
+      "migrationReviewBanner": "यह नोटबुक पुराने संस्करण से स्थानांतरित हुई है। मॉडल के पढ़ने से पहले इसकी समीक्षा करें।",
+      "migrationReviewConfirm": "मॉडल पहुँच की अनुमति दें",
+      "migrationReviewConfirmed": "अब मॉडल इस नोटबुक का उपयोग कर सकता है"
     },
     "desktopIntegration": {
       "title": "डेस्कटॉप एकीकरण"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "सक्षम",
     "disabledProviders": "विकलांग",
     "noMatchingIcons": "कोई मेल खाता चिह्न नहीं",
-    "apiKey": "एपीआई कुंजी"
+    "apiKey": "एपीआई कुंजी",
+    "localRetrieval": {
+      "builtinGroup": "इन-बिल्ट ऑफ़लाइन",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "डिवाइस मॉडल सूची में है, पर फ़ाइलें अभी इंस्टॉल नहीं हुई हैं। इंस्टॉल पूरा होने तक सिमेंटिक इंडेक्स नहीं बनेगा। MIT लाइसेंस, लगभग 113 MB, स्थान ~/.aqbot/models/embeddings/।",
+      "title": "डिवाइस खोज इंजन",
+      "notInstalledShort": "मॉडल फ़ाइलें अभी इंस्टॉल नहीं हुई हैं, सेटिंग्स → स्थानीय मॉडल में इंस्टॉल करें।",
+      "install": "इंस्टॉल",
+      "cancel": "रद्द करें",
+      "meta": "{{license}} · {{sizeMb}} मेगाबाइट · {{path}}",
+      "status": {
+        "missing": "इंस्टॉल नहीं",
+        "downloading": "डाउनलोड हो रहा है…",
+        "installed": "फ़ाइलें इंस्टॉल और जाँची गईं, डिवाइस खोज के लिए तैयार।",
+        "corrupted": "इंस्टॉल फ़ाइलों की जाँच विफल रही। फिर से इंस्टॉल करें।",
+        "failed": "डाउनलोड विफल। फिर कोशिश करें।"
+      },
+      "uninstall": "अनइंस्टॉल",
+      "uninstallConfirm": "डिवाइस खोज इंजन फ़ाइलें अनइंस्टॉल करें? स्थानीय खोज के लिए उन्हें फिर डाउनलोड करना होगा।",
+      "installedShort": "इंस्टॉल है, डिवाइस खोज के लिए तैयार।"
+    }
   },
   "backup": {
     "title": "बैकअप केंद्र",
@@ -2344,5 +2387,24 @@
     "modelConfig": "मॉडल सेटिंग्स",
     "noModelConfig": "कोई मॉडल सेटिंग नहीं",
     "preparingConversation": "बातचीत की तैयारी हो रही है…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "स्थायी स्मृति {{bytes}} बाइट है; सीमा {{limit}} है।",
+    "MEMORY_L1_REVISION_CONFLICT": "स्थायी स्मृति कहीं और अपडेट हुई। नवीनतम संस्करण फिर से लोड किया गया।",
+    "MEMORY_L1_READ_FAILED": "स्थायी स्मृति पढ़ी नहीं जा सकी। ठीक होने तक भेजना अवरुद्ध है।",
+    "TOOL_CAPABILITY_REQUIRED": "ऑन-डिमांड स्मृति चालू है, इसलिए चुने मॉडल में Function Calling होना चाहिए।",
+    "MEMORY_TOOL_SCOPE_DENIED": "यह स्मृति प्रविष्टि इस बातचीत से जुड़े नोटबुक के बाहर है।",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "स्मृति प्रविष्टि नहीं मिली।",
+    "MEMORY_TOOL_INVALID_ACTION": "स्मृति टूल अनुरोध अमान्य है।",
+    "MEMORY_INVALID_ACTIVATION_MODE": "स्मृति सक्रियण मोड अमान्य है।",
+    "MEMORY_NAMESPACE_MISSING": "जुड़ी स्मृति नोटबुक नहीं मिली।",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "जुड़ी स्मृति नोटबुक की समीक्षा के बाद ही मॉडल उसे पढ़ सकता है।",
+    "MEMORY_NEEDS_ENGINE": "इस नोटबुक की स्वचालित पुनःप्राप्ति के लिए खोज इंजन चाहिए।",
+    "EMBEDDING_COUNT_MISMATCH": "एम्बेडिंग बैकएंड ने गलत संख्या में वेक्टर लौटाए।",
+    "EMBEDDING_DIMENSION_MISMATCH": "एम्बेडिंग बैकएंड ने गलत आयाम लौटाया।",
+    "EMBEDDING_NON_FINITE": "एम्बेडिंग बैकएंड ने अनंत/अमान्य मान लौटाया।",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "चयनित एम्बेडिंग इंजन उपलब्ध नहीं है।",
+    "EMBEDDING_ARTIFACT_MISSING": "डिवाइस एम्बेडिंग मॉडल इंस्टॉल नहीं है। सेटिंग्स → स्थानीय मॉडल में इंस्टॉल करें।",
+    "EMBEDDING_INFERENCE_FAILED": "डिवाइस एम्बेडिंग अनुमान विफल रहा।"
   }
 }

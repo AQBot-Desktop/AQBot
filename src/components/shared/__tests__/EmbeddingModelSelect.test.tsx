@@ -52,12 +52,31 @@ vi.mock('antd', () => ({
   },
 }));
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+  }),
+}));
+
 vi.mock('@/stores', () => ({
   useProviderStore: (selector: (state: { providers: ProviderConfig[]; ensureProvidersLoaded: () => Promise<void> }) => unknown) =>
     selector({
       providers,
       ensureProvidersLoaded: mocks.ensureProvidersLoaded,
     }),
+}));
+
+vi.mock('@/lib/invoke', () => ({
+  invoke: async () => ({
+    status: 'missing',
+    artifactId: 'multilingual-e5-small',
+    revision: '761b726',
+    path: '/tmp/model.onnx',
+    sizeBytes: 1,
+    downloadedBytes: 0,
+    license: 'MIT',
+  }),
+  listen: async () => () => {},
 }));
 
 vi.mock('../ModelSelect', () => ({
@@ -120,5 +139,25 @@ describe('EmbeddingModelSelect', () => {
     await waitFor(() => {
       expect(mocks.ensureProvidersLoaded).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('lists the builtin offline engine even when no remote embedding models exist', () => {
+    render(<EmbeddingModelSelect onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('settings.localRetrieval.builtinGroup')).toBeInTheDocument();
+    expect(screen.getByText('settings.localRetrieval.builtinModelId')).toBeInTheDocument();
+  });
+
+  it('keeps the builtin hint inside the select column width', () => {
+    const { container } = render(
+      <EmbeddingModelSelect
+        value="builtin::multilingual-e5-small"
+        onChange={vi.fn()}
+        style={{ width: 280 }}
+      />,
+    );
+    const wrap = container.querySelector('.aqbot-embedding-select');
+    expect(wrap).toHaveStyle({ width: '280px' });
+    expect(screen.getByText('settings.localRetrieval.notInstalledShort')).toBeInTheDocument();
   });
 });

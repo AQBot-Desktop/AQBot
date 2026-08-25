@@ -51,6 +51,8 @@ mod m20260813_000001_acp_project_kind;
 mod m20260814_000001_add_context_strategy;
 mod m20260815_000001_add_conversation_sort_order;
 mod m20260823_000001_add_conversation_multi_model_display_mode_override;
+mod m20260825_000001_add_memory_l1_and_activation;
+mod m20260825_000002_add_memory_l1_sort_order;
 
 pub struct Migrator;
 
@@ -111,6 +113,8 @@ impl MigratorTrait for Migrator {
             Box::new(
                 m20260823_000001_add_conversation_multi_model_display_mode_override::Migration,
             ),
+            Box::new(m20260825_000001_add_memory_l1_and_activation::Migration),
+            Box::new(m20260825_000002_add_memory_l1_sort_order::Migration),
         ]
     }
 }
@@ -393,11 +397,11 @@ mod tests {
         );
 
         for (where_clause, expected) in [
+            ("category_id = 'category'", vec!["cat-a", "cat-b", "cat-c"]),
             (
-                "category_id = 'category'",
-                vec!["cat-a", "cat-b", "cat-c"],
+                "category_id IS NULL",
+                vec!["pin-a", "pin-b", "plain-a", "plain-b"],
             ),
-            ("category_id IS NULL", vec!["pin-a", "pin-b", "plain-a", "plain-b"]),
         ] {
             let rows = db
                 .query_all(Statement::from_string(
@@ -699,6 +703,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn migrator_up_adds_memory_l1_and_namespace_activation() {
+        let db = sqlite_test_db().await;
+        Migrator::up(&db, None)
+            .await
+            .expect("run sqlite migrations");
+        let manager = SchemaManager::new(&db);
+        assert!(manager
+            .has_table("memory_l1")
+            .await
+            .expect("check memory_l1"));
+        for column in ["activation_mode", "migration_review_required"] {
+            assert!(
+                manager
+                    .has_column("memory_namespaces", column)
+                    .await
+                    .expect("check namespace column"),
+                "missing memory_namespaces.{column}"
+            );
+        }
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id, enabled, markdown, revision FROM memory_l1 WHERE id = 'global'"
+                    .to_string(),
+            ))
+            .await
+            .expect("query l1")
+            .expect("global l1 row");
+        assert_eq!(row.try_get::<String>("", "id").unwrap(), "global");
+        assert_eq!(row.try_get::<i64>("", "enabled").unwrap(), 1);
+        assert_eq!(row.try_get::<String>("", "markdown").unwrap(), "");
+        assert_eq!(row.try_get::<i64>("", "revision").unwrap(), 0);
+        assert!(manager
+            .has_column("memory_l1", "sort_order")
+            .await
+            .expect("check memory_l1.sort_order"));
+    }
+
+    #[tokio::test]
     async fn migrations_add_nullable_multi_model_display_mode_override_to_conversations() {
         let db = sqlite_test_db().await;
 
@@ -721,10 +764,7 @@ mod tests {
             })
             .expect("multi-model display mode override column");
 
-        assert_eq!(
-            column.try_get::<i64>("", "notnull").expect("notnull"),
-            0
-        );
+        assert_eq!(column.try_get::<i64>("", "notnull").expect("notnull"), 0);
         assert_eq!(
             column
                 .try_get::<Option<String>>("", "dflt_value")

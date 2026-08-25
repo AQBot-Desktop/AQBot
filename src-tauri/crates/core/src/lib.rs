@@ -1,9 +1,11 @@
 pub mod attachment_persistence;
 pub mod bedrock_credentials;
 pub mod builtin_tools;
+pub mod context_engine;
 pub mod crypto;
 pub mod db;
 pub mod document_parser;
+pub mod embedding;
 pub mod entity;
 pub mod error;
 pub mod file_store;

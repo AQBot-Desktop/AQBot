@@ -10,6 +10,9 @@
 
 use sea_orm::DatabaseConnection;
 
+use aqbot_core::embedding::{
+    embed, EmbedInputKind, EmbeddingBackend, EmbeddingProfileRevision, MULTILINGUAL_E5_SMALL_INT8,
+};
 use aqbot_core::error::{AQBotError, Result};
 use aqbot_core::rag::{self, ChunkStrategy, KnowledgeRAG, MemoryRAG};
 use aqbot_core::types::*;
@@ -44,7 +47,29 @@ impl rag::AsyncEmbedFn for ProviderEmbedFn {
         texts: Vec<String>,
         dimensions: Option<usize>,
     ) -> Result<EmbedResponse> {
-        generate_embeddings(db, master_key, embedding_provider, texts, dimensions).await
+        generate_embeddings_for(
+            db,
+            master_key,
+            embedding_provider,
+            texts,
+            dimensions,
+            EmbedInputKind::Query,
+        )
+        .await
+    }
+}
+
+struct BuiltinOnnxBackend;
+
+#[async_trait::async_trait]
+impl EmbeddingBackend for BuiltinOnnxBackend {
+    async fn embed(
+        &self,
+        _revision: &EmbeddingProfileRevision,
+        _kind: EmbedInputKind,
+        inputs: Vec<String>,
+    ) -> Result<Vec<Vec<f32>>> {
+        crate::embedding_runtime::embed_prefixed(inputs).await
     }
 }
 
@@ -139,6 +164,41 @@ pub async fn generate_embeddings(
     texts: Vec<String>,
     dimensions: Option<usize>,
 ) -> Result<EmbedResponse> {
+    generate_embeddings_for(
+        db,
+        master_key,
+        embedding_provider,
+        texts,
+        dimensions,
+        EmbedInputKind::Document,
+    )
+    .await
+}
+
+async fn generate_embeddings_for(
+    db: &DatabaseConnection,
+    master_key: &[u8; 32],
+    embedding_provider: &str,
+    texts: Vec<String>,
+    dimensions: Option<usize>,
+    kind: EmbedInputKind,
+) -> Result<EmbedResponse> {
+    if aqbot_core::embedding::is_builtin_embedding_ref(embedding_provider) {
+        let manifest = &MULTILINGUAL_E5_SMALL_INT8;
+        let revision = EmbeddingProfileRevision {
+            revision_id: manifest.revision.into(),
+            backend: "builtin".into(),
+            dimensions: manifest.dimensions,
+            fingerprint: manifest.files[0].sha256.into(),
+            query_prefix: manifest.query_prefix.into(),
+            document_prefix: manifest.document_prefix.into(),
+        };
+        let vectors = embed(&BuiltinOnnxBackend, &revision, kind, texts).await?;
+        return Ok(EmbedResponse {
+            embeddings: vectors,
+            dimensions: manifest.dimensions,
+        });
+    }
     let (provider_id, model_id) = parse_embedding_provider(embedding_provider)?;
     let (ctx, provider_config) = build_embed_context(db, master_key, &provider_id).await?;
 

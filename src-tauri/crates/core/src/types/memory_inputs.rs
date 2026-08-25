@@ -11,6 +11,7 @@ pub struct CreateMemoryNamespaceInput {
     pub retrieval_top_k: Option<i32>,
     pub icon_type: Option<String>,
     pub icon_value: Option<String>,
+    pub activation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +35,12 @@ pub struct UpdateMemoryNamespaceInput {
     #[serde(default)]
     pub update_icon: bool,
     pub sort_order: Option<i32>,
+    pub activation_mode: Option<String>,
+    #[serde(default)]
+    pub update_activation_mode: bool,
+    pub migration_review_required: Option<bool>,
+    #[serde(default)]
+    pub update_migration_review_required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

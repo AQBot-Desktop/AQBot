@@ -22,6 +22,7 @@ import { Plus, Trash2, Trash, Settings, GripVertical, MoreHorizontal, Search, Fi
 import { useTranslation } from 'react-i18next';
 import { useKnowledgeStore } from '@/stores';
 import { EmbeddingModelSelect } from '@/components/shared/EmbeddingModelSelect';
+import { BUILTIN_EMBEDDING_DIMENSIONS, isBuiltinEmbeddingRef } from '@/lib/embeddingProfiles';
 import { RerankModelSelect } from '@/components/shared/RerankModelSelect';
 import { IconEditor } from '@/components/shared/IconEditor';
 import { KnowledgeBaseIcon } from '@/components/shared/KnowledgeBaseIcon';
@@ -760,11 +761,15 @@ function KnowledgeBaseDetail({
             />
           </div>
           <Divider style={{ margin: 0 }} />
-          <div className="flex items-center justify-between">
-            <span>{t('settings.knowledge.embeddingModel')}</span>
+          <div className="flex items-start justify-between gap-3">
+            <span className="shrink-0 leading-8">{t('settings.knowledge.embeddingModel')}</span>
             <EmbeddingModelSelect
               value={settingsForm.embeddingProvider}
-              onChange={(val) => setSettingsForm(s => ({ ...s, embeddingProvider: val || undefined }))}
+              onChange={(val) => setSettingsForm(s => ({
+                ...s,
+                embeddingProvider: val || undefined,
+                embeddingDimensions: isBuiltinEmbeddingRef(val) ? BUILTIN_EMBEDDING_DIMENSIONS : s.embeddingDimensions,
+              }))}
               placeholder={t('settings.knowledge.embeddingModelPlaceholder')}
               style={{ width: 280 }}
             />
@@ -1325,8 +1330,7 @@ export default function KnowledgeSettings() {
           </Form.Item>
           <Form.Item
             name="embeddingProvider"
-            label={t('settings.knowledge.embeddingModel')}
-            rules={[{ required: true, message: t('settings.knowledge.embeddingModelPlaceholder') }]}
+            label={t('settings.knowledge.retrievalEngine')}
           >
             <EmbeddingModelSelect
               value={form.getFieldValue('embeddingProvider')}

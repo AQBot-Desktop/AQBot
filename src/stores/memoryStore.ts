@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
 import { isResourceFresh } from '@/lib/resourceState';
 import type { EnsureLoadedOptions, ResourceInvalidationReason, ResourceMeta } from '@/lib/resourceState';
-import type { MemoryNamespace, MemoryItem, UpdateMemoryNamespaceInput, UpdateMemoryItemInput } from '@/types';
+import type { MemoryNamespace, MemoryItem, MemoryL1, SaveMemoryL1Input, UpdateMemoryNamespaceInput, UpdateMemoryItemInput } from '@/types';
+import { MEMORY_L1_SIDEBAR_ID } from '@/types';
+import { BUILTIN_EMBEDDING_DIMENSIONS, isBuiltinEmbeddingRef } from '@/lib/embeddingProfiles';
 
 const NAMESPACES_RESOURCE_KEY = 'memory-namespaces';
 let namespacesRequest: { revision: number; promise: Promise<void> } | null = null;
@@ -36,6 +38,7 @@ function memoryTitle(content: string): string {
 interface MemoryState {
   namespaces: MemoryNamespace[];
   items: MemoryItem[];
+  l1: MemoryL1 | null;
   loading: boolean;
   error: string | null;
   selectedNamespaceId: string | null;
@@ -56,11 +59,15 @@ interface MemoryState {
   updateItem: (namespaceId: string, itemId: string, input: UpdateMemoryItemInput) => Promise<void>;
   setSelectedNamespaceId: (id: string | null) => void;
   reorderNamespaces: (namespaceIds: string[]) => Promise<void>;
+  ensureL1Loaded: () => Promise<void>;
+  saveL1: (input: SaveMemoryL1Input) => Promise<MemoryL1>;
+  setL1Enabled: (enabled: boolean) => Promise<void>;
 }
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   namespaces: [],
   items: [],
+  l1: null,
   loading: false,
   error: null,
   selectedNamespaceId: null,
@@ -134,7 +141,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   createNamespace: async (name, scope, embeddingProvider) => {
     try {
       const ns = await invoke<MemoryNamespace>('create_memory_namespace', {
-        input: { name, scope, embeddingProvider },
+        input: {
+          name,
+          scope,
+          embeddingProvider,
+          embeddingDimensions: isBuiltinEmbeddingRef(embeddingProvider) ? BUILTIN_EMBEDDING_DIMENSIONS : undefined,
+          activationMode: embeddingProvider ? 'auto' : 'tool_only',
+        },
       });
       set((s) => ({
         namespaces: [...s.namespaces, ns],
@@ -315,16 +328,43 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   reorderNamespaces: async (namespaceIds) => {
     await invoke('reorder_memory_namespaces', { namespaceIds });
     set((s) => {
+      const l1Index = namespaceIds.indexOf(MEMORY_L1_SIDEBAR_ID);
       const ordered = namespaceIds
         .map((id, i) => {
+          if (id === MEMORY_L1_SIDEBAR_ID) return null;
           const n = s.namespaces.find((n) => n.id === id);
           return n ? { ...n, sortOrder: i } : null;
         })
         .filter(Boolean) as MemoryNamespace[];
       return {
         namespaces: ordered,
+        l1: s.l1 && l1Index >= 0 ? { ...s.l1, sortOrder: l1Index } : s.l1,
         namespacesMeta: mutateNamespacesMeta(s.namespacesMeta),
       };
     });
+  },
+
+  ensureL1Loaded: async () => {
+    const l1 = await invoke<MemoryL1>('get_memory_l1');
+    set({ l1, error: null });
+  },
+
+  saveL1: async (input) => {
+    const saved = await invoke<MemoryL1>('save_memory_l1', { input });
+    set({ l1: saved, error: null });
+    return saved;
+  },
+
+  setL1Enabled: async (enabled) => {
+    const current = get().l1;
+    if (!current) return;
+    const saved = await invoke<MemoryL1>('save_memory_l1', {
+      input: {
+        enabled,
+        markdown: current.markdown,
+        revision: current.revision,
+      },
+    });
+    set({ l1: saved, error: null });
   },
 }));

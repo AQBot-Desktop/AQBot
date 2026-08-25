@@ -570,14 +570,39 @@ svg.lucide {
   line-height: 0;
   width: 16px;
   height: 16px;
+  overflow: hidden;
   /* Colored avatars ignore parent `color`; animate opacity/filter instead */
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 .aqbot-model-select-icon > * {
-  display: block;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
   width: 16px !important;
   height: 16px !important;
+  margin: 0 !important;
+  line-height: 16px !important;
+}
+
+.ant-select-dropdown .aqbot-model-select-option {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.aqbot-embedding-select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.aqbot-embedding-select-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .aqbot-model-select-name {

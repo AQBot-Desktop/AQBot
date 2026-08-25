@@ -1803,9 +1803,89 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'clear_knowledge_index':
       return undefined as T;
 
+    case 'get_embedding_artifact_status':
+      return {
+        status: 'missing',
+        artifactId: 'multilingual-e5-small',
+        revision: '761b726',
+        path: '~/.aqbot/models/embeddings/multilingual-e5-small/761b726/onnx/model_int8.onnx',
+        sizeBytes: 118054593,
+        downloadedBytes: 0,
+        license: 'MIT',
+      } as T;
+    case 'install_embedding_artifact':
+    case 'cancel_embedding_artifact_install':
+      return { status: 'missing' } as T;
+
     // ── Phase 2: Memory ───────────────────────────────────────────────
+    case 'get_memory_l1': {
+      return getStore('memory_l1', {
+        enabled: true,
+        markdown: '',
+        revision: 0,
+        sortOrder: 0,
+        updatedAt: new Date().toISOString(),
+      }) as T;
+    }
+    case 'uninstall_embedding_artifact': {
+      return {
+        status: 'missing',
+        artifactId: 'multilingual-e5-small',
+        revision: '761b726',
+        path: '~/.aqbot/models/embeddings/multilingual-e5-small/761b726/onnx/model_int8.onnx',
+        sizeBytes: 118054593,
+        downloadedBytes: 0,
+        license: 'MIT',
+      } as T;
+    }
+    case 'save_memory_l1': {
+      const current = getStore<any>('memory_l1', {
+        enabled: true,
+        markdown: '',
+        revision: 0,
+        sortOrder: 0,
+        updatedAt: new Date().toISOString(),
+      });
+      const input = (args as any)?.input ?? args;
+      const markdown = String(input?.markdown ?? '');
+      if (new TextEncoder().encode(markdown).length > 5000) {
+        throw new Error(JSON.stringify({ code: 'MEMORY_L1_TOO_LARGE', args: { limit: 5000 } }));
+      }
+      if (Number(input?.revision) !== Number(current.revision)) {
+        throw new Error(JSON.stringify({
+          code: 'MEMORY_L1_REVISION_CONFLICT',
+          args: { expected: input?.revision, actual: current.revision },
+        }));
+      }
+      const saved = {
+        enabled: Boolean(input?.enabled),
+        markdown,
+        revision: Number(current.revision) + 1,
+        sortOrder: Number(current.sortOrder) || 0,
+        updatedAt: new Date().toISOString(),
+      };
+      setStore('memory_l1', saved);
+      return saved as T;
+    }
     case 'list_memory_namespaces':
       return getStore('memory_namespaces', []) as T;
+    case 'reorder_memory_namespaces': {
+      const ids = ((args as any)?.namespaceIds ?? []) as string[];
+      const mns = getStore<any[]>('memory_namespaces', []);
+      const l1 = getStore<any>('memory_l1', { sortOrder: 0 });
+      ids.forEach((id, index) => {
+        if (id === 'aqbot-memory-l1') {
+          l1.sortOrder = index;
+        } else {
+          const ns = mns.find((item) => item.id === id);
+          if (ns) ns.sortOrder = index;
+        }
+      });
+      mns.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      setStore('memory_namespaces', mns);
+      setStore('memory_l1', l1);
+      return undefined as T;
+    }
     case 'create_memory_namespace': {
       const mns = getStore<any[]>('memory_namespaces', []);
       const mn = { id: genId(), ...(args as any), items: [], created_at: nowTs(), updated_at: nowTs() };

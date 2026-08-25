@@ -11,6 +11,24 @@ export type MemoryNamespace = {
   iconType?: string;
   iconValue?: string;
   sortOrder: number;
+  activationMode?: 'tool_only' | 'auto';
+  migrationReviewRequired?: boolean;
+};
+
+export const MEMORY_L1_SIDEBAR_ID = 'aqbot-memory-l1';
+
+export type MemoryL1 = {
+  enabled: boolean;
+  markdown: string;
+  revision: number;
+  sortOrder: number;
+  updatedAt: string;
+};
+
+export type SaveMemoryL1Input = {
+  enabled: boolean;
+  markdown: string;
+  revision: number;
 };
 
 export type MemoryItem = {
@@ -31,6 +49,7 @@ export type CreateMemoryNamespaceInput = {
   embeddingDimensions?: number;
   retrievalThreshold?: number;
   retrievalTopK?: number;
+  activationMode?: 'tool_only' | 'auto';
 };
 
 export type CreateMemoryItemInput = {
@@ -59,4 +78,8 @@ export type UpdateMemoryNamespaceInput = {
   iconValue?: string;
   updateIcon?: boolean;
   sortOrder?: number;
+  activationMode?: 'tool_only' | 'auto';
+  updateActivationMode?: boolean;
+  migrationReviewRequired?: boolean;
+  updateMigrationReviewRequired?: boolean;
 };

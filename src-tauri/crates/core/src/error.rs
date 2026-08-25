@@ -14,6 +14,9 @@ pub enum AQBotError {
     NotFound(String),
     #[error("Validation error: {0}")]
     Validation(String),
+    /// Stable machine-readable error. Serialized as JSON `{code, args}`.
+    #[error("{0}")]
+    Coded(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -37,3 +40,7 @@ impl From<sea_orm::TransactionError<sea_orm::DbErr>> for AQBotError {
 }
 
 pub type Result<T> = std::result::Result<T, AQBotError>;
+
+pub fn coded_error(code: &str, args: serde_json::Value) -> AQBotError {
+    AQBotError::Coded(serde_json::json!({ "code": code, "args": args }).to_string())
+}

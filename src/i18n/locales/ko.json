@@ -704,6 +704,7 @@
     "conversationSettings": "대화",
     "defaultModel": "기본 모델",
     "general": "일반",
+    "localModels": "로컬 모델",
     "display": "디스플레이",
     "proxy": "프록시",
     "shortcuts": "단축키",
@@ -1223,7 +1224,8 @@
       "statusLabel": "상태",
       "docType": "유형",
       "docTypeFile": "파일",
-      "docTitle": "문서"
+      "docTitle": "문서",
+      "retrievalEngine": "검색 엔진"
     },
     "memory": {
       "title": "메모리",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "메모리 검색...",
       "searchResults": "검색 결과",
       "similarity": "유사도",
-      "updateSuccess": "업데이트 성공"
+      "updateSuccess": "업데이트 성공",
+      "l1": {
+        "title": "상시 메모리",
+        "description": "이 Markdown은 이 기기에만 저장되며 로컬 채팅의 매 턴에 주입됩니다. 짧게 쓰고, 대화에 입력하지 않을 비밀은 넣지 마세요.",
+        "enabled": "상시 메모리 사용",
+        "edit": "편집",
+        "preview": "미리보기",
+        "byteCount": "{{bytes}} / {{limit}}바이트",
+        "import": "Markdown 가져오기",
+        "export": "Markdown 내보내기",
+        "save": "메모리 저장",
+        "saveSuccess": "상시 메모리를 저장했습니다",
+        "placeholder": "어시스턴트가 항상 알아야 할 내용…",
+        "emptyPreview": "아직 내용이 없습니다",
+        "ariaLabel": "상시 메모리 Markdown",
+        "builtin": "내장"
+      },
+      "semanticEngineAdvanced": "고급: 의미 검색 엔진",
+      "embeddingOptional": "선택적 임베딩 모델",
+      "migrationReviewBanner": "이 노트북은 이전 버전에서 이전되었습니다. 확인하기 전에는 모델이 읽을 수 없습니다.",
+      "migrationReviewConfirm": "모델 접근 허용",
+      "migrationReviewConfirmed": "이제 모델이 이 노트북을 사용할 수 있습니다"
     },
     "desktopIntegration": {
       "title": "데스크톱 통합"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "활성화됨",
     "disabledProviders": "장애가 있는",
     "noMatchingIcons": "일치하는 아이콘이 없습니다.",
-    "apiKey": "API 키"
+    "apiKey": "API 키",
+    "localRetrieval": {
+      "builtinGroup": "내장 오프라인",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "기기 내 모델이 여기에 표시되지만 파일은 아직 설치되지 않았습니다. 설치가 끝나기 전에는 의미 검색을 하지 않습니다. MIT 라이선스, 약 113MB, 저장 위치는 ~/.aqbot/models/embeddings/입니다.",
+      "title": "기기 내 검색 엔진",
+      "notInstalledShort": "모델 파일이 아직 설치되지 않았습니다, 설정 → 로컬 모델에서 설치하세요.",
+      "install": "설치",
+      "cancel": "취소",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "설치되지 않음",
+        "downloading": "다운로드 중…",
+        "installed": "파일을 검증해 저장했습니다, 기기 내 검색에 사용할 수 있습니다.",
+        "corrupted": "설치된 파일 검증에 실패했습니다. 다시 설치하세요.",
+        "failed": "다운로드에 실패했습니다. 다시 시도하세요."
+      },
+      "uninstall": "제거",
+      "uninstallConfirm": "기기 내 검색 엔진 파일을 제거할까요? 로컬 검색을 쓰려면 다시 다운로드해야 합니다.",
+      "installedShort": "설치됨, 기기 내 검색에 사용할 수 있습니다."
+    }
   },
   "backup": {
     "title": "백업 센터",
@@ -2344,5 +2387,24 @@
     "modelConfig": "모델 설정",
     "noModelConfig": "모델 설정 없음",
     "preparingConversation": "대화 준비 중…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "상시 메모리는 {{bytes}}바이트이며 한도는 {{limit}}입니다.",
+    "MEMORY_L1_REVISION_CONFLICT": "상시 메모리가 다른 곳에서 업데이트되어 최신 버전을 다시 불러왔습니다.",
+    "MEMORY_L1_READ_FAILED": "상시 메모리를 읽을 수 없습니다. 고칠 때까지 전송할 수 없습니다.",
+    "TOOL_CAPABILITY_REQUIRED": "온디맨드 메모리를 쓰려면 선택한 모델이 Function Calling을 지원해야 합니다.",
+    "MEMORY_TOOL_SCOPE_DENIED": "해당 메모리 항목은 이 대화에 연결된 노트북 범위 밖입니다.",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "메모리 항목을 찾을 수 없습니다.",
+    "MEMORY_TOOL_INVALID_ACTION": "메모리 도구 요청이 올바르지 않습니다.",
+    "MEMORY_INVALID_ACTIVATION_MODE": "메모리 활성화 모드가 올바르지 않습니다.",
+    "MEMORY_NAMESPACE_MISSING": "연결된 메모리 노트북을 찾을 수 없습니다.",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "연결된 메모리 노트북은 확인 후에만 모델이 사용할 수 있습니다.",
+    "MEMORY_NEEDS_ENGINE": "이 노트북의 자동 회상에는 검색 엔진이 필요합니다.",
+    "EMBEDDING_COUNT_MISMATCH": "임베딩 백엔드가 반환한 벡터 수가 맞지 않습니다.",
+    "EMBEDDING_DIMENSION_MISMATCH": "임베딩 백엔드가 반환한 차원이 맞지 않습니다.",
+    "EMBEDDING_NON_FINITE": "임베딩 백엔드가 유한하지 않은 값을 반환했습니다.",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "선택한 임베딩 엔진을 사용할 수 없습니다.",
+    "EMBEDDING_ARTIFACT_MISSING": "기기 내 임베딩 모델이 설치되지 않았습니다. 설정 → 로컬 모델에서 설치하세요.",
+    "EMBEDDING_INFERENCE_FAILED": "기기 내 임베딩 추론에 실패했습니다."
   }
 }

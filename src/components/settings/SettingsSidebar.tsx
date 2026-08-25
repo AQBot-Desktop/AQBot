@@ -1,5 +1,5 @@
 import { Menu, theme } from 'antd';
-import { Cloud, Settings, Palette, Globe, Zap, Database, Info, Search, Plug, CloudUpload, Bot, HardDrive, MessageSquare, ArrowLeft, TextCursorInput, Terminal } from 'lucide-react';
+import { Cloud, Settings, Palette, Globe, Zap, Database, Info, Search, Plug, CloudUpload, Bot, HardDrive, MessageSquare, ArrowLeft, TextCursorInput, Terminal, Cpu } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, useUIStore } from '@/stores';
 import type { SettingsSection, SettingsSidebarDensity } from '@/types';
@@ -9,6 +9,7 @@ const MENU_ICONS: Record<SettingsSection, React.ReactNode> = {
   conversationSettings: <MessageSquare size={16} />,
   defaultModel: <Bot size={16} />,
   general: <Settings size={16} />,
+  localModels: <Cpu size={16} />,
   display: <Palette size={16} />,
   proxy: <Globe size={16} />,
   shortcuts: <Zap size={16} />,
@@ -28,6 +29,7 @@ const SECTION_KEYS: SettingsSection[] = [
   'providers',
   'conversationSettings',
   'defaultModel',
+  'localModels',
   'searchProviders',
   'mcpServers',
   'acpAgents',

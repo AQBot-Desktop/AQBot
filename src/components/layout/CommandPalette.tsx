@@ -105,6 +105,13 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
       {
+        id: 'settings-local-models',
+        label: `${t('commandPalette.goToSettings')} → ${t('settings.localModels')}`,
+        icon: <Settings size={16} />,
+        category: settings,
+        action: () => { setActivePage('settings'); setSettingsSection('localModels'); onClose(); },
+      },
+      {
         id: 'settings-search',
         label: `${t('commandPalette.goToSettings')} → ${t('settings.searchProviders.title')}`,
         icon: <Settings size={16} />,

@@ -704,6 +704,7 @@
     "conversationSettings": "المحادثة",
     "defaultModel": "النموذج الافتراضي",
     "general": "عام",
+    "localModels": "النماذج المحلية",
     "display": "العرض",
     "proxy": "الوكيل",
     "shortcuts": "اختصارات",
@@ -1223,7 +1224,8 @@
       "statusLabel": "الحالة",
       "docType": "النوع",
       "docTypeFile": "ملف",
-      "docTitle": "مستند"
+      "docTitle": "مستند",
+      "retrievalEngine": "محرك الاسترجاع"
     },
     "memory": {
       "title": "الذاكرة",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "البحث في الذاكرة...",
       "searchResults": "نتائج البحث",
       "similarity": "التشابه",
-      "updateSuccess": "تم التحديث بنجاح"
+      "updateSuccess": "تم التحديث بنجاح",
+      "l1": {
+        "title": "ذاكرة دائمة",
+        "description": "تُحفظ ملاحظة Markdown هذه على هذا الجهاز فقط وتُحقَن في كل جولة محادثة محلية. اجعلها قصيرة وتجنب الأسرار التي لن تكتبها في المحادثة.",
+        "enabled": "تفعيل الذاكرة الدائمة",
+        "edit": "تحرير",
+        "preview": "معاينة",
+        "byteCount": "{{bytes}} / {{limit}} بايت",
+        "import": "استيراد Markdown",
+        "export": "تصدير Markdown",
+        "save": "حفظ الذاكرة",
+        "saveSuccess": "تم حفظ الذاكرة الدائمة",
+        "placeholder": "ما يجب أن يعرفه المساعد دائماً…",
+        "emptyPreview": "لا يوجد محتوى بعد",
+        "ariaLabel": "Markdown للذاكرة الدائمة",
+        "builtin": "مدمج"
+      },
+      "semanticEngineAdvanced": "متقدم: محرك دلالي",
+      "embeddingOptional": "نموذج تضمين اختياري",
+      "migrationReviewBanner": "نُقلت هذه المفكرة من إصدار أقدم. راجعها قبل أن يتمكن النموذج من قراءتها.",
+      "migrationReviewConfirm": "السماح للنموذج بالوصول",
+      "migrationReviewConfirmed": "يمكن للنموذج الآن استخدام هذه المفكرة"
     },
     "desktopIntegration": {
       "title": "تكامل سطح المكتب"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "ممكّن",
     "disabledProviders": "معطل",
     "noMatchingIcons": "لا توجد أيقونات مطابقة",
-    "apiKey": "مفتاح API"
+    "apiKey": "مفتاح API",
+    "localRetrieval": {
+      "builtinGroup": "مدمج دون اتصال",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "يظهر النموذج المحلي هنا، لكن الملفات لم تُثبَّت بعد. تبقى الفهرسة الدلالية متوقفة حتى اكتمال التثبيت. رخصة MIT، حوالي 113 ميغابايت، المسار ~/.aqbot/models/embeddings/.",
+      "title": "محرك الاسترجاع على الجهاز",
+      "notInstalledShort": "ملفات النموذج غير مثبتة بعد، ثبّتها من الإعدادات ← النماذج المحلية.",
+      "install": "تثبيت",
+      "cancel": "إلغاء",
+      "meta": "{{license}} · {{sizeMb}} ميغابايت · {{path}}",
+      "status": {
+        "missing": "غير مثبت",
+        "downloading": "جارٍ التنزيل…",
+        "installed": "تم تثبيت الملفات والتحقق منها، جاهزة للبحث على الجهاز.",
+        "corrupted": "فشل التحقق من الملفات المثبتة. ثبّتها مرة أخرى.",
+        "failed": "فشل التنزيل. حاول مرة أخرى."
+      },
+      "uninstall": "إلغاء التثبيت",
+      "uninstallConfirm": "إلغاء تثبيت ملفات محرك الاسترجاع على الجهاز؟ ستحتاج إلى تنزيلها مجددًا للبحث المحلي.",
+      "installedShort": "مثبّت وجاهز للبحث على الجهاز."
+    }
   },
   "backup": {
     "title": "مركز النسخ الاحتياطي",
@@ -2344,5 +2387,24 @@
     "modelConfig": "إعدادات النموذج",
     "noModelConfig": "لا توجد إعدادات للنموذج",
     "preparingConversation": "تحضير المحادثة…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "الذاكرة الدائمة {{bytes}} بايت والحد هو {{limit}}.",
+    "MEMORY_L1_REVISION_CONFLICT": "تم تحديث الذاكرة الدائمة في مكان آخر. أُعيد تحميل أحدث نسخة.",
+    "MEMORY_L1_READ_FAILED": "تعذر قراءة الذاكرة الدائمة. الإرسال متوقف حتى إصلاح ذلك.",
+    "TOOL_CAPABILITY_REQUIRED": "الذاكرة عند الطلب مفعّلة، لذا يجب أن يدعم النموذج المحدد Function Calling.",
+    "MEMORY_TOOL_SCOPE_DENIED": "إدخال الذاكرة هذا خارج دفاتر الملاحظات المرتبطة بهذه المحادثة.",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "تعذر العثور على إدخال الذاكرة.",
+    "MEMORY_TOOL_INVALID_ACTION": "طلب أداة الذاكرة غير صالح.",
+    "MEMORY_INVALID_ACTIVATION_MODE": "وضع تفعيل الذاكرة غير صالح.",
+    "MEMORY_NAMESPACE_MISSING": "تعذر العثور على دفتر ذاكرة مرتبط.",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "يجب مراجعة دفتر الذاكرة المرتبط قبل أن يستخدمه النموذج.",
+    "MEMORY_NEEDS_ENGINE": "الاستدعاء التلقائي يحتاج محرك بحث لهذا الدفتر.",
+    "EMBEDDING_COUNT_MISMATCH": "أعاد محرك التضمين عدداً خاطئاً من المتجهات.",
+    "EMBEDDING_DIMENSION_MISMATCH": "أعاد محرك التضمين بعداً خاطئاً للمتجه.",
+    "EMBEDDING_NON_FINITE": "أعاد محرك التضمين قيمة غير منتهية.",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "محرك التضمين المحدد غير متاح.",
+    "EMBEDDING_ARTIFACT_MISSING": "نموذج التضمين على الجهاز غير مثبت. ثبّته من الإعدادات ← النماذج المحلية.",
+    "EMBEDDING_INFERENCE_FAILED": "فشل استدلال التضمين على الجهاز."
   }
 }

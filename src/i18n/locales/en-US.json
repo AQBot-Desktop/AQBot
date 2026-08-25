@@ -704,6 +704,7 @@
     "conversationSettings": "Conversation",
     "defaultModel": "Default Model",
     "general": "General",
+    "localModels": "Local Models",
     "display": "Display",
     "proxy": "Proxy",
     "shortcuts": "Shortcuts",
@@ -1259,7 +1260,8 @@
       "statusLabel": "Status",
       "docType": "Type",
       "docTypeFile": "File",
-      "docTitle": "Document"
+      "docTitle": "Document",
+      "retrievalEngine": "Retrieval engine"
     },
     "memory": {
       "title": "Memory",
@@ -1309,7 +1311,28 @@
       "searchPlaceholder": "Search memories...",
       "searchResults": "Search results",
       "similarity": "Similarity",
-      "updateSuccess": "Updated successfully"
+      "updateSuccess": "Updated successfully",
+      "l1": {
+        "title": "Always-on memory",
+        "description": "This Markdown note is stored only on this device and is injected into every local chat turn. Keep it short and avoid secrets you would not type into a conversation.",
+        "enabled": "Enable always-on memory",
+        "edit": "Edit",
+        "preview": "Preview",
+        "byteCount": "{{bytes}} / {{limit}} bytes",
+        "import": "Import Markdown",
+        "export": "Export Markdown",
+        "save": "Save memory",
+        "saveSuccess": "Always-on memory saved",
+        "placeholder": "Things the assistant should always know…",
+        "emptyPreview": "Nothing saved yet",
+        "ariaLabel": "Always-on memory Markdown",
+        "builtin": "Built-in"
+      },
+      "semanticEngineAdvanced": "Advanced: semantic engine",
+      "embeddingOptional": "Optional embedding model",
+      "migrationReviewBanner": "This notebook was migrated from an older version. Review it before the model can read it.",
+      "migrationReviewConfirm": "Allow model access",
+      "migrationReviewConfirmed": "This notebook is now available to the model"
     },
     "desktopIntegration": {
       "title": "Desktop Integration"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "Enabled",
     "disabledProviders": "Disabled",
     "noMatchingIcons": "No matching icons",
-    "apiKey": "API Key"
+    "apiKey": "API Key",
+    "localRetrieval": {
+      "builtinGroup": "Built-in offline",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "The on-device model is listed here, but the files are not installed yet. Semantic indexing stays paused until installation completes. MIT license, about 113 MB, stored under ~/.aqbot/models/embeddings/.",
+      "title": "On-device retrieval engine",
+      "notInstalledShort": "Model files are not installed yet, install them in Settings → Local Models.",
+      "install": "Install",
+      "cancel": "Cancel",
+      "meta": "{{license}} · {{sizeMb}} MB · {{path}}",
+      "status": {
+        "missing": "Not installed",
+        "downloading": "Downloading…",
+        "installed": "Files installed and verified, ready for on-device retrieval.",
+        "corrupted": "Installed files failed verification. Install again.",
+        "failed": "Download failed. Try again."
+      },
+      "uninstall": "Uninstall",
+      "uninstallConfirm": "Uninstall the on-device retrieval engine files? You will need to download them again for local retrieval.",
+      "installedShort": "Installed, ready for on-device retrieval."
+    }
   },
   "backup": {
     "title": "Backup Center",
@@ -2344,5 +2387,24 @@
     "interactionPlanAddedToContext": "Added to context",
     "interactionPlanFeedbackLabel": "Feedback",
     "preparingConversation": "Preparing conversation…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "Always-on memory is {{bytes}} bytes; the limit is {{limit}}.",
+    "MEMORY_L1_REVISION_CONFLICT": "Always-on memory was updated elsewhere. The latest version was reloaded.",
+    "MEMORY_L1_READ_FAILED": "Always-on memory could not be read. Sending is blocked until this is fixed.",
+    "TOOL_CAPABILITY_REQUIRED": "On-demand memory is enabled, so the selected model must support function calling.",
+    "MEMORY_TOOL_SCOPE_DENIED": "That memory entry is outside the notebooks bound to this conversation.",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "Memory entry not found.",
+    "MEMORY_TOOL_INVALID_ACTION": "Invalid memory tool request.",
+    "MEMORY_INVALID_ACTIVATION_MODE": "Invalid memory activation mode.",
+    "MEMORY_NAMESPACE_MISSING": "A bound memory notebook could not be found.",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "A bound memory notebook still needs review before the model can use it.",
+    "MEMORY_NEEDS_ENGINE": "Automatic recall needs a retrieval engine for this notebook.",
+    "EMBEDDING_COUNT_MISMATCH": "The embedding backend returned the wrong number of vectors.",
+    "EMBEDDING_DIMENSION_MISMATCH": "The embedding backend returned the wrong vector size.",
+    "EMBEDDING_NON_FINITE": "The embedding backend returned a non-finite value.",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "The selected embedding engine is not available.",
+    "EMBEDDING_ARTIFACT_MISSING": "The on-device embedding model is not installed. Install it in Settings → Local Models.",
+    "EMBEDDING_INFERENCE_FAILED": "On-device embedding inference failed."
   }
 }

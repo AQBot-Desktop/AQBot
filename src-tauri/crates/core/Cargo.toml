@@ -25,6 +25,7 @@ reqwest = { version = "0.13", features = ["json", "stream"] }
 futures = "0.3"
 rmcp = { version = "1.2", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 regex = "1"
+unicode-normalization = "0.1"
 hex = "0.4"
 toml_edit = "0.22"
 sqlite-vec = { workspace = true }

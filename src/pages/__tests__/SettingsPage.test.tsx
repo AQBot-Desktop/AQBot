@@ -18,6 +18,7 @@ vi.mock('@/components/settings', () => ({
   SettingsSidebar: () => <nav>settings-sidebar</nav>,
   ProviderSettings: () => <div>providers-content</div>,
   GeneralSettings: () => <div>general-content</div>,
+  LocalModelsSettings: () => <div>local-models-content</div>,
   DisplaySettings: () => <div>display-content</div>,
   ProxySettings: () => <div>proxy-content</div>,
   ShortcutSettings: () => <div>shortcuts-content</div>,
@@ -28,6 +29,7 @@ vi.mock('@/components/settings', () => ({
   BackupCenter: () => <div>backup-content</div>,
   StorageSpaceManager: () => <div>storage-content</div>,
   SelectionToolbarSettings: () => <div>selection-toolbar-content</div>,
+  AcpAgentSettings: () => <div>acp-agents-content</div>,
 }));
 
 vi.mock('@/components/settings/DefaultModelSettings', () => ({
@@ -62,6 +64,16 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText('display-content')).toBeInTheDocument();
     expect(contentScroller.scrollTop).toBe(0);
+  });
+
+  it('renders local model settings from the settings navigation', () => {
+    render(<SettingsPage />);
+
+    act(() => {
+      useUIStore.getState().setSettingsSection('localModels');
+    });
+
+    expect(screen.getByText('local-models-content')).toBeInTheDocument();
   });
 
   it('renders selection toolbar settings from the settings navigation', () => {

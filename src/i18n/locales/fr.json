@@ -704,6 +704,7 @@
     "conversationSettings": "Conversation",
     "defaultModel": "Modèle par défaut",
     "general": "Général",
+    "localModels": "Modèles locaux",
     "display": "Affichage",
     "proxy": "Mandataire",
     "shortcuts": "Raccourcis",
@@ -1223,7 +1224,8 @@
       "statusLabel": "Statut",
       "docType": "Tapez",
       "docTypeFile": "Fichier",
-      "docTitle": "Document"
+      "docTitle": "Document",
+      "retrievalEngine": "Moteur de recherche"
     },
     "memory": {
       "title": "Mémoire",
@@ -1273,7 +1275,28 @@
       "searchPlaceholder": "Rechercher des souvenirs...",
       "searchResults": "Résultats de recherche",
       "similarity": "Similarité",
-      "updateSuccess": "Mis à jour avec succès"
+      "updateSuccess": "Mis à jour avec succès",
+      "l1": {
+        "title": "Mémoire permanente",
+        "description": "Cette note Markdown reste sur cet appareil et est injectée à chaque tour de chat local. Gardez-la courte et n’y mettez pas de secrets que vous n’écririez pas dans une conversation.",
+        "enabled": "Activer la mémoire permanente",
+        "edit": "Modifier",
+        "preview": "Aperçu",
+        "byteCount": "{{bytes}} / {{limit}} octets",
+        "import": "Importer Markdown",
+        "export": "Exporter Markdown",
+        "save": "Enregistrer la mémoire",
+        "saveSuccess": "Mémoire permanente enregistrée",
+        "placeholder": "Ce que l’assistant doit toujours savoir…",
+        "emptyPreview": "Rien n’est encore enregistré",
+        "ariaLabel": "Markdown de la mémoire permanente",
+        "builtin": "Intégré"
+      },
+      "semanticEngineAdvanced": "Avancé : moteur sémantique",
+      "embeddingOptional": "Modèle d’embedding facultatif",
+      "migrationReviewBanner": "Ce carnet a été migré d’une ancienne version. Vérifiez-le avant que le modèle puisse le lire.",
+      "migrationReviewConfirm": "Autoriser l’accès du modèle",
+      "migrationReviewConfirmed": "Le modèle peut maintenant utiliser ce carnet"
     },
     "desktopIntegration": {
       "title": "Intégration bureau"
@@ -1579,7 +1602,27 @@
     "enabledProviders": "Activé",
     "disabledProviders": "Désactivé",
     "noMatchingIcons": "Aucune icône correspondante",
-    "apiKey": "Clé API"
+    "apiKey": "Clé API",
+    "localRetrieval": {
+      "builtinGroup": "Intégré hors ligne",
+      "builtinModelId": "multilingual-e5-small",
+      "notInstalled": "Le modèle local figure ici, mais les fichiers ne sont pas encore installés. L’indexation sémantique attend l’installation. Licence MIT, environ 113 Mo, dossier ~/.aqbot/models/embeddings/.",
+      "title": "Moteur de recherche local",
+      "notInstalledShort": "Les fichiers du modèle ne sont pas encore installés, installez-les dans Réglages → Modèles locaux.",
+      "install": "Installer",
+      "cancel": "Annuler",
+      "meta": "{{license}} · {{sizeMb}} Mo · {{path}}",
+      "status": {
+        "missing": "Non installé",
+        "downloading": "Téléchargement…",
+        "installed": "Fichiers installés et vérifiés, prêts pour la recherche locale.",
+        "corrupted": "Les fichiers installés ont échoué à la vérification. Réinstallez-les.",
+        "failed": "Échec du téléchargement. Réessayez."
+      },
+      "uninstall": "Désinstaller",
+      "uninstallConfirm": "Désinstaller les fichiers du moteur de recherche local ? Il faudra les retélécharger pour la recherche locale.",
+      "installedShort": "Installé, prêt pour la recherche locale."
+    }
   },
   "backup": {
     "title": "Centre de sauvegarde",
@@ -2344,5 +2387,24 @@
     "modelConfig": "Paramètres du modèle",
     "noModelConfig": "Aucun paramètre de modèle",
     "preparingConversation": "Préparation de la conversation…"
+  },
+  "errors": {
+    "MEMORY_L1_TOO_LARGE": "La mémoire permanente fait {{bytes}} octets ; la limite est {{limit}}.",
+    "MEMORY_L1_REVISION_CONFLICT": "La mémoire permanente a été mise à jour ailleurs. La dernière version a été rechargée.",
+    "MEMORY_L1_READ_FAILED": "Impossible de lire la mémoire permanente. L’envoi est bloqué jusqu’à correction.",
+    "TOOL_CAPABILITY_REQUIRED": "La mémoire à la demande est active : le modèle choisi doit prendre en charge Function Calling.",
+    "MEMORY_TOOL_SCOPE_DENIED": "Cette entrée de mémoire est hors des carnets liés à cette conversation.",
+    "MEMORY_TOOL_ITEM_NOT_FOUND": "Entrée de mémoire introuvable.",
+    "MEMORY_TOOL_INVALID_ACTION": "Requête d’outil mémoire invalide.",
+    "MEMORY_INVALID_ACTIVATION_MODE": "Mode d’activation mémoire invalide.",
+    "MEMORY_NAMESPACE_MISSING": "Un carnet de mémoire lié est introuvable.",
+    "MEMORY_MIGRATION_REVIEW_REQUIRED": "Un carnet de mémoire lié doit encore être vérifié avant que le modèle puisse l’utiliser.",
+    "MEMORY_NEEDS_ENGINE": "Le rappel automatique a besoin d’un moteur de recherche pour ce carnet.",
+    "EMBEDDING_COUNT_MISMATCH": "Le backend d’embeddings a renvoyé un nombre incorrect de vecteurs.",
+    "EMBEDDING_DIMENSION_MISMATCH": "Le backend d’embeddings a renvoyé une dimension incorrecte.",
+    "EMBEDDING_NON_FINITE": "Le backend d’embeddings a renvoyé une valeur non finie.",
+    "EMBEDDING_BACKEND_UNAVAILABLE": "Le moteur d’embeddings sélectionné n’est pas disponible.",
+    "EMBEDDING_ARTIFACT_MISSING": "Le modèle d’embeddings local n’est pas installé. Installez-le dans Réglages → Modèles locaux.",
+    "EMBEDDING_INFERENCE_FAILED": "L’inférence d’embeddings locale a échoué."
   }
 }

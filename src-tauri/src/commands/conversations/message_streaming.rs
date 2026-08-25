@@ -21,6 +21,7 @@ fn spawn_stream_task(
     thinking_budget: Option<u32>,
     thinking_level: Option<String>,
     mcp_server_ids: Vec<String>,
+    memory_tool_scope: Option<aqbot_core::context_engine::MemoryToolScope>,
     override_created_at: Option<i64>,
     use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
@@ -368,9 +369,15 @@ fn spawn_stream_task(
 
                 // Execute the tool
                 let start = std::time::Instant::now();
-                let (result_content, is_error) =
-                    execute_tool_call(&db, &mcp_stdio_clients, tc, &mcp_server_ids, &cancel_flag)
-                        .await;
+                let (result_content, is_error) = execute_tool_call(
+                    &db,
+                    &mcp_stdio_clients,
+                    tc,
+                    &mcp_server_ids,
+                    &cancel_flag,
+                    memory_tool_scope.as_ref(),
+                )
+                .await;
                 let _duration_ms = start.elapsed().as_millis() as i64;
 
                 // Update execution record
@@ -876,6 +883,15 @@ pub async fn send_message(
         );
     }
 
+    let prepared_turn = prepare_chat_turn(
+        &state.sea_db,
+        enabled_knowledge_base_ids.clone(),
+        enabled_memory_namespace_ids.clone(),
+        resolved_model.as_ref(),
+    )
+    .await?;
+    push_l1_system_message(&mut chat_messages, &prepared_turn);
+
     // 5. Generate assistant message ID upfront so early RAG events can target
     // the same assistant row that the stream will later update.
     let assistant_message_id = aqbot_core::utils::gen_id();
@@ -890,9 +906,7 @@ pub async fn send_message(
 
     let user_query_content = strip_search_enrichment(&user_message.content);
 
-    // RAG retrieval: search enabled knowledge bases and memory namespaces
-    let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
-    let mem_ids = enabled_memory_namespace_ids.unwrap_or_default();
+    // RAG retrieval: automatic knowledge + auto-mode semantic memory only.
     let (rag_result, rag_cancelled) = collect_and_emit_rag_context(
         &app,
         &state.sea_db,
@@ -902,8 +916,8 @@ pub async fn send_message(
         &assistant_message_id,
         &stream_id,
         &user_query_content,
-        kb_ids,
-        mem_ids,
+        prepared_turn.knowledge_ids.clone(),
+        prepared_turn.auto_memory_ids.clone(),
         &cancel_flag,
     )
     .await;
@@ -965,6 +979,7 @@ pub async fn send_message(
         resolved_model.as_ref(),
     )
     .await;
+    let tools = merge_memory_tool(tools, &prepared_turn);
     let output_reserve = resolved_context_output_reserve(
         &conversation,
         model_param_overrides.as_ref(),
@@ -1081,6 +1096,7 @@ pub async fn send_message(
         thinking_budget,
         thinking_level,
         mcp_ids,
+        prepared_turn.memory_tool.as_ref().map(|binding| binding.scope.clone()),
         Some(user_message.created_at + 1),
         use_max_completion_tokens,
         force_max_tokens,
@@ -1267,6 +1283,15 @@ pub async fn regenerate_message(
         });
     }
 
+    let prepared_turn = prepare_chat_turn(
+        &state.sea_db,
+        enabled_knowledge_base_ids.clone(),
+        enabled_memory_namespace_ids.clone(),
+        resolved_regen_model.as_ref(),
+    )
+    .await?;
+    push_l1_system_message(&mut chat_messages, &prepared_turn);
+
     // 7. Spawn streaming with new version
     let assistant_message_id = aqbot_core::utils::gen_id();
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -1283,8 +1308,6 @@ pub async fn regenerate_message(
 
     // RAG retrieval for regeneration
     let memory_tag = {
-        let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
-        let mem_ids = enabled_memory_namespace_ids.unwrap_or_default();
         let (rag_result, rag_cancelled) = collect_and_emit_rag_context(
             &app,
             &state.sea_db,
@@ -1294,8 +1317,8 @@ pub async fn regenerate_message(
             &assistant_message_id,
             &stream_id,
             &target_user_content,
-            kb_ids,
-            mem_ids,
+            prepared_turn.knowledge_ids.clone(),
+            prepared_turn.auto_memory_ids.clone(),
             &cancel_flag,
         )
         .await;
@@ -1370,6 +1393,7 @@ pub async fn regenerate_message(
         resolved_regen_model.as_ref(),
     )
     .await;
+    let tools = merge_memory_tool(tools, &prepared_turn);
     let output_reserve = resolved_context_output_reserve(
         &conversation,
         regen_model_overrides.as_ref(),
@@ -1472,6 +1496,10 @@ pub async fn regenerate_message(
         thinking_budget,
         thinking_level,
         mcp_ids,
+        prepared_turn
+            .memory_tool
+            .as_ref()
+            .map(|binding| binding.scope.clone()),
         original_created_at,
         use_max_completion_tokens,
         force_max_tokens,
@@ -1610,6 +1638,15 @@ pub async fn regenerate_with_model(
         );
     }
 
+    let prepared_turn = prepare_chat_turn(
+        &state.sea_db,
+        enabled_knowledge_base_ids.clone(),
+        enabled_memory_namespace_ids.clone(),
+        resolved_target_model.as_ref(),
+    )
+    .await?;
+    push_l1_system_message(&mut chat_messages, &prepared_turn);
+
     let assistant_message_id = aqbot_core::utils::gen_id();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let stream_guard = RegisteredStreamGuard::register(
@@ -1625,8 +1662,6 @@ pub async fn regenerate_with_model(
 
     // RAG retrieval
     let memory_tag = {
-        let kb_ids = enabled_knowledge_base_ids.unwrap_or_default();
-        let mem_ids = enabled_memory_namespace_ids.unwrap_or_default();
         let (rag_result, rag_cancelled) = collect_and_emit_rag_context(
             &app,
             &state.sea_db,
@@ -1636,8 +1671,8 @@ pub async fn regenerate_with_model(
             &assistant_message_id,
             &stream_id,
             &target_user_content,
-            kb_ids,
-            mem_ids,
+            prepared_turn.knowledge_ids.clone(),
+            prepared_turn.auto_memory_ids.clone(),
             &cancel_flag,
         )
         .await;
@@ -1710,6 +1745,7 @@ pub async fn regenerate_with_model(
         resolved_target_model.as_ref(),
     )
     .await;
+    let tools = merge_memory_tool(tools, &prepared_turn);
     let output_reserve = resolved_context_output_reserve(
         &conversation,
         rwm_overrides.as_ref(),
@@ -1857,6 +1893,10 @@ pub async fn regenerate_with_model(
         thinking_budget,
         thinking_level,
         mcp_ids,
+        prepared_turn
+            .memory_tool
+            .as_ref()
+            .map(|binding| binding.scope.clone()),
         original_created_at,
         use_max_completion_tokens,
         force_max_tokens,

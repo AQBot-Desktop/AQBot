@@ -36,14 +36,15 @@ pub mod inline_media_failures;
 pub mod knowledge_bases;
 pub mod knowledge_documents;
 pub mod memory_items;
+pub mod memory_l1;
 pub mod memory_namespaces;
 pub mod retrieval_hits;
 
 pub mod stored_files;
 
-pub mod agent_sessions;
 pub mod acp_messages;
 pub mod acp_projects;
 pub mod acp_threads;
+pub mod agent_sessions;
 
 pub use sea_orm;

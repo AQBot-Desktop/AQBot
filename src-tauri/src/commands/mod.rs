@@ -11,6 +11,7 @@ pub mod conversations;
 pub mod crash_diagnostics;
 pub mod desktop;
 pub mod drawing;
+pub mod embedding_artifact;
 pub(crate) mod file_cleanup;
 pub mod files;
 pub mod files_page;

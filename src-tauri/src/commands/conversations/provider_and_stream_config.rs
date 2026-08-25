@@ -171,6 +171,56 @@ async fn load_mcp_tools_for_model(
     }
 }
 
+fn merge_memory_tool(
+    mcp_tools: Option<Vec<ChatTool>>,
+    prepared: &aqbot_core::context_engine::PreparedTurn,
+) -> Option<Vec<ChatTool>> {
+    match &prepared.memory_tool {
+        None => mcp_tools,
+        Some(binding) => {
+            let mut tools = mcp_tools.unwrap_or_default();
+            tools.push(binding.tool.clone());
+            Some(tools)
+        }
+    }
+}
+
+fn push_l1_system_message(
+    chat_messages: &mut Vec<ChatMessage>,
+    prepared: &aqbot_core::context_engine::PreparedTurn,
+) {
+    if let Some(text) = &prepared.l1_system_message {
+        chat_messages.push(ChatMessage {
+            role: "system".to_string(),
+            content: ChatContent::Text(text.clone()),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        });
+    }
+}
+
+async fn prepare_chat_turn(
+    db: &DatabaseConnection,
+    kb_ids: Option<Vec<String>>,
+    mem_ids: Option<Vec<String>>,
+    model: Option<&Model>,
+) -> Result<aqbot_core::context_engine::PreparedTurn, String> {
+    let kb = kb_ids.unwrap_or_default();
+    let mem = mem_ids.unwrap_or_default();
+    aqbot_core::context_engine::prepare_turn(
+        db,
+        aqbot_core::context_engine::PrepareTurnRequest {
+            enabled_knowledge_base_ids: &kb,
+            enabled_memory_namespace_ids: &mem,
+            inject_l1: true,
+            model_supports_tools: model_supports_function_calling(model),
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Resolve effective system prompt with priority: Conversation → Category → Global Default
 async fn resolve_system_prompt(
     db: &DatabaseConnection,

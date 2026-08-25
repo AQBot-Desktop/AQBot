@@ -55,6 +55,7 @@ mod context_manager;
 mod crash_diagnostics;
 mod diagnostic_log;
 mod diagnostics;
+mod embedding_runtime;
 mod indexing;
 pub mod knowledge_index_scheduler;
 #[cfg(any(target_os = "linux", test))]
@@ -413,6 +414,12 @@ pub fn run() {
         commands::knowledge::rebuild_knowledge_document,
         commands::knowledge::add_knowledge_chunk,
         // memory
+        commands::memory::get_memory_l1,
+        commands::memory::save_memory_l1,
+        commands::embedding_artifact::get_embedding_artifact_status,
+        commands::embedding_artifact::install_embedding_artifact,
+        commands::embedding_artifact::cancel_embedding_artifact_install,
+        commands::embedding_artifact::uninstall_embedding_artifact,
         commands::memory::list_memory_namespaces,
         commands::memory::create_memory_namespace,
         commands::memory::delete_memory_namespace,
