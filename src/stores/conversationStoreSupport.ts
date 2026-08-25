@@ -2,6 +2,7 @@ import { invoke, type UnlistenFn } from '@/lib/invoke';
 import { supportsReasoning, supportsFunctionCalling, findModelByIds } from '@/lib/modelCapabilities';
 import { coerceReasoningOptionKey, resolveReasoningProfile } from '@/lib/reasoningProfile';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
+import { plannedVersionIndexForTarget } from '@/lib/chatMultiModel';
 import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import type { StreamActivity } from '@/lib/streamStatus';
 import type {
@@ -25,6 +26,7 @@ import type {
   ConversationWorkspaceSnapshot,
   Message,
   MultiModelDisplayMode,
+  MultiModelTarget,
   UpdateConversationInput,
 } from '@/types';
 
@@ -536,6 +538,8 @@ type ConversationPreferenceState = Pick<
   | 'enabledMcpServerIds'
   | 'enabledKnowledgeBaseIds'
   | 'enabledMemoryNamespaceIds'
+  | 'multiModelTargets'
+  | 'multiModelContinuationMode'
 >;
 
 function conversationPreferenceStateFromConversation(
@@ -549,6 +553,10 @@ function conversationPreferenceStateFromConversation(
     enabledMcpServerIds: [...(conversation?.enabled_mcp_server_ids ?? [])],
     enabledKnowledgeBaseIds: [...(conversation?.enabled_knowledge_base_ids ?? [])],
     enabledMemoryNamespaceIds: [...(conversation?.enabled_memory_namespace_ids ?? [])],
+    multiModelTargets: [...(conversation?.multi_model_targets ?? [])],
+    multiModelContinuationMode: conversation?.multi_model_continuation_mode === 'per_model'
+      ? 'per_model'
+      : 'selected',
   };
 }
 
@@ -561,6 +569,8 @@ function emptyConversationPreferenceState(): ConversationPreferenceState {
     enabledMcpServerIds: [],
     enabledKnowledgeBaseIds: [],
     enabledMemoryNamespaceIds: [],
+    multiModelTargets: [],
+    multiModelContinuationMode: 'selected',
   };
 }
 
@@ -574,6 +584,8 @@ function conversationPreferenceUpdateFromState(
     | 'enabledMcpServerIds'
     | 'enabledKnowledgeBaseIds'
     | 'enabledMemoryNamespaceIds'
+    | 'multiModelTargets'
+    | 'multiModelContinuationMode'
   >,
 ): Pick<
   UpdateConversationInput,
@@ -584,6 +596,8 @@ function conversationPreferenceUpdateFromState(
   | 'enabled_mcp_server_ids'
   | 'enabled_knowledge_base_ids'
   | 'enabled_memory_namespace_ids'
+  | 'multi_model_targets'
+  | 'multi_model_continuation_mode'
 > {
   return {
     search_enabled: state.searchEnabled,
@@ -593,6 +607,8 @@ function conversationPreferenceUpdateFromState(
     enabled_mcp_server_ids: [...state.enabledMcpServerIds],
     enabled_knowledge_base_ids: [...state.enabledKnowledgeBaseIds],
     enabled_memory_namespace_ids: [...state.enabledMemoryNamespaceIds],
+    multi_model_targets: [...state.multiModelTargets],
+    multi_model_continuation_mode: state.multiModelContinuationMode,
   };
 }
 
@@ -1170,6 +1186,8 @@ async function persistConversationPreferences(
           enabledMcpServerIds: state.enabledMcpServerIds,
           enabledKnowledgeBaseIds: state.enabledKnowledgeBaseIds,
           enabledMemoryNamespaceIds: state.enabledMemoryNamespaceIds,
+          multiModelTargets: state.multiModelTargets,
+          multiModelContinuationMode: state.multiModelContinuationMode,
         }, optimisticState)
       ) {
         return { error: String(error) };
@@ -1293,6 +1311,12 @@ export interface ConversationState {
   enabledMemoryNamespaceIds: string[];
   setEnabledMemoryNamespaceIds: (ids: string[]) => void;
   toggleMemoryNamespace: (id: string) => void;
+  /** Ordered multi-model targets for the active conversation. */
+  multiModelTargets: MultiModelTarget[];
+  setMultiModelTargets: (targets: MultiModelTarget[]) => void;
+  /** Follow-up history strategy for multi-model replies. */
+  multiModelContinuationMode: MultiModelContinuationMode;
+  setMultiModelContinuationMode: (mode: MultiModelContinuationMode) => void;
   /** Insert a context-clear marker into the conversation */
   insertContextClear: () => Promise<void>;
   /** Remove a context-clear marker */
@@ -1358,6 +1382,11 @@ export interface ConversationState {
   startStreamListening: () => Promise<void>;
   stopStreamListening: () => void;
   cancelCurrentStream: () => void;
+  applyRemoteConversationSync: (payload: {
+    originWindow: string;
+    conversationId: string;
+    kind?: string;
+  }) => Promise<void>;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;
   listMessageVersionsBatch: (conversationId: string, parentMessageIds: string[]) => Promise<Record<string, Message[]>>;
@@ -1398,10 +1427,7 @@ export interface ConversationState {
   setPendingPromptText: (text: string | null) => void;
 }
 
-export interface MultiModelTarget {
-  providerId: string;
-  modelId: string;
-}
+export type { MultiModelTarget };
 
 export interface MessageVersionGroupResource {
   conversationId: string;
@@ -1445,7 +1471,7 @@ function appendStreamChunk(
 ) {
   // Accumulate into stream buffer only in single-stream mode
   // (parallel multi-model streams would corrupt the shared buffer)
-  if (!_isMultiModelActive) {
+  if (!_isMultiModelActive && get().streaming) {
     if (!_streamBuffer || _streamBuffer.conversationId !== conversationId) {
       _streamBuffer = { messageId, conversationId, content: _streamPrefix, resolvedId: null, thinking: null };
       _streamPrefix = ''; // consumed
@@ -1632,7 +1658,9 @@ function flushPendingStreamChunk(
     tool_call_id: null,
     created_at: pendingPlaceholder?.created_at ?? Date.now(),
     parent_message_id: parentMessageId,
-    version_index: pendingPlaceholder?.version_index ?? 0,
+    version_index: pendingPlaceholder?.version_index
+      ?? plannedVersionIndexForTarget(state.pendingCompanionModels, chunkProviderId, chunkModelId)
+      ?? 0,
     is_active: pendingPlaceholder?.is_active ?? !isMultiModel,
     status: 'partial',
   };

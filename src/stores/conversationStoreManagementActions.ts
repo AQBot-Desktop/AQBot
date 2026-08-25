@@ -1,4 +1,12 @@
 import { invoke } from '@/lib/invoke';
+import { notifyConversationChanged } from '@/lib/conversationSync';
+import {
+  clearLegacyMultiModelPreferenceKeys,
+  getCompanionModelsStorageKey,
+  getMultiModelContinuationStorageKey,
+  normalizeMultiModelContinuationMode,
+  readLegacyCompanionModels,
+} from '@/lib/multiModelContinuation';
 import {
   compareConversationOrder,
   getUncategorizedConversationGroup,
@@ -49,6 +57,62 @@ import {
   type PendingLocalVersionSelection,
 } from './conversationStoreSupport';
 
+async function migrateLegacyMultiModelPreferences(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  conversationId: string,
+) {
+  if (typeof window === 'undefined') return;
+  const hasLegacyTargets = window.localStorage.getItem(getCompanionModelsStorageKey(conversationId)) != null;
+  const hasLegacyMode = window.localStorage.getItem(getMultiModelContinuationStorageKey(conversationId)) != null;
+  if (!hasLegacyTargets && !hasLegacyMode) return;
+
+  const legacyTargets = hasLegacyTargets ? readLegacyCompanionModels(conversationId) : get().multiModelTargets;
+  if (hasLegacyTargets && legacyTargets == null) {
+    set({ error: `Failed to migrate multi-model selection for ${conversationId}` });
+    return;
+  }
+
+  const nextTargets = legacyTargets ?? [];
+  const nextMode = hasLegacyMode
+    ? normalizeMultiModelContinuationMode(
+      window.localStorage.getItem(getMultiModelContinuationStorageKey(conversationId)),
+    )
+    : get().multiModelContinuationMode;
+  const previous = {
+    multiModelTargets: get().multiModelTargets,
+    multiModelContinuationMode: get().multiModelContinuationMode,
+  };
+
+  set({
+    multiModelTargets: nextTargets,
+    multiModelContinuationMode: nextMode,
+  });
+  try {
+    const updated = await invoke<Conversation>('update_conversation', {
+      id: conversationId,
+      input: {
+        multi_model_targets: nextTargets,
+        multi_model_continuation_mode: nextMode,
+      },
+    });
+    if (get().activeConversationId !== conversationId) return;
+    set((state) => ({
+      ...mergeConversationCollections(state.conversations, state.archivedConversations, updated),
+      conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
+      ...conversationPreferenceStateFromConversation(updated),
+      error: null,
+    }));
+    clearLegacyMultiModelPreferenceKeys(conversationId);
+  } catch (error) {
+    if (get().activeConversationId !== conversationId) return;
+    set({
+      ...previous,
+      error: String(error),
+    });
+  }
+}
+
 type ConversationManagementActions = Pick<ConversationState,
   | 'setSearchEnabled'
   | 'setSearchProviderId'
@@ -60,6 +124,8 @@ type ConversationManagementActions = Pick<ConversationState,
   | 'toggleKnowledgeBase'
   | 'setEnabledMemoryNamespaceIds'
   | 'toggleMemoryNamespace'
+  | 'setMultiModelTargets'
+  | 'setMultiModelContinuationMode'
   | 'insertContextClear'
   | 'removeContextClear'
   | 'clearAllMessages'
@@ -347,6 +413,35 @@ export function createConversationManagementActions(
           { enabled_memory_namespace_ids: nextIds },
           { enabledMemoryNamespaceIds: nextIds },
           { enabledMemoryNamespaceIds: previous },
+        );
+      }
+    },
+    setMultiModelTargets: (targets) => {
+      const previous = get().multiModelTargets;
+      const nextTargets = [...targets];
+      const conversationId = get().activeConversationId;
+      set({ multiModelTargets: nextTargets });
+      if (conversationId) {
+        void persistConversationPreferences(
+          set,
+          conversationId,
+          { multi_model_targets: nextTargets },
+          { multiModelTargets: nextTargets },
+          { multiModelTargets: previous },
+        );
+      }
+    },
+    setMultiModelContinuationMode: (mode) => {
+      const previous = get().multiModelContinuationMode;
+      const conversationId = get().activeConversationId;
+      set({ multiModelContinuationMode: mode });
+      if (conversationId) {
+        void persistConversationPreferences(
+          set,
+          conversationId,
+          { multi_model_continuation_mode: mode },
+          { multiModelContinuationMode: mode },
+          { multiModelContinuationMode: previous },
         );
       }
     },
@@ -677,6 +772,7 @@ export function createConversationManagementActions(
         error: null,
         ...conversationPreferenceStateFromConversation(conversation),
       });
+      void migrateLegacyMultiModelPreferences(set, get, id);
       if (canUseFreshCache) {
         restoreActiveStreamBuffer(set, get, id);
         validateCachedMessageState(set, get, id, cached.state, requestSeq);
@@ -1341,6 +1437,7 @@ export function createConversationManagementActions(
             : message
         )),
       }));
+      notifyConversationChanged(conversationId);
       get().invalidateMessageVersionGroups(conversationId, [parentMessageId]);
       try {
         await get().ensureMessageVersionGroupsLoaded(
@@ -1375,6 +1472,7 @@ export function createConversationManagementActions(
         set((s) => ({
           messages: s.messages.map((m) => (m.id === messageId ? { ...m, content: updated.content } : m)),
         }));
+        notifyConversationChanged(updated.conversation_id ?? get().activeConversationId);
       } catch (e) {
         set({ error: String(e) });
         throw e;
@@ -1399,6 +1497,7 @@ export function createConversationManagementActions(
             m.id !== userMessageId && m.parent_message_id !== userMessageId
           ),
         }));
+        notifyConversationChanged(conversationId);
       } catch (e) {
         set({ error: String(e) });
       }

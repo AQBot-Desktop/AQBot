@@ -53,6 +53,8 @@ mod m20260815_000001_add_conversation_sort_order;
 mod m20260823_000001_add_conversation_multi_model_display_mode_override;
 mod m20260825_000001_add_memory_l1_and_activation;
 mod m20260825_000002_add_memory_l1_sort_order;
+mod m20260825_000003_fix_assistant_version_slots;
+mod m20260825_000004_add_conversation_multi_model_preferences;
 
 pub struct Migrator;
 
@@ -115,6 +117,8 @@ impl MigratorTrait for Migrator {
             ),
             Box::new(m20260825_000001_add_memory_l1_and_activation::Migration),
             Box::new(m20260825_000002_add_memory_l1_sort_order::Migration),
+            Box::new(m20260825_000003_fix_assistant_version_slots::Migration),
+            Box::new(m20260825_000004_add_conversation_multi_model_preferences::Migration),
         ]
     }
 }
@@ -865,6 +869,103 @@ mod tests {
             row.try_get::<Option<String>>("", "context_strategy_override")
                 .expect("read new strategy"),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn assistant_version_slot_migration_densifies_duplicates_and_rejects_new_collisions() {
+        let db = sqlite_test_db().await;
+        db.execute_unprepared(
+            "CREATE TABLE messages (
+                id TEXT PRIMARY KEY NOT NULL,
+                conversation_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                parent_message_id TEXT,
+                version_index INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+             );
+             INSERT INTO messages (id, conversation_id, role, parent_message_id, version_index, created_at) VALUES
+                ('a', 'conv', 'assistant', 'user-1', 0, 1),
+                ('b', 'conv', 'assistant', 'user-1', 1, 2),
+                ('c', 'conv', 'assistant', 'user-1', 1, 3);",
+        )
+        .await
+        .expect("create legacy duplicate slots");
+
+        let manager = SchemaManager::new(&db);
+        m20260825_000003_fix_assistant_version_slots::Migration
+            .up(&manager)
+            .await
+            .expect("run version slot migration");
+
+        let rows = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id, version_index FROM messages ORDER BY version_index, id".to_string(),
+            ))
+            .await
+            .expect("query densified slots");
+        let slots = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "id").expect("id"),
+                    row.try_get::<i64>("", "version_index").expect("slot"),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            slots,
+            vec![
+                ("a".to_string(), 0),
+                ("b".to_string(), 1),
+                ("c".to_string(), 2),
+            ]
+        );
+
+        let insert_duplicate = db
+            .execute_unprepared(
+                "INSERT INTO messages (id, conversation_id, role, parent_message_id, version_index, created_at)
+                 VALUES ('d', 'conv', 'assistant', 'user-1', 1, 4)",
+            )
+            .await;
+        assert!(insert_duplicate.is_err(), "duplicate slot should be rejected");
+    }
+
+    #[tokio::test]
+    async fn conversation_multi_model_preferences_migration_defaults_legacy_rows() {
+        let db = sqlite_test_db().await;
+        db.execute_unprepared(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY NOT NULL);
+             INSERT INTO conversations (id) VALUES ('existing');",
+        )
+        .await
+        .expect("create legacy conversations");
+
+        let manager = SchemaManager::new(&db);
+        m20260825_000004_add_conversation_multi_model_preferences::Migration
+            .up(&manager)
+            .await
+            .expect("run multi-model preference migration");
+
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT multi_model_targets_json, multi_model_continuation_mode FROM conversations WHERE id = 'existing'"
+                    .to_string(),
+            ))
+            .await
+            .expect("query migrated conversation")
+            .expect("existing conversation row");
+        assert_eq!(
+            row.try_get::<String>("", "multi_model_targets_json")
+                .expect("read targets"),
+            "[]"
+        );
+        assert_eq!(
+            row.try_get::<String>("", "multi_model_continuation_mode")
+                .expect("read continuation mode"),
+            "selected"
         );
     }
 }

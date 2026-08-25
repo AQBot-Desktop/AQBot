@@ -1,4 +1,6 @@
 import { invoke, isTauri, listen, type UnlistenFn } from '@/lib/invoke';
+import { listenConversationSync, notifyConversationChanged } from '@/lib/conversationSync';
+import { getCurrentWindowLabel } from '@/lib/windowKind';
 import {
   applyMultiModelStreamError,
   hasMultipleModelVersions,
@@ -13,7 +15,6 @@ import {
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
 import { appendStreamErrorToContent } from '@/lib/streamStatus';
 import {
-  getMultiModelContinuationMode,
   normalizeMultiModelContinuationMode,
 } from '@/lib/multiModelContinuation';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
@@ -81,6 +82,7 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'startStreamListening'
   | 'stopStreamListening'
   | 'cancelCurrentStream'
+  | 'applyRemoteConversationSync'
 >;
 
 function findMessageIncludingVersionResources(
@@ -341,7 +343,7 @@ export function createConversationMessageActions(
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
           historyMode: runtime.isMultiModelActive
             ? runtime.multiModelHistoryMode
-            : getMultiModelContinuationMode(conversationId),
+            : get().multiModelContinuationMode,
         });
 
         // Replace optimistic user msg with real one, update placeholder parent
@@ -362,6 +364,7 @@ export function createConversationMessageActions(
         }));
 
         // In browser mode, simulate brief loading then fetch the mock AI response
+        notifyConversationChanged(conversationId);
         if (!isTauri()) {
           await new Promise((r) => setTimeout(r, 600));
           set({ streaming: false, streamingMessageId: null, streamingConversationId: null, activeStreamId: null, thinkingActiveMessageIds: new Set<string>() });
@@ -891,8 +894,9 @@ export function createConversationMessageActions(
           enabledMemoryNamespaceIds: rMemIds.length > 0 ? rMemIds : undefined,
           historyMode: runtime.isMultiModelActive
             ? runtime.multiModelHistoryMode
-            : getMultiModelContinuationMode(conversationId),
+            : get().multiModelContinuationMode,
         });
+        notifyConversationChanged(conversationId);
 
         // In browser mode, simulate brief loading then fetch the mock AI response
         if (!isTauri()) {
@@ -1024,8 +1028,9 @@ export function createConversationMessageActions(
           isCompanion: appendAsCompanion ? true : undefined,
           historyMode: runtime.isMultiModelActive
             ? runtime.multiModelHistoryMode
-            : getMultiModelContinuationMode(conversationId),
+            : get().multiModelContinuationMode,
         });
+        notifyConversationChanged(conversationId);
 
         if (!isTauri()) {
           await new Promise((r) => setTimeout(r, 600));
@@ -1064,7 +1069,7 @@ export function createConversationMessageActions(
       if (!conversationId || targetModels.length === 0) return;
       if (get().loading) throw new Error('Conversation messages are still loading');
       const resolvedHistoryMode = normalizeMultiModelContinuationMode(
-        historyMode ?? getMultiModelContinuationMode(conversationId),
+        historyMode ?? get().multiModelContinuationMode,
       );
 
       // Save original conversation model to restore later
@@ -1151,7 +1156,7 @@ export function createConversationMessageActions(
         const kbIds = get().enabledKnowledgeBaseIds;
         const memIds = get().enabledMemoryNamespaceIds;
 
-        const invocations = remaining.map((model) => {
+        const invocations = remaining.map((model, offset) => {
           const streamId = createStreamId();
           runtime.multiModelStreamIds.add(streamId);
           const mcpIds = getEffectiveMcpServerIds(get, {
@@ -1171,6 +1176,7 @@ export function createConversationMessageActions(
             enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
             enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
             isCompanion: true,
+            targetVersionIndex: offset + 1,
             historyMode: resolvedHistoryMode,
           }).then(async () => {
             // Each invoke returns after message creation — immediately enrich the store
@@ -1212,12 +1218,24 @@ export function createConversationMessageActions(
                         id: resolvedFirstModelId,
                         model_id: dbVersion?.model_id ?? m.model_id,
                         provider_id: dbVersion?.provider_id ?? m.provider_id,
+                        version_index: dbVersion?.version_index ?? m.version_index,
+                        created_at: dbVersion?.created_at ?? m.created_at,
                       };
                     }
                     const dbVersion = dbVersionMap.get(m.id);
-                    if (dbVersion && (!m.model_id || !m.provider_id)) {
+                    if (dbVersion && (
+                      !m.model_id
+                      || !m.provider_id
+                      || m.version_index !== dbVersion.version_index
+                    )) {
                       enriched = true;
-                      return { ...m, model_id: dbVersion.model_id, provider_id: dbVersion.provider_id };
+                      return {
+                        ...m,
+                        model_id: dbVersion.model_id,
+                        provider_id: dbVersion.provider_id,
+                        version_index: dbVersion.version_index,
+                        created_at: dbVersion.created_at,
+                      };
                     }
                     return m;
                   });
@@ -1416,6 +1434,7 @@ export function createConversationMessageActions(
 
       invalidateConversationMessageCache(conversationId);
       removeLocalMessage(set, messageId);
+      notifyConversationChanged(conversationId);
       if (!parentMessageId) return;
 
       if (authoritativeVersions) {
@@ -1652,9 +1671,24 @@ export function createConversationMessageActions(
 
       const chunkUnsub = await listen<ChatStreamEvent>('chat-stream-chunk', (event) => {
         if (runtime.listenerGen !== gen) return; // stale listener
-        if (!get().streaming) return; // cancelled
         const { conversation_id, message_id, stream_id, chunk, model_id: evt_model_id, provider_id: evt_provider_id } = event.payload;
-        if (!isCurrentStreamEvent(get, stream_id)) return;
+        const isActiveConversation = get().activeConversationId === conversation_id;
+        if (!get().streaming && !isActiveConversation) return;
+        if (!isCurrentStreamEvent(get, stream_id) && !isActiveConversation) return;
+        const ownsStream = get().streaming && isCurrentStreamEvent(get, stream_id);
+        if (!ownsStream) {
+          if (get().streaming) return;
+          if (chunk.content) {
+            appendStreamChunk(set, get, message_id, chunk.content, conversation_id, evt_model_id, evt_provider_id);
+          }
+          if (chunk.done && chunk.is_final !== false) {
+            const preserveMessageIds = [...collectActiveStreamingMessageIds(get(), conversation_id)];
+            window.setTimeout(() => {
+              void get().fetchMessages(conversation_id, preserveMessageIds, { setLoading: false });
+            }, 80);
+          }
+          return;
+        }
 
         if (chunk.done) {
           if (chunk.is_final === false) {
@@ -1720,6 +1754,7 @@ export function createConversationMessageActions(
                 activeStreamId: null,
                 thinkingActiveMessageIds: new Set<string>(),
               });
+              notifyConversationChanged(conversation_id);
               if (runtime.multiModelDoneResolve) {
                 const resolve = runtime.multiModelDoneResolve;
                 runtime.multiModelDoneResolve = null;
@@ -1804,6 +1839,7 @@ export function createConversationMessageActions(
                 preserveMessageIds,
               );
             }, 120);
+            notifyConversationChanged(conversation_id);
           } else {
             // User is viewing a different conversation — keep buffer alive and
             // schedule a refresh so the completed message loads from DB when
@@ -1829,7 +1865,6 @@ export function createConversationMessageActions(
 
       const errorUnsub = await listen<ChatStreamErrorEvent>('chat-stream-error', (event) => {
         if (runtime.listenerGen !== gen) return; // stale listener
-        if (!get().streaming) return; // cancelled
         const {
           conversation_id,
           message_id,
@@ -1838,7 +1873,21 @@ export function createConversationMessageActions(
           model_id: evt_model_id,
           provider_id: evt_provider_id,
         } = event.payload;
-        if (!isCurrentStreamEvent(get, stream_id)) return;
+        const isActiveConversation = get().activeConversationId === conversation_id;
+        if (!get().streaming && !isActiveConversation) return;
+        if (!isCurrentStreamEvent(get, stream_id) && !isActiveConversation) return;
+        const ownsStream = get().streaming && isCurrentStreamEvent(get, stream_id);
+        if (!ownsStream) {
+          if (get().streaming) return;
+          set((s) => ({
+            messages: s.messages.map((message) =>
+              message.id === message_id
+                ? { ...message, content: appendStreamErrorToContent(message.content, errMsg), status: 'error' as const }
+                : message
+            ),
+          }));
+          return;
+        }
 
         flushPendingStreamChunk(set, get);
         materializeLiveStreamContent(set, [message_id, get().streamingMessageId]);
@@ -1969,6 +2018,11 @@ export function createConversationMessageActions(
         }
       });
 
+      const syncUnsub = await listenConversationSync((payload) => {
+        if (runtime.listenerGen !== gen) return;
+        void get().applyRemoteConversationSync(payload);
+      });
+
       const compressionUnsub = await listen<CompressionEvent>('conversation:compressed', (event) => {
         if (runtime.listenerGen !== gen) return;
         const { conversation_id, marker_message } = event.payload;
@@ -1993,6 +2047,7 @@ export function createConversationMessageActions(
         titleGenUnsub();
         ragUnsub();
         compressionUnsub();
+        syncUnsub();
         return;
       }
 
@@ -2003,6 +2058,7 @@ export function createConversationMessageActions(
         titleGenUnsub();
         ragUnsub();
         compressionUnsub();
+        syncUnsub();
       };
     },
     stopStreamListening: () => {
@@ -2011,6 +2067,21 @@ export function createConversationMessageActions(
         runtime.unlisten();
         runtime.unlisten = null;
       }
+    },
+    applyRemoteConversationSync: async (payload) => {
+      if (payload.originWindow === getCurrentWindowLabel()) return;
+      if (!payload.conversationId) return;
+      invalidateConversationMessageCache(payload.conversationId);
+      if (get().activeConversationId !== payload.conversationId) {
+        runtime.pendingConversationRefresh.add(payload.conversationId);
+        return;
+      }
+      if (get().streaming && get().streamingConversationId === payload.conversationId) {
+        runtime.pendingConversationRefresh.add(payload.conversationId);
+        return;
+      }
+      const preserveMessageIds = [...collectActiveStreamingMessageIds(get(), payload.conversationId)];
+      await get().fetchMessages(payload.conversationId, preserveMessageIds, { setLoading: false });
     },
     cancelCurrentStream: () => {
       const cancellingMultiModel = runtime.isMultiModelActive;
@@ -2079,6 +2150,7 @@ export function createConversationMessageActions(
           ? s.messages.map(m => m.id === streamMsgId ? { ...m, status: 'partial' as const } : m)
           : s.messages,
       }));
+      notifyConversationChanged(conversationId);
     },
   };
 }

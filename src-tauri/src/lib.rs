@@ -52,6 +52,7 @@ pub struct AppState {
 
 mod commands;
 mod context_manager;
+mod conversation_popout;
 mod crash_diagnostics;
 mod diagnostic_log;
 mod diagnostics;
@@ -485,6 +486,8 @@ pub fn run() {
         commands::desktop::toggle_maximize_window,
         commands::desktop::refresh_tray_menu,
         commands::desktop::take_pending_tray_action,
+        commands::desktop::open_conversation_popout,
+        commands::desktop::report_conversation_popout_ready,
         // crash diagnostics
         commands::crash_diagnostics::get_previous_crash_report,
         commands::crash_diagnostics::acknowledge_previous_crash_report,

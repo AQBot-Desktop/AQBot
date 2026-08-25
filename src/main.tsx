@@ -7,7 +7,7 @@ import {
   renderStartupError,
   writeStartupDiagnostic,
 } from '@/lib/startupDiagnostics';
-import { frontendKindForWindow } from '@/lib/windowKind';
+import { frontendKindForWindow, setCurrentWindowLabel } from '@/lib/windowKind';
 
 // Native context menu prevention is handled by GlobalCopyMenu component.
 // It prevents the native menu while providing a custom Copy menu when text is selected.
@@ -23,6 +23,7 @@ async function bootstrap() {
   const windowLabel = '__TAURI_INTERNALS__' in window
     ? (await import('@tauri-apps/api/webviewWindow')).getCurrentWebviewWindow().label
     : 'main';
+  setCurrentWindowLabel(windowLabel);
   if (frontendKindForWindow(windowLabel) === 'selection-toolbar') {
     const { SelectionToolbarRoot } = await import('./selection-toolbar/SelectionToolbarApp');
     ReactDOM.createRoot(rootElement).render(<SelectionToolbarRoot />);

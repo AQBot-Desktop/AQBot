@@ -57,6 +57,8 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     enabled_knowledge_base_ids: [],
     enabled_memory_namespace_ids: [],
     multi_model_display_mode_override: null,
+    multi_model_targets: [],
+    multi_model_continuation_mode: 'selected',
     is_pinned: false,
     is_archived: false,
     context_compression: false,

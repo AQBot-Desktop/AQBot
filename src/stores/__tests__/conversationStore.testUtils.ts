@@ -71,6 +71,8 @@ export function makeConversation(id: string, overrides: Record<string, unknown> 
     context_strategy_override: null,
     context_message_limit: null,
     compression_keep_last_n: null,
+    multi_model_targets: [],
+    multi_model_continuation_mode: 'selected' as const,
     message_count: 0,
     sort_order: 0,
     created_at: 1,

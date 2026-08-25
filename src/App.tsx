@@ -1,10 +1,17 @@
-import { useEffect, useRef, useCallback, useDeferredValue } from 'react';
+import { lazy, Suspense, useEffect, useRef, useCallback, useDeferredValue } from 'react';
 import { ConfigProvider, App as AntdApp, Layout, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { ContentArea } from '@/components/layout/ContentArea';
+import { ChatChromeContext } from '@/lib/chatChrome';
+import { notifyConversationPopoutReady } from '@/lib/conversationPopout';
+import {
+  conversationIdFromPopoutLabel,
+  frontendKindForWindow,
+  getCurrentWindowLabel,
+} from '@/lib/windowKind';
 import CommandPalette from '@/components/layout/CommandPalette';
 import { GlobalCopyMenu } from '@/components/layout/GlobalCopyMenu';
 import { CrashRecoveryModal } from '@/components/layout/CrashRecoveryModal';
@@ -29,6 +36,10 @@ import './i18n';
 const { Sider, Content } = Layout;
 const { useToken } = theme;
 const DEFAULT_CHAT_FONT_FAMILY = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const ConversationPopoutInner = lazy(async () => {
+  const module = await import('@/components/chat/ConversationPopoutInner');
+  return { default: module.ConversationPopoutInner };
+});
 
 /** Show the main window (it starts hidden to avoid white flash). */
 async function showWindow() {
@@ -51,6 +62,10 @@ function AppInner() {
   const renderedActivePage = useDeferredValue(activePage);
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
   const isInSettings = renderedActivePage === 'settings';
+  const windowLabel = getCurrentWindowLabel();
+  const frontendKind = frontendKindForWindow(windowLabel);
+  const popoutConversationId = conversationIdFromPopoutLabel(windowLabel);
+  const isConversationPopout = frontendKind === 'conversation-popout';
   useProviderDeepLink({ modal, message });
   useTrayMenuActions();
   useGlobalOverlayScrollbars(appRootRef);
@@ -128,10 +143,27 @@ function AppInner() {
       className="flex flex-col h-screen"
       style={{ backgroundColor: token.colorBgContainer }}
     >
-      <TitleBar />
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+      <TitleBar variant={isConversationPopout ? 'popout' : 'main'} />
+      {!isConversationPopout && (
+        <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+      )}
       <GlobalCopyMenu />
-      <CrashRecoveryModal />
+      {!isConversationPopout && <CrashRecoveryModal />}
+      {isConversationPopout ? (
+        <ChatChromeContext.Provider value={{ kind: 'popout' }}>
+          <div className="flex-1 overflow-hidden min-h-0">
+            {popoutConversationId ? (
+              <Suspense fallback={null}>
+                <ConversationPopoutInner conversationId={popoutConversationId} />
+              </Suspense>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                {t('chat.multiModel.popoutMissingConversation')}
+              </div>
+            )}
+          </div>
+        </ChatChromeContext.Provider>
+      ) : (
       <Layout className="flex-1 overflow-hidden" style={{ backgroundColor: 'transparent' }}>
         {!isInSettings && (
           <Sider
@@ -148,6 +180,7 @@ function AppInner() {
           <ContentArea activePage={renderedActivePage} />
         </Content>
       </Layout>
+      )}
     </div>
   );
 }
@@ -198,6 +231,20 @@ function AppRoot() {
     }
 
     const init = async () => {
+      const isPopout = frontendKindForWindow(getCurrentWindowLabel()) === 'conversation-popout';
+      const popoutConversationId = conversationIdFromPopoutLabel(getCurrentWindowLabel());
+
+      if (isTauri() && isPopout) {
+        await showWindow();
+        if (popoutConversationId) {
+          try {
+            await notifyConversationPopoutReady(popoutConversationId);
+          } catch (error) {
+            console.warn('Failed to report independent window ready:', error);
+          }
+        }
+      }
+
       try {
         await useSettingsStore.getState().fetchSettings();
       } catch (e) {
@@ -211,27 +258,29 @@ function AppRoot() {
       try {
         await invoke('apply_startup_settings', {
           alwaysOnTop: settings.always_on_top ?? false,
-          closeToTray: settings.minimize_to_tray ?? false,
-          releaseWebviewOnTray: settings.release_webview_on_tray ?? false,
+          closeToTray: isPopout ? false : (settings.minimize_to_tray ?? false),
+          releaseWebviewOnTray: isPopout ? false : (settings.release_webview_on_tray ?? false),
         });
       } catch (e) {
         console.warn('Failed to apply native settings:', e);
       }
 
-      // Autostart
-      try {
-        const { enable, disable } = await import('@tauri-apps/plugin-autostart');
-        if (settings.auto_start) {
-          await enable();
-        } else {
-          await disable();
+      if (!isPopout) {
+        // Autostart
+        try {
+          const { enable, disable } = await import('@tauri-apps/plugin-autostart');
+          if (settings.auto_start) {
+            await enable();
+          } else {
+            await disable();
+          }
+        } catch (e) {
+          console.warn('Failed to set autostart:', e);
         }
-      } catch (e) {
-        console.warn('Failed to set autostart:', e);
-      }
 
-      // Show window after initialization (window starts hidden to avoid white flash)
-      await showWindow();
+        // Show window after initialization (window starts hidden to avoid white flash)
+        await showWindow();
+      }
     };
     init();
   }, []);

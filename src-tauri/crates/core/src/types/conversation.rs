@@ -13,6 +13,67 @@ pub enum MultiModelContinuationMode {
     PerModel,
 }
 
+impl MultiModelContinuationMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::PerModel => "per_model",
+        }
+    }
+}
+
+impl std::str::FromStr for MultiModelContinuationMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "selected" => Ok(Self::Selected),
+            "per_model" => Ok(Self::PerModel),
+            _ => Err(format!("unsupported multi-model continuation mode: {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiModelTarget {
+    pub provider_id: String,
+    pub model_id: String,
+}
+
+pub fn validate_multi_model_targets(targets: &[MultiModelTarget]) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    for target in targets {
+        if target.provider_id.trim().is_empty() || target.model_id.trim().is_empty() {
+            return Err("multi_model_targets entries require providerId and modelId".to_string());
+        }
+        let key = format!("{}:{}", target.provider_id, target.model_id);
+        if !seen.insert(key) {
+            return Err(
+                "multi_model_targets must not contain duplicate provider/model pairs".to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn resolve_regenerate_version_index(
+    existing_max: Option<i32>,
+    companion: bool,
+    target_version_index: Option<i32>,
+) -> Result<i32, String> {
+    if let Some(target_version_index) = target_version_index {
+        if !companion {
+            return Err("target_version_index is only allowed for companion regenerations".to_string());
+        }
+        if target_version_index <= 0 {
+            return Err("target_version_index must be greater than 0".to_string());
+        }
+        return Ok(target_version_index);
+    }
+    Ok(existing_max.unwrap_or(-1) + 1)
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum MultiModelDisplayMode {
@@ -113,6 +174,10 @@ pub struct Conversation {
     /// `None` follows the global `AppSettings::multi_model_display_mode`.
     #[serde(default)]
     pub multi_model_display_mode_override: Option<MultiModelDisplayMode>,
+    #[serde(default)]
+    pub multi_model_targets: Vec<MultiModelTarget>,
+    #[serde(default)]
+    pub multi_model_continuation_mode: MultiModelContinuationMode,
     pub category_id: Option<String>,
     pub parent_conversation_id: Option<String>,
     pub sort_order: i32,
@@ -279,6 +344,10 @@ pub struct UpdateConversationInput {
     /// Set to `Some(None)` to clear the override and follow the global layout.
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub multi_model_display_mode_override: Option<Option<MultiModelDisplayMode>>,
+    #[serde(default)]
+    pub multi_model_targets: Option<Vec<MultiModelTarget>>,
+    #[serde(default)]
+    pub multi_model_continuation_mode: Option<MultiModelContinuationMode>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub category_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
@@ -453,5 +522,72 @@ mod tests {
             MultiModelContinuationMode::default(),
             MultiModelContinuationMode::Selected
         );
+        assert_eq!(MultiModelContinuationMode::PerModel.as_str(), "per_model");
+        assert_eq!(
+            "selected".parse::<MultiModelContinuationMode>().unwrap(),
+            MultiModelContinuationMode::Selected
+        );
+    }
+
+    #[test]
+    fn multi_model_targets_use_frontend_camel_case_wire_values() {
+        let target: super::MultiModelTarget = serde_json::from_value(serde_json::json!({
+            "providerId": "provider-a",
+            "modelId": "model-a"
+        }))
+        .unwrap();
+        assert_eq!(target.provider_id, "provider-a");
+        assert_eq!(target.model_id, "model-a");
+        assert_eq!(
+            serde_json::to_value(&target).unwrap(),
+            serde_json::json!({
+                "providerId": "provider-a",
+                "modelId": "model-a"
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_regenerate_version_index_uses_explicit_companion_slots_and_max_plus_one() {
+        assert_eq!(
+            super::resolve_regenerate_version_index(Some(2), true, Some(1)).unwrap(),
+            1
+        );
+        assert_eq!(
+            super::resolve_regenerate_version_index(Some(2), false, None).unwrap(),
+            3
+        );
+        assert_eq!(
+            super::resolve_regenerate_version_index(None, false, None).unwrap(),
+            0
+        );
+        assert!(super::resolve_regenerate_version_index(Some(2), false, Some(1)).is_err());
+        assert!(super::resolve_regenerate_version_index(Some(2), true, Some(0)).is_err());
+        assert!(super::resolve_regenerate_version_index(Some(2), true, Some(-1)).is_err());
+    }
+
+    #[test]
+    fn validate_multi_model_targets_rejects_empty_or_duplicate_ids() {
+        assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
+            provider_id: "provider-a".into(),
+            model_id: "model-a".into(),
+        }])
+        .is_ok());
+        assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
+            provider_id: "".into(),
+            model_id: "model-a".into(),
+        }])
+        .is_err());
+        assert!(super::validate_multi_model_targets(&[
+            super::MultiModelTarget {
+                provider_id: "provider-a".into(),
+                model_id: "model-a".into(),
+            },
+            super::MultiModelTarget {
+                provider_id: "provider-a".into(),
+                model_id: "model-a".into(),
+            },
+        ])
+        .is_err());
     }
 }

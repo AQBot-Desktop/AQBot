@@ -8,6 +8,12 @@ import type { Message } from '@/types';
 import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
 import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
+const openConversationPopout = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock('@/lib/conversationPopout', () => ({
+  openConversationPopout,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -117,6 +123,8 @@ function renderDisplayWithStreamingLabel(versions: Message[], streamingMessageId
 
 describe('MultiModelDisplay', () => {
   beforeEach(() => {
+    openConversationPopout.mockReset();
+    openConversationPopout.mockResolvedValue(undefined);
     localStorage.clear();
     useConversationStore.setState({
       messages: [],
@@ -124,6 +132,7 @@ describe('MultiModelDisplay', () => {
       streaming: false,
       streamingConversationId: null,
       streamingMessageId: null,
+      multiModelContinuationMode: 'selected',
     });
     clearLiveStreamContent('assistant-a');
     clearLiveStreamContent('assistant-b');
@@ -133,23 +142,78 @@ describe('MultiModelDisplay', () => {
     const onModeChange = vi.fn();
 
     render(
-      <LayoutSwitcher
-        currentMode="side-by-side"
-        onModeChange={onModeChange}
-      />,
+      <App>
+        <LayoutSwitcher
+          currentMode="side-by-side"
+          onModeChange={onModeChange}
+        />
+      </App>,
     );
 
     const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
     expect(screen.queryByText('chat.multiModel.answerAndFutureDisplayMode')).not.toBeInTheDocument();
     expect(screen.getByRole('group')).toHaveAccessibleName('chat.multiModel.answerAndFutureDisplayMode');
     expect(buttons[1]).toHaveAccessibleName('chat.multiModel.setAnswerAndFutureDisplayMode');
     expect(buttons[0]).toHaveAttribute('aria-pressed', 'false');
     expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
     expect(buttons[1].querySelector('.lucide-check')).toBeNull();
+    expect(screen.getByTestId('layout-independent-window')).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(buttons[2]);
     expect(onModeChange).toHaveBeenCalledWith('stacked');
+  });
+
+  it('opens an independent window without changing the in-place layout', async () => {
+    const onModeChange = vi.fn();
+    openConversationPopout.mockClear();
+
+    render(
+      <App>
+        <LayoutSwitcher
+          currentMode="tabs"
+          onModeChange={onModeChange}
+        />
+      </App>,
+    );
+
+    fireEvent.click(screen.getByTestId('layout-independent-window'));
+    expect(onModeChange).not.toHaveBeenCalled();
+    expect(openConversationPopout).toHaveBeenCalledWith('conv-1');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('layout-independent-window')).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('shows loading on the independent window icon until the window is created', async () => {
+    let resolveOpen: () => void = () => {};
+    openConversationPopout.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveOpen = resolve;
+    }));
+
+    render(
+      <App>
+        <LayoutSwitcher
+          currentMode="tabs"
+          onModeChange={vi.fn()}
+        />
+      </App>,
+    );
+
+    const button = screen.getByTestId('layout-independent-window');
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button).toHaveAttribute('aria-label', 'chat.multiModel.independentWindowOpening');
+    expect(button).toBeDisabled();
+
+    await act(async () => {
+      resolveOpen();
+    });
+
+    expect(button).toHaveAttribute('aria-busy', 'false');
+    expect(button).not.toBeDisabled();
   });
 
   it('does not fall back to the error boundary when deleting down to one model', () => {
@@ -414,7 +478,7 @@ describe('MultiModelDisplay', () => {
   });
 
   it('describes card selection as fallback context in per-model mode', async () => {
-    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+    useConversationStore.setState({ multiModelContinuationMode: 'per_model' });
     const modelA = makeMessage({ id: 'assistant-a', model_id: 'model-a', content: 'alpha' });
     const modelB = makeMessage({
       id: 'assistant-b',

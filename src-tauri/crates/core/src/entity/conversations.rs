@@ -41,6 +41,10 @@ pub struct Model {
     pub compression_keep_last_n: Option<i32>,
     /// Nullable kebab-case multi-model display mode; `None` follows the global setting.
     pub multi_model_display_mode_override: Option<String>,
+    /// JSON array of `{ providerId, modelId }` companion targets, preserving user order.
+    pub multi_model_targets_json: String,
+    /// `selected` or `per_model`.
+    pub multi_model_continuation_mode: String,
     pub category_id: Option<String>,
     pub parent_conversation_id: Option<String>,
     pub sort_order: i32,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { invoke, isTauri, listen } from '@/lib/invoke';
+import { frontendKindForWindow, getCurrentWindowLabel } from '@/lib/windowKind';
 import { useConversationStore, useSettingsStore, useUIStore } from '@/stores';
 import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 
@@ -18,6 +19,7 @@ export function useTrayMenuActions() {
   const checkUpdateInFlight = useRef(false);
 
   const openConversation = useCallback(async (conversationId: string) => {
+    if (frontendKindForWindow(getCurrentWindowLabel()) !== 'main') return;
     if (!conversationId || openConversationInFlight.current) return;
     openConversationInFlight.current = true;
     try {

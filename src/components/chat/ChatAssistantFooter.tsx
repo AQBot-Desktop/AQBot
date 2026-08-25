@@ -1,6 +1,7 @@
 import { usePageSuspendCleanup, usePageTransientOpenState } from '@/components/layout/PageLifecycle';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
+  compareVersionSlotAsc,
   getMessageVersionGroupKey,
   getModelVersionGroupKey,
   hasMultipleModelVersions,
@@ -148,10 +149,11 @@ function ModelTags({
 
   const modelGroups = useMemo(() => {
     const groups = new Map<string, Message[]>();
-    for (const v of allVersions) {
-      const key = getMessageVersionGroupKey(v);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(v);
+    for (const version of [...allVersions].sort(compareVersionSlotAsc)) {
+      const key = getMessageVersionGroupKey(version);
+      const existing = groups.get(key);
+      if (existing) existing.push(version);
+      else groups.set(key, [version]);
     }
     return groups;
   }, [allVersions]);
@@ -183,6 +185,16 @@ function ModelTags({
   if (modelGroups.size <= 1 && pendingModels.length === 0) return null;
 
   const currentModelKey = getMessageVersionGroupKey(msg);
+  const orderedModelKeys: string[] = [];
+  if (isMultiModelTarget) {
+    for (const companion of pendingCompanionModels) {
+      const key = getModelVersionGroupKey(companion.providerId, companion.modelId);
+      if (!orderedModelKeys.includes(key)) orderedModelKeys.push(key);
+    }
+  }
+  for (const key of modelGroups.keys()) {
+    if (!orderedModelKeys.includes(key)) orderedModelKeys.push(key);
+  }
 
   const handleTagClick = (modelKey: string) => {
     if (modelKey === currentModelKey || !msg.parent_message_id) return;
@@ -194,12 +206,43 @@ function ModelTags({
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      {Array.from(modelGroups.keys()).map((modelKey) => {
+      {orderedModelKeys.map((modelKey) => {
         const firstVersion = modelGroups.get(modelKey)?.[0];
-        const modelId = firstVersion?.model_id ?? '';
+        if (!firstVersion) {
+          const pending = pendingModels.find((companion) =>
+            getModelVersionGroupKey(companion.providerId, companion.modelId) === modelKey
+          );
+          if (!pending) return null;
+          const { modelName } = getModelDisplayInfo(pending.modelId, pending.providerId);
+          return (
+            <Tooltip
+              key={`pending-${modelKey}`}
+              title={`${modelName} (${t('chat.streamingStatus.waitingProvider')})`}
+              mouseEnterDelay={0.3}
+            >
+              <div
+                className="model-tag-pending"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  border: `1.5px dashed ${token.colorTextQuaternary}`,
+                  opacity: 0.5,
+                  flexShrink: 0,
+                }}
+              >
+                <ModelIcon model={pending.modelId} size={20} type="avatar" />
+              </div>
+            </Tooltip>
+          );
+        }
+        const modelId = firstVersion.model_id ?? '';
         const isActive = modelKey === currentModelKey;
         const isStreaming = streamingModelKeys.has(modelKey);
-        const { modelName } = getModelDisplayInfo(modelId, firstVersion?.provider_id);
+        const { modelName } = getModelDisplayInfo(modelId, firstVersion.provider_id);
         return (
           <Tooltip key={modelKey} title={modelName} mouseEnterDelay={0.3}>
             <div
@@ -219,34 +262,6 @@ function ModelTags({
               }}
             >
               <ModelIcon model={modelId} size={20} type="avatar" />
-            </div>
-          </Tooltip>
-        );
-      })}
-      {/* Pending companion models waiting to stream */}
-      {pendingModels.map((cm) => {
-        const { modelName } = getModelDisplayInfo(cm.modelId, cm.providerId);
-        return (
-          <Tooltip
-            key={`pending-${getModelVersionGroupKey(cm.providerId, cm.modelId)}`}
-            title={`${modelName} (${t('chat.streamingStatus.waitingProvider')})`}
-            mouseEnterDelay={0.3}
-          >
-            <div
-              className="model-tag-pending"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 26,
-                height: 26,
-                borderRadius: '50%',
-                border: `1.5px dashed ${token.colorTextQuaternary}`,
-                opacity: 0.5,
-                flexShrink: 0,
-              }}
-            >
-              <ModelIcon model={cm.modelId} size={20} type="avatar" />
             </div>
           </Tooltip>
         );

@@ -11,6 +11,40 @@ export function getMultiModelContinuationStorageKey(conversationId: string): str
   return `${STORAGE_PREFIX}${conversationId}`;
 }
 
+export function getCompanionModelsStorageKey(conversationId: string): string {
+  return `aqbot:companion-models:${conversationId}`;
+}
+
+export function readLegacyCompanionModels(conversationId: string): Array<{ providerId: string; modelId: string }> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(getCompanionModelsStorageKey(conversationId));
+    if (raw == null) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const targets: Array<{ providerId: string; modelId: string }> = [];
+    const seen = new Set<string>();
+    for (const item of parsed) {
+      const providerId = typeof item?.providerId === 'string' ? item.providerId.trim() : '';
+      const modelId = typeof item?.modelId === 'string' ? item.modelId.trim() : '';
+      if (!providerId || !modelId) return null;
+      const key = `${providerId}:${modelId}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      targets.push({ providerId, modelId });
+    }
+    return targets;
+  } catch {
+    return null;
+  }
+}
+
+export function clearLegacyMultiModelPreferenceKeys(conversationId: string): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(getCompanionModelsStorageKey(conversationId));
+  window.localStorage.removeItem(getMultiModelContinuationStorageKey(conversationId));
+}
+
 export function normalizeMultiModelContinuationMode(
   value: unknown,
 ): MultiModelContinuationMode {

@@ -52,6 +52,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   thinkingLevel: null,
   enabledKnowledgeBaseIds: [],
   enabledMemoryNamespaceIds: [],
+  multiModelTargets: [],
+  multiModelContinuationMode: 'selected',
   archivedConversations: [],
   workspaceSnapshot: null,
   ...createConversationManagementActions(set, get),

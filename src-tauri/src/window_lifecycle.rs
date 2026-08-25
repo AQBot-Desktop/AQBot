@@ -119,7 +119,7 @@ pub fn release_webview_window_to_tray(window: &WebviewWindow) -> Result<(), Stri
 
 pub fn minimize_main_window(window: tauri::Window) -> Result<(), String> {
     let app = window.app_handle();
-    if should_release_webview(&app) {
+    if window.label() == MAIN_WINDOW_LABEL && should_release_webview(&app) {
         release_main_window_to_tray(&window)
     } else {
         window.minimize().map_err(|err| err.to_string())

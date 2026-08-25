@@ -24,6 +24,7 @@ describe('conversationStore pagination', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
+    localStorage.clear();
     tauriAvailable = false;
     listenMock.mockResolvedValue(() => {});
     const { useConversationStore } = await import('../conversationStore');
@@ -2344,6 +2345,8 @@ describe('conversationStore pagination', () => {
           enabled_mcp_server_ids: ['mcp-old'],
           enabled_knowledge_base_ids: ['kb-old'],
           enabled_memory_namespace_ids: ['mem-old'],
+          multi_model_targets: [{ providerId: 'provider-a', modelId: 'model-a' }],
+          multi_model_continuation_mode: 'per_model',
         }));
       }
 
@@ -2365,6 +2368,8 @@ describe('conversationStore pagination', () => {
       enabledMcpServerIds: ['mcp-old'],
       enabledKnowledgeBaseIds: ['kb-old'],
       enabledMemoryNamespaceIds: ['mem-old'],
+      multiModelTargets: [{ providerId: 'provider-a', modelId: 'model-a' }],
+      multiModelContinuationMode: 'per_model',
     });
 
     await useConversationStore.getState().createConversation(
@@ -2383,6 +2388,8 @@ describe('conversationStore pagination', () => {
         enabled_mcp_server_ids: ['mcp-old'],
         enabled_knowledge_base_ids: ['kb-old'],
         enabled_memory_namespace_ids: ['mem-old'],
+        multi_model_targets: [{ providerId: 'provider-a', modelId: 'model-a' }],
+        multi_model_continuation_mode: 'per_model',
       },
     });
     expect(useConversationStore.getState().searchEnabled).toBe(true);
@@ -2392,6 +2399,10 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().enabledMcpServerIds).toEqual(['mcp-old']);
     expect(useConversationStore.getState().enabledKnowledgeBaseIds).toEqual(['kb-old']);
     expect(useConversationStore.getState().enabledMemoryNamespaceIds).toEqual(['mem-old']);
+    expect(useConversationStore.getState().multiModelTargets).toEqual([
+      { providerId: 'provider-a', modelId: 'model-a' },
+    ]);
+    expect(useConversationStore.getState().multiModelContinuationMode).toBe('per_model');
   });
 
   it('starts newly created conversations with empty capability preferences when inheritance is disabled', async () => {
@@ -2429,6 +2440,8 @@ describe('conversationStore pagination', () => {
       enabledMcpServerIds: ['mcp-old'],
       enabledKnowledgeBaseIds: ['kb-old'],
       enabledMemoryNamespaceIds: ['mem-old'],
+      multiModelTargets: [{ providerId: 'provider-a', modelId: 'model-a' }],
+      multiModelContinuationMode: 'per_model',
     });
 
     await useConversationStore.getState().createConversation(
@@ -2447,6 +2460,8 @@ describe('conversationStore pagination', () => {
         enabled_mcp_server_ids: [],
         enabled_knowledge_base_ids: [],
         enabled_memory_namespace_ids: [],
+        multi_model_targets: [],
+        multi_model_continuation_mode: 'selected',
       },
     });
     expect(useConversationStore.getState().searchEnabled).toBe(false);
@@ -2456,6 +2471,51 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().enabledMcpServerIds).toEqual([]);
     expect(useConversationStore.getState().enabledKnowledgeBaseIds).toEqual([]);
     expect(useConversationStore.getState().enabledMemoryNamespaceIds).toEqual([]);
+    expect(useConversationStore.getState().multiModelTargets).toEqual([]);
+    expect(useConversationStore.getState().multiModelContinuationMode).toBe('selected');
+  });
+
+  it('migrates legacy multi-model localStorage preferences into the conversation database', async () => {
+    localStorage.setItem('aqbot:companion-models:conv-1', JSON.stringify([
+      { providerId: 'provider-a', modelId: 'model-a' },
+      { providerId: 'provider-b', modelId: 'model-b' },
+    ]));
+    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+    invokeMock.mockImplementation((cmd: string, args: Record<string, unknown>) => {
+      if (cmd === 'update_conversation') {
+        return Promise.resolve(makeConversation('conv-1', args.input as Record<string, unknown>));
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [makeConversation('conv-1')] as never[],
+      archivedConversations: [],
+      activeConversationId: null,
+      multiModelTargets: [],
+      multiModelContinuationMode: 'selected',
+    });
+
+    useConversationStore.getState().setActiveConversation('conv-1');
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('update_conversation', {
+      id: 'conv-1',
+      input: {
+        multi_model_targets: [
+          { providerId: 'provider-a', modelId: 'model-a' },
+          { providerId: 'provider-b', modelId: 'model-b' },
+        ],
+        multi_model_continuation_mode: 'per_model',
+      },
+    });
+    expect(useConversationStore.getState().multiModelTargets).toEqual([
+      { providerId: 'provider-a', modelId: 'model-a' },
+      { providerId: 'provider-b', modelId: 'model-b' },
+    ]);
+    expect(useConversationStore.getState().multiModelContinuationMode).toBe('per_model');
+    expect(localStorage.getItem('aqbot:companion-models:conv-1')).toBeNull();
+    expect(localStorage.getItem('aqbot:multi-model-continuation-mode:conv-1')).toBeNull();
   });
 
   it('tracks context compression loading by conversation id', async () => {

@@ -88,6 +88,8 @@ describe('conversationStore category templates', () => {
             enabled_mcp_server_ids: [],
             enabled_knowledge_base_ids: [],
             enabled_memory_namespace_ids: [],
+            multi_model_targets: [],
+            multi_model_continuation_mode: 'selected',
           },
         });
 

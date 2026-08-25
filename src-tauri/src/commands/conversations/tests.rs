@@ -76,6 +76,8 @@ mod tests {
             context_message_limit: None,
             compression_keep_last_n: None,
             multi_model_display_mode_override: None,
+            multi_model_targets: Vec::new(),
+            multi_model_continuation_mode: MultiModelContinuationMode::Selected,
             category_id: None,
             parent_conversation_id: None,
             sort_order: 0,

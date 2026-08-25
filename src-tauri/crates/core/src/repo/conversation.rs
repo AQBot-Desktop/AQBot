@@ -9,7 +9,8 @@ use crate::entity::{
 use crate::error::{AQBotError, Result};
 use crate::types::{
     Attachment, ContextStrategy, Conversation, ConversationSearchResult, ConversationSummary,
-    Message, MultiModelDisplayMode, UpdateConversationInput,
+    Message, MultiModelContinuationMode, MultiModelDisplayMode, MultiModelTarget,
+    UpdateConversationInput,
 };
 use crate::utils::{gen_id, now_ts};
 
@@ -53,6 +54,11 @@ fn conversation_from_entity(m: conversations::Model) -> Result<Conversation> {
         .map(str::parse::<MultiModelDisplayMode>)
         .transpose()
         .map_err(AQBotError::Validation)?;
+    let multi_model_targets = parse_multi_model_targets(&m.multi_model_targets_json)?;
+    let multi_model_continuation_mode = m
+        .multi_model_continuation_mode
+        .parse::<MultiModelContinuationMode>()
+        .map_err(AQBotError::Validation)?;
 
     Ok(Conversation {
         id: m.id,
@@ -79,6 +85,8 @@ fn conversation_from_entity(m: conversations::Model) -> Result<Conversation> {
         context_message_limit,
         compression_keep_last_n,
         multi_model_display_mode_override,
+        multi_model_targets,
+        multi_model_continuation_mode,
         category_id: m.category_id,
         parent_conversation_id: m.parent_conversation_id,
         sort_order: m.sort_order,
@@ -95,6 +103,22 @@ fn parse_string_list(raw: &str) -> Vec<String> {
 
 fn stringify_string_list(values: &[String]) -> String {
     serde_json::to_string(values).expect("failed to serialize conversation preference JSON")
+}
+
+fn parse_multi_model_targets(raw: &str) -> Result<Vec<MultiModelTarget>> {
+    let targets: Vec<MultiModelTarget> = serde_json::from_str(raw).map_err(|error| {
+        AQBotError::Validation(format!(
+            "Invalid multi_model_targets_json in the conversations table: {error}"
+        ))
+    })?;
+    crate::types::validate_multi_model_targets(&targets).map_err(AQBotError::Validation)?;
+    Ok(targets)
+}
+
+fn stringify_multi_model_targets(targets: &[MultiModelTarget]) -> Result<String> {
+    crate::types::validate_multi_model_targets(targets).map_err(AQBotError::Validation)?;
+    serde_json::to_string(targets)
+        .map_err(|error| AQBotError::Validation(format!("failed to serialize multi_model_targets: {error}")))
 }
 
 fn transaction_failure(primary: AQBotError, rollback: Option<DbErr>) -> AQBotError {
@@ -533,6 +557,13 @@ pub async fn update_conversation(
         am.multi_model_display_mode_override =
             Set(multi_model_display_mode_override.map(|mode| mode.as_str().to_string()));
     }
+    if let Some(multi_model_targets) = input.multi_model_targets {
+        am.multi_model_targets_json = Set(stringify_multi_model_targets(&multi_model_targets)?);
+    }
+    if let Some(multi_model_continuation_mode) = input.multi_model_continuation_mode {
+        am.multi_model_continuation_mode =
+            Set(multi_model_continuation_mode.as_str().to_string());
+    }
     if let Some(category_id) = input.category_id {
         am.category_id = Set(category_id);
     }
@@ -900,6 +931,8 @@ pub async fn branch_conversation(
         context_message_limit: Set(source.context_message_limit),
         compression_keep_last_n: Set(source.compression_keep_last_n),
         multi_model_display_mode_override: Set(source.multi_model_display_mode_override.clone()),
+        multi_model_targets_json: Set(source.multi_model_targets_json.clone()),
+        multi_model_continuation_mode: Set(source.multi_model_continuation_mode.clone()),
         category_id: Set(source.category_id.clone()),
         parent_conversation_id: Set(parent_id),
         sort_order: Set(sort_order),
@@ -1350,7 +1383,9 @@ mod tests {
     use super::*;
     use crate::db::create_test_pool;
     use crate::repo::message;
-    use crate::types::{ContextStrategy, MessageRole, UpdateConversationInput};
+    use crate::types::{
+        ContextStrategy, MessageRole, MultiModelContinuationMode, UpdateConversationInput,
+    };
 
     fn update_input(value: serde_json::Value) -> UpdateConversationInput {
         serde_json::from_value(value).expect("deserialize conversation update")
@@ -1971,6 +2006,117 @@ mod tests {
             Some(ContextStrategy::RawStrict)
         );
         assert!(!branch.context_compression);
+    }
+
+    #[tokio::test]
+    async fn multi_model_targets_and_continuation_mode_are_conversation_preferences() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conversation = create_conversation(db, "Targets", "model", "provider", None)
+            .await
+            .unwrap();
+        assert!(conversation.multi_model_targets.is_empty());
+        assert_eq!(
+            conversation.multi_model_continuation_mode,
+            MultiModelContinuationMode::Selected
+        );
+
+        let updated = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({
+                "multi_model_targets": [
+                    { "providerId": "provider-a", "modelId": "model-a" },
+                    { "providerId": "provider-b", "modelId": "model-b" }
+                ],
+                "multi_model_continuation_mode": "per_model"
+            })),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            updated.multi_model_targets,
+            vec![
+                crate::types::MultiModelTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: "model-a".into(),
+                },
+                crate::types::MultiModelTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: "model-b".into(),
+                },
+            ]
+        );
+        assert_eq!(
+            updated.multi_model_continuation_mode,
+            MultiModelContinuationMode::PerModel
+        );
+
+        let preserved = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({"title": "Renamed"})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(preserved.multi_model_targets.len(), 2);
+        assert_eq!(
+            preserved.multi_model_continuation_mode,
+            MultiModelContinuationMode::PerModel
+        );
+
+        assert!(update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({
+                "multi_model_targets": [
+                    { "providerId": "provider-a", "modelId": "model-a" },
+                    { "providerId": "provider-a", "modelId": "model-a" }
+                ]
+            })),
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn branch_copies_multi_model_targets_and_continuation_mode() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let source = create_conversation(db, "Source", "model", "provider", None)
+            .await
+            .unwrap();
+        update_conversation(
+            db,
+            &source.id,
+            update_input(serde_json::json!({
+                "multi_model_targets": [
+                    { "providerId": "provider-a", "modelId": "model-a" }
+                ],
+                "multi_model_continuation_mode": "per_model"
+            })),
+        )
+        .await
+        .unwrap();
+        let source_message = message::create_message(
+            db,
+            &source.id,
+            MessageRole::User,
+            "branch here",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+        let branch = branch_conversation(db, &source.id, &source_message.id, false, None)
+            .await
+            .unwrap();
+        assert_eq!(branch.multi_model_targets.len(), 1);
+        assert_eq!(
+            branch.multi_model_continuation_mode,
+            MultiModelContinuationMode::PerModel
+        );
     }
 
     #[tokio::test]

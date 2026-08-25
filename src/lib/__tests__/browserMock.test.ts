@@ -228,6 +228,11 @@ describe('browserMock conversation ordering', () => {
       legacy.multi_model_display_mode_override,
       created.multi_model_display_mode_override,
     ]).toEqual([null, null]);
+    expect([legacy.multi_model_targets, created.multi_model_targets]).toEqual([[], []]);
+    expect([
+      legacy.multi_model_continuation_mode,
+      created.multi_model_continuation_mode,
+    ]).toEqual(['selected', 'selected']);
   });
 
   it('sets, preserves, and clears a conversation layout override', async () => {

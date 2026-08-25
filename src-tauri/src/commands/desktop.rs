@@ -112,6 +112,20 @@ pub async fn get_window_state() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+pub async fn open_conversation_popout(
+    app: tauri::AppHandle,
+    conversation_id: String,
+) -> Result<(), String> {
+    crate::conversation_popout::open_or_focus_and_wait(&app, &conversation_id).await
+}
+
+#[tauri::command]
+pub async fn report_conversation_popout_ready(conversation_id: String) -> Result<(), String> {
+    crate::conversation_popout::report_ready(&conversation_id);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_devtools(webview_window: tauri::WebviewWindow) -> Result<(), String> {
     tracing::info!(
         window = webview_window.label(),

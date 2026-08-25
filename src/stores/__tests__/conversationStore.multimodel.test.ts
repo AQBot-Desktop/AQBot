@@ -462,7 +462,6 @@ describe('conversationStore multi-model messages', () => {
 
   it('forwards the conversation follow-up mode for an ordinary message', async () => {
     tauriAvailable = true;
-    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
     const conversation = {
       ...makeConversation('conv-1'),
       multi_model_display_mode_override: null,
@@ -485,6 +484,7 @@ describe('conversationStore multi-model messages', () => {
       conversations: [conversation],
       activeConversationId: conversation.id,
       messages: [],
+      multiModelContinuationMode: 'per_model',
     });
 
     await useConversationStore.getState().sendMessage(user.content);
@@ -567,6 +567,8 @@ describe('conversationStore multi-model messages', () => {
       targetProviderId: 'provider-b',
       targetModelId: 'shared-model',
       historyMode: 'per_model',
+      isCompanion: true,
+      targetVersionIndex: 1,
     }));
     const streamingState = useConversationStore.getState();
     expect(streamingState.multiModelParentId).toBe(user.id);
@@ -892,7 +894,6 @@ describe('conversationStore multi-model messages', () => {
   });
 
   it('adds a new model response as an inactive card when the parent already has multi-model versions', async () => {
-    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
     invokeMock.mockResolvedValue(undefined);
     const { useConversationStore } = await import('../conversationStore');
     const user = {
@@ -929,6 +930,7 @@ describe('conversationStore multi-model messages', () => {
       enabledKnowledgeBaseIds: [],
       enabledMemoryNamespaceIds: [],
       thinkingBudget: null,
+      multiModelContinuationMode: 'per_model',
     });
 
     await useConversationStore.getState().regenerateWithModel(active.id, 'provider-c', 'model-c');
@@ -1077,7 +1079,6 @@ describe('conversationStore multi-model messages', () => {
 
   it('keeps the same-model regenerate placeholder active while the new answer streams', async () => {
     vi.useFakeTimers();
-    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
     const regenerate = deferred<void>();
     const { useConversationStore } = await import('../conversationStore');
     const user = {
@@ -1113,6 +1114,7 @@ describe('conversationStore multi-model messages', () => {
       enabledKnowledgeBaseIds: [],
       enabledMemoryNamespaceIds: [],
       thinkingBudget: null,
+      multiModelContinuationMode: 'per_model',
     });
 
     const pending = useConversationStore.getState().regenerateMessage(active.id);

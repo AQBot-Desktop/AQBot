@@ -30,6 +30,12 @@ function withConversationSortOrder(conversation: any): any {
   return {
     ...conversation,
     multi_model_display_mode_override: conversation.multi_model_display_mode_override ?? null,
+    multi_model_targets: Array.isArray(conversation.multi_model_targets)
+      ? conversation.multi_model_targets
+      : [],
+    multi_model_continuation_mode: conversation.multi_model_continuation_mode === 'per_model'
+      ? 'per_model'
+      : 'selected',
     sort_order: Number.isInteger(conversation.sort_order) ? conversation.sort_order : 0,
   };
 }
@@ -1070,6 +1076,8 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         context_message_limit: null,
         compression_keep_last_n: null,
         multi_model_display_mode_override: null,
+        multi_model_targets: [],
+        multi_model_continuation_mode: 'selected',
         category_id: null,
         parent_conversation_id: null,
         mode: 'chat',
@@ -2356,6 +2364,11 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         { key: 'notification', supported: 'Notification' in globalThis },
         { key: 'devtools_context_menu', supported: false },
       ] as T;
+    case 'open_conversation_popout':
+      console.log('[Mock] open_conversation_popout:', (args as any)?.conversationId);
+      return undefined as T;
+    case 'report_conversation_popout_ready':
+      return undefined as T;
     case 'open_devtools':
       return undefined as T;
     case 'get_window_state':

@@ -17,16 +17,43 @@ export function getMessageVersionGroupKey(version: Message): string {
   return `__message__:${version.id}`;
 }
 
+export function compareVersionSlotAsc(left: Message, right: Message): number {
+  return left.version_index - right.version_index
+    || left.created_at - right.created_at
+    || left.id.localeCompare(right.id);
+}
+
+export function plannedVersionIndexForTarget(
+  targets: ReadonlyArray<{ providerId: string; modelId: string }>,
+  providerId: string | null | undefined,
+  modelId: string | null | undefined,
+): number | null {
+  if (!providerId || !modelId) return null;
+  const index = targets.findIndex((target) =>
+    target.providerId === providerId && target.modelId === modelId
+  );
+  return index >= 0 ? index : null;
+}
+
 export function getLatestVersionsByModel(versions: Message[]): Message[] {
-  const modelMap = new Map<string, Message>();
+  const modelMap = new Map<string, { latest: Message; slot: Message }>();
   for (const version of versions) {
     const key = getMessageVersionGroupKey(version);
     const existing = modelMap.get(key);
-    if (!existing || version.version_index > existing.version_index) {
-      modelMap.set(key, version);
+    if (!existing) {
+      modelMap.set(key, { latest: version, slot: version });
+      continue;
+    }
+    if (compareVersionDesc(version, existing.latest) < 0) {
+      existing.latest = version;
+    }
+    if (compareVersionSlotAsc(version, existing.slot) < 0) {
+      existing.slot = version;
     }
   }
-  return Array.from(modelMap.values());
+  return Array.from(modelMap.values())
+    .sort((left, right) => compareVersionSlotAsc(left.slot, right.slot))
+    .map((group) => group.latest);
 }
 
 export function selectDisplayVersionsByModel(
@@ -34,7 +61,12 @@ export function selectDisplayVersionsByModel(
   activeMessageId?: string | null,
   displayMessageIdsByModelKey?: ReadonlyMap<string, string> | Record<string, string | undefined> | null,
 ): Message[] {
-  const modelMap = new Map<string, { latest: Message; active: Message | null; selected: Message | null }>();
+  const modelMap = new Map<string, {
+    latest: Message;
+    active: Message | null;
+    selected: Message | null;
+    slot: Message;
+  }>();
   for (const version of versions) {
     const key = getMessageVersionGroupKey(version);
     const existing = modelMap.get(key);
@@ -48,12 +80,16 @@ export function selectDisplayVersionsByModel(
         latest: version,
         active: isActiveVersion ? version : null,
         selected: selectedMessageId === version.id ? version : null,
+        slot: version,
       });
       continue;
     }
 
     if (compareVersionDesc(version, existing.latest) < 0) {
       existing.latest = version;
+    }
+    if (compareVersionSlotAsc(version, existing.slot) < 0) {
+      existing.slot = version;
     }
     if (isActiveVersion) {
       existing.active = version;
@@ -63,7 +99,9 @@ export function selectDisplayVersionsByModel(
     }
   }
 
-  return Array.from(modelMap.values()).map((group) => group.selected ?? group.active ?? group.latest);
+  return Array.from(modelMap.values())
+    .sort((left, right) => compareVersionSlotAsc(left.slot, right.slot))
+    .map((group) => group.selected ?? group.active ?? group.latest);
 }
 
 export interface PendingDisplayVersionSelection {
@@ -191,9 +229,7 @@ export function insertModelVersionPlaceholder(
 }
 
 function compareMessageAsc(left: Message, right: Message): number {
-  return left.created_at - right.created_at
-    || left.version_index - right.version_index
-    || left.id.localeCompare(right.id);
+  return compareVersionSlotAsc(left, right);
 }
 
 export function mergeAssistantVersionGroup(

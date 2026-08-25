@@ -349,6 +349,12 @@ export interface ModelParamOverrides {
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 export type ContextStrategy = 'smart_summary' | 'raw_truncate' | 'raw_strict';
 export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
+export type MultiModelContinuationMode = 'selected' | 'per_model';
+
+export interface MultiModelTarget {
+  providerId: string;
+  modelId: string;
+}
 
 export interface ConversationCategory {
   id: string;
@@ -387,6 +393,10 @@ export interface Conversation {
   enabled_memory_namespace_ids: string[];
   /** Per-conversation multi-model layout. null = use the global default. */
   multi_model_display_mode_override: MultiModelDisplayMode | null;
+  /** Ordered companion models for one-question-many-answers. Empty means single-model. */
+  multi_model_targets: MultiModelTarget[];
+  /** Follow-up history strategy for multi-model replies. */
+  multi_model_continuation_mode: MultiModelContinuationMode;
   is_pinned: boolean;
   is_archived: boolean;
   /** Legacy compatibility flag. Prefer context_strategy_override. */
@@ -555,6 +565,8 @@ export interface UpdateConversationInput {
   enabled_memory_namespace_ids?: string[];
   /** Set null to clear the override and use the global default layout. */
   multi_model_display_mode_override?: MultiModelDisplayMode | null;
+  multi_model_targets?: MultiModelTarget[];
+  multi_model_continuation_mode?: MultiModelContinuationMode;
   /** Legacy compatibility flag. Prefer context_strategy_override. */
   context_compression?: boolean;
   /** Set null to clear the override and use the global default strategy. */

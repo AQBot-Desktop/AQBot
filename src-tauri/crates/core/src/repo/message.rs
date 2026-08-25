@@ -995,6 +995,8 @@ pub async fn list_message_versions(
         .filter(messages::Column::Role.eq("assistant"))
         .filter(messages::Column::VersionIndex.gte(0))
         .order_by_asc(messages::Column::VersionIndex)
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
         .all(db)
         .await?;
 
@@ -1041,6 +1043,8 @@ pub async fn list_message_versions_batch(
         .filter(messages::Column::VersionIndex.gte(0))
         .order_by_asc(messages::Column::ParentMessageId)
         .order_by_asc(messages::Column::VersionIndex)
+        .order_by_asc(messages::Column::CreatedAt)
+        .order_by_asc(messages::Column::Id)
         .all(db)
         .await?;
 
@@ -1073,6 +1077,37 @@ pub async fn list_message_versions_batch(
     }
 
     Ok(result)
+}
+
+pub async fn max_assistant_version_index(
+    db: &DatabaseConnection,
+    conversation_id: &str,
+    parent_message_id: &str,
+) -> Result<Option<i32>> {
+    let row = messages::Entity::find()
+        .filter(messages::Column::ConversationId.eq(conversation_id))
+        .filter(messages::Column::ParentMessageId.eq(parent_message_id))
+        .filter(messages::Column::Role.eq("assistant"))
+        .filter(messages::Column::VersionIndex.gte(0))
+        .order_by_desc(messages::Column::VersionIndex)
+        .one(db)
+        .await?;
+    Ok(row.map(|message| message.version_index))
+}
+
+pub async fn mark_message_error(
+    db: &DatabaseConnection,
+    message_id: &str,
+    error: &str,
+) -> Result<()> {
+    let Some(row) = messages::Entity::find_by_id(message_id).one(db).await? else {
+        return Ok(());
+    };
+    let mut active: messages::ActiveModel = row.into();
+    active.status = Set("error".to_string());
+    active.content = Set(error.to_string());
+    active.update(db).await?;
+    Ok(())
 }
 
 pub async fn set_active_version(
@@ -1850,6 +1885,135 @@ mod tests {
         assert_eq!(versions[&user_a.id][0].id, assistant_a.id);
         assert_eq!(versions[&user_b.id].len(), 1);
         assert_eq!(versions[&user_b.id][0].id, assistant_b.id);
+    }
+
+    #[tokio::test]
+    async fn list_message_versions_orders_by_slot_then_created_at_then_id() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Slot Order", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user = create_message(db, &conv.id, MessageRole::User, "Q", &[], None, 0)
+            .await
+            .unwrap();
+        let late_slot_two = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "C",
+            &[],
+            Some(&user.id),
+            2,
+        )
+        .await
+        .unwrap();
+        let slot_one = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "B",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await
+        .unwrap();
+        let slot_zero = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "A",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        set_created_at(db, &late_slot_two.id, 1).await;
+        set_created_at(db, &slot_one.id, 3).await;
+        set_created_at(db, &slot_zero.id, 2).await;
+
+        let versions = list_message_versions(db, &conv.id, &user.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            versions.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            vec![slot_zero.id.as_str(), slot_one.id.as_str(), late_slot_two.id.as_str()]
+        );
+        assert_eq!(max_assistant_version_index(db, &conv.id, &user.id).await.unwrap(), Some(2));
+    }
+
+    #[tokio::test]
+    async fn max_assistant_version_index_includes_gaps_and_tool_scaffolds() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Max Slot", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user = create_message(db, &conv.id, MessageRole::User, "Q", &[], None, 0)
+            .await
+            .unwrap();
+        create_message(db, &conv.id, MessageRole::Assistant, "A", &[], Some(&user.id), 0)
+            .await
+            .unwrap();
+        let scaffold = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "tool scaffold",
+            &[],
+            Some(&user.id),
+            2,
+        )
+        .await
+        .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::Tool,
+            "tool output",
+            &[],
+            Some(&scaffold.id),
+            0,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(max_assistant_version_index(db, &conv.id, &user.id).await.unwrap(), Some(2));
+        assert_eq!(
+            list_message_versions(db, &conv.id, &user.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_assistant_version_slots_are_rejected() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv = conversation::create_conversation(db, "Unique Slot", "model-1", "prov-1", None)
+            .await
+            .unwrap();
+        let user = create_message(db, &conv.id, MessageRole::User, "Q", &[], None, 0)
+            .await
+            .unwrap();
+        create_message(db, &conv.id, MessageRole::Assistant, "A", &[], Some(&user.id), 1)
+            .await
+            .unwrap();
+        let duplicate = create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "B",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await;
+        assert!(duplicate.is_err());
     }
 
     #[tokio::test]

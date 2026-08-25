@@ -1,14 +1,17 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { Alert, Button, Dropdown, Popconfirm, Tag, Tooltip, Typography, theme } from 'antd';
-import { ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
+import { Alert, App, Button, Dropdown, Popconfirm, Spin, Tag, Tooltip, Typography, theme } from 'antd';
+import { AppWindow, ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import type { Message, MultiModelDisplayMode } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { stripAqbotTags } from '@/lib/chatMarkdown';
+import { useChatChrome } from '@/lib/chatChrome';
 import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/chatMultiModel';
-import { useMultiModelContinuationMode, type MultiModelContinuationMode } from '@/lib/multiModelContinuation';
+import { openConversationPopout } from '@/lib/conversationPopout';
+import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
@@ -174,7 +177,7 @@ function MultiModelDisplayInner({
   const storeMessages = useConversationStore((state) => state.messages);
   const storeStreaming = useConversationStore((state) => state.streaming);
   const streamingConversationId = useConversationStore((state) => state.streamingConversationId);
-  const [multiModelHistoryMode] = useMultiModelContinuationMode(conversationId);
+  const multiModelHistoryMode = useConversationStore((state) => state.multiModelContinuationMode);
   const liveVersions = useMemo(() => {
     if (!parentMessageId) return [];
     return storeMessages.filter((message) =>
@@ -279,8 +282,8 @@ function MultiModelDisplayInner({
   const cardStyle: React.CSSProperties =
     mode === 'side-by-side'
       ? {
-          minWidth: 300,
-          flex: '0 0 auto',
+          minWidth: 280,
+          flex: '1 1 0',
           width: `calc((100% - ${(displayVersions.length - 1) * 12}px) / ${displayVersions.length})`,
           border: `1px solid ${token.colorBorderSecondary}`,
           borderRadius: token.borderRadiusLG,
@@ -679,6 +682,11 @@ export function LayoutSwitcher({
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
+  const conversationId = useConversationStore((state) => state.activeConversationId);
+  const chatChrome = useChatChrome();
+  const independentWindowActive = chatChrome.kind === 'popout';
+  const [independentWindowOpening, setIndependentWindowOpening] = useState(false);
 
   const modes: { key: MultiModelDisplayMode; icon: React.ReactNode; label: string }[] = [
     { key: 'tabs', icon: <LayoutList size={14} />, label: t('settings.multiModelDisplayModeTabs') },
@@ -698,6 +706,23 @@ export function LayoutSwitcher({
       ));
       matchingButton?.focus();
     });
+  };
+  const handleIndependentWindow = () => {
+    if (independentWindowActive || independentWindowOpening) return;
+    if (!conversationId) {
+      messageApi.error(t('chat.multiModel.popoutMissingConversation'));
+      return;
+    }
+    flushSync(() => {
+      setIndependentWindowOpening(true);
+    });
+    void openConversationPopout(conversationId)
+      .catch(() => {
+        messageApi.error(t('chat.multiModel.independentWindowOpenFailed'));
+      })
+      .finally(() => {
+        setIndependentWindowOpening(false);
+      });
   };
 
   return (
@@ -738,6 +763,55 @@ export function LayoutSwitcher({
         </Tooltip>
         );
       })}
+      <Tooltip
+        title={independentWindowOpening
+          ? t('chat.multiModel.independentWindowOpening')
+          : independentWindowActive
+            ? t('chat.multiModel.independentWindowActive')
+            : t('chat.multiModel.openIndependentWindow')}
+        mouseEnterDelay={0.3}
+      >
+        <button
+          type="button"
+          className="aqbot-layout-mode-button"
+          data-testid="layout-independent-window"
+          data-aqbot-layout-parent={parentMessageId}
+          data-aqbot-layout-mode="independent-window"
+          aria-label={independentWindowOpening
+            ? t('chat.multiModel.independentWindowOpening')
+            : t('chat.multiModel.openIndependentWindow')}
+          aria-pressed={independentWindowActive}
+          aria-busy={independentWindowOpening}
+          disabled={independentWindowOpening || independentWindowActive}
+          onClick={handleIndependentWindow}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 32,
+            height: 32,
+            padding: 0,
+            border: 0,
+            borderRadius: token.borderRadiusSM,
+            cursor: independentWindowOpening
+              ? 'wait'
+              : independentWindowActive
+                ? 'default'
+                : 'pointer',
+            backgroundColor: independentWindowActive || independentWindowOpening
+              ? token.colorPrimaryBg
+              : 'transparent',
+            color: independentWindowActive || independentWindowOpening
+              ? token.colorPrimary
+              : token.colorTextQuaternary,
+            transition: 'all 0.2s',
+          }}
+        >
+          {independentWindowOpening
+            ? <Spin size="small" aria-hidden="true" />
+            : <AppWindow size={14} aria-hidden="true" />}
+        </button>
+      </Tooltip>
     </div>
   );
 }

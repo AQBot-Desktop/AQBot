@@ -23,7 +23,7 @@ import {
 } from '@/lib/contextStrategy';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import { getModelVersionGroupKey } from '@/lib/chatMultiModel';
-import { useMultiModelContinuationMode } from '@/lib/multiModelContinuation';
+import { normalizeMultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
@@ -98,10 +98,12 @@ export function InputArea() {
   const hasUserResizedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Multi-model companion state
-  const [companionModels, setCompanionModels] = useState<Array<{ providerId: string; modelId: string }>>([]);
   const [multiModelOpen, setMultiModelOpen] = useState(false);
   const sendMultiModelMessage = useConversationStore((s) => s.sendMultiModelMessage);
+  const companionModels = useConversationStore((s) => s.multiModelTargets);
+  const setMultiModelTargets = useConversationStore((s) => s.setMultiModelTargets);
+  const multiModelHistoryMode = useConversationStore((s) => s.multiModelContinuationMode);
+  const setMultiModelContinuationMode = useConversationStore((s) => s.setMultiModelContinuationMode);
 
   const { message: messageApi, modal } = App.useApp();
   const streaming = useConversationStore((s) => s.streaming);
@@ -109,7 +111,9 @@ export function InputArea() {
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
-  const [multiModelHistoryMode, setMultiModelHistoryMode] = useMultiModelContinuationMode(activeConversationId);
+  const setMultiModelHistoryMode = useCallback((mode: typeof multiModelHistoryMode) => {
+    setMultiModelContinuationMode(normalizeMultiModelContinuationMode(mode));
+  }, [setMultiModelContinuationMode]);
   const compressing = activeConversationId !== null
     && compressingConversationId === activeConversationId;
   const sendMessage = useConversationStore((s) => s.sendMessage);
@@ -304,18 +308,6 @@ export function InputArea() {
     }
   }, [currentMode, activeConversationId]);
 
-  // Persist companion models per conversation in localStorage
-  const companionStorageKey = activeConversationId ? `aqbot:companion-models:${activeConversationId}` : null;
-
-  // Load companion models when conversation changes
-  useEffect(() => {
-    if (!companionStorageKey) { setCompanionModels([]); return; }
-    try {
-      const saved = localStorage.getItem(companionStorageKey);
-      setCompanionModels(saved ? JSON.parse(saved) : []);
-    } catch { setCompanionModels([]); }
-  }, [companionStorageKey]);
-
   // Pick up pending prompt text from welcome cards and send through the proper pipeline
   const pendingPromptText = useConversationStore((s) => s.pendingPromptText);
   useEffect(() => {
@@ -324,11 +316,13 @@ export function InputArea() {
     const text = pendingPromptText;
     (async () => {
       try {
-        if (companionModels.length > 0) {
+        const latestTargets = useConversationStore.getState().multiModelTargets;
+        const latestHistoryMode = useConversationStore.getState().multiModelContinuationMode;
+        if (latestTargets.length > 0) {
           await sendMultiModelMessage({
             content: text,
-            targetModels: companionModels,
-            historyMode: multiModelHistoryMode,
+            targetModels: latestTargets,
+            historyMode: latestHistoryMode,
             searchProviderId: searchEnabled ? searchProviderId : null,
           });
         } else {
@@ -1078,44 +1072,29 @@ export function InputArea() {
   const companionDisplayInfos = useMemo(() => {
     return companionModels.map((cm) => {
       const provider = providers.find((p) => p.id === cm.providerId);
-      const model = provider?.models.find((m) => m.model_id === cm.modelId);
+      const model = provider?.models.find((m) => m.model_id === cm.modelId && m.enabled);
+      const unavailable = !provider?.enabled || !model;
       return {
         ...cm,
         modelName: model?.name ?? cm.modelId,
         providerName: provider?.name ?? '',
+        unavailable,
       };
     });
   }, [companionModels, providers]);
+  const hasUnavailableCompanionModels = companionDisplayInfos.some((item) => item.unavailable);
 
   const handleMultiModelSelect = useCallback((models: Array<{ providerId: string; modelId: string }>) => {
-    setCompanionModels(models);
-    if (companionStorageKey) {
-      if (models.length > 0) {
-        localStorage.setItem(companionStorageKey, JSON.stringify(models));
-      } else {
-        localStorage.removeItem(companionStorageKey);
-      }
-    }
-  }, [companionStorageKey]);
+    setMultiModelTargets(models);
+  }, [setMultiModelTargets]);
 
   const removeCompanionModel = useCallback((index: number) => {
-    setCompanionModels((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      if (companionStorageKey) {
-        if (next.length > 0) {
-          localStorage.setItem(companionStorageKey, JSON.stringify(next));
-        } else {
-          localStorage.removeItem(companionStorageKey);
-        }
-      }
-      return next;
-    });
-  }, [companionStorageKey]);
+    setMultiModelTargets(companionModels.filter((_, i) => i !== index));
+  }, [companionModels, setMultiModelTargets]);
 
   const clearAllCompanionModels = useCallback(() => {
-    setCompanionModels([]);
-    if (companionStorageKey) localStorage.removeItem(companionStorageKey);
-  }, [companionStorageKey]);
+    setMultiModelTargets([]);
+  }, [setMultiModelTargets]);
 
   const voiceConfig: RealtimeConfig = React.useMemo(
     () => ({
@@ -1134,8 +1113,7 @@ export function InputArea() {
     if (mode === 'agent') {
       // Clear multi-model companion models — not applicable in agent mode
       if (companionModels.length > 0) {
-        setCompanionModels([]);
-        if (companionStorageKey) localStorage.removeItem(companionStorageKey);
+        setMultiModelTargets([]);
       }
       try {
         const session = await invoke<{ cwd: string | null }>('agent_update_session', {
@@ -1157,7 +1135,7 @@ export function InputArea() {
         console.warn('Failed to init agent session:', e);
       }
     }
-  }, [activeConversation, updateConversation, companionModels, companionStorageKey]);
+  }, [activeConversation, updateConversation, companionModels, setMultiModelTargets]);
 
   const handleSend = useCallback(async () => {
     if (loading) return;
@@ -1216,13 +1194,24 @@ export function InputArea() {
           textareaRef.current.style.height = 'auto';
         }
       });
+      const latestTargets = useConversationStore.getState().multiModelTargets;
+      const latestHistoryMode = useConversationStore.getState().multiModelContinuationMode;
       if (currentMode === 'agent') {
         await sendAgentMessage(finalContent, attachments);
-      } else if (companionModels.length > 0) {
+      } else if (latestTargets.length > 0) {
+        const hasUnavailableTarget = latestTargets.some((target) => {
+          const provider = providers.find((item) => item.id === target.providerId);
+          const model = provider?.models.find((item) => item.model_id === target.modelId && item.enabled);
+          return !provider?.enabled || !model;
+        });
+        if (hasUnavailableTarget) {
+          messageApi.warning(t('chat.multiModel.unavailableModel'));
+          return;
+        }
         await sendMultiModelMessage({
           content: finalContent,
-          targetModels: companionModels,
-          historyMode: multiModelHistoryMode,
+          targetModels: latestTargets,
+          historyMode: latestHistoryMode,
           attachments,
           searchProviderId: searchEnabled ? searchProviderId : null,
         });
@@ -1532,8 +1521,9 @@ export function InputArea() {
               <span
                 key={getModelVersionGroupKey(cm.providerId, cm.modelId)}
                 className="inline-flex items-center gap-1.5 pl-1.5 pr-1 py-0.5 text-xs"
+                title={cm.unavailable ? t('chat.multiModel.unavailableModel') : undefined}
                 style={{
-                  backgroundColor: token.colorFillSecondary,
+                  backgroundColor: cm.unavailable ? token.colorWarningBg : token.colorFillSecondary,
                   borderRadius: token.borderRadiusSM,
                   color: token.colorText,
                 }}
@@ -1555,6 +1545,11 @@ export function InputArea() {
                 />
               </span>
             ))}
+            {hasUnavailableCompanionModels && (
+              <span style={{ color: token.colorWarning, fontSize: 12 }}>
+                {t('chat.multiModel.unavailableModel')}
+              </span>
+            )}
             {companionModels.length >= 2 && (
               <MultiModelFollowUpModeControl
                 value={multiModelHistoryMode}

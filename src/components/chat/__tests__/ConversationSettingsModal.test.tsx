@@ -24,6 +24,8 @@ const conversation = {
   context_message_limit: null,
   compression_keep_last_n: null,
   multi_model_display_mode_override: null as 'tabs' | 'side-by-side' | 'stacked' | null,
+  multi_model_targets: [] as Array<{ providerId: string; modelId: string }>,
+  multi_model_continuation_mode: 'selected' as const,
 };
 
 const settings = {

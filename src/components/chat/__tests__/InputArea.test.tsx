@@ -61,6 +61,14 @@ const conversationState = {
   toggleMemoryNamespace,
   thinkingBudget: null as number | null,
   thinkingLevel: null as string | null,
+  multiModelTargets: [] as Array<{ providerId: string; modelId: string }>,
+  multiModelContinuationMode: 'selected' as 'selected' | 'per_model',
+  setMultiModelTargets: (targets: Array<{ providerId: string; modelId: string }>) => {
+    conversationState.multiModelTargets = targets;
+  },
+  setMultiModelContinuationMode: (mode: 'selected' | 'per_model') => {
+    conversationState.multiModelContinuationMode = mode;
+  },
   setThinkingBudget,
   setThinkingLevel,
   insertContextClear,
@@ -80,6 +88,23 @@ const providerState = {
           provider_id: 'provider-1',
           model_id: 'model-1',
           name: 'model-1',
+          model_type: 'Chat',
+          enabled: true,
+          capabilities: [] as string[],
+          context_window: 128000,
+          param_overrides: null,
+        },
+      ],
+    },
+    {
+      id: 'provider-2',
+      provider_type: 'openai',
+      enabled: true,
+      models: [
+        {
+          provider_id: 'provider-2',
+          model_id: 'model-1',
+          name: 'model-1-b',
           model_type: 'Chat',
           enabled: true,
           capabilities: [] as string[],
@@ -242,7 +267,7 @@ describe('InputArea', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    providerState.providers.splice(1);
+    providerState.providers.splice(2);
     providerState.providers[0].enabled = true;
     providerState.providers[0].provider_type = 'gemini';
     providerState.providers[0].models[0].model_id = 'model-1';
@@ -258,6 +283,8 @@ describe('InputArea', () => {
     conversationState.loading = false;
     conversationState.streaming = false;
     conversationState.pendingPromptText = null;
+    conversationState.multiModelTargets = [];
+    conversationState.multiModelContinuationMode = 'selected';
     getContextUsage.mockResolvedValue(null);
     settingsState.settings.default_provider_id = null;
     settingsState.settings.default_model_id = null;
@@ -423,10 +450,10 @@ describe('InputArea', () => {
   });
 
   it('persists and sends the per-model follow-up mode for a multi-model request', async () => {
-    localStorage.setItem('aqbot:companion-models:conv-1', JSON.stringify([
+    conversationState.multiModelTargets = [
       { providerId: 'provider-1', modelId: 'model-1' },
       { providerId: 'provider-2', modelId: 'model-1' },
-    ]));
+    ];
 
     render(
       <App>
@@ -436,7 +463,7 @@ describe('InputArea', () => {
 
     expect(await screen.findByTestId('multi-model-follow-up-mode')).toBeInTheDocument();
     await userEvent.click(screen.getByText('chat.multiModel.followUpModePerModel'));
-    expect(localStorage.getItem('aqbot:multi-model-continuation-mode:conv-1')).toBe('per_model');
+    expect(conversationState.multiModelContinuationMode).toBe('per_model');
 
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
     await userEvent.type(textarea, 'continue each answer');
@@ -455,11 +482,11 @@ describe('InputArea', () => {
   });
 
   it('uses the stored follow-up mode when a welcome-card prompt is sent', async () => {
-    localStorage.setItem('aqbot:companion-models:conv-1', JSON.stringify([
+    conversationState.multiModelTargets = [
       { providerId: 'provider-1', modelId: 'model-1' },
       { providerId: 'provider-2', modelId: 'model-1' },
-    ]));
-    localStorage.setItem('aqbot:multi-model-continuation-mode:conv-1', 'per_model');
+    ];
+    conversationState.multiModelContinuationMode = 'per_model';
 
     const view = render(
       <App>

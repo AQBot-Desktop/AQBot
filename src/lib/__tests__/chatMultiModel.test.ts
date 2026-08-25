@@ -11,6 +11,7 @@ import {
   mergeAssistantVersionGroup,
   mergeAssistantVersionsAfterSwitch,
   resolvePendingDisplayVersionSelection,
+  plannedVersionIndexForTarget,
   selectDisplayVersionsByModel,
   selectRenderableVersionSet,
   selectNextAssistantVersion,
@@ -460,5 +461,84 @@ describe('chatMultiModel helpers', () => {
       [snapshotA, pendingB, unrelatedC],
       new Set([pendingB.id]),
     ).map((message) => message.id)).toEqual(['answer-a', 'temp-answer-b']);
+  });
+
+  it('keeps model cards in slot order even when later versions arrive first', () => {
+    const modelA = makeMessage({
+      id: 'a1',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      version_index: 0,
+      created_at: 30,
+    });
+    const modelC = makeMessage({
+      id: 'c1',
+      model_id: 'model-c',
+      provider_id: 'provider-c',
+      version_index: 2,
+      created_at: 10,
+    });
+    const modelB = makeMessage({
+      id: 'b1',
+      model_id: 'model-b',
+      provider_id: 'provider-b',
+      version_index: 1,
+      created_at: 20,
+    });
+
+    expect(selectDisplayVersionsByModel([modelA, modelC, modelB]).map((message) => message.model_id))
+      .toEqual(['model-a', 'model-b', 'model-c']);
+  });
+
+  it('does not move a model card when that model later gets a higher version', () => {
+    const modelAOld = makeMessage({
+      id: 'a1',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      version_index: 0,
+      is_active: false,
+      created_at: 1,
+    });
+    const modelB = makeMessage({
+      id: 'b1',
+      model_id: 'model-b',
+      provider_id: 'provider-b',
+      version_index: 1,
+      is_active: true,
+      created_at: 2,
+    });
+    const modelC = makeMessage({
+      id: 'c1',
+      model_id: 'model-c',
+      provider_id: 'provider-c',
+      version_index: 2,
+      is_active: false,
+      created_at: 3,
+    });
+    const modelANew = makeMessage({
+      id: 'a2',
+      model_id: 'model-a',
+      provider_id: 'provider-a',
+      version_index: 3,
+      is_active: false,
+      created_at: 4,
+    });
+
+    expect(selectDisplayVersionsByModel(
+      [modelANew, modelC, modelB, modelAOld],
+      modelB.id,
+    ).map((message) => message.id)).toEqual(['a2', 'b1', 'c1']);
+  });
+
+  it('maps companion targets to their frozen send-time slots', () => {
+    const targets = [
+      { providerId: 'provider-a', modelId: 'model-a' },
+      { providerId: 'provider-b', modelId: 'model-b' },
+      { providerId: 'provider-c', modelId: 'model-c' },
+    ];
+
+    expect(plannedVersionIndexForTarget(targets, 'provider-a', 'model-a')).toBe(0);
+    expect(plannedVersionIndexForTarget(targets, 'provider-c', 'model-c')).toBe(2);
+    expect(plannedVersionIndexForTarget(targets, 'provider-x', 'model-c')).toBeNull();
   });
 });

@@ -462,6 +462,8 @@ pub async fn import_cherry_studio_backup_from_path_with_root(
                 context_message_limit: Set(None),
                 compression_keep_last_n: Set(None),
                 multi_model_display_mode_override: Set(None),
+                multi_model_targets_json: Set("[]".to_string()),
+                multi_model_continuation_mode: Set("selected".to_string()),
                 category_id: Set(None),
                 parent_conversation_id: Set(None),
                 sort_order: Set(0),

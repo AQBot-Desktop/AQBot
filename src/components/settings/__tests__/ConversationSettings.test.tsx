@@ -37,7 +37,7 @@ vi.mock('react-i18next', () => ({
         'settings.chatMinimap': '对话导航',
         'settings.newConversationDefaults': '新建对话',
         'settings.inheritConversationPreferencesOnCreate': '继承当前对话能力配置',
-        'settings.inheritConversationPreferencesOnCreateDesc': '开启后，新建对话会沿用当前对话的联网、知识库、记忆、工具和思考设置。',
+        'settings.inheritConversationPreferencesOnCreateDesc': '开启后，新建对话会沿用当前对话的联网、知识库、记忆、工具、思考设置，以及多模型选择与续问方式。',
         'settings.chatStreamTimeouts': '流式响应超时',
         'settings.chatStreamTimeoutsDesc': '设置模型流式响应的首包和空闲等待时间，填 0 表示不限制。',
         'settings.chatStreamFirstPacketTimeout': '首包超时',
@@ -583,7 +583,7 @@ describe('ConversationSettings', () => {
     const toggle = within(inheritanceGroup as HTMLElement).getByRole('switch');
 
     expect(screen.getByText('继承当前对话能力配置')).toBeInTheDocument();
-    expect(screen.getByText('开启后，新建对话会沿用当前对话的联网、知识库、记忆、工具和思考设置。')).toBeInTheDocument();
+    expect(screen.getByText('开启后，新建对话会沿用当前对话的联网、知识库、记忆、工具、思考设置，以及多模型选择与续问方式。')).toBeInTheDocument();
 
     fireEvent.click(toggle);
 

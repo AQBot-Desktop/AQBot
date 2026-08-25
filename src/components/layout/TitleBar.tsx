@@ -37,10 +37,11 @@ const THEME_ICONS: Record<string, React.ReactNode> = {
 import { LANG_OPTIONS } from '@/lib/constants';
 
 
-export function TitleBar() {
+export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) {
   const { t, i18n } = useTranslation();
   const { token } = theme.useToken();
   const { modal, message } = App.useApp();
+  const isPopout = variant === 'popout';
   const activePage = useUIStore((s) => s.activePage);
   const enterSettings = useUIStore((s) => s.enterSettings);
   const exitSettings = useUIStore((s) => s.exitSettings);
@@ -173,6 +174,7 @@ export function TitleBar() {
 
   // Fetch backup info on mount and when popover opens
   useEffect(() => {
+    if (isPopout) return;
     loadBackupSettings();
 
     invoke<{ lastSyncTime: string | null }>('get_webdav_sync_status')
@@ -199,7 +201,7 @@ export function TitleBar() {
       .catch((error) => {
         console.error('Failed to refresh local backup status', error);
       });
-  }, [backupPopoverOpen, loadBackupSettings]);
+  }, [backupPopoverOpen, isPopout, loadBackupSettings]);
 
   // Calculate next WebDAV sync timestamp (re-run when settings or lastWebDavSync change)
   useEffect(() => {
@@ -481,7 +483,7 @@ export function TitleBar() {
         )}
 
         {/* Language Dropdown */}
-        {isTitlebarIconVisible(settings, 'language') && (
+        {!isPopout && isTitlebarIconVisible(settings, 'language') && (
         <Dropdown
           menu={{ items: langMenuItems, onClick: handleLangChange, selectedKeys: [i18n.language] }}
           trigger={['click']}
@@ -498,7 +500,7 @@ export function TitleBar() {
         )}
 
         {/* Quick Backup */}
-        {isTitlebarIconVisible(settings, 'backup') && (
+        {!isPopout && isTitlebarIconVisible(settings, 'backup') && (
         <Popover
           open={backupPopoverOpen}
           onOpenChange={setBackupPopoverOpen}
@@ -613,7 +615,7 @@ export function TitleBar() {
         )}
 
         {/* GitHub */}
-        {isTitlebarIconVisible(settings, 'github') && (
+        {!isPopout && isTitlebarIconVisible(settings, 'github') && (
         <Dropdown
           menu={{ items: githubMenuItems, onClick: handleGithubClick }}
           trigger={['click']}
@@ -630,7 +632,7 @@ export function TitleBar() {
         )}
 
         {/* Check Update */}
-        {isTitlebarIconVisible(settings, 'update') && isTauri() && (
+        {!isPopout && isTitlebarIconVisible(settings, 'update') && isTauri() && (
           <Tooltip title={t('settings.checkUpdate')}>
             <button
               onClick={handleCheckUpdate}
@@ -644,7 +646,7 @@ export function TitleBar() {
         )}
 
         {/* Reload Page */}
-        {isTitlebarIconVisible(settings, 'reload') && (
+        {!isPopout && isTitlebarIconVisible(settings, 'reload') && (
         <Tooltip title={t('desktop.reloadPage')}>
           <button
             onClick={handleReload}
@@ -656,7 +658,8 @@ export function TitleBar() {
         </Tooltip>
         )}
 
-        {/* Settings Toggle — always visible */}
+        {/* Settings Toggle — always visible in the main window */}
+        {!isPopout && (
         <Tooltip title={(() => {
           const label = isInSettings ? t('settings.closeSettings') : t('settings.openSettings');
           const binding = getShortcutBinding(settings, 'openSettings');
@@ -691,6 +694,7 @@ export function TitleBar() {
           {isInSettings ? <XCircle size={14} /> : <Settings size={14} />}
         </button>
         </Tooltip>
+        )}
       </div>
 
       {/* Windows window controls */}

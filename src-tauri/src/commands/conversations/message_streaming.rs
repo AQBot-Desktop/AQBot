@@ -1535,6 +1535,7 @@ pub async fn regenerate_with_model(
     enabled_knowledge_base_ids: Option<Vec<String>>,
     enabled_memory_namespace_ids: Option<Vec<String>>,
     is_companion: Option<bool>,
+    target_version_index: Option<i32>,
 ) -> Result<(), String> {
     let history_mode = history_mode.unwrap_or_default();
     let companion = is_companion.unwrap_or(false);
@@ -1555,7 +1556,6 @@ pub async fn regenerate_with_model(
         .ok_or_else(|| format!("User message {} not found", user_message_id))?
         .clone();
 
-    // Count existing versions and preserve original created_at
     let existing_versions = aqbot_core::repo::message::list_message_versions(
         &state.sea_db,
         &conversation_id,
@@ -1563,9 +1563,49 @@ pub async fn regenerate_with_model(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let new_version_index = existing_versions.len() as i32;
+    let existing_max = aqbot_core::repo::message::max_assistant_version_index(
+        &state.sea_db,
+        &conversation_id,
+        &user_msg.id,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let new_version_index = aqbot_core::types::resolve_regenerate_version_index(
+        existing_max,
+        companion,
+        target_version_index,
+    )?;
     let original_created_at = existing_versions.first().map(|v| v.created_at);
-
+    let assistant_message_id = aqbot_core::utils::gen_id();
+    {
+        use sea_orm::ActiveValue::Set;
+        (aqbot_core::entity::messages::ActiveModel {
+            id: Set(assistant_message_id.clone()),
+            conversation_id: Set(conversation_id.clone()),
+            role: Set("assistant".to_string()),
+            content: Set(String::new()),
+            provider_id: Set(Some(target_provider_id.clone())),
+            model_id: Set(Some(target_model_id.clone())),
+            token_count: Set(None),
+            prompt_tokens: Set(None),
+            completion_tokens: Set(None),
+            attachments: Set("[]".to_string()),
+            thinking: Set(None),
+            created_at: Set(original_created_at.unwrap_or_else(aqbot_core::utils::now_ts)),
+            branch_id: Set(None),
+            parent_message_id: Set(Some(user_msg.id.clone())),
+            version_index: Set(new_version_index),
+            is_active: Set(if companion { 0 } else { 1 }),
+            tool_calls_json: Set(None),
+            tool_call_id: Set(None),
+            status: Set("partial".to_string()),
+            tokens_per_second: Set(None),
+            first_token_latency_ms: Set(None),
+        })
+        .insert(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     // Get conversation, but override model_id and provider_id to target values
     let mut conversation =
         aqbot_core::repo::conversation::get_conversation(&state.sea_db, &conversation_id)
@@ -1647,7 +1687,6 @@ pub async fn regenerate_with_model(
     .await?;
     push_l1_system_message(&mut chat_messages, &prepared_turn);
 
-    let assistant_message_id = aqbot_core::utils::gen_id();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let stream_guard = RegisteredStreamGuard::register(
         state.stream_cancel_flags.clone(),
@@ -1693,6 +1732,12 @@ pub async fn regenerate_with_model(
         }
         if rag_cancelled {
             stream_guard.release().await;
+            let _ = aqbot_core::repo::message::mark_message_error(
+                &state.sea_db,
+                &assistant_message_id,
+                "Cancelled",
+            )
+            .await;
             return Ok(());
         }
         tag
@@ -1792,10 +1837,17 @@ pub async fn regenerate_with_model(
     })
     .await?;
     if context_result.overflow {
-        return Err(format!(
+        let error = format!(
             "Context still exceeds the target model input budget after applying {:?}: required {} tokens",
             context_strategy, context_result.sent_tokens
-        ));
+        );
+        let _ = aqbot_core::repo::message::mark_message_error(
+            &state.sea_db,
+            &assistant_message_id,
+            &error,
+        )
+        .await;
+        return Err(error);
     }
     chat_messages = context_result.messages;
     let stream_context_policy =
@@ -1828,41 +1880,6 @@ pub async fn regenerate_with_model(
 
     if !companion {
         deactivate_assistant_versions(&state.sea_db, &conversation_id, &user_msg.id).await?;
-    }
-
-    // Pre-create the placeholder message BEFORE spawning the stream task so that
-    // the frontend can immediately discover it via listMessageVersions and enable
-    // model switching in ModelTags without waiting for the first stream chunk.
-    {
-        use sea_orm::ActiveValue::Set;
-        if let Err(e) = (aqbot_core::entity::messages::ActiveModel {
-            id: Set(assistant_message_id.clone()),
-            conversation_id: Set(conversation_id.clone()),
-            role: Set("assistant".to_string()),
-            content: Set(String::new()),
-            provider_id: Set(Some(provider.id.clone())),
-            model_id: Set(Some(conversation.model_id.clone())),
-            token_count: Set(None),
-            prompt_tokens: Set(None),
-            completion_tokens: Set(None),
-            attachments: Set("[]".to_string()),
-            thinking: Set(None),
-            created_at: Set(original_created_at.unwrap_or_else(aqbot_core::utils::now_ts)),
-            branch_id: Set(None),
-            parent_message_id: Set(Some(user_msg.id.clone())),
-            version_index: Set(new_version_index),
-            is_active: Set(if companion { 0 } else { 1 }),
-            tool_calls_json: Set(None),
-            tool_call_id: Set(None),
-            status: Set("partial".to_string()),
-            tokens_per_second: Set(None),
-            first_token_latency_ms: Set(None),
-        })
-        .insert(&state.sea_db)
-        .await
-        {
-            tracing::error!("Failed to pre-create placeholder message: {}", e);
-        }
     }
 
     tracing::info!(
