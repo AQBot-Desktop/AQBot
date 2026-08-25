@@ -111,7 +111,8 @@ pub async fn install_embedding_artifact(
 }
 
 async fn run_install(app: AppHandle, cancel: Arc<AtomicBool>) -> Result<(), String> {
-    download_missing_files(Some(&app), cancel).await
+    download_missing_files(Some(&app), cancel).await?;
+    ensure_onnxruntime().await
 }
 
 pub(crate) async fn ensure_runtime_files() -> Result<(), String> {
@@ -123,7 +124,15 @@ pub(crate) async fn ensure_runtime_files() -> Result<(), String> {
         )
         .to_string());
     }
-    download_missing_files(None, Arc::new(AtomicBool::new(false))).await
+    download_missing_files(None, Arc::new(AtomicBool::new(false))).await?;
+    ensure_onnxruntime().await
+}
+
+async fn ensure_onnxruntime() -> Result<(), String> {
+    crate::onnxruntime_dylib::ensure_installed(&aqbot_home())
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 async fn download_missing_files(

@@ -65,6 +65,7 @@ mod media_protocol;
 mod model_catalog;
 #[doc(hidden)]
 pub mod model_catalog_tools;
+mod onnxruntime_dylib;
 mod paths;
 mod selection_toolbar;
 mod startup_diagnostics;

@@ -74,6 +74,8 @@ fn load_engine() -> Result<BuiltinEngine> {
     }));
 
     let model_path = artifact_file_path(&home, MULTILINGUAL_E5_SMALL_INT8.files[0].name);
+    let dylib = crate::onnxruntime_dylib::resolve_installed(&home)?;
+    crate::onnxruntime_dylib::init_ort(&dylib)?;
     let session = Session::builder()
         .map_err(infer_error)?
         .commit_from_file(&model_path)
