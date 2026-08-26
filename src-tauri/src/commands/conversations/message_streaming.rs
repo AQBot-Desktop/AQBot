@@ -1179,13 +1179,18 @@ async fn deactivate_assistant_versions(
     db: &DatabaseConnection,
     conversation_id: &str,
     parent_message_id: &str,
+    preserved_message_id: Option<&str>,
 ) -> Result<(), String> {
     use aqbot_core::entity::messages as msg_entity;
     use sea_orm::sea_query::Expr;
 
-    msg_entity::Entity::update_many()
+    let mut update = msg_entity::Entity::update_many()
         .filter(msg_entity::Column::ConversationId.eq(conversation_id))
-        .filter(msg_entity::Column::ParentMessageId.eq(parent_message_id))
+        .filter(msg_entity::Column::ParentMessageId.eq(parent_message_id));
+    if let Some(message_id) = preserved_message_id {
+        update = update.filter(msg_entity::Column::Id.ne(message_id));
+    }
+    update
         .col_expr(msg_entity::Column::IsActive, Expr::value(0))
         .exec(db)
         .await
@@ -1512,7 +1517,7 @@ pub async fn regenerate_message(
         }
     }
 
-    deactivate_assistant_versions(&state.sea_db, &conversation_id, &last_user_msg.id).await?;
+    deactivate_assistant_versions(&state.sea_db, &conversation_id, &last_user_msg.id, None).await?;
 
     let _ = spawn_stream_task(
         app,
@@ -1969,7 +1974,13 @@ async fn start_target_stream(
     }
 
     if !companion {
-        deactivate_assistant_versions(&state.sea_db, &conversation_id, &user_msg.id).await?;
+        deactivate_assistant_versions(
+            &state.sea_db,
+            &conversation_id,
+            &user_msg.id,
+            Some(&assistant_message_id),
+        )
+        .await?;
     }
 
     tracing::info!(
@@ -2019,4 +2030,79 @@ async fn start_target_stream(
         companion,
         true,
     ))
+}
+
+#[cfg(test)]
+mod message_streaming_activation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn new_active_version_survives_deactivating_older_versions() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let conversation = aqbot_core::repo::conversation::create_conversation(
+            &db,
+            "Stopped stream",
+            "model-1",
+            "provider-1",
+            None,
+        )
+        .await
+        .unwrap();
+        let user = aqbot_core::repo::message::create_message(
+            &db,
+            &conversation.id,
+            MessageRole::User,
+            "question",
+            &[],
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+        let previous = aqbot_core::repo::message::create_message(
+            &db,
+            &conversation.id,
+            MessageRole::Assistant,
+            "previous reply",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
+        let current = aqbot_core::repo::message::create_message(
+            &db,
+            &conversation.id,
+            MessageRole::Assistant,
+            "partial reply",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await
+        .unwrap();
+
+        deactivate_assistant_versions(&db, &conversation.id, &user.id, Some(&current.id))
+            .await
+            .unwrap();
+
+        let versions =
+            aqbot_core::repo::message::list_message_versions(&db, &conversation.id, &user.id)
+                .await
+                .unwrap();
+        assert!(
+            !versions
+                .iter()
+                .find(|message| message.id == previous.id)
+                .unwrap()
+                .is_active
+        );
+        assert!(
+            versions
+                .iter()
+                .find(|message| message.id == current.id)
+                .unwrap()
+                .is_active
+        );
+    }
 }
