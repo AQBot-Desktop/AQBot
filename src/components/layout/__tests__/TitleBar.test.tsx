@@ -34,7 +34,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/invoke', () => ({
   invoke: mocks.invoke,
-  isTauri: (...args: unknown[]) => mocks.isTauri(...args),
+  isTauri: () => mocks.isTauri(),
 }));
 
 vi.mock('@/stores', () => ({
