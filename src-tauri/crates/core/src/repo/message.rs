@@ -1,4 +1,4 @@
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, ExprTrait};
 use sea_orm::*;
 use std::collections::{HashMap, HashSet};
 
@@ -42,6 +42,30 @@ fn stringify_attachment_list(attachments: &[Attachment]) -> Result<String> {
 const STALE_PARTIAL_ASSISTANT_ERROR: &str = "AQBot was closed while this response was running. This stale response has been marked as failed.";
 const COMPRESSION_MARKER: &str = "<!-- context-compressed -->";
 
+// Message timestamps are second-precision and IDs are random UUIDs. SQLite's
+// insertion rowid preserves the causal order for messages created in one second.
+#[derive(Debug, FromQueryResult)]
+struct MessageOrderCursor {
+    conversation_id: String,
+    is_active: i32,
+    created_at: i64,
+    row_id: i64,
+}
+
+async fn get_message_order_cursor(
+    db: &DatabaseConnection,
+    message_id: &str,
+) -> Result<MessageOrderCursor> {
+    MessageOrderCursor::find_by_statement(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "SELECT conversation_id, is_active, created_at, rowid AS row_id FROM messages WHERE id = ?",
+        vec![message_id.into()],
+    ))
+    .one(db)
+    .await?
+    .ok_or_else(|| AQBotError::NotFound(format!("Message {message_id}")))
+}
+
 pub(crate) fn message_from_entity(m: messages::Model) -> Result<Message> {
     Ok(Message {
         id: m.id,
@@ -80,6 +104,7 @@ pub async fn list_messages(db: &DatabaseConnection, conversation_id: &str) -> Re
         .filter(messages::Column::ConversationId.eq(conversation_id))
         .filter(messages::Column::IsActive.eq(1))
         .order_by_asc(messages::Column::CreatedAt)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .all(db)
         .await?;
 
@@ -102,7 +127,7 @@ pub async fn list_messages_for_model_context(
                 ),
         )
         .order_by_asc(messages::Column::CreatedAt)
-        .order_by_asc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .all(db)
         .await?;
 
@@ -134,7 +159,7 @@ pub async fn list_messages_for_model_context_candidates(
                 ),
         )
         .order_by_asc(messages::Column::CreatedAt)
-        .order_by_asc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .all(db)
         .await?;
 
@@ -376,10 +401,7 @@ pub async fn list_messages_page(
         .filter(messages::Column::IsActive.eq(1));
 
     if let Some(cursor_id) = before_message_id {
-        let cursor = messages::Entity::find_by_id(cursor_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| AQBotError::NotFound(format!("Message {}", cursor_id)))?;
+        let cursor = get_message_order_cursor(db, cursor_id).await?;
 
         query = query.filter(
             Condition::any()
@@ -387,14 +409,14 @@ pub async fn list_messages_page(
                 .add(
                     Condition::all()
                         .add(messages::Column::CreatedAt.eq(cursor.created_at))
-                        .add(messages::Column::Id.lt(cursor.id.clone())),
+                        .add(Expr::cust("rowid").lt(cursor.row_id)),
                 ),
         );
     }
 
     let mut rows = query
         .order_by_desc(messages::Column::CreatedAt)
-        .order_by_desc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Desc)
         .limit(limit + 1)
         .all(db)
         .await?;
@@ -432,12 +454,12 @@ pub async fn list_messages_window(
         .count(db)
         .await?;
 
-    let anchor = messages::Entity::find_by_id(anchor_message_id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", anchor_message_id)))?;
+    let anchor = get_message_order_cursor(db, anchor_message_id).await?;
     if anchor.conversation_id != conversation_id || anchor.is_active != 1 {
-        return Err(AQBotError::NotFound(format!("Message {}", anchor_message_id)));
+        return Err(AQBotError::NotFound(format!(
+            "Message {}",
+            anchor_message_id
+        )));
     }
 
     let mut older_rows = messages::Entity::find()
@@ -449,11 +471,11 @@ pub async fn list_messages_window(
                 .add(
                     Condition::all()
                         .add(messages::Column::CreatedAt.eq(anchor.created_at))
-                        .add(messages::Column::Id.lt(anchor.id.clone())),
+                        .add(Expr::cust("rowid").lt(anchor.row_id)),
                 ),
         )
         .order_by_desc(messages::Column::CreatedAt)
-        .order_by_desc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Desc)
         .limit(before_limit + 1)
         .all(db)
         .await?;
@@ -472,11 +494,11 @@ pub async fn list_messages_window(
                 .add(
                     Condition::all()
                         .add(messages::Column::CreatedAt.eq(anchor.created_at))
-                        .add(messages::Column::Id.gte(anchor.id.clone())),
+                        .add(Expr::cust("rowid").gte(anchor.row_id)),
                 ),
         )
         .order_by_asc(messages::Column::CreatedAt)
-        .order_by_asc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .limit(after_limit + 2)
         .all(db)
         .await?;
@@ -517,12 +539,12 @@ pub async fn list_messages_after(
         .count(db)
         .await?;
 
-    let cursor = messages::Entity::find_by_id(after_message_id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AQBotError::NotFound(format!("Message {}", after_message_id)))?;
+    let cursor = get_message_order_cursor(db, after_message_id).await?;
     if cursor.conversation_id != conversation_id || cursor.is_active != 1 {
-        return Err(AQBotError::NotFound(format!("Message {}", after_message_id)));
+        return Err(AQBotError::NotFound(format!(
+            "Message {}",
+            after_message_id
+        )));
     }
 
     let mut rows = messages::Entity::find()
@@ -534,11 +556,11 @@ pub async fn list_messages_after(
                 .add(
                     Condition::all()
                         .add(messages::Column::CreatedAt.eq(cursor.created_at))
-                        .add(messages::Column::Id.gt(cursor.id.clone())),
+                        .add(Expr::cust("rowid").gt(cursor.row_id)),
                 ),
         )
         .order_by_asc(messages::Column::CreatedAt)
-        .order_by_asc(messages::Column::Id)
+        .order_by(Expr::cust("rowid"), Order::Asc)
         .limit(limit + 1)
         .all(db)
         .await?;
@@ -591,7 +613,7 @@ pub async fn list_message_summaries(
         WHERE conversation_id = ?
           AND is_active = 1
           AND role IN ('user', 'assistant')
-        ORDER BY created_at ASC, id ASC
+        ORDER BY created_at ASC, rowid ASC
     "#;
 
     let rows = SummaryRow::find_by_statement(Statement::from_sql_and_values(
@@ -1340,6 +1362,112 @@ mod tests {
         let mut am: messages::ActiveModel = row.into();
         am.created_at = Set(created_at);
         am.update(db).await.unwrap();
+    }
+
+    async fn insert_equal_timestamp_test_messages(
+        db: &DatabaseConnection,
+        conversation_id: &str,
+    ) {
+        for (id, role, content, parent_message_id, created_at) in [
+            ("z-user-1", "user", "question 1", None, 100),
+            (
+                "a-assistant-1",
+                "assistant",
+                "answer 1",
+                Some("z-user-1"),
+                100,
+            ),
+            ("y-user-2", "user", "question 2", None, 101),
+            (
+                "b-assistant-2",
+                "assistant",
+                "answer 2",
+                Some("y-user-2"),
+                101,
+            ),
+        ] {
+            messages::ActiveModel {
+                id: Set(id.to_string()),
+                conversation_id: Set(conversation_id.to_string()),
+                role: Set(role.to_string()),
+                content: Set(content.to_string()),
+                attachments: Set("[]".to_string()),
+                created_at: Set(created_at),
+                parent_message_id: Set(parent_message_id.map(str::to_string)),
+                version_index: Set(0),
+                is_active: Set(1),
+                ..Default::default()
+            }
+            .insert(db)
+            .await
+            .unwrap();
+        }
+    }
+
+    fn message_contents(messages: &[Message]) -> Vec<&str> {
+        messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn message_reads_preserve_creation_order_for_equal_timestamps() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let conv =
+            conversation::create_conversation(db, "Equal Timestamps", "model-1", "prov-1", None)
+                .await
+                .unwrap();
+
+        insert_equal_timestamp_test_messages(db, &conv.id).await;
+
+        let all_messages = list_messages(db, &conv.id).await.unwrap();
+        let context_messages = list_messages_for_model_context(db, &conv.id).await.unwrap();
+        let latest_page = list_messages_page(db, &conv.id, 2, None).await.unwrap();
+        let older_page =
+            list_messages_page(db, &conv.id, 2, latest_page.oldest_message_id.as_deref())
+                .await
+                .unwrap();
+        let window = list_messages_window(db, &conv.id, "a-assistant-1", 1, 2)
+            .await
+            .unwrap();
+        let newer = list_messages_after(db, &conv.id, "a-assistant-1", 2)
+            .await
+            .unwrap();
+        let summaries = list_message_summaries(db, &conv.id).await.unwrap();
+
+        assert_eq!(
+            message_contents(&all_messages),
+            vec!["question 1", "answer 1", "question 2", "answer 2"]
+        );
+        assert_eq!(
+            message_contents(&context_messages),
+            message_contents(&all_messages)
+        );
+        assert_eq!(
+            message_contents(&latest_page.messages),
+            vec!["question 2", "answer 2"]
+        );
+        assert_eq!(
+            message_contents(&older_page.messages),
+            vec!["question 1", "answer 1"]
+        );
+        assert_eq!(
+            message_contents(&window.messages),
+            message_contents(&all_messages)
+        );
+        assert_eq!(
+            message_contents(&newer.messages),
+            vec!["question 2", "answer 2"]
+        );
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|message| message.content_preview.as_str())
+                .collect::<Vec<_>>(),
+            vec!["question 1", "answer 1", "question 2", "answer 2"]
+        );
     }
 
     #[tokio::test]
