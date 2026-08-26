@@ -188,6 +188,10 @@ describe('AssistantFooter memory action', () => {
     );
 
     expect(screen.getAllByTestId('model-icon')).toHaveLength(3);
+    expect(document.querySelector('.model-tag-streaming')).not.toBeNull();
+    const waitingIcon = screen.getAllByTestId('model-icon')
+      .find((icon) => icon.getAttribute('data-model') === 'model-3');
+    expect(waitingIcon?.parentElement).toHaveClass('model-tag-waiting');
     expect(screen.getByTestId('layout-switcher')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-actions')).not.toBeInTheDocument();
     const companionIcon = screen.getAllByTestId('model-icon')

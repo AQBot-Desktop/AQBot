@@ -26,9 +26,12 @@ import type {
   AgentStreamTextEvent,
   AgentStreamThinkingEvent,
   ChatStreamErrorEvent,
+  Attachment,
+  AttachmentInput,
   ChatStreamEvent,
   CompressionEvent,
   MultiModelRunEnvelope,
+  MultiModelTargetSnapshot,
   ConversationSearchResult,
   Message,
   MessagePage,
@@ -88,6 +91,119 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'applyRemoteConversationSync'
 >;
 
+function composerAttachmentsToMessages(attachments: AttachmentInput[] = []): Attachment[] {
+  return attachments.map((attachment, index) => ({
+    id: `temp-att-${index}`,
+    file_name: attachment.file_name,
+    file_type: attachment.file_type,
+    file_path: '',
+    file_size: attachment.file_size,
+    data: attachment.data,
+  }));
+}
+
+function liveUserMessage(
+  conversationId: string,
+  userMessageId: string,
+  content: string,
+  attachments: AttachmentInput[] = [],
+): Message {
+  return {
+    id: userMessageId,
+    conversation_id: conversationId,
+    role: 'user',
+    content,
+    provider_id: null,
+    model_id: null,
+    token_count: null,
+    attachments: composerAttachmentsToMessages(attachments),
+    thinking: null,
+    tool_calls_json: null,
+    tool_call_id: null,
+    created_at: Date.now(),
+    parent_message_id: null,
+    version_index: 0,
+    is_active: true,
+    status: 'complete',
+  };
+}
+
+function insertMessageBeforeChildren(
+  messages: Message[],
+  parentId: string,
+  message: Message,
+): Message[] {
+  const childIndex = messages.findIndex(
+    (item) => item.parent_message_id === parentId && item.role === 'assistant',
+  );
+  if (childIndex < 0) return [...messages, message];
+  return [...messages.slice(0, childIndex), message, ...messages.slice(childIndex)];
+}
+
+function upsertLiveUserMessage(
+  set: ConversationStoreSet,
+  conversationId: string,
+  userMessageId: string,
+  content: string,
+  attachments: AttachmentInput[] = [],
+) {
+  set((state) => {
+    const existing = state.messages.find((message) => message.id === userMessageId);
+    if (existing) {
+      if (existing.role === 'user' && existing.content === content) {
+        return { multiModelParentId: userMessageId };
+      }
+      return {
+        multiModelParentId: userMessageId,
+        messages: state.messages.map((message) =>
+          message.id === userMessageId
+            ? { ...message, content, attachments: composerAttachmentsToMessages(attachments) }
+            : message
+        ),
+      };
+    }
+    return {
+      multiModelParentId: userMessageId,
+      messages: insertMessageBeforeChildren(
+        state.messages,
+        userMessageId,
+        liveUserMessage(conversationId, userMessageId, content, attachments),
+      ),
+    };
+  });
+}
+
+function assistantPlaceholderFromTarget(
+  conversationId: string,
+  parentMessageId: string,
+  target: MultiModelTargetSnapshot,
+  messageId: string,
+): Message {
+  const status = target.state === 'error'
+    ? 'error' as const
+    : target.state === 'complete' || target.state === 'skipped'
+      ? 'complete' as const
+      : 'partial' as const;
+  return {
+    id: messageId,
+    conversation_id: conversationId,
+    role: 'assistant',
+    content: '',
+    provider_id: target.target.providerId,
+    model_id: target.target.modelId,
+    token_count: null,
+    attachments: [],
+    thinking: null,
+    tool_calls_json: null,
+    tool_call_id: null,
+    created_at: Date.now(),
+    parent_message_id: parentMessageId,
+    version_index: target.index,
+    is_active: target.index === 0,
+    status,
+  };
+}
+
 function applyMultiModelEnvelope(
   set: ConversationStoreSet,
   get: () => ConversationState,
@@ -95,9 +211,10 @@ function applyMultiModelEnvelope(
 ) {
   if (envelope.revision < get().multiModelRunRevision) return;
   const run = envelope.activeRun;
-  const pending = (run?.targets ?? [])
-    .filter((target) => target.state === 'queued' || target.state === 'starting' || target.state === 'streaming')
-    .map((target) => target.target);
+  for (const target of run?.targets ?? []) {
+    if (target.streamId) runtime.multiModelStreamIds.add(target.streamId);
+  }
+  const pending = (run?.targets ?? []).map((target) => target.target);
   const done = (run?.targets ?? [])
     .map((target) => target.messageId)
     .filter((id): id is string => Boolean(id) && (
@@ -108,16 +225,128 @@ function applyMultiModelEnvelope(
   const streamingTarget = run?.targets.find((target) =>
     target.state === 'streaming' || target.state === 'starting',
   );
-  set({
-    multiModelRun: run,
-    multiModelRunRevision: envelope.revision,
-    pendingCompanionModels: pending,
-    multiModelParentId: run?.parentMessageId ?? null,
-    multiModelDoneMessageIds: done,
-    streaming: Boolean(run),
-    streamingConversationId: run ? envelope.conversationId : null,
-    streamingMessageId: streamingTarget?.messageId ?? null,
-    activeStreamId: streamingTarget?.streamId ?? null,
+  set((state) => {
+    let messages = state.messages;
+    let activities = { ...state.streamActivityByMessageId };
+    let ragDisplayByMessageId = state.ragDisplayByMessageId;
+    let searchDisplayByMessageId = state.searchDisplayByMessageId;
+    const parentId = run?.parentMessageId;
+    const rekeyedIds = new Map<string, string>();
+    if (parentId && run) {
+      if (!messages.some((message) => message.id === parentId)) {
+        messages = insertMessageBeforeChildren(
+          messages,
+          parentId,
+          liveUserMessage(envelope.conversationId, parentId, ''),
+        );
+      }
+      for (const target of run.targets) {
+        if (!target.messageId) continue;
+        if (messages.some((message) => message.id === target.messageId)) continue;
+        const temp = messages.find((message) =>
+          isTemporaryMessageId(message.id)
+          && message.parent_message_id === parentId
+          && message.role === 'assistant'
+          && message.provider_id === target.target.providerId
+          && message.model_id === target.target.modelId
+        );
+        if (temp) {
+          rekeyedIds.set(temp.id, target.messageId);
+          messages = messages.map((message) =>
+            message.id === temp.id
+              ? { ...message, id: target.messageId!, status: 'partial' }
+              : message
+          );
+          if (activities[temp.id]) {
+            activities = {
+              ...activities,
+              [target.messageId]: activities[temp.id],
+            };
+            delete activities[temp.id];
+          } else {
+            activities[target.messageId] = createStreamActivity(
+              target.target.providerId,
+              target.target.modelId,
+            );
+          }
+          ragDisplayByMessageId = rekeyMessageDisplayMap(
+            ragDisplayByMessageId,
+            temp.id,
+            target.messageId,
+          );
+          searchDisplayByMessageId = rekeyMessageDisplayMap(
+            searchDisplayByMessageId,
+            temp.id,
+            target.messageId,
+          );
+          continue;
+        }
+        messages = insertModelVersionPlaceholder(
+          messages,
+          parentId,
+          assistantPlaceholderFromTarget(
+            envelope.conversationId,
+            parentId,
+            target,
+            target.messageId,
+          ),
+        );
+        activities[target.messageId] = createStreamActivity(
+          target.target.providerId,
+          target.target.modelId,
+        );
+      }
+      const hasAssistant = messages.some(
+        (message) => message.parent_message_id === parentId && message.role === 'assistant',
+      );
+      if (!hasAssistant && run.targets[0]) {
+        const first = run.targets[0];
+        const placeholderId = first.messageId ?? `temp-assistant-mm-${run.runId}`;
+        messages = insertModelVersionPlaceholder(
+          messages,
+          parentId,
+          assistantPlaceholderFromTarget(
+            envelope.conversationId,
+            parentId,
+            first,
+            placeholderId,
+          ),
+        );
+        activities[placeholderId] = createStreamActivity(
+          first.target.providerId,
+          first.target.modelId,
+        );
+      }
+    }
+    const fallbackStreamingId = parentId
+      ? messages.find((message) =>
+        message.parent_message_id === parentId
+        && message.role === 'assistant'
+        && message.status === 'partial'
+      )?.id ?? null
+      : null;
+    const streamingMessageId = streamingTarget?.messageId
+      ?? (streamingTarget
+        ? rekeyedIds.get(state.streamingMessageId ?? '') ?? state.streamingMessageId
+        : null)
+      ?? fallbackStreamingId;
+    return {
+      messages,
+      streamActivityByMessageId: activities,
+      ragDisplayByMessageId,
+      searchDisplayByMessageId,
+      multiModelRun: run,
+      multiModelRunRevision: envelope.revision,
+      pendingCompanionModels: pending,
+      multiModelParentId: parentId ?? state.multiModelParentId,
+      multiModelDoneMessageIds: done,
+      streaming: Boolean(run),
+      streamingConversationId: run ? envelope.conversationId : null,
+      streamingMessageId: run ? streamingMessageId : null,
+      activeStreamId: run
+        ? streamingTarget?.streamId ?? state.activeStreamId ?? null
+        : null,
+    };
   });
   if (!run && runtime.multiModelDoneResolve) {
     const resolve = runtime.multiModelDoneResolve;
@@ -1178,9 +1407,13 @@ export function createConversationMessageActions(
         }
         throw error;
       }
+      const parentMessageId = envelope.activeRun?.parentMessageId;
+      if (parentMessageId) {
+        upsertLiveUserMessage(set, conversationId, parentMessageId, finalContent, attachments);
+      }
       applyMultiModelEnvelope(set, get, envelope);
-      const sentUserMessage = envelope.activeRun?.parentMessageId
-        ? { id: envelope.activeRun.parentMessageId }
+      const sentUserMessage = parentMessageId
+        ? { id: parentMessageId }
         : [...get().messages].reverse().find((message) => message.role === 'user');
 
       const isCurrentRun = runtime.multiModelRunId === runId;
@@ -1621,12 +1854,16 @@ export function createConversationMessageActions(
       if (isTauri()) {
         const conversationId = get().activeConversationId;
         if (conversationId) {
-          invoke<MultiModelRunEnvelope>('get_multi_model_run_snapshot', { conversationId })
-            .then((envelope) => {
-              if (runtime.listenerGen !== gen) return;
-              applyMultiModelEnvelope(set, get, envelope);
-            })
-            .catch(() => {});
+          try {
+            void invoke<MultiModelRunEnvelope>('get_multi_model_run_snapshot', { conversationId })
+              .then((envelope) => {
+                if (runtime.listenerGen !== gen) return;
+                applyMultiModelEnvelope(set, get, envelope);
+              })
+              .catch(() => {});
+          } catch {
+            // Snapshot probe must never block sending or stream listeners.
+          }
         }
       }
       const chunkUnsub = await listen<ChatStreamEvent>('chat-stream-chunk', (event) => {

@@ -664,13 +664,18 @@ svg.lucide {
   pointer-events: none;
 }
 
-.model-tag-pending {
-  animation: model-tag-pulse 1.5s ease-in-out infinite;
+.model-tag-waiting {
+  position: relative;
 }
-
-@keyframes model-tag-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
+.model-tag-waiting::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--model-tag-waiting-color, #faad14);
+  animation: model-tag-spin 1s linear infinite;
+  pointer-events: none;
 }
 
 @keyframes aqbot-drawing-shimmer {

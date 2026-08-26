@@ -723,6 +723,188 @@ describe('conversationStore multi-model messages', () => {
     }));
     const streamingState = useConversationStore.getState();
     expect(streamingState.multiModelParentId).toBe(user.id);
+    expect(streamingState.messages.find((message) => message.id === user.id)).toMatchObject({
+      role: 'user',
+      content: user.content,
+    });
+
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
+  it('renders the user turn and live first-model chunks before later models start', async () => {
+    tauriAvailable = true;
+    const listeners = new Map<string, (event: any) => void>();
+    listenMock.mockImplementation(async (eventName: string, handler: (event: any) => void) => {
+      listeners.set(eventName, handler);
+      return () => {};
+    });
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: conversation.id,
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: conversation.id,
+            parentMessageId: 'user-live',
+            mode: 'sequential',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [
+              {
+                index: 0,
+                target: { providerId: 'provider-a', modelId: 'model-a' },
+                state: 'streaming',
+                streamId: 'stream-a',
+                messageId: 'assistant-a',
+              },
+              {
+                index: 1,
+                target: { providerId: 'provider-b', modelId: 'model-b' },
+                state: 'queued',
+              },
+            ],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 2, activeRun: null });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { getLiveStreamContent, useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'show me now',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'user-live'))
+      .toMatchObject({ role: 'user', content: 'show me now' });
+    expect(useConversationStore.getState().messages.find((message) => message.id === 'assistant-a'))
+      .toMatchObject({
+        role: 'assistant',
+        parent_message_id: 'user-live',
+        model_id: 'model-a',
+        status: 'partial',
+      });
+    expect(useConversationStore.getState().pendingCompanionModels).toEqual([
+      { providerId: 'provider-a', modelId: 'model-a' },
+      { providerId: 'provider-b', modelId: 'model-b' },
+    ]);
+
+    vi.useFakeTimers();
+    listeners.get('chat-stream-chunk')?.({
+      payload: {
+        conversation_id: conversation.id,
+        message_id: 'assistant-a',
+        stream_id: 'stream-unregistered',
+        model_id: 'model-a',
+        provider_id: 'provider-a',
+        chunk: { content: 'partial answer', thinking: null, tool_calls: null, done: false, usage: null },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(35);
+
+    expect(getLiveStreamContent('assistant-a')).toContain('partial answer');
+
+    vi.useRealTimers();
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
+  it('shows the user turn and a first-model placeholder while later sequential models are still queued', async () => {
+    tauriAvailable = true;
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: conversation.id,
+          revision: 1,
+          activeRun: {
+            runId: 'run-queued',
+            conversationId: conversation.id,
+            parentMessageId: 'user-queued',
+            mode: 'sequential',
+            intervalSeconds: 3,
+            phase: 'starting',
+            nextStartAt: null,
+            targets: [
+              {
+                index: 0,
+                target: { providerId: 'provider-a', modelId: 'model-a' },
+                state: 'queued',
+              },
+              {
+                index: 1,
+                target: { providerId: 'provider-b', modelId: 'model-b' },
+                state: 'queued',
+              },
+            ],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 2, activeRun: null });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'queue me',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+
+    const state = useConversationStore.getState();
+    expect(state.messages.find((message) => message.id === 'user-queued')).toMatchObject({
+      role: 'user',
+      content: 'queue me',
+    });
+    expect(state.messages.find((message) =>
+      message.role === 'assistant' && message.parent_message_id === 'user-queued'
+    )).toMatchObject({
+      model_id: 'model-a',
+      status: 'partial',
+    });
+    expect(state.pendingCompanionModels).toEqual([
+      { providerId: 'provider-a', modelId: 'model-a' },
+      { providerId: 'provider-b', modelId: 'model-b' },
+    ]);
+    expect(state.streaming).toBe(true);
 
     useConversationStore.getState().cancelCurrentStream();
     await pending;

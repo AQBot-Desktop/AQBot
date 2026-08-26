@@ -467,7 +467,10 @@ function isActiveStreamExistsError(error: string): boolean {
 function isCurrentStreamEvent(get: () => ConversationState, streamId?: string | null): boolean {
   if (!streamId) return true;
   if (_isMultiModelActive) {
-    return _multiModelStreamIds.has(streamId);
+    // Sequential targets receive stream IDs only when they start. Accept every
+    // stream for the in-flight run so later models still render live.
+    _multiModelStreamIds.add(streamId);
+    return true;
   }
   const activeStreamId = get().activeStreamId;
   return !activeStreamId || activeStreamId === streamId;

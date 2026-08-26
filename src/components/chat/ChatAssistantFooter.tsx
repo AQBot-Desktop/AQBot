@@ -13,6 +13,7 @@ import {
   useConversationStore,
 } from '@/stores';
 import type { ConversationStats, Message, MultiModelDisplayMode } from '@/types';
+import type { CSSProperties } from 'react';
 import Actions from '@ant-design/x/es/actions';
 import { ModelIcon } from '@lobehub/icons';
 import { App, Button, Dropdown, Input, Modal, Popconfirm, Popover, Spin, Tooltip, Typography, theme } from 'antd';
@@ -226,7 +227,7 @@ function ModelTags({
               mouseEnterDelay={0.3}
             >
               <div
-                className="model-tag-pending"
+                className="model-tag-waiting"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -234,10 +235,9 @@ function ModelTags({
                   width: 26,
                   height: 26,
                   borderRadius: '50%',
-                  border: `1.5px dashed ${token.colorTextQuaternary}`,
-                  opacity: 0.5,
                   flexShrink: 0,
-                }}
+                  '--model-tag-waiting-color': token.colorWarning,
+                } as CSSProperties}
               >
                 <ModelIcon model={pending.modelId} size={20} type="avatar" />
               </div>
