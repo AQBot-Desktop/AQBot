@@ -109,6 +109,7 @@ import { MessageAttachmentPreview } from './MessageAttachmentPreview';
 import { ModelSelector } from './ModelSelector';
 import { MultiModelDisplay } from './MultiModelDisplay';
 import { MultiModelLaneWorkspace } from './MultiModelLaneWorkspace';
+import { StreamingStatusIndicator } from './StreamingStatusIndicator';
 import PermissionCard from './PermissionCard';
 import { getChatCodeThemes, setCodeBlockPreviewHandler, setMermaidOpenModalHandler } from './chatMarkdownShared';
 import { normalizeAssistantBubbleParentKey, resolveAssistantMessageForBubbleKey } from './chatMessageLookup';
@@ -130,14 +131,12 @@ import {
 import {
   closeStreamingThinkBlock,
   getStreamingLoadingState,
-  getStreamingStatusPresentation,
   hasAqbotDisplayContent,
   hasModelVisibleContent,
   isAssistantStreamingForRender,
   shouldRenderAssistantMarkdownFromContent,
   shouldShowInitialStreamingDots,
   shouldShowInlineStreamingStatus,
-  type StreamActivity,
 } from './chatStreaming';
 import { formatChatTime } from './chatTime';
 import {
@@ -201,7 +200,6 @@ export function ChatView() {
   const streaming = useConversationStore(selectUiStreaming);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const streamingMessageId = useConversationStore(selectUiStreamingMessageId);
-  const streamActivityByMessageId = useConversationStore((s) => s.streamActivityByMessageId);
   const multiModelParentId = useConversationStore(selectUiMultiModelParentId);
   const pendingCompanionModels = useConversationStore(selectUiPendingCompanionModels);
   const pendingCompanionModelCount = pendingCompanionModels.length;
@@ -238,7 +236,6 @@ export function ChatView() {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [mermaidPreviewSvg, setMermaidPreviewSvg] = useState<string | null>(null);
   const [mermaidPreviewOpen, setMermaidPreviewOpen] = useState(false);
-  const [streamStatusNow, setStreamStatusNow] = useState(() => Date.now());
   const createConversation = useConversationStore((s) => s.createConversation);
   const providers = useProviderStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
@@ -666,16 +663,6 @@ export function ChatView() {
     }
     contentRendererMessageIdsRef.current.add(streamingMessageId);
   }, [streaming, streamingMessageId]);
-
-  useEffect(() => {
-    if (!streaming) {
-      return;
-    }
-
-    setStreamStatusNow(Date.now());
-    const timer = window.setInterval(() => setStreamStatusNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [streaming]);
 
   const syncScrollToBottomVisibility = useCallback(() => {
     const { scrollBox: target } = syncChatScrollRefs();
@@ -1708,38 +1695,6 @@ export function ChatView() {
     };
   }, [activeConversationId, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessageGroup, formatTime, getBubbleVariant, getShareSelectBubbleStyles, handleEditMessage, handleShareSelectableClick, isDarkMode, messageApi, messageById, profile.name, regenerateMessage, selectedShareMessageIds, settings.code_font_family, settings.render_user_markdown, shareSelectMode, t, toggleShareMessage, token.colorError, token.colorPrimary, userAvatar, wrapShareSelectableContent]);
 
-  const renderStreamingStatusIndicator = useCallback((
-    activity: StreamActivity | undefined,
-    hasModelText: boolean,
-    style?: React.CSSProperties,
-  ) => {
-    const presentation = getStreamingStatusPresentation({
-      isStreaming: streaming,
-      activity,
-      now: streamStatusNow,
-      hasModelText,
-    });
-    if (!presentation) {
-      return null;
-    }
-
-    const color = presentation.tone === 'warning' ? token.colorWarning : token.colorPrimary;
-    return (
-      <span
-        className="aqbot-streaming-status"
-        aria-label={t(presentation.labelKey)}
-        style={{ color, ...style }}
-      >
-        <span className="aqbot-streaming-dots" aria-hidden="true">
-          <span /><span /><span />
-        </span>
-        <Typography.Text style={{ fontSize: 12, color }}>
-          {t(presentation.labelKey)}
-        </Typography.Text>
-      </span>
-    );
-  }, [streaming, streamStatusNow, t, token.colorPrimary, token.colorWarning]);
-
   const renderAiRole = useCallback((bubbleData: BubbleItemType, column: LaneColumn | null) => {
     // bubbleData.key is parent_message_id for stable rendering
     const parentKey = normalizeAssistantBubbleParentKey(bubbleData.key);
@@ -1766,7 +1721,6 @@ export function ChatView() {
         footer: null,
       };
     }
-    const msgActivity = msg?.id ? streamActivityByMessageId[msg.id] : undefined;
     const isStreaming = isAssistantStreamingForRender({
       isStreaming: streaming,
       messageId: msg?.id,
@@ -1832,7 +1786,7 @@ export function ChatView() {
         }
         if (shouldShowInitialStreamingDots(versionIsStreaming, versionContent, stripAssistantAqbotTags)) {
           return (
-            renderStreamingStatusIndicator(streamActivityByMessageId[versionMessage.id], false)
+            <StreamingStatusIndicator messageId={versionMessage.id} hasModelText={false} />
           );
         }
         return (
@@ -1960,7 +1914,7 @@ export function ChatView() {
 
           if (!isAgentMsg && shouldShowInitialDots) {
             return (
-              <>{msgMarker}{renderStreamingStatusIndicator(msgActivity, false)}</>
+              <>{msgMarker}<StreamingStatusIndicator messageId={msg?.id} hasModelText={false} /></>
             );
           }
 
@@ -1986,7 +1940,7 @@ export function ChatView() {
           // In agent mode: show inline loading dots only when no content AND no permissions/asks yet
           if (isAgentMsg && shouldShowInitialDots && msgPermissions.length === 0 && msgAskUsers.length === 0) {
             return (
-              <>{msgMarker}{renderStreamingStatusIndicator(msgActivity, false)}</>
+              <>{msgMarker}<StreamingStatusIndicator messageId={msg?.id} hasModelText={false} /></>
             );
           }
 
@@ -2016,7 +1970,7 @@ export function ChatView() {
               </ChatMessageRenderBoundary>
               {!isAgentMsg && shouldShowInlineStatus && (
                 <div style={{ marginTop: 8 }}>
-                  {renderStreamingStatusIndicator(msgActivity, false)}
+                  <StreamingStatusIndicator messageId={msg?.id} hasModelText={false} />
                 </div>
               )}
               {msgPermissions.map((pr) => {
@@ -2049,7 +2003,7 @@ export function ChatView() {
               {/* Show loading dots when agent is streaming but footer dots are NOT showing (no text content yet) */}
               {isAgentMsg && isStreaming && !footerLoading && (
                 <div style={{ marginTop: 8 }}>
-                  {renderStreamingStatusIndicator(msgActivity, hasModelText)}
+                  <StreamingStatusIndicator messageId={msg?.id} hasModelText={hasModelText} />
                 </div>
               )}
             </>
@@ -2120,7 +2074,7 @@ export function ChatView() {
               }}
               aria-label={t('chat.generating')}
             >
-              {renderStreamingStatusIndicator(msgActivity, true)}
+              <StreamingStatusIndicator messageId={msg.id} hasModelText />
             </div>
           )}
           {(!isStreaming || hasMultiModels) && <AssistantFooter
@@ -2147,11 +2101,11 @@ export function ChatView() {
           }}
           aria-label={t('chat.generating')}
         >
-          {renderStreamingStatusIndicator(msgActivity, true)}
+          <StreamingStatusIndicator messageId={msg?.id} hasModelText />
         </div>
       ) : null,
     };
-  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, chatChrome.kind, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayVersionOverrides, formatTime, getBubbleVariant, getDisplayMode, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeChange, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderStreamingStatusIndicator, renderableVersionsByParentId, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streamActivityByMessageId, streaming, streamingMessageId, switchMessageVersion, t, thinkingActiveMessageIds, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
+  }, [activeConversation, activeConversationId, activeMessages, agentPendingPermissions, agentToolCalls, aiContentNodesById, assistantByParentId, chatChrome.kind, codeBlockDarkTheme, codeBlockLightTheme, codeBlockThemes, deleteMessage, displayVersionOverrides, formatTime, getBubbleVariant, getDisplayMode, getModelDisplayInfo, getShareSelectBubbleStyles, handleBranchDisplayedVersion, handleDisplayModeChange, handleDisplayVersionOverride, handleEditMessage, handleGeneratedVersionCreated, handleRegenerateDisplayedVersion, handleSetContextVersion, handleShareSelectableClick, handleSwitchDisplayedVersionModel, isDarkMode, messageById, messages, multiModelDoneMessageIds, multiModelParentId, multiModelResponseParents, pendingCompanionModelCount, ragDisplayByMessageId, renderConvIconForChat, renderableVersionsByParentId, searchDisplayByMessageId, selectedShareMessageIds, settings, shareSelectMode, streaming, streamingMessageId, switchMessageVersion, t, thinkingActiveMessageIds, toggleShareMessage, token.colorPrimary, token.colorTextDescription, wrapShareSelectableContent]);
 
   const aiRole = useCallback(
     (bubbleData: BubbleItemType) => renderAiRole(bubbleData, null),
