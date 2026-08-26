@@ -11,6 +11,7 @@ import { isTitlebarIconVisible } from '@/lib/titlebarIcons';
 import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 import appLogo from '@/assets/image/logo.png';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { titleBarPaddingLeft } from '@/lib/titleBarLayout';
 
 const IS_WINDOWS = navigator.userAgent.includes('Windows');
 
@@ -123,6 +124,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
 
   // Windows window controls
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     if (!IS_WINDOWS || !isTauri()) return;
@@ -135,6 +137,39 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
       });
     })();
     return () => { unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    if (IS_WINDOWS || !isTauri()) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    const syncFullscreen = async () => {
+      try {
+        const fullscreen = await getCurrentWindow().isFullscreen();
+        if (!cancelled) setIsFullscreen(fullscreen);
+      } catch {
+        if (!cancelled) setIsFullscreen(false);
+      }
+    };
+    const onWindowResize = () => {
+      void syncFullscreen();
+    };
+    void (async () => {
+      await syncFullscreen();
+      try {
+        unlisten = await getCurrentWindow().onResized(() => {
+          void syncFullscreen();
+        });
+      } catch {
+        unlisten = undefined;
+      }
+    })();
+    window.addEventListener('resize', onWindowResize);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      window.removeEventListener('resize', onWindowResize);
+    };
   }, []);
 
   const handleWindowMinimize = useCallback(async () => {
@@ -422,7 +457,7 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-start',
-        paddingLeft: IS_WINDOWS ? 12 : 72,
+        paddingLeft: titleBarPaddingLeft({ isWindows: IS_WINDOWS, isFullscreen }),
         paddingRight: IS_WINDOWS ? 0 : 12,
         backgroundColor: 'transparent',
         flexShrink: 0,

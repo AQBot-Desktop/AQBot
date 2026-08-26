@@ -9,8 +9,11 @@ vi.mock('../ConversationTabBar', () => ({
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  isTauri: vi.fn(() => false),
   loadBackupSettings: vi.fn(),
   backupSettings: null as { enabled: boolean; intervalHours: number } | null,
+  isFullscreen: vi.fn(async () => false),
+  resizedHandler: undefined as ((event?: unknown) => unknown) | undefined,
   settings: {
     theme_mode: 'system',
     always_on_top: false,
@@ -31,7 +34,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/invoke', () => ({
   invoke: mocks.invoke,
-  isTauri: () => false,
+  isTauri: (...args: unknown[]) => mocks.isTauri(...args),
 }));
 
 vi.mock('@/stores', () => ({
@@ -66,6 +69,14 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
     close: vi.fn(),
     startDragging: vi.fn(),
+    isFullscreen: () => mocks.isFullscreen(),
+    isMaximized: vi.fn(async () => false),
+    onResized: vi.fn(async (handler: (event?: unknown) => unknown) => {
+      mocks.resizedHandler = handler;
+      return () => {
+        mocks.resizedHandler = undefined;
+      };
+    }),
   }),
 }));
 
@@ -118,6 +129,11 @@ describe('TitleBar auto-backup countdown', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-11T00:00:00.000Z'));
     mocks.invoke.mockReset();
+    mocks.isTauri.mockReset();
+    mocks.isTauri.mockReturnValue(false);
+    mocks.isFullscreen.mockReset();
+    mocks.isFullscreen.mockResolvedValue(false);
+    mocks.resizedHandler = undefined;
     mocks.loadBackupSettings.mockReset();
     mocks.backupSettings = null;
     mocks.settings.webdav_sync_enabled = true;
@@ -200,3 +216,64 @@ describe('TitleBar conversation tabs drag region', () => {
     expect(tabBar.parentElement).not.toHaveClass('title-bar-nodrag');
   });
 });
+
+describe('TitleBar macOS fullscreen inset', () => {
+  const isWindows = navigator.userAgent.includes('Windows');
+
+  beforeEach(() => {
+    mocks.isTauri.mockReset();
+    mocks.isTauri.mockReturnValue(true);
+    mocks.isFullscreen.mockReset();
+    mocks.isFullscreen.mockResolvedValue(false);
+    mocks.resizedHandler = undefined;
+    mocks.invoke.mockReset();
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === 'get_webdav_sync_status') {
+        return Promise.resolve({ lastSyncTime: null, lastSyncStatus: null });
+      }
+      if (command === 'list_backups') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    mocks.loadBackupSettings.mockReset();
+    mocks.backupSettings = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mocks.isTauri.mockReturnValue(false);
+  });
+
+  it.skipIf(isWindows)('shrinks the left inset when the window becomes fullscreen', async () => {
+    const { container } = render(<TitleBar />);
+    await act(async () => Promise.resolve());
+    await act(async () => Promise.resolve());
+
+    const bar = container.querySelector('.title-bar-drag') as HTMLElement;
+    expect(bar).toHaveStyle({ paddingLeft: '72px' });
+
+    mocks.isFullscreen.mockResolvedValue(true);
+    await act(async () => {
+      await mocks.resizedHandler?.();
+    });
+
+    expect(bar).toHaveStyle({ paddingLeft: '12px' });
+  });
+
+  it.skipIf(isWindows)('restores the traffic-light inset after leaving fullscreen', async () => {
+    mocks.isFullscreen.mockResolvedValue(true);
+    const { container } = render(<TitleBar />);
+    await act(async () => Promise.resolve());
+    await act(async () => Promise.resolve());
+
+    const bar = container.querySelector('.title-bar-drag') as HTMLElement;
+    expect(bar).toHaveStyle({ paddingLeft: '12px' });
+
+    mocks.isFullscreen.mockResolvedValue(false);
+    await act(async () => {
+      await mocks.resizedHandler?.();
+    });
+
+    expect(bar).toHaveStyle({ paddingLeft: '72px' });
+  });
+});
+
