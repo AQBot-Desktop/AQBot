@@ -1,3 +1,4 @@
+use aqbot_core::types::{AppSettings, TrayIconStyle};
 use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
@@ -11,6 +12,39 @@ const TRAY_ID: &str = "aqbot-tray";
 const GITHUB_URL: &str = "https://github.com/AQBot-Desktop/AQBot";
 const RECENT_CONVERSATION_LIMIT: u64 = 5;
 const TITLE_MAX_CHARS: usize = 40;
+const COLOR_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
+const MONOCHROME_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-monochrome.png");
+
+struct TrayIconAppearance {
+    image: Image<'static>,
+    is_template: bool,
+}
+
+fn resolved_tray_icon_style(requested: TrayIconStyle) -> TrayIconStyle {
+    #[cfg(target_os = "macos")]
+    {
+        requested
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = requested;
+        TrayIconStyle::Color
+    }
+}
+
+fn tray_icon_appearance(
+    requested: TrayIconStyle,
+) -> Result<TrayIconAppearance, Box<dyn std::error::Error>> {
+    let resolved = resolved_tray_icon_style(requested);
+    let bytes = match resolved {
+        TrayIconStyle::Color => COLOR_TRAY_ICON_BYTES,
+        TrayIconStyle::Monochrome => MONOCHROME_TRAY_ICON_BYTES,
+    };
+    Ok(TrayIconAppearance {
+        image: Image::from_bytes(bytes)?,
+        is_template: resolved == TrayIconStyle::Monochrome,
+    })
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -407,15 +441,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-pub fn create_tray(app: &AppHandle, language: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let menu = build_menu(app, language, &[], false)?;
-    let icon = Image::from_path("icons/icon.png").unwrap_or_else(|_| {
-        Image::from_bytes(include_bytes!("../icons/32x32.png"))
-            .expect("failed to load fallback tray icon")
-    });
+fn create_tray(app: &AppHandle, settings: &AppSettings) -> Result<(), Box<dyn std::error::Error>> {
+    let menu = build_menu(app, &settings.language, &[], false)?;
+    let appearance = tray_icon_appearance(settings.tray_icon_style)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon)
+        .icon(appearance.image)
+        .icon_as_template(appearance.is_template)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("AQBot")
@@ -446,6 +478,41 @@ pub fn create_tray(app: &AppHandle, language: &str) -> Result<(), Box<dyn std::e
     // Populate recent conversations / toolbar check state after tray exists.
     request_tray_menu_sync(app);
 
+    Ok(())
+}
+
+fn update_tray_icon(
+    app: &AppHandle,
+    style: TrayIconStyle,
+    rollback_style: TrayIconStyle,
+) -> Result<(), String> {
+    let appearance = tray_icon_appearance(style).map_err(|error| error.to_string())?;
+    let is_template = appearance.is_template;
+    let tray = app
+        .tray_by_id(TRAY_ID)
+        .ok_or_else(|| "system tray does not exist".to_string())?;
+
+    tray.set_icon(Some(appearance.image))
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = tray.set_icon_as_template(is_template) {
+        if is_template {
+            let rollback_result = tray_icon_appearance(rollback_style)
+                .map_err(|rollback_error| rollback_error.to_string())
+                .and_then(|rollback| {
+                    tray.set_icon(Some(rollback.image))
+                        .map_err(|rollback_error| rollback_error.to_string())?;
+                    tray.set_icon_as_template(rollback.is_template)
+                        .map_err(|rollback_error| rollback_error.to_string())
+                });
+            if let Err(rollback_error) = rollback_result {
+                tracing::error!(
+                    error = %rollback_error,
+                    "Failed to restore color tray icon after template update failure"
+                );
+            }
+        }
+        return Err(error.to_string());
+    }
     Ok(())
 }
 
@@ -513,28 +580,43 @@ pub fn tray_exists(app: &AppHandle) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
 }
 
-/// Create or remove the tray only from startup and explicit settings saves.
-pub fn reconcile_tray(app: &AppHandle, settings: &aqbot_core::types::AppSettings) -> Result<(), String> {
+/// Reconcile tray visibility and appearance from startup or an explicit settings save.
+/// Passing the previous style avoids rewriting an unchanged native icon.
+pub fn reconcile_tray(
+    app: &AppHandle,
+    settings: &AppSettings,
+    previous_icon_style: Option<TrayIconStyle>,
+) -> Result<(), String> {
     if settings.tray_enabled {
         if !tray_exists(app) {
-            create_tray(app, &settings.language).map_err(|e| e.to_string())?;
+            create_tray(app, settings).map_err(|e| e.to_string())?;
         } else {
+            if let Some(previous) =
+                previous_icon_style.filter(|previous| *previous != settings.tray_icon_style)
+            {
+                update_tray_icon(app, settings.tray_icon_style, previous)?;
+            }
             request_tray_menu_sync(app);
         }
         Ok(())
     } else {
         if tray_exists(app) {
             destroy_tray(app);
+            crate::window_lifecycle::restore_main_window(app);
+            crate::window_lifecycle::set_app_dock_visibility(app, true);
         }
-        crate::window_lifecycle::restore_main_window(app);
-        crate::window_lifecycle::set_app_dock_visibility(app, true);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_conversation_title, tray_labels, TITLE_MAX_CHARS};
+    use super::{
+        format_conversation_title, resolved_tray_icon_style, tray_icon_appearance, tray_labels,
+        MONOCHROME_TRAY_ICON_BYTES, TITLE_MAX_CHARS,
+    };
+    use aqbot_core::types::TrayIconStyle;
+    use tauri::image::Image;
 
     #[test]
     fn truncates_long_titles() {
@@ -563,5 +645,57 @@ mod tests {
         assert_eq!(labels.show, "Show");
         assert_eq!(labels.recent, "Recent");
         assert_eq!(labels.check_update, "Check for Updates");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_preserves_requested_tray_icon_style() {
+        assert_eq!(
+            resolved_tray_icon_style(TrayIconStyle::Monochrome),
+            TrayIconStyle::Monochrome
+        );
+        assert_eq!(
+            resolved_tray_icon_style(TrayIconStyle::Color),
+            TrayIconStyle::Color
+        );
+        assert!(
+            tray_icon_appearance(TrayIconStyle::Monochrome)
+                .expect("monochrome tray icon should load")
+                .is_template
+        );
+        assert!(
+            !tray_icon_appearance(TrayIconStyle::Color)
+                .expect("color tray icon should load")
+                .is_template
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_always_uses_color_tray_icon() {
+        assert_eq!(
+            resolved_tray_icon_style(TrayIconStyle::Monochrome),
+            TrayIconStyle::Color
+        );
+        assert!(
+            !tray_icon_appearance(TrayIconStyle::Monochrome)
+                .expect("color tray icon should load")
+                .is_template
+        );
+    }
+
+    #[test]
+    fn monochrome_asset_is_a_single_color_alpha_mask() {
+        let image = Image::from_bytes(MONOCHROME_TRAY_ICON_BYTES)
+            .expect("monochrome tray icon should decode");
+        assert_eq!((image.width(), image.height()), (36, 36));
+
+        let pixels: Vec<&[u8]> = image.rgba().chunks_exact(4).collect();
+        assert!(pixels.iter().any(|pixel| pixel[3] == 0));
+        assert!(pixels.iter().any(|pixel| pixel[3] == 255));
+        assert!(pixels.iter().any(|pixel| (1..=254).contains(&pixel[3])));
+        assert!(pixels
+            .iter()
+            .all(|pixel| pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0));
     }
 }

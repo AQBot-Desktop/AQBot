@@ -3,14 +3,20 @@ import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@/stores';
 import { isTauri, invoke } from '@/lib/invoke';
 import { LANG_OPTIONS } from '@/lib/constants';
-import type { ModelCatalogSourcePreference } from '@/types';
+import type { ModelCatalogSourcePreference, TrayIconStyle } from '@/types';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
+
+function isMacOSPlatform() {
+  if (typeof navigator === 'undefined') return false;
+  return /Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || '');
+}
 
 export function GeneralSettings() {
   const { t, i18n } = useTranslation();
   const { message } = AntdApp.useApp();
   const inTauri = isTauri();
+  const showTrayIconStyle = inTauri && isMacOSPlatform();
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
 
@@ -18,6 +24,8 @@ export function GeneralSettings() {
     const warnings = await saveSettings(partial);
     if (warnings?.includes('tray_create_failed')) {
       message.warning(t('settings.trayCreateFailed'));
+    } else if (warnings?.includes('tray_icon_update_failed')) {
+      message.warning(t('settings.trayIconUpdateFailed'));
     }
   };
 
@@ -148,6 +156,31 @@ export function GeneralSettings() {
             disabled={!inTauri}
           />
         </div>
+        {showTrayIconStyle && (
+          <>
+            <Divider style={{ margin: '4px 0' }} />
+            <div style={rowStyle} className="flex items-center justify-between gap-4">
+              <div>
+                <div>{t('settings.trayIconStyle')}</div>
+                <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
+                  {t('settings.trayIconStyleDesc')}
+                </div>
+              </div>
+              <SettingsSelect
+                value={settings.tray_icon_style ?? 'color'}
+                disabled={!(settings.tray_enabled ?? true)}
+                onChange={(style) => {
+                  void persistSettings({ tray_icon_style: style as TrayIconStyle });
+                }}
+                options={[
+                  { label: t('settings.trayIconStyleColor'), value: 'color' },
+                  { label: t('settings.trayIconStyleMonochrome'), value: 'monochrome' },
+                ]}
+                style={{ flexShrink: 0 }}
+              />
+            </div>
+          </>
+        )}
         <Divider style={{ margin: '4px 0' }} />
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.minimizeToTray')}</span>

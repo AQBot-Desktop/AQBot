@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 512 512">
+  <title>AQBot monochrome tray icon</title>
+  <mask id="aqbot-a-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+    <rect width="512" height="512" fill="#fff" />
+    <path d="M252 111 139 400" fill="none" stroke="#000" stroke-width="41" stroke-linecap="round" />
+    <path d="M290 189.5 371 399.5" fill="none" stroke="#000" stroke-width="41" stroke-linecap="round" />
+    <path d="M211 366.5 C222 366.2 232 364.4 253 363 C268 362 280 362 290 362.5 C304 363 305 384.5 290 386.5 C275 387 253 386.5 232 384.5 C222 383.5 216 382.5 211 382.5 Z" fill="#000" transform="translate(255.5 375.25) scale(.99 .962) translate(-255 -374.5)" />
+    <path d="M309.5 110.5 C296 110.5 288 118 288 127 L288 136 C288 143 294 149 301 149 C307 150 315 150 321 149 C328 148 332 142 332 135 L332 127 C332 118 323 110.5 309.5 110.5 Z" fill="#000" />
+  </mask>
+  <circle cx="256" cy="256" r="256" fill="#000" mask="url(#aqbot-a-cutout)" />
+</svg>

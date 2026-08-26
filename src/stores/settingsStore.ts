@@ -104,6 +104,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   gateway_auto_model_routing: false,
   always_on_top: false,
   tray_enabled: true,
+  tray_icon_style: 'color',
   global_shortcuts_enabled: true,
   shortcut_registration_logs_enabled: false,
   shortcut_trigger_toast_enabled: false,

@@ -870,8 +870,6 @@ pub fn run() {
                 ),
             }
 
-            let tray_language = app_settings.language.clone();
-
             app.manage(AppState {
                 sea_db: db_handle.conn,
                 master_key,
@@ -1114,18 +1112,14 @@ pub fn run() {
                 });
             }
 
-            // Initialize system tray only when enabled. Menu refresh must not recreate it.
+            // Reconcile system tray once at startup using the persisted appearance.
             let handle = app.handle();
-            let tray_available = if app_settings.tray_enabled {
-                match tray::create_tray(handle, &tray_language) {
-                    Ok(()) => true,
-                    Err(e) => {
-                        tracing::warn!("Failed to create system tray: {}", e);
-                        false
-                    }
+            let tray_available = match tray::reconcile_tray(handle, &app_settings, None) {
+                Ok(()) => app_settings.tray_enabled && tray::tray_exists(handle),
+                Err(error) => {
+                    tracing::warn!("Failed to reconcile system tray at startup: {}", error);
+                    tray::tray_exists(handle)
                 }
-            } else {
-                false
             };
             handle
                 .state::<AppState>()

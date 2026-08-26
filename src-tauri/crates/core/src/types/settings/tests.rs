@@ -4,7 +4,7 @@ use super::{
     ModelCatalogSourcePreference, MultiModelExecutionMode, SelectionToolbarAiConfig,
     SelectionToolbarAppEntry, SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey,
     SelectionToolbarDisplayMode, SelectionToolbarSettings, SelectionToolbarTool,
-    SelectionToolbarTriggerMode, SettingsSidebarDensity, DEFAULT_EXPLAIN_PROMPT,
+    SelectionToolbarTriggerMode, SettingsSidebarDensity, TrayIconStyle, DEFAULT_EXPLAIN_PROMPT,
     DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
     DEFAULT_SELECTION_TOOLBAR_SHORTCUT, DEFAULT_TRANSLATE_PROMPT,
 };
@@ -33,6 +33,28 @@ fn context_strategy_uses_snake_case_and_defaults_to_raw_truncate() {
 fn release_webview_on_tray_defaults_to_disabled() {
     let settings = AppSettings::default();
     assert!(!settings.release_webview_on_tray);
+}
+
+#[test]
+fn tray_icon_style_defaults_to_color_and_roundtrips() {
+    let default_settings = AppSettings::default();
+    assert_eq!(default_settings.tray_icon_style, TrayIconStyle::Color);
+
+    let missing: AppSettings =
+        serde_json::from_value(json!({})).expect("missing tray icon style should deserialize");
+    assert_eq!(missing.tray_icon_style, TrayIconStyle::Color);
+
+    let monochrome: AppSettings = serde_json::from_value(json!({
+        "tray_icon_style": "monochrome"
+    }))
+    .expect("monochrome tray icon style should deserialize");
+    assert_eq!(monochrome.tray_icon_style, TrayIconStyle::Monochrome);
+    assert_eq!(
+        serde_json::to_value(monochrome.tray_icon_style).unwrap(),
+        json!("monochrome")
+    );
+
+    assert!(serde_json::from_value::<TrayIconStyle>(json!("invalid")).is_err());
 }
 
 #[test]

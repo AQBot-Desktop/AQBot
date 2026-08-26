@@ -1,12 +1,13 @@
 import type React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings } from '@/types';
 import { GeneralSettings } from '../GeneralSettings';
 
 const mocks = vi.hoisted(() => ({
   saveSettings: vi.fn(),
   invoke: vi.fn(),
+  messageWarning: vi.fn(),
 }));
 
 let settings: Partial<AppSettings> = {};
@@ -33,6 +34,11 @@ vi.mock('react-i18next', () => ({
         'settings.trayEnabled': '显示系统托盘',
         'settings.trayEnabledDesc': '关闭后完全不显示托盘图标',
         'settings.trayCreateFailed': '无法创建系统托盘',
+        'settings.trayIconStyle': '托盘图标样式',
+        'settings.trayIconStyleDesc': '仅影响 macOS 菜单栏图标',
+        'settings.trayIconStyleColor': '彩色',
+        'settings.trayIconStyleMonochrome': '单色',
+        'settings.trayIconUpdateFailed': '无法更新托盘图标',
         'settings.minimizeToTray': '关闭时最小化到托盘',
         'settings.releaseWebviewOnTray': '释放界面进程',
         'desktop.alwaysOnTop': '窗口置顶',
@@ -50,7 +56,7 @@ vi.mock('antd', () => {
   return {
     App: {
       useApp: () => ({
-        message: { warning: vi.fn(), success: vi.fn(), error: vi.fn() },
+        message: { warning: mocks.messageWarning, success: vi.fn(), error: vi.fn() },
       }),
     },
     Card: ({ children }: { children?: React.ReactNode }) => <section>{children}</section>,
@@ -114,13 +120,16 @@ vi.mock('../SettingsSelect', () => ({
     value,
     onChange,
     options,
+    disabled,
   }: {
     value?: string;
     onChange?: (value: string) => void;
     options: Array<{ label: React.ReactNode; value: string }>;
+    disabled?: boolean;
   }) => (
     <select
       aria-label={options.map((option) => option.value).join('-')}
+      disabled={disabled}
       value={value}
       onChange={(event) => onChange?.(event.target.value)}
     >
@@ -151,9 +160,16 @@ function minimizeToTraySwitch() {
   return within(row as HTMLElement).getByRole('switch');
 }
 
+function trayIconStyleSelect() {
+  return screen.getByRole('combobox', { name: 'color-monochrome' });
+}
+
 describe('GeneralSettings', () => {
+  let platformSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    platformSpy = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
     mocks.invoke.mockResolvedValue(undefined);
     mocks.saveSettings.mockResolvedValue([]);
     settings = {
@@ -161,11 +177,16 @@ describe('GeneralSettings', () => {
       show_on_start: true,
       minimize_to_tray: true,
       tray_enabled: true,
+      tray_icon_style: 'color',
       always_on_top: false,
       start_minimized: false,
       release_webview_on_tray: false,
       model_catalog_source: 'builtin',
     };
+  });
+
+  afterEach(() => {
+    platformSpy.mockRestore();
   });
 
   it('renders the release-webview setting disabled by default state false', () => {
@@ -231,5 +252,45 @@ describe('GeneralSettings', () => {
     expect(releaseWebviewSwitch()).toBeDisabled();
     fireEvent.click(trayEnabledSwitch());
     expect(mocks.saveSettings).toHaveBeenCalledWith({ tray_enabled: true });
+  });
+
+  it('shows the macOS tray icon style and saves monochrome selection', () => {
+    render(<GeneralSettings />);
+
+    const select = trayIconStyleSelect();
+    expect(select).toHaveValue('color');
+
+    fireEvent.change(select, { target: { value: 'monochrome' } });
+
+    expect(mocks.saveSettings).toHaveBeenCalledWith({ tray_icon_style: 'monochrome' });
+  });
+
+  it('hides the tray icon style outside macOS', () => {
+    platformSpy.mockReturnValue('Win32');
+
+    render(<GeneralSettings />);
+
+    expect(screen.queryByText('托盘图标样式')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'color-monochrome' })).not.toBeInTheDocument();
+  });
+
+  it('disables the tray icon style while the tray is hidden', () => {
+    settings = { ...settings, tray_enabled: false, tray_icon_style: 'monochrome' };
+
+    render(<GeneralSettings />);
+
+    expect(trayIconStyleSelect()).toBeDisabled();
+    expect(trayIconStyleSelect()).toHaveValue('monochrome');
+  });
+
+  it('warns when the native tray icon cannot be updated', async () => {
+    mocks.saveSettings.mockResolvedValueOnce(['tray_icon_update_failed']);
+    render(<GeneralSettings />);
+
+    fireEvent.change(trayIconStyleSelect(), { target: { value: 'monochrome' } });
+
+    await waitFor(() => {
+      expect(mocks.messageWarning).toHaveBeenCalledWith('无法更新托盘图标');
+    });
   });
 });

@@ -538,6 +538,14 @@ pub enum SettingsSidebarDensity {
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum TrayIconStyle {
+    #[default]
+    Color,
+    Monochrome,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum MultiModelExecutionMode {
     #[default]
     Parallel,
@@ -648,6 +656,8 @@ pub struct AppSettings {
     pub gateway_auto_model_routing: bool,
     pub always_on_top: bool,
     pub tray_enabled: bool,
+    /// macOS menu-bar icon appearance. Other platforms always use the color icon.
+    pub tray_icon_style: TrayIconStyle,
     pub global_shortcuts_enabled: bool,
     pub shortcut_registration_logs_enabled: bool,
     pub shortcut_trigger_toast_enabled: bool,
@@ -821,6 +831,7 @@ impl Default for AppSettings {
             gateway_auto_model_routing: false,
             always_on_top: false,
             tray_enabled: true,
+            tray_icon_style: TrayIconStyle::Color,
             global_shortcuts_enabled: true,
             shortcut_registration_logs_enabled: false,
             shortcut_trigger_toast_enabled: false,

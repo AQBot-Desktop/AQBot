@@ -84,15 +84,32 @@ pub async fn save_settings(
 
     let app_state = app.state::<AppState>();
     let mut warnings = Vec::new();
-    let tray_available = match crate::tray::reconcile_tray(&app, &settings) {
-        Ok(()) => settings.tray_enabled,
-        Err(_) => {
-            warnings.push("tray_create_failed".to_string());
-            false
+    let tray_available = match crate::tray::reconcile_tray(
+        &app,
+        &settings,
+        Some(observed_settings.tray_icon_style),
+    ) {
+        Ok(()) => settings.tray_enabled && crate::tray::tray_exists(&app),
+        Err(error) => {
+            tracing::warn!(error = %error, "Failed to reconcile system tray after settings save");
+            let still_available = crate::tray::tray_exists(&app);
+            warnings.push(
+                if still_available {
+                    "tray_icon_update_failed"
+                } else {
+                    "tray_create_failed"
+                }
+                .to_string(),
+            );
+            still_available
         }
     };
-    app_state.tray_enabled.store(settings.tray_enabled, Ordering::Relaxed);
-    app_state.tray_available.store(tray_available, Ordering::Relaxed);
+    app_state
+        .tray_enabled
+        .store(settings.tray_enabled, Ordering::Relaxed);
+    app_state
+        .tray_available
+        .store(tray_available, Ordering::Relaxed);
     app_state
         .close_to_tray
         .store(settings.minimize_to_tray, Ordering::Relaxed);

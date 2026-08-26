@@ -558,6 +558,7 @@ const DEFAULT_SETTINGS = {
   language: 'zh-CN',
   minimize_to_tray: true,
   tray_enabled: true,
+  tray_icon_style: 'color',
   release_webview_on_tray: false,
   multi_model_execution_mode: 'parallel',
   multi_model_sequential_interval_seconds: 3,

@@ -743,6 +743,7 @@ export type AgentWorkspaceNameStrategy =
   | 'created_datetime';
 export type ChatMessageAreaStyle = 'none' | 'background' | 'border';
 export type SettingsSidebarDensity = 'compact' | 'standard' | 'spacious';
+export type TrayIconStyle = 'color' | 'monochrome';
 
 /** Toggleable title bar action icons (settings is always visible). */
 export type TitlebarIconId =
@@ -847,6 +848,8 @@ export interface AppSettings {
   // Desktop integration
   always_on_top?: boolean;
   tray_enabled?: boolean;
+  /** macOS menu-bar icon appearance. Ignored on Windows and Linux. */
+  tray_icon_style: TrayIconStyle;
   global_shortcuts_enabled?: boolean;
   shortcut_registration_logs_enabled?: boolean;
   shortcut_trigger_toast_enabled?: boolean;
