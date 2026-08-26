@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { App, Badge, Dropdown, Tooltip, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import { ChevronLeft, ChevronRight, Pin, Plus, X } from 'lucide-react';
@@ -17,6 +17,20 @@ import { useConversationStore } from '@/stores/conversationStore';
 import { useConversationTabsStore } from '@/stores/conversationTabsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { Conversation } from '@/types';
+
+const HOVER_CLASS = 'is-hovered';
+
+function paintHover(
+  event: MouseEvent<HTMLElement>,
+  hovered: boolean,
+  rest: { background: string; color?: string },
+  hover: { background: string; color?: string },
+) {
+  event.currentTarget.classList.toggle(HOVER_CLASS, hovered);
+  const next = hovered ? hover : rest;
+  event.currentTarget.style.backgroundColor = next.background;
+  if (next.color) event.currentTarget.style.color = next.color;
+}
 
 function tabOffsetInScroller(scroller: HTMLElement, tab: HTMLElement) {
   const scrollerRect = scroller.getBoundingClientRect();
@@ -238,6 +252,44 @@ export function ConversationTabBar() {
     flexShrink: 0,
   };
 
+  const iconHoverHandlers = {
+    onMouseEnter: (event: MouseEvent<HTMLElement>) => {
+      paintHover(
+        event,
+        true,
+        { background: 'transparent', color: token.colorTextSecondary },
+        { background: token.colorFillSecondary, color: token.colorTextBase },
+      );
+    },
+    onMouseLeave: (event: MouseEvent<HTMLElement>) => {
+      paintHover(
+        event,
+        false,
+        { background: 'transparent', color: token.colorTextSecondary },
+        { background: token.colorFillSecondary, color: token.colorTextBase },
+      );
+    },
+  };
+
+  const tabHoverHandlers = (selected: boolean) => ({
+    onMouseEnter: (event: MouseEvent<HTMLElement>) => {
+      paintHover(
+        event,
+        true,
+        { background: selected ? token.colorPrimaryBg : 'transparent' },
+        { background: selected ? (token.colorPrimaryBgHover ?? token.colorPrimaryBg) : token.colorFillTertiary },
+      );
+    },
+    onMouseLeave: (event: MouseEvent<HTMLElement>) => {
+      paintHover(
+        event,
+        false,
+        { background: selected ? token.colorPrimaryBg : 'transparent' },
+        { background: selected ? (token.colorPrimaryBgHover ?? token.colorPrimaryBg) : token.colorFillTertiary },
+      );
+    },
+  });
+
   const activateOverflowTab = useCallback((id: string) => {
     setActiveConversation(id);
     const tab = scrollerRef.current?.querySelector<HTMLElement>(`[data-conversation-tab="${id}"]`);
@@ -262,13 +314,14 @@ export function ConversationTabBar() {
         <Badge count={ids.length} size="small" offset={[-1, 1]}>
           <button
             type="button"
-            className="title-bar-nodrag"
+            className="conversation-tab-icon title-bar-nodrag"
             aria-label={`${label} (${ids.length})`}
             style={buttonStyle}
             onClick={(event) => {
               event.stopPropagation();
               scrollByPage(side === 'left' ? -1 : 1);
             }}
+            {...iconHoverHandlers}
           >
             {side === 'left' ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
           </button>
@@ -291,6 +344,15 @@ export function ConversationTabBar() {
         paddingLeft: 8,
         paddingRight: 8,
         boxSizing: 'border-box',
+        ['--conversation-tab-hover-bg' as string]: token.colorFillTertiary,
+        ['--conversation-tab-icon-hover-bg' as string]: token.colorFillSecondary,
+        ['--conversation-tab-active-bg' as string]: token.colorPrimaryBg,
+        ['--conversation-tab-active-hover-bg' as string]: token.colorPrimaryBgHover ?? token.colorPrimaryBg,
+        ['--conversation-tab-border' as string]: token.colorBorderSecondary,
+        ['--conversation-tab-active-border' as string]: token.colorPrimaryBorder,
+        ['--conversation-tab-color' as string]: token.colorText,
+        ['--conversation-tab-active-color' as string]: token.colorPrimary,
+        ['--conversation-tab-icon-hover-color' as string]: token.colorTextBase,
       }}
     >
       {renderOverflowControl('left', overflow.leftIds)}
@@ -376,6 +438,7 @@ export function ConversationTabBar() {
                 title={conversation.title}
                 onClick={() => setActiveConversation(conversation.id)}
                 onKeyDown={(event) => handleTabKeyDown(event, conversation.id)}
+                {...tabHoverHandlers(selected)}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -386,11 +449,11 @@ export function ConversationTabBar() {
                   padding: '0 8px',
                   marginInlineEnd: 4,
                   borderRadius: 6,
-                  border: `1px solid ${selected ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
-                  background: selected ? token.colorPrimaryBg : 'transparent',
-                  color: selected ? token.colorPrimary : token.colorText,
                   cursor: 'pointer',
                   flexShrink: 0,
+                  background: selected ? token.colorPrimaryBg : 'transparent',
+                  border: `1px solid ${selected ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+                  color: selected ? token.colorPrimary : token.colorText,
                 }}
               >
                 <ConversationIcon
@@ -420,16 +483,18 @@ export function ConversationTabBar() {
                 <button
                   type="button"
                   aria-label={t('titlebar.closeTab')}
-                  className="conversation-tab-close"
+                  className="conversation-tab-close title-bar-nodrag"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     void handleClose(conversation.id);
                   }}
+                  {...iconHoverHandlers}
                   style={{
                     ...buttonStyle,
                     width: 16,
                     height: 16,
+                    borderRadius: '50%',
                     opacity: selected ? 1 : 0.7,
                   }}
                 >
@@ -443,11 +508,12 @@ export function ConversationTabBar() {
       <Tooltip title={newConversationTooltip}>
         <button
           type="button"
-          className="conversation-tab-new title-bar-nodrag"
+          className="conversation-tab-new conversation-tab-icon title-bar-nodrag"
           aria-label={newConversationLabel}
           onClick={handleNewConversation}
           onMouseDown={(event) => event.stopPropagation()}
           style={buttonStyle}
+          {...iconHoverHandlers}
         >
           <Plus size={14} />
         </button>

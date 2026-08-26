@@ -224,6 +224,52 @@ describe('ConversationTabBar', () => {
     expect(useConversationStore.getState().setActiveConversation).toHaveBeenCalledWith('gamma');
   });
 
+  it('applies a hover class to tabs, plus, close, and overflow chevrons', async () => {
+    const { container } = renderBar();
+    const inactive = screen.getByRole('tab', { name: /Gamma chat/ });
+    fireEvent.mouseEnter(inactive);
+    expect(inactive).toHaveClass('is-hovered');
+    expect(inactive.style.backgroundColor).not.toBe('transparent');
+    fireEvent.mouseLeave(inactive);
+    expect(inactive).not.toHaveClass('is-hovered');
+    expect(inactive.style.backgroundColor).toBe('transparent');
+
+    const plus = screen.getByRole('button', { name: 'titlebar.newConversation' });
+    fireEvent.mouseEnter(plus);
+    expect(plus).toHaveClass('is-hovered');
+    expect(plus.style.backgroundColor).not.toBe('transparent');
+    fireEvent.mouseLeave(plus);
+    expect(plus).not.toHaveClass('is-hovered');
+    expect(plus.style.backgroundColor).toBe('transparent');
+
+    const close = screen.getByRole('tab', { name: /Alpha chat/ }).querySelector('button') as HTMLButtonElement;
+    fireEvent.mouseEnter(close);
+    expect(close).toHaveClass('is-hovered');
+    expect(close.style.backgroundColor).not.toBe('transparent');
+    fireEvent.mouseLeave(close);
+    expect(close).not.toHaveClass('is-hovered');
+    expect(close.style.backgroundColor).toBe('transparent');
+
+    const scroller = container.querySelector('.conversation-tab-scroller') as HTMLDivElement;
+    mockScrollerLayout(scroller, {
+      clientWidth: 150,
+      scrollWidth: 400,
+      tabs: [
+        { id: 'beta', left: 0, width: 80 },
+        { id: 'alpha', left: 84, width: 80 },
+        { id: 'gamma', left: 300, width: 80 },
+      ],
+    });
+    fireEvent.scroll(scroller);
+    const overflow = await screen.findByRole('button', { name: /titlebar.hiddenTabsRight/ });
+    fireEvent.mouseEnter(overflow);
+    expect(overflow).toHaveClass('is-hovered');
+    expect(overflow.style.backgroundColor).not.toBe('transparent');
+    fireEvent.mouseLeave(overflow);
+    expect(overflow).not.toHaveClass('is-hovered');
+    expect(overflow.style.backgroundColor).toBe('transparent');
+  });
+
   it('keeps the plus button when no conversation tabs are open', () => {
     useConversationTabsStore.setState({
       ...EMPTY_CONVERSATION_TABS,

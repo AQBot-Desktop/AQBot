@@ -450,7 +450,8 @@ svg.lucide {
 .title-bar-drag button,
 .title-bar-drag .ant-dropdown-trigger,
 .title-bar-drag .conversation-tab,
-.title-bar-drag .conversation-tab-new {
+.title-bar-drag .conversation-tab-new,
+.title-bar-drag .conversation-tab-icon {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -461,6 +462,47 @@ svg.lucide {
 
 .conversation-tab-scroller::-webkit-scrollbar {
   display: none;
+}
+
+.conversation-tab {
+  background: transparent;
+  border: 1px solid var(--conversation-tab-border, var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06)));
+  color: var(--conversation-tab-color, inherit);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.conversation-tab:hover,
+.conversation-tab.is-hovered {
+  background: var(--conversation-tab-hover-bg, var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04)));
+}
+.conversation-tab.is-active {
+  background: var(--conversation-tab-active-bg, var(--ant-color-primary-bg, #e6f4ff));
+  border-color: var(--conversation-tab-active-border, var(--ant-color-primary-border, #91caff));
+  color: var(--conversation-tab-active-color, var(--ant-color-primary, #1677ff));
+}
+.conversation-tab.is-active:hover,
+.conversation-tab.is-active.is-hovered {
+  background: var(--conversation-tab-active-hover-bg, var(--conversation-tab-active-bg, #bae0ff));
+}
+
+.conversation-tab-icon,
+.conversation-tab-new,
+.conversation-tab-close {
+  background: transparent;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.conversation-tab-icon:hover,
+.conversation-tab-icon.is-hovered,
+.conversation-tab-new:hover,
+.conversation-tab-new.is-hovered,
+.conversation-tab-close:hover,
+.conversation-tab-close.is-hovered {
+  background: var(--conversation-tab-icon-hover-bg, var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06))) !important;
+  color: var(--conversation-tab-icon-hover-color, inherit);
 }
 
 .conversation-tab:focus-visible {
