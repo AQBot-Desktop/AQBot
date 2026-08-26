@@ -48,10 +48,14 @@ pub struct AppState {
     pub selection_toolbar: Arc<selection_toolbar::SelectionToolbarRuntime>,
     /// Tray actions that must survive main-window webview destroy/restore.
     pub pending_tray_action: Arc<std::sync::Mutex<Option<tray::PendingTrayAction>>>,
+    pub multi_model_runs: Arc<multi_model_run::MultiModelRunManager>,
+    pub tray_enabled: Arc<AtomicBool>,
+    pub tray_available: Arc<AtomicBool>,
 }
 
 mod commands;
 mod context_manager;
+pub mod multi_model_run;
 mod conversation_popout;
 mod crash_diagnostics;
 mod diagnostic_log;
@@ -302,6 +306,10 @@ pub fn run() {
         commands::conversations::list_archived_conversations,
         commands::conversations::regenerate_message,
         commands::conversations::regenerate_with_model,
+        commands::conversations::start_multi_model_run,
+        commands::conversations::get_multi_model_run_snapshot,
+        commands::conversations::skip_multi_model_target,
+        commands::conversations::stop_multi_model_run,
         commands::conversations::cancel_stream,
         commands::conversations::list_message_versions,
         commands::conversations::list_message_versions_batch,
@@ -896,6 +904,9 @@ pub fn run() {
                 agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 selection_toolbar: Arc::new(selection_toolbar::SelectionToolbarRuntime::new()),
                 pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
+                multi_model_runs: Arc::new(multi_model_run::MultiModelRunManager::new()),
+                tray_enabled: Arc::new(AtomicBool::new(app_settings.tray_enabled)),
+                tray_available: Arc::new(AtomicBool::new(false)),
             });
 
             {
@@ -1103,11 +1114,23 @@ pub fn run() {
                 });
             }
 
-            // Initialize system tray
+            // Initialize system tray only when enabled. Menu refresh must not recreate it.
             let handle = app.handle();
-            if let Err(e) = tray::create_tray(handle, &tray_language) {
-                tracing::warn!("Failed to create system tray: {}", e);
-            }
+            let tray_available = if app_settings.tray_enabled {
+                match tray::create_tray(handle, &tray_language) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!("Failed to create system tray: {}", e);
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+            handle
+                .state::<AppState>()
+                .tray_available
+                .store(tray_available, Ordering::Relaxed);
 
             Ok(())
         });
@@ -1158,7 +1181,12 @@ pub fn run() {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     let app = window.app_handle();
                     let state = app.state::<AppState>();
-                    if state.close_to_tray.load(Ordering::Relaxed) {
+                    let close_to_tray = window_lifecycle::effective_close_to_tray(
+                        state.tray_enabled.load(Ordering::Relaxed),
+                        state.tray_available.load(Ordering::Relaxed),
+                        state.close_to_tray.load(Ordering::Relaxed),
+                    );
+                    if close_to_tray {
                         let _ = window_lifecycle::release_main_window_to_tray(window);
                         api.prevent_close();
                     } else {

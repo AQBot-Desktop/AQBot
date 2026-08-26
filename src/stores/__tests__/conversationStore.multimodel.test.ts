@@ -129,6 +129,28 @@ describe('conversationStore multi-model messages', () => {
     const reload = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_message_versions_batch') return reload.promise;
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const [{ useConversationStore, hasAuthoritativeMessageVersionSnapshot }, { selectRenderableVersionSet }] = await Promise.all([
@@ -172,6 +194,28 @@ describe('conversationStore multi-model messages', () => {
     const staleRequest = deferred<Record<string, ReturnType<typeof makeMessage>[]>>();
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_message_versions_batch') return staleRequest.promise;
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -212,7 +256,29 @@ describe('conversationStore multi-model messages', () => {
     let requestCount = 0;
     invokeMock.mockImplementation((command: string) => {
       if (command !== 'list_message_versions_batch') {
-        throw new Error(`unexpected command: ${command}`);
+        if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
+      throw new Error(`unexpected command: ${command}`);
       }
       requestCount += 1;
       return requestCount === 1 ? staleRequest.promise : freshRequest.promise;
@@ -261,6 +327,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'list_message_versions_batch') {
         refreshCount += 1;
         return refreshCount === 1 ? staleRefresh.promise : freshRefresh.promise;
+      }
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
       }
       throw new Error(`unexpected command: ${command}`);
     });
@@ -343,6 +431,28 @@ describe('conversationStore multi-model messages', () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_messages_page') {
         return Promise.resolve(makePage([user, activeA], false));
+      }
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
       }
       throw new Error(`unexpected command: ${command}`);
     });
@@ -477,6 +587,28 @@ describe('conversationStore multi-model messages', () => {
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'send_message') return Promise.resolve(user);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -541,6 +673,28 @@ describe('conversationStore multi-model messages', () => {
       }
       if (command === 'cancel_stream') return Promise.resolve(undefined);
       if (command === 'list_messages_page') return Promise.resolve(makePage([user, firstVersion], false));
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -560,25 +714,15 @@ describe('conversationStore multi-model messages', () => {
     });
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith('send_message', expect.objectContaining({
+    expect(invokeMock).toHaveBeenCalledWith('start_multi_model_run', expect.objectContaining({
       historyMode: 'per_model',
-    }));
-    expect(invokeMock).toHaveBeenCalledWith('regenerate_with_model', expect.objectContaining({
-      targetProviderId: 'provider-b',
-      targetModelId: 'shared-model',
-      historyMode: 'per_model',
-      isCompanion: true,
-      targetVersionIndex: 1,
+      targets: [
+        { providerId: 'provider-a', modelId: 'shared-model' },
+        { providerId: 'provider-b', modelId: 'shared-model' },
+      ],
     }));
     const streamingState = useConversationStore.getState();
     expect(streamingState.multiModelParentId).toBe(user.id);
-    expect(streamingState.streamingMessageId).toBe(firstVersion.id);
-    expect(streamingState.messages.find((message) => message.id === firstVersion.id))
-      .toMatchObject({
-        parent_message_id: user.id,
-        provider_id: 'provider-a',
-        model_id: 'shared-model',
-      });
 
     useConversationStore.getState().cancelCurrentStream();
     await pending;
@@ -608,6 +752,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'regenerate_with_model') return Promise.resolve(undefined);
       if (command === 'list_message_versions') return Promise.resolve([]);
       if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -627,18 +793,12 @@ describe('conversationStore multi-model messages', () => {
     await flushPromises();
 
     const optimisticState = useConversationStore.getState();
-    const optimisticUser = optimisticState.messages.find((message) => message.role === 'user');
-    const placeholder = optimisticState.messages.find((message) => message.role === 'assistant');
-    expect(optimisticUser?.id).toMatch(/^temp-user-/);
-    expect(optimisticState.multiModelParentId).toBe(optimisticUser?.id);
-    expect(placeholder?.parent_message_id).toBe(optimisticUser?.id);
+    expect(invokeMock).toHaveBeenCalledWith('start_multi_model_run', expect.objectContaining({
+      conversationId: conversation.id,
+      content: persistedUser.content,
+    }));
+    expect(optimisticState.multiModelParentId).toBe('user-1');
 
-    sendMessage.resolve(persistedUser);
-    await flushPromises();
-    const persistedState = useConversationStore.getState();
-    expect(persistedState.multiModelParentId).toBe(persistedUser.id);
-    expect(persistedState.messages.find((message) => message.role === 'assistant')?.parent_message_id)
-      .toBe(persistedUser.id);
     useConversationStore.getState().cancelCurrentStream();
     await pending;
   });
@@ -671,6 +831,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'regenerate_with_model') return Promise.resolve(undefined);
       if (command === 'list_message_versions') return Promise.resolve([]);
       if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -714,7 +896,7 @@ describe('conversationStore multi-model messages', () => {
     sendMessage.resolve(persistedUser);
     await flushPromises();
     expect(useConversationStore.getState().messages.find((message) => message.id === 'assistant-fast'))
-      .toMatchObject({ parent_message_id: persistedUser.id, status: 'complete' });
+      .toMatchObject({ parent_message_id: optimisticParentId, status: 'complete' });
 
     useConversationStore.getState().cancelCurrentStream();
     await pending;
@@ -744,6 +926,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'list_messages_page') return Promise.resolve(makePage([persistedUser], false));
       if (command === 'regenerate_with_model') return Promise.resolve(undefined);
       if (command === 'list_message_versions') return Promise.resolve([]);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -795,6 +999,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'regenerate_with_model') return Promise.resolve(undefined);
       if (command === 'list_message_versions') return Promise.resolve([]);
       if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -852,6 +1078,28 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'list_message_versions') return Promise.resolve([]);
       if (command === 'list_messages_page') return Promise.resolve(makePage([firstUser], false));
       if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: 'user-1',
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
       throw new Error(`unexpected command: ${command}`);
     });
     const { useConversationStore } = await import('../conversationStore');
@@ -880,7 +1128,7 @@ describe('conversationStore multi-model messages', () => {
     });
     await flushPromises();
     const nextOptimisticParentId = useConversationStore.getState().multiModelParentId;
-    expect(nextOptimisticParentId).toMatch(/^temp-user-/);
+    expect(nextOptimisticParentId).toBe('user-1');
 
     restore.resolve(conversation);
     await flushPromises();

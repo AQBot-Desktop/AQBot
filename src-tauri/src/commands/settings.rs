@@ -26,13 +26,28 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
     Ok(settings)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSettingsResult {
+    pub saved: bool,
+    pub warnings: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     mut settings: AppSettings,
-) -> Result<(), String> {
+) -> Result<SaveSettingsResult, String> {
     settings.selection_toolbar.validate()?;
+    if settings.multi_model_sequential_interval_seconds
+        > aqbot_core::types::MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
+    {
+        return Err(format!(
+            "multi_model_sequential_interval_seconds must be 0..={}",
+            aqbot_core::types::MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
+        ));
+    }
     let observed_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .map_err(|e| e.to_string())?;
@@ -68,6 +83,16 @@ pub async fn save_settings(
     drop(acp_guard);
 
     let app_state = app.state::<AppState>();
+    let mut warnings = Vec::new();
+    let tray_available = match crate::tray::reconcile_tray(&app, &settings) {
+        Ok(()) => settings.tray_enabled,
+        Err(_) => {
+            warnings.push("tray_create_failed".to_string());
+            false
+        }
+    };
+    app_state.tray_enabled.store(settings.tray_enabled, Ordering::Relaxed);
+    app_state.tray_available.store(tray_available, Ordering::Relaxed);
     app_state
         .close_to_tray
         .store(settings.minimize_to_tray, Ordering::Relaxed);
@@ -76,8 +101,13 @@ pub async fn save_settings(
         .store(settings.release_webview_on_tray, Ordering::Relaxed);
     app_state.selection_toolbar.reconcile(&app, &settings).await;
 
-    crate::tray::sync_tray_language(&app, &settings.language).map_err(|e| e.to_string())?;
-    Ok(())
+    if tray_available {
+        crate::tray::sync_tray_language(&app, &settings.language).map_err(|e| e.to_string())?;
+    }
+    Ok(SaveSettingsResult {
+        saved: true,
+        warnings,
+    })
 }
 
 #[cfg(test)]

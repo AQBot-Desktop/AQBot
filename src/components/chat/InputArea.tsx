@@ -24,6 +24,10 @@ import {
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import { getModelVersionGroupKey } from '@/lib/chatMultiModel';
 import { normalizeMultiModelContinuationMode } from '@/lib/multiModelContinuation';
+import {
+  normalizeMultiModelExecutionMode,
+  normalizeMultiModelSequentialInterval,
+} from '@/lib/multiModelExecution';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
@@ -100,6 +104,8 @@ export function InputArea() {
 
   const [multiModelOpen, setMultiModelOpen] = useState(false);
   const sendMultiModelMessage = useConversationStore((s) => s.sendMultiModelMessage);
+  const skipCurrentMultiModelTarget = useConversationStore((s) => s.skipCurrentMultiModelTarget);
+  const multiModelRun = useConversationStore((s) => s.multiModelRun);
   const companionModels = useConversationStore((s) => s.multiModelTargets);
   const setMultiModelTargets = useConversationStore((s) => s.setMultiModelTargets);
   const multiModelHistoryMode = useConversationStore((s) => s.multiModelContinuationMode);
@@ -1522,6 +1528,19 @@ export function InputArea() {
             >
               {t('chat.multiModel.selectTitle')}:
             </span>
+            <span
+              className="inline-flex items-center px-2 py-0.5 text-xs"
+              style={{ color: token.colorTextSecondary, backgroundColor: token.colorFillSecondary, borderRadius: token.borderRadiusSM }}
+            >
+              {normalizeMultiModelExecutionMode(settings.multi_model_execution_mode) === 'sequential'
+                ? t('chat.multiModel.executionBadgeSequential')
+                : t('chat.multiModel.executionBadgeParallel')}
+              {normalizeMultiModelExecutionMode(settings.multi_model_execution_mode) === 'sequential' && (
+                <> · {t('chat.multiModel.intervalBadge', {
+                  seconds: normalizeMultiModelSequentialInterval(settings.multi_model_sequential_interval_seconds),
+                })}</>
+              )}
+            </span>
             {companionDisplayInfos.map((cm, idx) => (
               <span
                 key={getModelVersionGroupKey(cm.providerId, cm.modelId)}
@@ -1533,6 +1552,40 @@ export function InputArea() {
                   color: token.colorText,
                 }}
               >
+                <span style={{
+                  minWidth: 16,
+                  textAlign: 'center',
+                  color: token.colorPrimary,
+                  fontWeight: 600,
+                }}>{idx + 1}</span>
+                <button
+                  type="button"
+                  aria-label={t('chat.multiModel.moveUp')}
+                  disabled={idx === 0}
+                  onClick={() => {
+                    if (idx === 0) return;
+                    const next = [...companionModels];
+                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                    setMultiModelTargets(next);
+                  }}
+                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: idx === 0 ? 'default' : 'pointer', color: token.colorTextTertiary }}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('chat.multiModel.moveDown')}
+                  disabled={idx === companionModels.length - 1}
+                  onClick={() => {
+                    if (idx === companionModels.length - 1) return;
+                    const next = [...companionModels];
+                    [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                    setMultiModelTargets(next);
+                  }}
+                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: idx === companionModels.length - 1 ? 'default' : 'pointer', color: token.colorTextTertiary }}
+                >
+                  ↓
+                </button>
                 <ModelIcon model={cm.modelId} size={14} type="avatar" />
                 <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {cm.modelName}
@@ -1553,6 +1606,13 @@ export function InputArea() {
             {hasUnavailableCompanionModels && (
               <span style={{ color: token.colorWarning, fontSize: 12 }}>
                 {t('chat.multiModel.unavailableModel')}
+              </span>
+            )}
+            {multiModelRun?.phase === 'waiting' && multiModelRun.nextStartAt != null && (
+              <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+                {t('chat.multiModel.waitingNext', {
+                  seconds: Math.max(0, Math.ceil((multiModelRun.nextStartAt - Date.now()) / 1000)),
+                })}
               </span>
             )}
             {companionModels.length >= 2 && (
@@ -1894,13 +1954,31 @@ export function InputArea() {
             style={{ zoom: inputActionsScale }}
           >
             {streaming ? (
-              <Button
-                shape="circle"
-                size="small"
-                danger
-                icon={<Square size={14} />}
-                onClick={handleCancel}
-              />
+              <>
+                {multiModelRun?.mode === 'sequential'
+                  && (multiModelRun.phase === 'running' || multiModelRun.phase === 'starting') && (
+                  <Tooltip title={t('chat.multiModel.skipCurrent')}>
+                    <Button
+                      shape="round"
+                      size="small"
+                      aria-label={t('chat.multiModel.skipCurrent')}
+                      onClick={() => { void skipCurrentMultiModelTarget(); }}
+                    >
+                      {t('chat.multiModel.skipCurrent')}
+                    </Button>
+                  </Tooltip>
+                )}
+                <Tooltip title={multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop')}>
+                  <Button
+                    shape="circle"
+                    size="small"
+                    danger
+                    aria-label={multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop')}
+                    icon={<Square size={14} />}
+                    onClick={handleCancel}
+                  />
+                </Tooltip>
+              </>
             ) : (
               <Button
                 type="primary"

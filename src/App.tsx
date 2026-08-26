@@ -262,6 +262,7 @@ function AppRoot() {
           alwaysOnTop: settings.always_on_top ?? false,
           closeToTray: isPopout ? false : (settings.minimize_to_tray ?? false),
           releaseWebviewOnTray: isPopout ? false : (settings.release_webview_on_tray ?? false),
+          trayEnabled: isPopout ? false : (settings.tray_enabled ?? true),
         });
       } catch (e) {
         console.warn('Failed to apply native settings:', e);

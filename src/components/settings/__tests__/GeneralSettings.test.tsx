@@ -30,6 +30,9 @@ vi.mock('react-i18next', () => ({
         'settings.autoStart': '开机自启动',
         'settings.showOnStart': '启动时显示窗口',
         'settings.groupTray': '托盘',
+        'settings.trayEnabled': '显示系统托盘',
+        'settings.trayEnabledDesc': '关闭后完全不显示托盘图标',
+        'settings.trayCreateFailed': '无法创建系统托盘',
         'settings.minimizeToTray': '关闭时最小化到托盘',
         'settings.releaseWebviewOnTray': '释放界面进程',
         'desktop.alwaysOnTop': '窗口置顶',
@@ -45,6 +48,11 @@ vi.mock('antd', () => {
   Input.TextArea = () => null;
 
   return {
+    App: {
+      useApp: () => ({
+        message: { warning: vi.fn(), success: vi.fn(), error: vi.fn() },
+      }),
+    },
     Card: ({ children }: { children?: React.ReactNode }) => <section>{children}</section>,
     Divider: () => <hr />,
     Dropdown: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -131,14 +139,28 @@ function releaseWebviewSwitch() {
   return within(row as HTMLElement).getByRole('switch');
 }
 
+function trayEnabledSwitch() {
+  const row = screen.getByText('显示系统托盘').parentElement?.parentElement;
+  expect(row).not.toBeNull();
+  return within(row as HTMLElement).getByRole('switch');
+}
+
+function minimizeToTraySwitch() {
+  const row = screen.getByText('关闭时最小化到托盘').parentElement;
+  expect(row).not.toBeNull();
+  return within(row as HTMLElement).getByRole('switch');
+}
+
 describe('GeneralSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.invoke.mockResolvedValue(undefined);
+    mocks.saveSettings.mockResolvedValue([]);
     settings = {
       auto_start: false,
       show_on_start: true,
       minimize_to_tray: true,
+      tray_enabled: true,
       always_on_top: false,
       start_minimized: false,
       release_webview_on_tray: false,
@@ -193,5 +215,21 @@ describe('GeneralSettings', () => {
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       model_catalog_source: 'online',
     });
+  });
+
+  it('disables tray-dependent settings when the tray is hidden', () => {
+    settings = {
+      ...settings,
+      tray_enabled: false,
+      minimize_to_tray: true,
+      release_webview_on_tray: true,
+    };
+
+    render(<GeneralSettings />);
+
+    expect(minimizeToTraySwitch()).toBeDisabled();
+    expect(releaseWebviewSwitch()).toBeDisabled();
+    fireEvent.click(trayEnabledSwitch());
+    expect(mocks.saveSettings).toHaveBeenCalledWith({ tray_enabled: true });
   });
 });

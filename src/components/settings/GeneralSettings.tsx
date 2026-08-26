@@ -1,4 +1,4 @@
-import { Divider, Switch } from 'antd';
+import { Divider, Switch, App as AntdApp } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@/stores';
 import { isTauri, invoke } from '@/lib/invoke';
@@ -9,9 +9,17 @@ import { SettingsSelect } from './SettingsSelect';
 
 export function GeneralSettings() {
   const { t, i18n } = useTranslation();
+  const { message } = AntdApp.useApp();
   const inTauri = isTauri();
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
+
+  const persistSettings = async (partial: Parameters<typeof saveSettings>[0]) => {
+    const warnings = await saveSettings(partial);
+    if (warnings?.includes('tray_create_failed')) {
+      message.warning(t('settings.trayCreateFailed'));
+    }
+  };
 
   const handleLanguageChange = (language: string) => {
     i18n.changeLanguage(language);
@@ -125,10 +133,27 @@ export function GeneralSettings() {
 
       {/* Tray & Window */}
       <SettingsGroup title={t('settings.groupTray')}>
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div>
+            <div>{t('settings.trayEnabled')}</div>
+            <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
+              {t('settings.trayEnabledDesc')}
+            </div>
+          </div>
+          <Switch
+            checked={settings.tray_enabled ?? true}
+            onChange={(checked) => {
+              void persistSettings({ tray_enabled: checked });
+            }}
+            disabled={!inTauri}
+          />
+        </div>
+        <Divider style={{ margin: '4px 0' }} />
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.minimizeToTray')}</span>
           <Switch
             checked={settings.minimize_to_tray}
+            disabled={!inTauri || !(settings.tray_enabled ?? true)}
             onChange={(checked) => {
               saveSettings({ minimize_to_tray: checked });
               if (inTauri) {
@@ -141,8 +166,10 @@ export function GeneralSettings() {
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.releaseWebviewOnTray')}</span>
           <Switch
-            checked={settings.minimize_to_tray ? (settings.release_webview_on_tray ?? false) : false}
-            disabled={!inTauri || !settings.minimize_to_tray}
+            checked={(settings.tray_enabled ?? true) && settings.minimize_to_tray
+              ? (settings.release_webview_on_tray ?? false)
+              : false}
+            disabled={!inTauri || !(settings.tray_enabled ?? true) || !settings.minimize_to_tray}
             onChange={(checked) => {
               saveSettings({ release_webview_on_tray: checked });
               if (inTauri) {

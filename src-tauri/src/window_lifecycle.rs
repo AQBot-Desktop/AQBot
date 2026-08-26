@@ -166,7 +166,7 @@ pub fn restore_main_window(app: &tauri::AppHandle) {
 /// On macOS, a hidden window still keeps a Dock icon under the default
 /// `Regular` activation policy. Switching to `Accessory` removes the Dock
 /// icon while the process keeps running via the system tray.
-fn set_app_dock_visibility(app: &tauri::AppHandle, visible: bool) {
+pub(crate) fn set_app_dock_visibility(app: &tauri::AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
     {
         let policy = if visible {
@@ -256,14 +256,34 @@ fn create_main_window_from_config(app: &tauri::AppHandle) -> Result<WebviewWindo
     Ok(window)
 }
 
+pub(crate) fn effective_close_to_tray(
+    tray_enabled: bool,
+    tray_available: bool,
+    minimize_to_tray: bool,
+) -> bool {
+    tray_enabled && tray_available && minimize_to_tray
+}
+
+pub(crate) fn effective_release_webview(
+    tray_enabled: bool,
+    tray_available: bool,
+    minimize_to_tray: bool,
+    release_webview_on_tray: bool,
+) -> bool {
+    effective_close_to_tray(tray_enabled, tray_available, minimize_to_tray) && release_webview_on_tray
+}
+
 fn should_release_webview(app: &tauri::AppHandle) -> bool {
     let state = app.state::<AppState>();
-    should_release_webview_for_settings(
+    effective_release_webview(
+        state.tray_enabled.load(Ordering::Relaxed),
+        state.tray_available.load(Ordering::Relaxed),
         state.close_to_tray.load(Ordering::Relaxed),
         state.release_webview_on_tray.load(Ordering::Relaxed),
     )
 }
 
+#[cfg(test)]
 pub(crate) fn should_release_webview_for_settings(
     close_to_tray: bool,
     release_webview_on_tray: bool,
@@ -288,5 +308,16 @@ mod tests {
         assert!(!should_release_webview_for_settings(true, false));
         assert!(!should_release_webview_for_settings(false, true));
         assert!(!should_release_webview_for_settings(false, false));
+    }
+
+    #[test]
+    fn close_to_tray_requires_enabled_and_available_tray() {
+        assert!(super::effective_close_to_tray(true, true, true));
+        assert!(!super::effective_close_to_tray(false, true, true));
+        assert!(!super::effective_close_to_tray(true, false, true));
+        assert!(!super::effective_close_to_tray(true, true, false));
+        assert!(!super::effective_release_webview(true, true, true, false));
+        assert!(super::effective_release_webview(true, true, true, true));
+        assert!(!super::effective_release_webview(false, true, true, true));
     }
 }

@@ -48,11 +48,15 @@ pub async fn apply_startup_settings(
     always_on_top: bool,
     close_to_tray: bool,
     release_webview_on_tray: bool,
+    tray_enabled: Option<bool>,
 ) -> Result<(), String> {
     window
         .set_always_on_top(always_on_top)
         .map_err(|e| e.to_string())?;
     let state = app.state::<AppState>();
+    if let Some(tray_enabled) = tray_enabled {
+        state.tray_enabled.store(tray_enabled, Ordering::Relaxed);
+    }
     state.close_to_tray.store(close_to_tray, Ordering::Relaxed);
     state
         .release_webview_on_tray

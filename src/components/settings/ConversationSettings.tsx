@@ -15,6 +15,7 @@ import {
   type AgentWorkspaceNameStrategy,
   type ChatMessageAreaStyle,
   type MultiModelDisplayMode,
+  type MultiModelExecutionMode,
 } from '@/types';
 import {
   COMPRESSION_KEEP_LAST_N_MAX,
@@ -24,6 +25,10 @@ import {
   normalizeContextStrategy,
 } from '@/lib/contextStrategy';
 import { useSystemFonts } from '@/hooks/useSystemFonts';
+import {
+  normalizeMultiModelExecutionMode,
+  normalizeMultiModelSequentialInterval,
+} from '@/lib/multiModelExecution';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
 
@@ -458,6 +463,46 @@ export function ConversationSettings() {
               { label: t('settings.multiModelDisplayModeSideBySide'), value: 'side-by-side' },
               { label: t('settings.multiModelDisplayModeStacked'), value: 'stacked' },
             ]}
+          />
+        </div>
+        <Divider style={{ margin: '8px 0' }} />
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.multiModelExecutionMode')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t('settings.multiModelExecutionModeDesc')}
+            </div>
+          </div>
+          <SettingsSelect
+            value={normalizeMultiModelExecutionMode(settings.multi_model_execution_mode)}
+            onChange={(val) => saveSettings({
+              multi_model_execution_mode: val as MultiModelExecutionMode,
+            })}
+            options={[
+              { label: t('settings.multiModelExecutionModeParallel'), value: 'parallel' },
+              { label: t('settings.multiModelExecutionModeSequential'), value: 'sequential' },
+            ]}
+          />
+        </div>
+        <Divider style={{ margin: '8px 0' }} />
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.multiModelSequentialInterval')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t('settings.multiModelSequentialIntervalDesc')}
+            </div>
+          </div>
+          <InputNumber
+            min={0}
+            max={300}
+            aria-label={t('settings.multiModelSequentialInterval')}
+            disabled={normalizeMultiModelExecutionMode(settings.multi_model_execution_mode) === 'parallel'}
+            value={normalizeMultiModelSequentialInterval(settings.multi_model_sequential_interval_seconds)}
+            onChange={(value) => saveSettings({
+              multi_model_sequential_interval_seconds: normalizeMultiModelSequentialInterval(value),
+            })}
+            addonAfter="s"
+            style={{ width: 120 }}
           />
         </div>
       </SettingsGroup>

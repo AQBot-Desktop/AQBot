@@ -1,7 +1,7 @@
 // Message send and regeneration orchestration.
 
 /// Spawn the streaming background task shared by send_message and regenerate_message.
-/// Returns the assistant message_id that will be populated as chunks arrive.
+/// Returns an internal handle whose terminal fires after content is persisted and the stream guard is released.
 fn spawn_stream_task(
     app: tauri::AppHandle,
     db: sea_orm::DatabaseConnection,
@@ -36,11 +36,21 @@ fn spawn_stream_task(
     content_prefix: String,
     create_inactive: bool,
     skip_placeholder_create: bool,
-) {
+) -> crate::multi_model_run::StreamHandle {
     let model_id = conversation.model_id.clone();
     let mcp_stdio_clients = app.state::<AppState>().mcp_stdio_clients.clone();
+    let handle_stream_id = stream_id.clone();
+    let handle_message_id = assistant_message_id.clone();
+    let (terminal_tx, terminal_rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
+        let mut terminal_tx = Some(terminal_tx);
+        let send_terminal = |tx: &mut Option<tokio::sync::oneshot::Sender<crate::multi_model_run::StreamTerminal>>,
+                             terminal: crate::multi_model_run::StreamTerminal| {
+            if let Some(sender) = tx.take() {
+                let _ = sender.send(terminal);
+            }
+        };
         let effective_chat_params = resolve_chat_model_params(
             &conversation,
             model_param_overrides.as_ref(),
@@ -69,6 +79,12 @@ fn spawn_stream_task(
                     ),
                 );
                 stream_guard.release().await;
+                send_terminal(
+                    &mut terminal_tx,
+                    crate::multi_model_run::StreamTerminal::Error {
+                        message: format!("Unsupported provider type: {}", registry_key),
+                    },
+                );
                 return;
             }
         };
@@ -582,6 +598,20 @@ fn spawn_stream_task(
 
         stream_guard.release().await;
 
+        let terminal = if terminal_error_event.is_some() {
+            crate::multi_model_run::StreamTerminal::Error {
+                message: terminal_error_event
+                    .as_ref()
+                    .map(|event| event.error.clone())
+                    .unwrap_or_else(|| "Unknown stream error".to_string()),
+            }
+        } else if was_cancelled {
+            crate::multi_model_run::StreamTerminal::Cancelled
+        } else {
+            crate::multi_model_run::StreamTerminal::Complete
+        };
+        send_terminal(&mut terminal_tx, terminal);
+
         if let Some(error_event) = terminal_error_event {
             let _ = app.emit("chat-stream-error", error_event);
         } else if !was_cancelled {
@@ -694,6 +724,12 @@ fn spawn_stream_task(
             }
         }
     });
+
+    crate::multi_model_run::StreamHandle {
+        stream_id: handle_stream_id,
+        message_id: handle_message_id,
+        terminal: terminal_rx,
+    }
 }
 
 #[tauri::command]
@@ -714,6 +750,7 @@ pub async fn send_message(
 ) -> Result<Message, String> {
     let history_mode = history_mode.unwrap_or_default();
     if has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id).await
+        || state.multi_model_runs.has_active(&conversation_id).await
     {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
     }
@@ -1077,7 +1114,7 @@ pub async fn send_message(
     }
 
     let user_msg_id = user_message.id.clone();
-    spawn_stream_task(
+    let _ = spawn_stream_task(
         app,
         state.sea_db.clone(),
         conversation_id.clone(),
@@ -1477,7 +1514,7 @@ pub async fn regenerate_message(
 
     deactivate_assistant_versions(&state.sea_db, &conversation_id, &last_user_msg.id).await?;
 
-    spawn_stream_task(
+    let _ = spawn_stream_task(
         app,
         state.sea_db.clone(),
         conversation_id,
@@ -1522,7 +1559,7 @@ pub async fn regenerate_message(
 #[tauri::command]
 pub async fn regenerate_with_model(
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     conversation_id: String,
     stream_id: String,
     history_mode: Option<MultiModelContinuationMode>,
@@ -1537,9 +1574,50 @@ pub async fn regenerate_with_model(
     is_companion: Option<bool>,
     target_version_index: Option<i32>,
 ) -> Result<(), String> {
+    let _ = start_target_stream(
+        app,
+        conversation_id,
+        stream_id,
+        history_mode,
+        user_message_id,
+        target_provider_id,
+        target_model_id,
+        enabled_mcp_server_ids,
+        thinking_budget,
+        thinking_level,
+        enabled_knowledge_base_ids,
+        enabled_memory_namespace_ids,
+        is_companion.unwrap_or(false),
+        target_version_index,
+        None,
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn start_target_stream(
+    app: tauri::AppHandle,
+    conversation_id: String,
+    stream_id: String,
+    history_mode: Option<MultiModelContinuationMode>,
+    user_message_id: String,
+    target_provider_id: String,
+    target_model_id: String,
+    enabled_mcp_server_ids: Option<Vec<String>>,
+    thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
+    enabled_knowledge_base_ids: Option<Vec<String>>,
+    enabled_memory_namespace_ids: Option<Vec<String>>,
+    companion: bool,
+    target_version_index: Option<i32>,
+    forced_version_index: Option<i32>,
+    allow_parallel: Option<bool>,
+) -> Result<crate::multi_model_run::StreamHandle, String> {
+    let state = app.state::<AppState>();
     let history_mode = history_mode.unwrap_or_default();
-    let companion = is_companion.unwrap_or(false);
-    if !companion
+    let allow_parallel = allow_parallel.unwrap_or(companion);
+    if !allow_parallel
         && has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id)
             .await
     {
@@ -1570,11 +1648,15 @@ pub async fn regenerate_with_model(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let new_version_index = aqbot_core::types::resolve_regenerate_version_index(
-        existing_max,
-        companion,
-        target_version_index,
-    )?;
+    let new_version_index = if let Some(forced_version_index) = forced_version_index {
+        forced_version_index
+    } else {
+        aqbot_core::types::resolve_regenerate_version_index(
+            existing_max,
+            companion,
+            target_version_index,
+        )?
+    };
     let original_created_at = existing_versions.first().map(|v| v.created_at);
     let assistant_message_id = aqbot_core::utils::gen_id();
     {
@@ -1693,7 +1775,7 @@ pub async fn regenerate_with_model(
         &conversation_id,
         &stream_id,
         cancel_flag.clone(),
-        companion,
+        allow_parallel,
     )
     .await?;
 
@@ -1738,7 +1820,11 @@ pub async fn regenerate_with_model(
                 "Cancelled",
             )
             .await;
-            return Ok(());
+            return Ok(crate::multi_model_run::StreamHandle::immediate(
+                stream_id,
+                assistant_message_id,
+                crate::multi_model_run::StreamTerminal::Cancelled,
+            ));
         }
         tag
     };
@@ -1847,7 +1933,11 @@ pub async fn regenerate_with_model(
             &error,
         )
         .await;
-        return Err(error);
+        return Ok(crate::multi_model_run::StreamHandle::immediate(
+            stream_id,
+            assistant_message_id,
+            crate::multi_model_run::StreamTerminal::Error { message: error },
+        ));
     }
     chat_messages = context_result.messages;
     let stream_context_policy =
@@ -1891,8 +1981,8 @@ pub async fn regenerate_with_model(
             .map(|m| m.role == "system")
             .unwrap_or(false)
     );
-    spawn_stream_task(
-        app,
+    Ok(spawn_stream_task(
+        app.clone(),
         state.sea_db.clone(),
         conversation_id,
         assistant_message_id,
@@ -1928,6 +2018,5 @@ pub async fn regenerate_with_model(
         memory_tag,
         companion,
         true,
-    );
-    Ok(())
+    ))
 }

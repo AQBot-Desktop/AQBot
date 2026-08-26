@@ -28,6 +28,7 @@ import type {
   ChatStreamErrorEvent,
   ChatStreamEvent,
   CompressionEvent,
+  MultiModelRunEnvelope,
   ConversationSearchResult,
   Message,
   MessagePage,
@@ -74,6 +75,7 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'regenerateMessage'
   | 'regenerateWithModel'
   | 'sendMultiModelMessage'
+  | 'skipCurrentMultiModelTarget'
   | 'deleteMessage'
   | 'fetchMessages'
   | 'loadOlderMessages'
@@ -85,6 +87,44 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'cancelCurrentStream'
   | 'applyRemoteConversationSync'
 >;
+
+function applyMultiModelEnvelope(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  envelope: MultiModelRunEnvelope,
+) {
+  if (envelope.revision < get().multiModelRunRevision) return;
+  const run = envelope.activeRun;
+  const pending = (run?.targets ?? [])
+    .filter((target) => target.state === 'queued' || target.state === 'starting' || target.state === 'streaming')
+    .map((target) => target.target);
+  const done = (run?.targets ?? [])
+    .map((target) => target.messageId)
+    .filter((id): id is string => Boolean(id) && (
+      run?.targets.find((item) => item.messageId === id)?.state === 'complete'
+      || run?.targets.find((item) => item.messageId === id)?.state === 'error'
+      || run?.targets.find((item) => item.messageId === id)?.state === 'skipped'
+    ));
+  const streamingTarget = run?.targets.find((target) =>
+    target.state === 'streaming' || target.state === 'starting',
+  );
+  set({
+    multiModelRun: run,
+    multiModelRunRevision: envelope.revision,
+    pendingCompanionModels: pending,
+    multiModelParentId: run?.parentMessageId ?? null,
+    multiModelDoneMessageIds: done,
+    streaming: Boolean(run),
+    streamingConversationId: run ? envelope.conversationId : null,
+    streamingMessageId: streamingTarget?.messageId ?? null,
+    activeStreamId: streamingTarget?.streamId ?? null,
+  });
+  if (!run && runtime.multiModelDoneResolve) {
+    const resolve = runtime.multiModelDoneResolve;
+    runtime.multiModelDoneResolve = null;
+    resolve();
+  }
+}
 
 function findMessageIncludingVersionResources(
   state: ConversationState,
@@ -1067,47 +1107,81 @@ export function createConversationMessageActions(
       searchProviderId = null,
     }) => {
       const conversationId = get().activeConversationId;
-      if (!conversationId || targetModels.length === 0) return;
+      const models = (targetModels && targetModels.length > 0) ? targetModels : get().multiModelTargets;
+      if (!conversationId || models.length === 0) return;
       if (get().loading) throw new Error('Conversation messages are still loading');
       const resolvedHistoryMode = normalizeMultiModelContinuationMode(
         historyMode ?? get().multiModelContinuationMode,
       );
-
-      // Save original conversation model to restore later
-      const conv = get().conversations.find((c) => c.id === conversationId);
-      const originalProviderId = conv?.provider_id;
-      const originalModelId = conv?.model_id;
       const runId = ++runtime.multiModelRunId;
 
-      // Track ALL models (first + companions) in a unified counter
       runtime.isMultiModelActive = true;
-      runtime.multiModelTotalRemaining = targetModels.length;
-      runtime.multiModelFirstTarget = { ...targetModels[0] };
+      runtime.multiModelTotalRemaining = models.length;
+      runtime.multiModelFirstTarget = { ...models[0] };
       runtime.multiModelHistoryMode = resolvedHistoryMode;
-      set({ pendingCompanionModels: [...targetModels] });
+      set({ pendingCompanionModels: [...models] });
 
-      // Switch to the first selected model and send
-      const firstModel = targetModels[0];
-      try {
-        await get().updateConversation(conversationId, {
-          provider_id: firstModel.providerId,
-          model_id: firstModel.modelId,
-        });
-      } catch (e) {
-        console.error('[sendMultiModelMessage] failed to switch model:', e);
-        runtime.isMultiModelActive = false;
-        runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstTarget = null;
-        runtime.multiModelFirstMessageId = null;
-        runtime.multiModelHistoryMode = 'selected';
-        runtime.userManuallySelectedVersion = false;
-        runtime.multiModelStreamIds.clear();
-        set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
-        return;
+      const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
+      const kbIds = capabilityIds.enabledKnowledgeBaseIds;
+      const memIds = capabilityIds.enabledMemoryNamespaceIds;
+      const mcpIds = getEffectiveMcpServerIds(get, { conversationId, mcpIds: capabilityIds.enabledMcpServerIds });
+      await get().startStreamListening();
+
+      let finalContent = content;
+      if (searchProviderId) {
+        const searchHistoryMessages = get().messages;
+        let searchQuery = buildContextualSearchQuery(searchHistoryMessages, content);
+        try {
+          const generatedQuery = await invoke<string>('generate_search_query', {
+            conversationId,
+            content,
+          });
+          if (generatedQuery.trim()) searchQuery = generatedQuery.trim();
+        } catch {
+          // keep fallback query
+        }
+        const searchResult = await useSearchStore.getState().executeSearch(searchProviderId, searchQuery);
+        finalContent = formatSearchContent(
+          searchResult?.ok ? searchResult.results : [],
+          content,
+          searchResult?.ok
+            ? { query: searchQuery, queryStatus: 'done', status: 'done' }
+            : { query: searchQuery, queryStatus: 'error', status: 'error', error: searchResult?.error || '搜索失败' },
+        );
       }
 
-      // sendMessage returns after invoke (message created in DB), stream continues in background
-      const sentUserMessage = await get().sendMessage(content, attachments, searchProviderId);
+      let envelope: MultiModelRunEnvelope;
+      try {
+        envelope = await invoke<MultiModelRunEnvelope>('start_multi_model_run', {
+          conversationId,
+          content: finalContent,
+          attachments,
+          searchProviderId,
+          enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
+          thinkingBudget: getEffectiveThinkingBudget(get, conversationId),
+          thinkingLevel: getEffectiveThinkingLevel(get, conversationId),
+          enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
+          enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
+          targets: models,
+          historyMode: resolvedHistoryMode,
+        });
+      } catch (error) {
+        if (runtime.multiModelRunId === runId) {
+          runtime.isMultiModelActive = false;
+          runtime.multiModelTotalRemaining = 0;
+          runtime.multiModelFirstTarget = null;
+          runtime.multiModelFirstMessageId = null;
+          runtime.multiModelHistoryMode = 'selected';
+          runtime.userManuallySelectedVersion = false;
+          runtime.multiModelStreamIds.clear();
+          set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
+        }
+        throw error;
+      }
+      applyMultiModelEnvelope(set, get, envelope);
+      const sentUserMessage = envelope.activeRun?.parentMessageId
+        ? { id: envelope.activeRun.parentMessageId }
+        : [...get().messages].reverse().find((message) => message.role === 'user');
 
       const isCurrentRun = runtime.multiModelRunId === runId;
       if (!runtime.isMultiModelActive || !isCurrentRun || !sentUserMessage) {
@@ -1120,10 +1194,6 @@ export function createConversationMessageActions(
           runtime.userManuallySelectedVersion = false;
           runtime.multiModelStreamIds.clear();
           set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
-        }
-        const cancelledWithoutReplacement = runtime.multiModelRunId === runId + 1 && !runtime.isMultiModelActive;
-        if ((isCurrentRun || cancelledWithoutReplacement) && originalProviderId && originalModelId) {
-          void get().updateConversation(conversationId, { provider_id: originalProviderId, model_id: originalModelId });
         }
         return;
       }
@@ -1141,134 +1211,13 @@ export function createConversationMessageActions(
       }));
       notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
 
-      // Create a unified promise for ALL models (first model stream already running)
       const allDone = new Promise<void>((resolve) => {
-        // If first model already finished before we set up the promise, check immediately
-        if (runtime.multiModelTotalRemaining === 0) { resolve(); return; }
+        if (!envelope.activeRun) {
+          resolve();
+          return;
+        }
         runtime.multiModelDoneResolve = resolve;
       });
-
-      // Fire remaining companions in PARALLEL (concurrent with first model's stream)
-      const remaining = targetModels.slice(1);
-      if (remaining.length > 0) {
-        runtime.streamBuffer = null;
-
-        const thinkingBudget = getEffectiveThinkingBudget(get, conversationId);
-        const thinkingLevel = getEffectiveThinkingLevel(get, conversationId);
-        const kbIds = get().enabledKnowledgeBaseIds;
-        const memIds = get().enabledMemoryNamespaceIds;
-
-        const invocations = remaining.map((model, offset) => {
-          const streamId = createStreamId();
-          runtime.multiModelStreamIds.add(streamId);
-          const mcpIds = getEffectiveMcpServerIds(get, {
-            conversationId,
-            providerId: model.providerId,
-            modelId: model.modelId,
-          });
-          return invoke('regenerate_with_model', {
-            conversationId,
-            streamId,
-            userMessageId: lastUserMsg.id,
-            targetProviderId: model.providerId,
-            targetModelId: model.modelId,
-            enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
-            thinkingBudget,
-            thinkingLevel,
-            enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
-            enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
-            isCompanion: true,
-            targetVersionIndex: offset + 1,
-            historyMode: resolvedHistoryMode,
-          }).then(async () => {
-            // Each invoke returns after message creation — immediately enrich the store
-            // so ModelTags can render this companion as clickable right away.
-            if (!runtime.isMultiModelActive) return;
-            try {
-              const versions = await get().listMessageVersions(conversationId, lastUserMsg.id);
-              if (versions.length > 0 && runtime.isMultiModelActive) {
-                set((s) => {
-                  const existingIds = new Set(s.messages.map((m) => m.id));
-                  const dbVersionMap = new Map(versions.map((v) => [v.id, v]));
-                  const updates: Partial<ConversationState> = {};
-
-                  let resolvedFirstModelId: string | null = null;
-                  if (s.streamingMessageId?.startsWith('temp-') && runtime.multiModelFirstTarget) {
-                    const firstDbVersion = versions.find(
-                      (v) => v.model_id === runtime.multiModelFirstTarget?.modelId
-                        && v.provider_id === runtime.multiModelFirstTarget.providerId
-                        && !existingIds.has(v.id),
-                    );
-                    if (firstDbVersion) {
-                      resolvedFirstModelId = firstDbVersion.id;
-                      existingIds.delete(s.streamingMessageId);
-                      existingIds.add(firstDbVersion.id);
-                      updates.streamingMessageId = firstDbVersion.id;
-                    }
-                  }
-
-                  const newVersions = versions
-                    .filter((v) => !existingIds.has(v.id))
-                    .map((v) => ({ ...v, is_active: false as const }));
-                  let enriched = false;
-                  const updatedMessages = s.messages.map((m) => {
-                    if (resolvedFirstModelId && m.id === s.streamingMessageId) {
-                      const dbVersion = dbVersionMap.get(resolvedFirstModelId);
-                      enriched = true;
-                      return {
-                        ...m,
-                        id: resolvedFirstModelId,
-                        model_id: dbVersion?.model_id ?? m.model_id,
-                        provider_id: dbVersion?.provider_id ?? m.provider_id,
-                        version_index: dbVersion?.version_index ?? m.version_index,
-                        created_at: dbVersion?.created_at ?? m.created_at,
-                      };
-                    }
-                    const dbVersion = dbVersionMap.get(m.id);
-                    if (dbVersion && (
-                      !m.model_id
-                      || !m.provider_id
-                      || m.version_index !== dbVersion.version_index
-                    )) {
-                      enriched = true;
-                      return {
-                        ...m,
-                        model_id: dbVersion.model_id,
-                        provider_id: dbVersion.provider_id,
-                        version_index: dbVersion.version_index,
-                        created_at: dbVersion.created_at,
-                      };
-                    }
-                    return m;
-                  });
-                  if (newVersions.length === 0 && !enriched && Object.keys(updates).length === 0) return {};
-                  return { ...updates, messages: [...updatedMessages, ...newVersions] };
-                });
-                notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
-              }
-            } catch (e) {
-              console.warn('[sendMultiModelMessage] failed to enrich companion:', e);
-            }
-          }).catch((e) => {
-            runtime.multiModelStreamIds.delete(streamId);
-            console.error(`[sendMultiModelMessage] companion ${model.modelId} invoke failed:`, e);
-            // Invoke failed — no stream will start, so decrement counter here
-            runtime.multiModelTotalRemaining--;
-            if (runtime.multiModelTotalRemaining <= 0 && runtime.multiModelDoneResolve) {
-              const r = runtime.multiModelDoneResolve;
-              runtime.multiModelDoneResolve = null;
-              set({ streaming: false, streamingMessageId: null, streamingConversationId: null, activeStreamId: null, thinkingActiveMessageIds: new Set<string>() });
-              r();
-            }
-          });
-        });
-
-        // Don't await invocations — they return after message creation, streams run in background
-        // Enrichment now happens per-invocation (see .then() above).
-        void Promise.allSettled(invocations);
-      }
-
-      // Wait for ALL streams to complete (first + companions)
       await allDone;
 
       const clearFinalizedRunState = () => set((s) => s.multiModelParentId === lastUserMsg.id
@@ -1276,10 +1225,6 @@ export function createConversationMessageActions(
         : {});
       if (runtime.multiModelRunId !== runId) {
         clearFinalizedRunState();
-        const cancelledWithoutReplacement = runtime.multiModelRunId === runId + 1 && !runtime.isMultiModelActive;
-        if (cancelledWithoutReplacement && originalProviderId && originalModelId) {
-          void get().updateConversation(conversationId, { provider_id: originalProviderId, model_id: originalModelId });
-        }
         return;
       }
 
@@ -1299,17 +1244,6 @@ export function createConversationMessageActions(
         return true;
       };
 
-      // Restore original conversation model
-      if (originalProviderId && originalModelId) {
-        try {
-          await get().updateConversation(conversationId, {
-            provider_id: originalProviderId,
-            model_id: originalModelId,
-          });
-        } catch (e) {
-          console.error('[sendMultiModelMessage] failed to restore model:', e);
-        }
-      }
       if (abortSupersededFinalization()) return;
 
       // Final fetch for consistency
@@ -1393,6 +1327,14 @@ export function createConversationMessageActions(
       }
 
       clearFinalizedRunState();
+    },
+    skipCurrentMultiModelTarget: async () => {
+      const run = get().multiModelRun;
+      if (!run || run.mode !== 'sequential') return;
+      const envelope = await invoke<MultiModelRunEnvelope>('skip_multi_model_target', {
+        runId: run.runId,
+      });
+      applyMultiModelEnvelope(set, get, envelope);
     },
     deleteMessage: async (messageId) => {
       const conversationId = get().activeConversationId;
@@ -1672,6 +1614,21 @@ export function createConversationMessageActions(
         runtime.unlisten = null;
       }
 
+      const runUnsub = await listen<MultiModelRunEnvelope>('multi-model-run-updated', (event) => {
+        if (runtime.listenerGen !== gen) return;
+        applyMultiModelEnvelope(set, get, event.payload);
+      });
+      if (isTauri()) {
+        const conversationId = get().activeConversationId;
+        if (conversationId) {
+          invoke<MultiModelRunEnvelope>('get_multi_model_run_snapshot', { conversationId })
+            .then((envelope) => {
+              if (runtime.listenerGen !== gen) return;
+              applyMultiModelEnvelope(set, get, envelope);
+            })
+            .catch(() => {});
+        }
+      }
       const chunkUnsub = await listen<ChatStreamEvent>('chat-stream-chunk', (event) => {
         if (runtime.listenerGen !== gen) return; // stale listener
         const { conversation_id, message_id, stream_id, chunk, model_id: evt_model_id, provider_id: evt_provider_id } = event.payload;
@@ -2055,6 +2012,7 @@ export function createConversationMessageActions(
       }
 
       runtime.unlisten = () => {
+        runUnsub();
         chunkUnsub();
         errorUnsub();
         titleUnsub();
@@ -2136,10 +2094,15 @@ export function createConversationMessageActions(
       const conversationId = get().streamingConversationId ?? get().activeConversationId;
       const streamId = get().activeStreamId;
       if (conversationId && isTauri()) {
-        invoke('cancel_stream', {
-          conversationId,
-          streamId: cancellingMultiModel ? null : streamId,
-        }).catch(() => {});
+        const run = get().multiModelRun;
+        if (cancellingMultiModel && run) {
+          invoke('stop_multi_model_run', { runId: run.runId }).catch(() => {});
+        } else {
+          invoke('cancel_stream', {
+            conversationId,
+            streamId: cancellingMultiModel ? null : streamId,
+          }).catch(() => {});
+        }
         // Also cancel the agent if in agent mode
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (conv?.mode === 'agent') {

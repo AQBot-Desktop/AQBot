@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_WORKSPACE_NAME_STRATEGY,
   DEFAULT_CHAT_INPUT_ACTIONS_SCALE,
   DEFAULT_MCP_TOOL_LOOP_MAX_ITERATIONS,
+  DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS,
   createDefaultSelectionToolbarSettings,
   normalizeChatInputActionsScale,
   type AppSettings,
@@ -130,6 +131,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   document_attachment_reading_enabled: false,
   show_image_models_in_model_selector: false,
   multi_model_display_mode: 'tabs',
+  multi_model_execution_mode: 'parallel',
+  multi_model_sequential_interval_seconds: DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS,
   render_user_markdown: false,
   agent_workspace_root: null,
   agent_workspace_name_strategy: DEFAULT_AGENT_WORKSPACE_NAME_STRATEGY,
@@ -215,7 +218,7 @@ interface SettingsState {
   ensureSettingsLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
   invalidateSettings: (reason: ResourceInvalidationReason) => void;
   fetchSettings: () => Promise<void>;
-  saveSettings: (settings: Partial<AppSettings>) => Promise<void>;
+  saveSettings: (settings: Partial<AppSettings>) => Promise<string[]>;
   setGlobalShortcutStatus: (status: GlobalShortcutStatus) => void;
 }
 
@@ -331,7 +334,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await get().ensureSettingsLoaded();
       if (get().settingsMeta.status !== 'ready') {
         console.error('[settingsStore] saveSettings failed: settings could not be loaded');
-        return;
+        return [];
       }
     }
     const previous = get().settings;
@@ -353,7 +356,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       },
     }));
     try {
-      await invoke('save_settings', { settings: merged });
+      const result = await invoke<{ saved?: boolean; warnings?: string[] } | void>('save_settings', {
+        settings: merged,
+      });
+      return result && typeof result === 'object' ? result.warnings ?? [] : [];
     } catch (e) {
       set((state) => ({
         settings: previous,
@@ -364,6 +370,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           revision: state.settingsMeta.revision + 1,
         },
       }));
+      return [];
     }
   },
 

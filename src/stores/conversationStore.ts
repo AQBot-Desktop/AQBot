@@ -52,6 +52,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   pendingCompanionModels: [],
   multiModelParentId: null,
   multiModelDoneMessageIds: [],
+  multiModelRun: null,
+  multiModelRunRevision: 0,
   pendingPromptText: null,
   setPendingPromptText: (text) => set({ pendingPromptText: text }),
   searchEnabled: false,

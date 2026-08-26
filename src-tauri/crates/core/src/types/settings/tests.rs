@@ -1,10 +1,11 @@
 use super::{
     is_valid_selection_toolbar_icon, is_valid_selection_toolbar_search_url,
     render_selection_toolbar_search_url, AppSettings, ContextStrategy,
-    ModelCatalogSourcePreference, SelectionToolbarAiConfig, SelectionToolbarAppEntry,
-    SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey, SelectionToolbarDisplayMode,
-    SelectionToolbarSettings, SelectionToolbarTool, SelectionToolbarTriggerMode,
-    SettingsSidebarDensity, DEFAULT_EXPLAIN_PROMPT, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
+    ModelCatalogSourcePreference, MultiModelExecutionMode, SelectionToolbarAiConfig,
+    SelectionToolbarAppEntry, SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey,
+    SelectionToolbarDisplayMode, SelectionToolbarSettings, SelectionToolbarTool,
+    SelectionToolbarTriggerMode, SettingsSidebarDensity, DEFAULT_EXPLAIN_PROMPT,
+    DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
     DEFAULT_SELECTION_TOOLBAR_SHORTCUT, DEFAULT_TRANSLATE_PROMPT,
 };
 use serde_json::json;
@@ -545,6 +546,49 @@ fn document_attachment_reading_defaults_to_false_for_missing_settings() {
     let settings: AppSettings =
         serde_json::from_value(json!({})).expect("settings should default missing fields");
     assert!(!settings.document_attachment_reading_enabled);
+}
+
+#[test]
+fn multi_model_execution_defaults_to_parallel_with_three_second_interval() {
+    let settings = AppSettings::default();
+    assert_eq!(
+        settings.multi_model_execution_mode,
+        MultiModelExecutionMode::Parallel
+    );
+    assert_eq!(
+        settings.multi_model_sequential_interval_seconds,
+        DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
+    );
+
+    let legacy: AppSettings =
+        serde_json::from_value(json!({})).expect("missing schedule settings should deserialize");
+    assert_eq!(
+        legacy.multi_model_execution_mode,
+        MultiModelExecutionMode::Parallel
+    );
+    assert_eq!(
+        legacy.multi_model_sequential_interval_seconds,
+        DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
+    );
+}
+
+#[test]
+fn multi_model_execution_mode_roundtrips_snake_case() {
+    let mut settings = AppSettings::default();
+    settings.multi_model_execution_mode = MultiModelExecutionMode::Sequential;
+    settings.multi_model_sequential_interval_seconds = 0;
+
+    let serialized = serde_json::to_value(&settings).expect("settings should serialize");
+    assert_eq!(serialized["multi_model_execution_mode"], json!("sequential"));
+    assert_eq!(serialized["multi_model_sequential_interval_seconds"], json!(0));
+
+    let restored: AppSettings =
+        serde_json::from_value(serialized).expect("settings should roundtrip");
+    assert_eq!(
+        restored.multi_model_execution_mode,
+        MultiModelExecutionMode::Sequential
+    );
+    assert_eq!(restored.multi_model_sequential_interval_seconds, 0);
 }
 
 #[test]

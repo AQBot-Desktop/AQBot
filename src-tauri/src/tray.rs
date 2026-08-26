@@ -476,8 +476,6 @@ pub async fn sync_tray_menu(app: &AppHandle) -> Result<(), String> {
                     if let Err(err) = tray.set_menu(Some(menu)) {
                         tracing::warn!("Failed to set tray menu: {}", err);
                     }
-                } else if let Err(err) = create_tray(&app_handle, &language) {
-                    tracing::warn!("Failed to recreate tray: {}", err);
                 }
             }
             Err(err) => tracing::warn!("Failed to build tray menu: {}", err),
@@ -505,6 +503,33 @@ pub fn sync_tray_language(
 ) -> Result<(), Box<dyn std::error::Error>> {
     request_tray_menu_sync(app);
     Ok(())
+}
+
+pub fn destroy_tray(app: &AppHandle) {
+    let _ = app.remove_tray_by_id(TRAY_ID);
+}
+
+pub fn tray_exists(app: &AppHandle) -> bool {
+    app.tray_by_id(TRAY_ID).is_some()
+}
+
+/// Create or remove the tray only from startup and explicit settings saves.
+pub fn reconcile_tray(app: &AppHandle, settings: &aqbot_core::types::AppSettings) -> Result<(), String> {
+    if settings.tray_enabled {
+        if !tray_exists(app) {
+            create_tray(app, &settings.language).map_err(|e| e.to_string())?;
+        } else {
+            request_tray_menu_sync(app);
+        }
+        Ok(())
+    } else {
+        if tray_exists(app) {
+            destroy_tray(app);
+        }
+        crate::window_lifecycle::restore_main_window(app);
+        crate::window_lifecycle::set_app_dock_visibility(app, true);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ include!("conversations/titles.rs");
 include!("conversations/search_query.rs");
 include!("conversations/rag.rs");
 include!("conversations/message_streaming.rs");
+include!("conversations/multi_model_commands.rs");
 include!("conversations/message_versions.rs");
 include!("conversations/compression.rs");
 include!("conversations/tests.rs");

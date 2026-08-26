@@ -53,7 +53,7 @@ aqbot-agent = { path = "crates/agent" }
 aqbot-acp-client = { path = "crates/acp-client" }
 open-agent-sdk = { path = "crates/open-agent-sdk" }
 aqbot-gateway = { path = "crates/gateway" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 uuid = { workspace = true }
 sea-orm = { workspace = true }
 chrono = { workspace = true }

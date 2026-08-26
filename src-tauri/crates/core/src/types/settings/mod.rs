@@ -536,6 +536,17 @@ pub enum SettingsSidebarDensity {
     Spacious,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MultiModelExecutionMode {
+    #[default]
+    Parallel,
+    Sequential,
+}
+
+pub const DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS: u32 = 3;
+pub const MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS: u32 = 300;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -703,6 +714,10 @@ pub struct AppSettings {
     pub show_image_models_in_model_selector: bool,
     /// Multi-model response display mode: "tabs" | "side-by-side" | "stacked".
     pub multi_model_display_mode: String,
+    /// Global multi-model run strategy: parallel (default) or sequential.
+    pub multi_model_execution_mode: MultiModelExecutionMode,
+    /// Delay in seconds after a sequential target settles before starting the next.
+    pub multi_model_sequential_interval_seconds: u32,
     /// Render user messages as Markdown (like AI messages). Default: false.
     pub render_user_markdown: bool,
     /// Agent default workspace root. None uses ~/.aqbot/workspace.
@@ -855,6 +870,8 @@ impl Default for AppSettings {
             document_attachment_reading_enabled: false,
             show_image_models_in_model_selector: false,
             multi_model_display_mode: "tabs".to_string(),
+            multi_model_execution_mode: MultiModelExecutionMode::Parallel,
+            multi_model_sequential_interval_seconds: DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS,
             render_user_markdown: false,
             agent_workspace_root: None,
             agent_workspace_name_strategy: "uuid".to_string(),

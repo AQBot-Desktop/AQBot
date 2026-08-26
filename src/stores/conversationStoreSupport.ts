@@ -1427,6 +1427,11 @@ export interface ConversationState {
   multiModelDoneMessageIds: string[];
   /** Send a message and generate responses from multiple companion models */
   sendMultiModelMessage: (input: SendMultiModelMessageInput) => Promise<void>;
+  /** Skip the current sequential target and continue after the interval. */
+  skipCurrentMultiModelTarget: () => Promise<void>;
+  /** Frozen snapshot of the Rust-owned multi-model run, if any. */
+  multiModelRun: import('@/types').MultiModelRunSnapshot | null;
+  multiModelRunRevision: number;
   /** Pending prompt text from welcome cards — InputArea picks it up and sends with companion awareness */
   pendingPromptText: string | null;
   setPendingPromptText: (text: string | null) => void;

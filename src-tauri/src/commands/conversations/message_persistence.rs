@@ -87,6 +87,64 @@ pub(crate) fn format_new_message_failure(
     format!("Message {message_id} {stage}: {primary}; rollback errors: {rollback}")
 }
 
+pub(crate) async fn persist_user_message_turn(
+    state: &AppState,
+    conversation_id: &str,
+    content: &str,
+    attachments: Vec<AttachmentInput>,
+) -> Result<Message, String> {
+    let prepared_inline_media = aqbot_core::inline_media::prepare_message_inline_images(content)
+        .map_err(|error| format!("Message content rejected before persistence: {error}"))?;
+    let persisted_attachments = persist_attachments(state, conversation_id, &attachments)
+        .await
+        .map_err(|e| e.to_string())?;
+    let safe_content = prepared_inline_media
+        .as_ref()
+        .map(|prepared| prepared.safe_content())
+        .unwrap_or(content);
+    let user_message = match aqbot_core::repo::message::create_message(
+        &state.sea_db,
+        conversation_id,
+        MessageRole::User,
+        safe_content,
+        &persisted_attachments,
+        None,
+        0,
+    )
+    .await
+    {
+        Ok(message) => message,
+        Err(error) => {
+            let cleanup_errors =
+                cleanup_new_message_attachments(&state.sea_db, &persisted_attachments).await;
+            return Err(format!(
+                "Message creation failed: {error}; attachment rollback errors: {}",
+                if cleanup_errors.is_empty() {
+                    "none".to_string()
+                } else {
+                    cleanup_errors.join(", ")
+                }
+            ));
+        }
+    };
+    let user_message =
+        finalize_new_message_for_ipc(&state.sea_db, user_message, prepared_inline_media.as_ref())
+            .await?;
+    if let Err(error) =
+        aqbot_core::repo::conversation::increment_message_count(&state.sea_db, conversation_id).await
+    {
+        let rollback_errors =
+            rollback_new_message(&state.sea_db, &user_message.id, &user_message.attachments).await;
+        return Err(format_new_message_failure(
+            &user_message.id,
+            "message-count update failed",
+            error,
+            rollback_errors,
+        ));
+    }
+    Ok(user_message)
+}
+
 async fn finalize_new_message_for_ipc(
     db: &DatabaseConnection,
     message: Message,

@@ -43,6 +43,9 @@ mod tests {
             agent_always_allowed: Arc::new(Mutex::new(HashMap::new())),
             selection_toolbar: Arc::new(crate::selection_toolbar::SelectionToolbarRuntime::new()),
             pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
+            multi_model_runs: Arc::new(crate::multi_model_run::MultiModelRunManager::new()),
+            tray_enabled: Arc::new(AtomicBool::new(true)),
+            tray_available: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -627,6 +630,48 @@ mod tests {
 
         assert!(cancel_flag.load(std::sync::atomic::Ordering::Relaxed));
         assert!(!has_active_stream_for_conversation(flags, "conv-1").await);
+    }
+
+    #[test]
+    fn unknown_stream_id_does_not_cancel_the_conversation() {
+        let live = Arc::new(AtomicBool::new(false));
+        let mut flags = std::collections::HashMap::new();
+        flags.insert(
+            "live".to_string(),
+            crate::StreamCancelEntry {
+                conversation_id: "conv-1".to_string(),
+                flag: live.clone(),
+            },
+        );
+        let cancelled = apply_cancel_flags(&flags, "conv-1", Some("missing"));
+        assert!(cancelled.is_empty());
+        assert!(!live.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn none_stream_id_cancels_all_streams_for_the_conversation() {
+        let live = Arc::new(AtomicBool::new(false));
+        let other = Arc::new(AtomicBool::new(false));
+        let mut flags = std::collections::HashMap::new();
+        flags.insert(
+            "live".to_string(),
+            crate::StreamCancelEntry {
+                conversation_id: "conv-1".to_string(),
+                flag: live.clone(),
+            },
+        );
+        flags.insert(
+            "other".to_string(),
+            crate::StreamCancelEntry {
+                conversation_id: "conv-2".to_string(),
+                flag: other.clone(),
+            },
+        );
+        let cancelled = apply_cancel_flags(&flags, "conv-1", None);
+        assert_eq!(cancelled.len(), 1);
+        cancelled[0].store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(live.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(!other.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     #[test]
@@ -2756,6 +2801,9 @@ mod tests {
             agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
             selection_toolbar: Arc::new(crate::selection_toolbar::SelectionToolbarRuntime::new()),
             pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
+            multi_model_runs: Arc::new(crate::multi_model_run::MultiModelRunManager::new()),
+            tray_enabled: Arc::new(AtomicBool::new(true)),
+            tray_available: Arc::new(AtomicBool::new(true)),
         };
 
         let attachments = vec![AttachmentInput {

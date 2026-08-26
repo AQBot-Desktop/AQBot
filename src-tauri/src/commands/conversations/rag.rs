@@ -1,5 +1,23 @@
 // Stream cancellation and RAG context retrieval.
 
+pub(crate) fn apply_cancel_flags(
+    flags: &std::collections::HashMap<String, crate::StreamCancelEntry>,
+    conversation_id: &str,
+    stream_id: Option<&str>,
+) -> Vec<std::sync::Arc<AtomicBool>> {
+    match stream_id {
+        Some(id) => flags
+            .get(id)
+            .map(|entry| vec![entry.flag.clone()])
+            .unwrap_or_default(),
+        None => flags
+            .values()
+            .filter(|entry| entry.conversation_id == conversation_id)
+            .map(|entry| entry.flag.clone())
+            .collect(),
+    }
+}
+
 #[tauri::command]
 pub async fn cancel_stream(
     state: State<'_, AppState>,
@@ -7,18 +25,10 @@ pub async fn cancel_stream(
     stream_id: Option<String>,
 ) -> Result<(), String> {
     let flags = state.stream_cancel_flags.lock().await;
-    let mut cancelled_count = 0usize;
-    if let Some(entry) = stream_id.as_deref().and_then(|id| flags.get(id)) {
-        entry.flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        cancelled_count += 1;
-    } else {
-        for entry in flags
-            .values()
-            .filter(|entry| entry.conversation_id == conversation_id)
-        {
-            entry.flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            cancelled_count += 1;
-        }
+    let to_cancel = apply_cancel_flags(&flags, &conversation_id, stream_id.as_deref());
+    let cancelled_count = to_cancel.len();
+    for flag in to_cancel {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     if cancelled_count > 0 {

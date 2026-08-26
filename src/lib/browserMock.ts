@@ -557,7 +557,10 @@ const DEFAULT_SETTINGS = {
   settings_sidebar_density: 'standard',
   language: 'zh-CN',
   minimize_to_tray: true,
+  tray_enabled: true,
   release_webview_on_tray: false,
+  multi_model_execution_mode: 'parallel',
+  multi_model_sequential_interval_seconds: 3,
   send_on_enter: true,
   stream_response: true,
   model_catalog_source: 'builtin',
@@ -677,7 +680,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const current = getStore('settings', DEFAULT_SETTINGS);
       const merged = { ...current, ...settings };
       setStore('settings', merged);
-      return merged as T;
+      return { saved: true, warnings: [] } as T;
     }
     case 'get_previous_crash_report':
       return null as T;
@@ -1381,6 +1384,53 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       setStore('messages', msgs);
       return userMsg as T;
     }
+    case 'start_multi_model_run': {
+      const { conversationId, content, attachments, targets } = args as any;
+      const userMsg = {
+        id: genId(),
+        conversation_id: conversationId,
+        role: 'user',
+        content,
+        thinking: null,
+        attachments: attachments || [],
+        created_at: nowTs(),
+        parent_message_id: null,
+        version_index: 0,
+        is_active: true,
+      };
+      const msgs = getStore<any[]>('messages', []);
+      msgs.push(userMsg);
+      const models = Array.isArray(targets) ? targets : [];
+      models.forEach((target: { providerId: string; modelId: string }, index: number) => {
+        msgs.push({
+          id: genId(),
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: generateBrowserResponse(content),
+          thinking: null,
+          attachments: [],
+          created_at: nowTs() + index + 1,
+          parent_message_id: userMsg.id,
+          version_index: index,
+          is_active: index === 0,
+          provider_id: target.providerId,
+          model_id: target.modelId,
+        });
+      });
+      setStore('messages', msgs);
+      return {
+        conversationId,
+        revision: 1,
+        activeRun: null,
+      } as T;
+    }
+    case 'get_multi_model_run_snapshot': {
+      const { conversationId } = args as any;
+      return { conversationId, revision: 0, activeRun: null } as T;
+    }
+    case 'skip_multi_model_target':
+    case 'stop_multi_model_run':
+      return { conversationId: '', revision: 0, activeRun: null } as T;
     case 'list_messages': {
       const { conversationId } = args as any;
       const msgs = getStore<any[]>('messages', []).filter(

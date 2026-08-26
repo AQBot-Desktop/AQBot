@@ -80,6 +80,17 @@ vi.mock('react-i18next', () => ({
         'settings.agentWorkspaceDatetimeFormatDesc': '支持 YYYY、MM、DD、HH、mm、ss；非法文件名字符会自动替换为 -。',
         'settings.agentWorkspacePreview': '预览：2023-11-14-22-13-20',
         'settings.resetAgentWorkspaceRoot': '重置默认目录',
+        'settings.multiModelDisplayMode': '默认多模型布局',
+        'settings.multiModelDisplayModeDesc': '新会话以及选择“跟随全局”的会话，后续多模型回答使用此布局。',
+        'settings.multiModelDisplayModeTabs': '标签切换',
+        'settings.multiModelDisplayModeSideBySide': '并排对比',
+        'settings.multiModelDisplayModeStacked': '上下堆叠',
+        'settings.multiModelExecutionMode': '多模型执行方式',
+        'settings.multiModelExecutionModeDesc': '控制同一轮多个模型是同时回答，还是按会话中保存的顺序逐个回答。',
+        'settings.multiModelExecutionModeParallel': '并行',
+        'settings.multiModelExecutionModeSequential': '顺序',
+        'settings.multiModelSequentialInterval': '模型间隔（秒）',
+        'settings.multiModelSequentialIntervalDesc': '从上一个模型回答结束或中断后开始计时。0 表示结束后立即开始下一个。',
       };
       return labels[key] ?? fallback ?? key;
     },
@@ -264,6 +275,8 @@ describe('ConversationSettings', () => {
       chat_minimap_style: 'faq',
       default_system_prompt: null,
       multi_model_display_mode: 'tabs',
+      multi_model_execution_mode: 'parallel',
+      multi_model_sequential_interval_seconds: 3,
       render_user_markdown: false,
       inherit_conversation_preferences_on_create: true,
       document_attachment_reading_enabled: false,
@@ -642,6 +655,42 @@ describe('ConversationSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置默认目录' }));
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       agent_workspace_root: null,
+    });
+  });
+
+  it('saves multi-model execution mode and keeps interval while parallel is selected', () => {
+    render(<ConversationSettings />);
+
+    expect(screen.getByText('多模型执行方式')).toBeInTheDocument();
+    const interval = screen.getByLabelText('模型间隔（秒）');
+    expect(interval).toBeDisabled();
+    expect(interval).toHaveValue(3);
+
+    const executionSelect = screen.getAllByRole('combobox').find((el) =>
+      Array.from(el.querySelectorAll('option')).some((option) => option.getAttribute('value') === 'sequential'),
+    );
+    expect(executionSelect).toBeDefined();
+    fireEvent.change(executionSelect as HTMLElement, { target: { value: 'sequential' } });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({ multi_model_execution_mode: 'sequential' });
+  });
+
+  it('saves a clamped sequential interval when sequential mode is active', () => {
+    settings = {
+      ...settings,
+      multi_model_execution_mode: 'sequential',
+      multi_model_sequential_interval_seconds: 3,
+    };
+    render(<ConversationSettings />);
+
+    const interval = screen.getByLabelText('模型间隔（秒）');
+    expect(interval).toBeEnabled();
+    fireEvent.change(interval, { target: { value: '301' } });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      multi_model_sequential_interval_seconds: 300,
+    });
+    fireEvent.change(interval, { target: { value: '0' } });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      multi_model_sequential_interval_seconds: 0,
     });
   });
 });

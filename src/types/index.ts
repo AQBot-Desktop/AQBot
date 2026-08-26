@@ -350,10 +350,49 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 export type ContextStrategy = 'smart_summary' | 'raw_truncate' | 'raw_strict';
 export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
 export type MultiModelContinuationMode = 'selected' | 'per_model';
+export type MultiModelExecutionMode = 'parallel' | 'sequential';
+export const DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS = 3;
+export const MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS = 300;
 
 export interface MultiModelTarget {
   providerId: string;
   modelId: string;
+}
+
+export type MultiModelTargetRunState =
+  | 'queued'
+  | 'starting'
+  | 'streaming'
+  | 'complete'
+  | 'error'
+  | 'skipped';
+
+export type MultiModelRunPhase = 'starting' | 'running' | 'waiting' | 'stopping';
+
+export interface MultiModelTargetSnapshot {
+  index: number;
+  target: MultiModelTarget;
+  state: MultiModelTargetRunState;
+  streamId?: string;
+  messageId?: string;
+  error?: string;
+}
+
+export interface MultiModelRunSnapshot {
+  runId: string;
+  conversationId: string;
+  parentMessageId: string | null;
+  mode: MultiModelExecutionMode;
+  intervalSeconds: number;
+  phase: MultiModelRunPhase;
+  nextStartAt: number | null;
+  targets: MultiModelTargetSnapshot[];
+}
+
+export interface MultiModelRunEnvelope {
+  conversationId: string;
+  revision: number;
+  activeRun: MultiModelRunSnapshot | null;
 }
 
 export interface ConversationCategory {
@@ -869,6 +908,10 @@ export interface AppSettings {
   show_image_models_in_model_selector?: boolean;
   /** Multi-model response display mode */
   multi_model_display_mode?: MultiModelDisplayMode;
+  /** Global multi-model run strategy. Default: parallel. */
+  multi_model_execution_mode?: MultiModelExecutionMode;
+  /** Delay in seconds after a sequential target settles before starting the next. Default: 3. */
+  multi_model_sequential_interval_seconds?: number;
   /** Render user messages as Markdown (like AI messages). Default: false */
   render_user_markdown?: boolean;
   /** Agent default workspace root. Null uses ~/.aqbot/workspace. */
