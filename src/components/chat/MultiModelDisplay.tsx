@@ -13,6 +13,7 @@ import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/c
 import { openConversationPopout } from '@/lib/conversationPopout';
 import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import { shouldHideMultiModelLayoutSwitcher } from '@/lib/multiModelLanes';
+import { MULTI_MODEL_COLUMN_GAP_PX, sideBySideColumnLayout } from '@/lib/multiModelColumnLayout';
 import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
@@ -244,17 +245,14 @@ function MultiModelDisplayInner({
     const el = scrollRef.current;
     if (!el) return;
 
-    const inst = OverlayScrollbars(
-      { target: el, elements: { viewport: el } },
-      {
-        scrollbars: {
-          theme: 'os-theme-aqbot',
-          autoHide: 'never',
-          clickScroll: true,
-        },
-        overflow: { x: 'scroll', y: 'hidden' },
+    const inst = OverlayScrollbars(el, {
+      scrollbars: {
+        theme: 'os-theme-aqbot',
+        autoHide: 'never',
+        clickScroll: true,
       },
-    );
+      overflow: { x: 'scroll', y: 'hidden' },
+    });
 
     return () => inst.destroy();
   }, [mode]);
@@ -275,42 +273,35 @@ function MultiModelDisplayInner({
   const containerStyle: React.CSSProperties =
     mode === 'side-by-side'
       ? {
-          display: 'flex',
-          gap: 12,
           overflowX: 'auto',
           paddingBottom: 8,
           width: '100%',
           boxSizing: 'border-box',
-          alignItems: 'stretch',
         }
       : {
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          gap: MULTI_MODEL_COLUMN_GAP_PX,
         };
+  const columnLayout = mode === 'side-by-side'
+    ? sideBySideColumnLayout(displayVersions.length)
+    : { className: undefined, style: {} as React.CSSProperties };
 
-  const cardStyle: React.CSSProperties =
-    mode === 'side-by-side'
-      ? {
-          minWidth: 280,
-          flex: '1 1 0',
-          width: `calc((100% - ${(displayVersions.length - 1) * 12}px) / ${displayVersions.length})`,
-          border: `1px solid ${token.colorBorderSecondary}`,
-          borderRadius: token.borderRadiusLG,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }
-      : {
-          border: `1px solid ${token.colorBorderSecondary}`,
-          borderRadius: token.borderRadiusLG,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        };
+  const cardStyle: React.CSSProperties = {
+    ...columnLayout.style,
+    border: `1px solid ${token.colorBorderSecondary}`,
+    borderRadius: token.borderRadiusLG,
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+  };
 
   return (
     <div ref={scrollRef} style={containerStyle} className={mode === 'side-by-side' ? 'aqbot-multi-model-scroll' : undefined}>
+      <div
+        className={mode === 'side-by-side' ? 'aqbot-multi-model-track' : undefined}
+        style={mode === 'side-by-side' ? undefined : { display: 'flex', flexDirection: 'column', gap: MULTI_MODEL_COLUMN_GAP_PX }}
+      >
       {displayVersions.map((vMsg) => {
         const isActive = vMsg.id === activeMessageId;
         const isVersionStreaming = isDisplayStreaming && (
@@ -325,6 +316,7 @@ function MultiModelDisplayInner({
           <div
             key={vMsg.id}
             data-testid={`multi-model-card-${vMsg.id}`}
+            className={columnLayout.className}
             style={{
               ...cardStyle,
               borderColor: isActive ? token.colorPrimary : token.colorBorderSecondary,
@@ -413,6 +405,7 @@ function MultiModelDisplayInner({
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

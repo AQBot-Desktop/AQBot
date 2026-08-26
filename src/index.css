@@ -802,3 +802,21 @@ html[data-theme="dark"] .katex-display {
   overflow: hidden;
   min-width: 0;
 }
+
+.aqbot-multi-model-scroll,
+.aqbot-multi-model-lane-scroll {
+  container-type: inline-size;
+  --os-size: 10px;
+}
+.aqbot-multi-model-track {
+  display: flex;
+  gap: 12px;
+  min-width: 100%;
+  width: max-content;
+  align-items: stretch;
+}
+.aqbot-multi-model-card {
+  flex: 0 0 auto;
+  min-width: 420px;
+  width: max(420px, calc((100cqw - 12px) / 2));
+}

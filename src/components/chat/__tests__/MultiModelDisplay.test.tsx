@@ -563,6 +563,24 @@ describe('MultiModelDisplay', () => {
     expect(screen.getByTestId('multi-model-regenerate-assistant-b').closest('.multi-model-card-footer-actions')).not.toBeNull();
   });
 
+  it('keeps side-by-side cards at a two-column width instead of 1/n of the window', () => {
+    const versions = ['a', 'b', 'c'].map((id, index) => makeMessage({
+      id: `assistant-${id}`,
+      model_id: `model-${id}`,
+      content: id,
+      is_active: index === 0,
+      version_index: index,
+    }));
+
+    render(renderDisplay(versions));
+
+    const card = screen.getByTestId('multi-model-card-assistant-a');
+    expect(card).toHaveClass('aqbot-multi-model-card');
+    expect(card.style.width).toBe('');
+    expect(card).toHaveStyle({ flex: '0 0 auto', minWidth: '420px' });
+    expect(card.closest('.aqbot-multi-model-track')).not.toBeNull();
+  });
+
   it('switches the displayed same-model version locally without setting context', () => {
     const modelAOld = makeMessage({
       id: 'assistant-a-old',

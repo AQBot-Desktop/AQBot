@@ -37,6 +37,25 @@ describe('MultiModelLaneWorkspace', () => {
     expect(screen.getAllByLabelText('chat.multiModel.expandColumn')).toHaveLength(2);
   });
 
+  it('sizes extra columns like a two-column workspace instead of 1/n of the window', () => {
+    render(
+      <MultiModelLaneWorkspace
+        columns={[
+          { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
+          { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
+          { key: 'provider-c:model-c', providerId: 'provider-c', modelId: 'model-c', historical: false },
+        ]}
+        getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
+        renderConversation={(column) => <div>{column.modelId}</div>}
+      />,
+    );
+
+    const column = screen.getByTestId('multi-model-lane-column-provider-a:model-a');
+    expect(column).toHaveClass('aqbot-multi-model-card');
+    expect(column).toHaveStyle({ flex: '0 0 auto', minWidth: '420px' });
+    expect(column.closest('.aqbot-multi-model-lane-scroll')).not.toBeNull();
+  });
+
   it('can expand one column and stop a streaming column', () => {
     const onStopColumn = vi.fn();
 

@@ -4,6 +4,7 @@ import { Maximize2, Minimize2, Square } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import type { LaneColumn } from '@/lib/multiModelLanes';
+import { sideBySideColumnLayout } from '@/lib/multiModelColumnLayout';
 
 export interface MultiModelLaneWorkspaceProps {
   columns: LaneColumn[];
@@ -45,6 +46,7 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
       }}
     >
       <div
+        className="aqbot-multi-model-lane-scroll"
         style={{
           display: 'flex',
           height: '100%',
@@ -56,14 +58,15 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
           const { modelName, providerName } = getModelDisplayInfo(column.modelId, column.providerId);
           const headerId = headerIds[index] ?? `multi-model-lane-${column.key}`;
           const columnStreaming = streamingColumnKeys?.has(column.key) ?? false;
+          const columnLayout = sideBySideColumnLayout(visibleColumns.length);
           return (
             <section
               key={column.key}
               aria-labelledby={headerId}
               data-testid={`multi-model-lane-column-${column.key}`}
+              className={columnLayout.className}
               style={{
-                minWidth: 280,
-                flex: 1,
+                ...columnLayout.style,
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
