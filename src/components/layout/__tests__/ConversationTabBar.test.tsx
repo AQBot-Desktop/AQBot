@@ -40,6 +40,46 @@ function renderBar() {
   );
 }
 
+function mockScrollerLayout(
+  scroller: HTMLDivElement,
+  layout: {
+    clientWidth: number;
+    scrollWidth: number;
+    tabs: Array<{ id: string; left: number; width: number }>;
+  },
+) {
+  Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: layout.clientWidth });
+  Object.defineProperty(scroller, 'scrollWidth', { configurable: true, value: layout.scrollWidth });
+  scroller.scrollBy = vi.fn();
+  scroller.getBoundingClientRect = () => ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: layout.clientWidth,
+    bottom: 36,
+    width: layout.clientWidth,
+    height: 36,
+    toJSON() { return {}; },
+  });
+  for (const tab of layout.tabs) {
+    const element = scroller.querySelector<HTMLElement>(`[data-conversation-tab="${tab.id}"]`);
+    if (!element) continue;
+    element.scrollIntoView = vi.fn();
+    element.getBoundingClientRect = () => ({
+      x: tab.left,
+      y: 0,
+      top: 0,
+      left: tab.left,
+      right: tab.left + tab.width,
+      bottom: 26,
+      width: tab.width,
+      height: 26,
+      toJSON() { return {}; },
+    });
+  }
+}
+
 describe('ConversationTabBar', () => {
   beforeEach(() => {
     useConversationTabsStore.setState({
@@ -125,5 +165,76 @@ describe('ConversationTabBar', () => {
     scroller.scrollLeft = 10;
     fireEvent.wheel(scroller, { deltaY: 30, deltaX: 0 });
     expect(scroller.scrollLeft).toBe(40);
+  });
+
+  it('keeps a gap between the tab strip and the title-bar edges', () => {
+    const { container } = renderBar();
+    expect(container.querySelector('.conversation-tab-bar')).toHaveStyle({
+      paddingLeft: '8px',
+      paddingRight: '8px',
+    });
+  });
+
+  it('requests a new conversation from the plus button without marking the strip as undraggable', () => {
+    const onNew = vi.fn();
+    window.addEventListener('aqbot:new-conversation', onNew);
+    const { container } = renderBar();
+    const plus = screen.getByRole('button', { name: 'titlebar.newConversation' });
+    fireEvent.click(plus);
+    expect(onNew).toHaveBeenCalledTimes(1);
+    window.removeEventListener('aqbot:new-conversation', onNew);
+
+    expect(container.querySelector('.conversation-tab-bar')).not.toHaveClass('title-bar-nodrag');
+    expect(plus).toHaveClass('title-bar-nodrag');
+    expect(screen.getByRole('tab', { name: /Alpha chat/ })).toHaveClass('title-bar-nodrag');
+  });
+
+  it('does not show a right-overflow badge when the tab strip fits', () => {
+    const { container } = renderBar();
+    const scroller = container.querySelector('.conversation-tab-scroller') as HTMLDivElement;
+    mockScrollerLayout(scroller, {
+      clientWidth: 400,
+      scrollWidth: 403,
+      tabs: [
+        { id: 'beta', left: 0, width: 120 },
+        { id: 'alpha', left: 124, width: 140 },
+        { id: 'gamma', left: 268, width: 135 },
+      ],
+    });
+    fireEvent.scroll(scroller);
+    expect(screen.queryByRole('button', { name: /titlebar.hiddenTabsRight/ })).not.toBeInTheDocument();
+  });
+
+  it('activates an overflow tab from the hidden-tabs menu', async () => {
+    const { container } = renderBar();
+    const scroller = container.querySelector('.conversation-tab-scroller') as HTMLDivElement;
+    mockScrollerLayout(scroller, {
+      clientWidth: 150,
+      scrollWidth: 400,
+      tabs: [
+        { id: 'beta', left: 0, width: 80 },
+        { id: 'alpha', left: 84, width: 80 },
+        { id: 'gamma', left: 300, width: 80 },
+      ],
+    });
+    fireEvent.scroll(scroller);
+
+    fireEvent.mouseEnter(await screen.findByRole('button', { name: /titlebar.hiddenTabsRight/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Gamma chat/ }));
+    expect(useConversationStore.getState().setActiveConversation).toHaveBeenCalledWith('gamma');
+  });
+
+  it('keeps the plus button when no conversation tabs are open', () => {
+    useConversationTabsStore.setState({
+      ...EMPTY_CONVERSATION_TABS,
+      hasAttemptedRestore: false,
+    });
+    useConversationStore.setState({
+      conversations: [],
+      activeConversationId: null,
+    } as any);
+    renderBar();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'titlebar.newConversation' })).toBeInTheDocument();
   });
 });

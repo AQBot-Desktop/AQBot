@@ -2013,7 +2013,8 @@
     "closeTabsToTheLeft": "왼쪽 탭 닫기",
     "closeTabsToTheRight": "오른쪽 탭 닫기",
     "hiddenTabsLeft": "왼쪽의 숨겨진 탭",
-    "hiddenTabsRight": "오른쪽의 숨겨진 탭"
+    "hiddenTabsRight": "오른쪽의 숨겨진 탭",
+    "newConversation": "새 대화"
   },
   "skills": {
     "title": "스킬 관리",

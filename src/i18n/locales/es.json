@@ -2013,7 +2013,8 @@
     "closeTabsToTheLeft": "Cerrar pestañas a la izquierda",
     "closeTabsToTheRight": "Cerrar pestañas a la derecha",
     "hiddenTabsLeft": "Pestañas ocultas a la izquierda",
-    "hiddenTabsRight": "Pestañas ocultas a la derecha"
+    "hiddenTabsRight": "Pestañas ocultas a la derecha",
+    "newConversation": "Nueva conversación"
   },
   "skills": {
     "title": "Gestión de habilidades",

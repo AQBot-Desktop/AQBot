@@ -2013,7 +2013,8 @@
     "closeTabsToTheLeft": "關閉左側的標籤頁",
     "closeTabsToTheRight": "關閉右側的標籤頁",
     "hiddenTabsLeft": "左側隱藏的標籤",
-    "hiddenTabsRight": "右側隱藏的標籤"
+    "hiddenTabsRight": "右側隱藏的標籤",
+    "newConversation": "新增對話"
   },
   "skills": {
     "title": "技能管理",

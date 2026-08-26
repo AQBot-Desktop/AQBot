@@ -188,19 +188,29 @@ export function tabIdsToClose(
 export function classifyOverflowTabs(args: {
   containerWidth: number;
   scrollLeft: number;
+  scrollWidth?: number;
   tabs: Array<{ id: string; offsetLeft: number; width: number }>;
 }): { leftIds: string[]; rightIds: string[] } {
+  const epsilon = 2;
+  if (args.containerWidth <= 0) {
+    return { leftIds: [], rightIds: [] };
+  }
+  if (
+    args.scrollWidth != null
+    && args.scrollWidth <= args.containerWidth + epsilon
+  ) {
+    return { leftIds: [], rightIds: [] };
+  }
   const viewStart = args.scrollLeft;
   const viewEnd = args.scrollLeft + args.containerWidth;
   const leftIds: string[] = [];
   const rightIds: string[] = [];
-  const epsilon = 1;
   for (const tab of args.tabs) {
     const start = tab.offsetLeft;
     const end = tab.offsetLeft + tab.width;
-    if (end <= viewStart + epsilon || start < viewStart - epsilon) {
+    if (end <= viewStart + epsilon) {
       leftIds.push(tab.id);
-    } else if (start >= viewEnd - epsilon || end > viewEnd + epsilon) {
+    } else if (start >= viewEnd - epsilon) {
       rightIds.push(tab.id);
     }
   }

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
       update: false,
       reload: false,
     },
+    conversation_tabs_enabled: false,
   },
 }));
 
@@ -182,5 +183,20 @@ describe('TitleBar auto-backup countdown', () => {
     expect(mocks.invoke.mock.calls.filter(([command]) => command === 'list_backups')).toHaveLength(1);
     expect(screen.queryByText('(titlebar.now)')).not.toBeInTheDocument();
     expect(screen.getByText('(1:00:00)')).toBeInTheDocument();
+  });
+});
+
+describe('TitleBar conversation tabs drag region', () => {
+  afterEach(() => {
+    cleanup();
+    mocks.settings.conversation_tabs_enabled = false;
+  });
+
+  it('does not mark the conversation tab strip wrapper as undraggable', async () => {
+    mocks.settings.conversation_tabs_enabled = true;
+    render(<TitleBar />);
+    await act(async () => Promise.resolve());
+    const tabBar = screen.getByTestId('conversation-tab-bar');
+    expect(tabBar.parentElement).not.toHaveClass('title-bar-nodrag');
   });
 });

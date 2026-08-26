@@ -2013,7 +2013,8 @@
     "closeTabsToTheLeft": "Close tabs to the left",
     "closeTabsToTheRight": "Close tabs to the right",
     "hiddenTabsLeft": "Hidden tabs on the left",
-    "hiddenTabsRight": "Hidden tabs on the right"
+    "hiddenTabsRight": "Hidden tabs on the right",
+    "newConversation": "New conversation"
   },
   "skills": {
     "title": "Skills Management",

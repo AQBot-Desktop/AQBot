@@ -439,7 +439,6 @@ export function TitleBar({ variant = 'main' }: { variant?: 'main' | 'popout' }) 
 
       {!isPopout && activePage === 'chat' && settings.conversation_tabs_enabled && (
         <div
-          className="title-bar-nodrag"
           style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'center' }}
         >
           <ConversationTabBar />

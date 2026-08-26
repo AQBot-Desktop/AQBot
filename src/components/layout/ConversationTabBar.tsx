@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { App, Badge, Dropdown, theme } from 'antd';
+import { App, Badge, Dropdown, Tooltip, theme } from 'antd';
 import type { MenuProps } from 'antd';
-import { ChevronLeft, ChevronRight, Pin, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pin, Plus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ConversationIcon } from '@/components/chat/ConversationIcon';
 import { closeConversationTab, closeConversationTabs } from '@/lib/conversationTabsActions';
@@ -12,19 +12,28 @@ import {
   tabIdsToClose,
   type CloseTabsScope,
 } from '@/lib/conversationTabs';
+import { formatShortcutForDisplay, getShortcutBinding } from '@/lib/shortcuts';
 import { useConversationStore } from '@/stores/conversationStore';
 import { useConversationTabsStore } from '@/stores/conversationTabsStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { Conversation } from '@/types';
+
+function tabOffsetInScroller(scroller: HTMLElement, tab: HTMLElement) {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const tabRect = tab.getBoundingClientRect();
+  return tabRect.left - scrollerRect.left + scroller.scrollLeft;
+}
 
 function measureOverflow(element: HTMLDivElement) {
   const tabs = [...element.querySelectorAll<HTMLElement>('[data-conversation-tab]')];
   return classifyOverflowTabs({
     containerWidth: element.clientWidth,
     scrollLeft: element.scrollLeft,
+    scrollWidth: element.scrollWidth,
     tabs: tabs.map((tab) => ({
       id: tab.dataset.conversationTab ?? '',
-      offsetLeft: tab.offsetLeft,
-      width: tab.offsetWidth,
+      offsetLeft: tabOffsetInScroller(element, tab),
+      width: tab.getBoundingClientRect().width || tab.offsetWidth,
     })).filter((tab) => tab.id),
   });
 }
@@ -41,6 +50,7 @@ export function ConversationTabBar() {
   const streamingConversationId = useConversationStore((state) => state.streamingConversationId);
   const openIds = useConversationTabsStore((state) => state.openIds);
   const dismissedIds = useConversationTabsStore((state) => state.dismissedIds);
+  const settings = useSettingsStore((state) => state.settings);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState<{ leftIds: string[]; rightIds: string[] }>({
     leftIds: [],
@@ -143,6 +153,18 @@ export function ConversationTabBar() {
     }
   }, [message, setConversationTabPinned]);
 
+  const handleNewConversation = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('aqbot:new-conversation'));
+  }, []);
+
+  const newConversationLabel = t('titlebar.newConversation');
+  const newConversationShortcut = formatShortcutForDisplay(
+    getShortcutBinding(settings, 'newConversation'),
+  );
+  const newConversationTooltip = newConversationShortcut
+    ? `${newConversationLabel} (${newConversationShortcut})`
+    : newConversationLabel;
+
   const focusTab = useCallback((id: string) => {
     setFocusedId(id);
     scrollerRef.current
@@ -202,8 +224,6 @@ export function ConversationTabBar() {
     })
   ), [streamingConversationId, t, tabsById]);
 
-  if (tabs.length === 0) return null;
-
   const buttonStyle: React.CSSProperties = {
     width: 22,
     height: 22,
@@ -218,23 +238,37 @@ export function ConversationTabBar() {
     flexShrink: 0,
   };
 
+  const activateOverflowTab = useCallback((id: string) => {
+    setActiveConversation(id);
+    const tab = scrollerRef.current?.querySelector<HTMLElement>(`[data-conversation-tab="${id}"]`);
+    tab?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [setActiveConversation]);
+
   const renderOverflowControl = (side: 'left' | 'right', ids: string[]) => {
     if (ids.length === 0) return null;
     const label = side === 'left' ? t('titlebar.hiddenTabsLeft') : t('titlebar.hiddenTabsRight');
     return (
       <Dropdown
-        trigger={['hover']}
+        trigger={['hover', 'click']}
         menu={{
           items: overflowMenu(ids),
-          onClick: ({ key }) => setActiveConversation(key),
+          onClick: ({ key, domEvent }) => {
+            domEvent.preventDefault();
+            domEvent.stopPropagation();
+            activateOverflowTab(key);
+          },
         }}
       >
         <Badge count={ids.length} size="small" offset={[-1, 1]}>
           <button
             type="button"
+            className="title-bar-nodrag"
             aria-label={`${label} (${ids.length})`}
             style={buttonStyle}
-            onClick={() => scrollByPage(side === 'left' ? -1 : 1)}
+            onClick={(event) => {
+              event.stopPropagation();
+              scrollByPage(side === 'left' ? -1 : 1);
+            }}
           >
             {side === 'left' ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
           </button>
@@ -245,7 +279,7 @@ export function ConversationTabBar() {
 
   return (
     <div
-      className="conversation-tab-bar title-bar-nodrag"
+      className="conversation-tab-bar"
       dir={direction}
       style={{
         display: 'flex',
@@ -254,6 +288,9 @@ export function ConversationTabBar() {
         width: '100%',
         height: '100%',
         gap: 2,
+        paddingLeft: 8,
+        paddingRight: 8,
+        boxSizing: 'border-box',
       }}
     >
       {renderOverflowControl('left', overflow.leftIds)}
@@ -267,7 +304,7 @@ export function ConversationTabBar() {
           display: 'flex',
           alignItems: 'center',
           minWidth: 0,
-          flex: 1,
+          flex: '0 1 auto',
           overflowX: 'auto',
           overflowY: 'hidden',
           scrollbarWidth: 'none',
@@ -335,7 +372,7 @@ export function ConversationTabBar() {
                 tabIndex={tabIndex}
                 aria-selected={selected}
                 data-conversation-tab={conversation.id}
-                className={`conversation-tab${selected ? ' is-active' : ''}`}
+                className={`conversation-tab title-bar-nodrag${selected ? ' is-active' : ''}`}
                 title={conversation.title}
                 onClick={() => setActiveConversation(conversation.id)}
                 onKeyDown={(event) => handleTabKeyDown(event, conversation.id)}
@@ -403,6 +440,18 @@ export function ConversationTabBar() {
           );
         })}
       </div>
+      <Tooltip title={newConversationTooltip}>
+        <button
+          type="button"
+          className="conversation-tab-new title-bar-nodrag"
+          aria-label={newConversationLabel}
+          onClick={handleNewConversation}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={buttonStyle}
+        >
+          <Plus size={14} />
+        </button>
+      </Tooltip>
       {renderOverflowControl('right', overflow.rightIds)}
     </div>
   );

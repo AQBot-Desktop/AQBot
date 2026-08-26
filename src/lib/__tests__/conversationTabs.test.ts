@@ -186,6 +186,7 @@ describe('conversationTabs', () => {
     expect(classifyOverflowTabs({
       containerWidth: 100,
       scrollLeft: 80,
+      scrollWidth: 260,
       tabs: [
         { id: 'a', offsetLeft: 0, width: 40 },
         { id: 'b', offsetLeft: 40, width: 40 },
@@ -196,6 +197,37 @@ describe('conversationTabs', () => {
     })).toEqual({
       leftIds: ['a', 'b'],
       rightIds: ['d', 'e'],
+    });
+  });
+
+  it('does not treat a 1px-clipped last tab as overflow when the strip still fits', () => {
+    expect(classifyOverflowTabs({
+      containerWidth: 200,
+      scrollLeft: 0,
+      scrollWidth: 203,
+      tabs: [
+        { id: 'a', offsetLeft: 0, width: 100 },
+        { id: 'b', offsetLeft: 100, width: 103 },
+      ],
+    })).toEqual({
+      leftIds: [],
+      rightIds: [],
+    });
+  });
+
+  it('does not list a partially visible edge tab as hidden', () => {
+    expect(classifyOverflowTabs({
+      containerWidth: 150,
+      scrollLeft: 0,
+      scrollWidth: 220,
+      tabs: [
+        { id: 'a', offsetLeft: 0, width: 100 },
+        { id: 'b', offsetLeft: 100, width: 80 },
+        { id: 'c', offsetLeft: 180, width: 40 },
+      ],
+    })).toEqual({
+      leftIds: [],
+      rightIds: ['c'],
     });
   });
 

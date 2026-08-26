@@ -448,7 +448,9 @@ svg.lucide {
   app-region: drag;
 }
 .title-bar-drag button,
-.title-bar-drag .ant-dropdown-trigger {
+.title-bar-drag .ant-dropdown-trigger,
+.title-bar-drag .conversation-tab,
+.title-bar-drag .conversation-tab-new {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
