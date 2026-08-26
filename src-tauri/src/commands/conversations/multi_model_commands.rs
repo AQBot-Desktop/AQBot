@@ -132,8 +132,31 @@ pub struct StartMultiModelRunCommand {
 pub async fn start_multi_model_run(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-    input: StartMultiModelRunCommand,
+    conversation_id: String,
+    content: String,
+    attachments: Option<Vec<AttachmentInput>>,
+    search_provider_id: Option<String>,
+    enabled_mcp_server_ids: Option<Vec<String>>,
+    thinking_budget: Option<u32>,
+    thinking_level: Option<String>,
+    enabled_knowledge_base_ids: Option<Vec<String>>,
+    enabled_memory_namespace_ids: Option<Vec<String>>,
+    targets: Option<Vec<MultiModelTarget>>,
+    history_mode: Option<MultiModelContinuationMode>,
 ) -> Result<MultiModelRunEnvelope, String> {
+    let input = StartMultiModelRunCommand {
+        conversation_id,
+        content,
+        attachments,
+        search_provider_id,
+        enabled_mcp_server_ids,
+        thinking_budget,
+        thinking_level,
+        enabled_knowledge_base_ids,
+        enabled_memory_namespace_ids,
+        targets,
+        history_mode,
+    };
     let conversation =
         aqbot_core::repo::conversation::get_conversation(&state.sea_db, &input.conversation_id)
             .await
