@@ -226,6 +226,11 @@ function applyMultiModelEnvelope(
     target.state === 'streaming' || target.state === 'starting',
   );
   set((state) => {
+    if (!run && state.streaming && state.multiModelRun == null) {
+      return {
+        multiModelRunRevision: Math.max(state.multiModelRunRevision, envelope.revision),
+      };
+    }
     let messages = state.messages;
     let activities = { ...state.streamActivityByMessageId };
     let ragDisplayByMessageId = state.ragDisplayByMessageId;

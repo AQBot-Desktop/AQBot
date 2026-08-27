@@ -1279,6 +1279,40 @@ describe('conversationStore pagination', () => {
     vi.useRealTimers();
   });
 
+  it('keeps a first-turn single-model stream live when the idle multi-model snapshot arrives', async () => {
+    tauriAvailable = true;
+    listenMock.mockResolvedValue(() => {});
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (cmd === 'send_message') {
+        return new Promise(() => {});
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      messages: [],
+      streaming: false,
+      streamingMessageId: null,
+      multiModelRun: null,
+      multiModelRunRevision: 0,
+    });
+
+    void useConversationStore.getState().sendMessage('请翻译\n这段话');
+    await flushPromises();
+
+    const state = useConversationStore.getState();
+    expect(state.streaming).toBe(true);
+    expect(state.streamingMessageId).toMatch(/^temp-assistant-/);
+    expect(state.messages.some((message) => (
+      message.role === 'assistant' && message.status === 'partial'
+    ))).toBe(true);
+  });
+
   it('cancels stale backend stream state when an overlapping stream rejection happens while locally idle', async () => {
     tauriAvailable = true;
     listenMock.mockResolvedValue(() => {});
