@@ -10,6 +10,7 @@ pub mod conversation_categories;
 pub mod conversations;
 pub mod crash_diagnostics;
 pub mod desktop;
+pub mod system_fonts;
 pub mod drawing;
 pub mod embedding_artifact;
 pub(crate) mod file_cleanup;

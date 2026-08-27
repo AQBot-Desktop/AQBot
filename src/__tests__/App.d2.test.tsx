@@ -13,11 +13,13 @@ const settingsState = {
     font_size: 14,
     font_weight: 400,
     font_family: '',
+    font_style: 'normal',
     code_font_family: '',
     chat_font_size: 16,
     chat_line_height: 1.8,
     chat_font_family: 'Inter',
     chat_font_weight: 500,
+    chat_font_style: 'normal',
     border_radius: 8,
     language: 'zh-CN',
     always_on_top: false,
@@ -155,6 +157,10 @@ vi.mock('@/lib/invoke', () => ({
   isTauri: () => false,
 }));
 
+vi.mock('@/hooks/useSystemFontFaces', () => ({
+  useSystemFontFaces: () => [],
+}));
+
 vi.mock('@/lib/preloadChatRenderers', () => ({
   preloadChatRenderers,
 }));
@@ -192,7 +198,9 @@ describe('AppRoot D2 setup', () => {
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue('--chat-font-size')).toBe('16px');
       expect(document.documentElement.style.getPropertyValue('--chat-line-height')).toBe('1.8');
-      expect(document.documentElement.style.getPropertyValue('--chat-font-family')).toBe('Inter');
+      expect(document.documentElement.style.getPropertyValue('--chat-font-family')).toBe(
+        '"Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      );
       expect(document.documentElement.style.getPropertyValue('--chat-font-weight')).toBe('500');
     });
   });

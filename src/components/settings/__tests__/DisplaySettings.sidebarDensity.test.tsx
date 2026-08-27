@@ -42,6 +42,7 @@ vi.mock('react-i18next', () => ({
         'settings.densityStandard': '标准',
         'settings.densitySpacious': '宽松',
         'settings.fontWeight': '界面字重',
+        'settings.fontStyle': '字体样式',
         'settings.fontFamily': '界面字体',
         'settings.fontDefault': '系统默认',
         'settings.codeThemeLight': '代码主题（亮色）',
@@ -140,6 +141,10 @@ vi.mock('../SettingsGroup', () => ({
 
 vi.mock('../SettingsSelect', () => ({
   SettingsSelect: () => null,
+}));
+
+vi.mock('../FontPicker', () => ({
+  FontPicker: () => null,
 }));
 
 describe('DisplaySettings sidebar density', () => {

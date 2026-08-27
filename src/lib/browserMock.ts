@@ -683,6 +683,10 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       setStore('settings', merged);
       return { saved: true, warnings: [] } as T;
     }
+    case 'list_system_fonts':
+      return [] as T;
+    case 'list_system_font_faces':
+      return [] as T;
     case 'get_previous_crash_report':
       return null as T;
     case 'acknowledge_previous_crash_report':

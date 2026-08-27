@@ -55,6 +55,15 @@ vi.mock('react-i18next', () => ({
         'settings.showImageModelsInModelSelector': '模型选择器中显示绘画模型',
         'settings.codeFontFamily': '代码字体',
         'settings.fontDefault': '系统默认',
+        'settings.fontFaceThin': '极细',
+        'settings.fontFaceExtraLight': '特细',
+        'settings.fontFaceLight': '细体',
+        'settings.fontFaceRegular': '常规',
+        'settings.fontFaceMedium': '中等',
+        'settings.fontFaceSemiBold': '半粗',
+        'settings.fontFaceBold': '粗体',
+        'settings.fontFaceExtraBold': '特粗',
+        'settings.fontFaceBlack': '超粗',
         'settings.groupMessageStyle': '消息样式',
         'settings.contextCompression': '上下文压缩',
         'settings.contextCompressionGroupDesc': '控制对话过长时如何压缩历史上下文。',
@@ -233,18 +242,21 @@ vi.mock('../SettingsSelect', () => ({
     value,
     onChange,
     options,
+    ariaLabel,
   }: {
     value?: string;
     onChange?: (value: string) => void;
     options: Array<{ label: React.ReactNode; value: string }>;
+    ariaLabel?: string;
   }) => (
     <select
+      aria-label={ariaLabel}
       value={value ?? ''}
       onChange={(event) => onChange?.(event.target.value)}
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
-          {option.label}
+          {typeof option.label === 'string' ? option.label : option.value}
         </option>
       ))}
     </select>
@@ -264,6 +276,14 @@ vi.mock('@/stores', () => ({
 vi.mock('@/lib/invoke', () => ({
   isTauri: () => true,
   invoke: vi.fn().mockResolvedValue(['Inter', 'JetBrains Mono']),
+}));
+
+vi.mock('@/hooks/useSystemFonts', () => ({
+  useSystemFonts: () => ['Inter', 'JetBrains Mono'],
+}));
+
+vi.mock('@/hooks/useSystemFontFaces', () => ({
+  useSystemFontFaces: () => [],
 }));
 
 describe('ConversationSettings', () => {
@@ -291,6 +311,7 @@ describe('ConversationSettings', () => {
       chat_line_height: 1.7,
       chat_font_family: '',
       chat_font_weight: 400,
+      chat_font_style: 'normal',
       chat_input_actions_scale: 100,
       chat_user_message_area_style: 'none',
       chat_user_message_area_light_color: 'rgba(0, 0, 0, 0)',
@@ -365,7 +386,7 @@ describe('ConversationSettings', () => {
     expect(within(messageStyleGroup as HTMLElement).getByText('对话字号')).toBeInTheDocument();
     expect(within(messageStyleGroup as HTMLElement).getByText('对话行高')).toBeInTheDocument();
     expect(within(messageStyleGroup as HTMLElement).getByText('对话字体')).toBeInTheDocument();
-    expect(within(messageStyleGroup as HTMLElement).getByText('对话字重')).toBeInTheDocument();
+    expect(within(messageStyleGroup as HTMLElement).getByLabelText('对话字重')).toBeInTheDocument();
     expect(within(messageStyleGroup as HTMLElement).getByText('代码字体')).toBeInTheDocument();
   });
 
@@ -469,8 +490,14 @@ describe('ConversationSettings', () => {
     fireEvent.change(screen.getByLabelText('对话行高'), { target: { value: '1.05' } });
     expect(mocks.saveSettings).toHaveBeenCalledWith({ chat_line_height: 1.3 });
 
-    fireEvent.change(screen.getByLabelText('对话字重'), { target: { value: '950' } });
-    expect(mocks.saveSettings).toHaveBeenCalledWith({ chat_font_weight: 700 });
+    fireEvent.change(screen.getByLabelText('对话字重'), {
+      target: { value: 'bold@@700@@normal' },
+    });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      chat_font_family: '',
+      chat_font_weight: 700,
+      chat_font_style: 'normal',
+    });
   });
 
   it('saves chat and code font family settings from conversation settings', async () => {
@@ -487,7 +514,11 @@ describe('ConversationSettings', () => {
     const fontSelects = screen.getAllByRole('combobox').filter((select) =>
       select.textContent?.includes('Inter'));
     fireEvent.change(fontSelects[0], { target: { value: 'Inter' } });
-    expect(mocks.saveSettings).toHaveBeenCalledWith({ chat_font_family: 'Inter' });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      chat_font_family: 'Inter',
+      chat_font_weight: 400,
+      chat_font_style: 'normal',
+    });
 
     fireEvent.change(fontSelects[1], { target: { value: 'JetBrains Mono' } });
     expect(mocks.saveSettings).toHaveBeenCalledWith({ code_font_family: 'JetBrains Mono' });

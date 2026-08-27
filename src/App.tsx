@@ -28,7 +28,10 @@ import { useTrayMenuActions } from '@/hooks/useTrayMenuActions';
 import { useProviderDeepLink } from '@/hooks/useProviderDeepLink';
 import { useShadcnTheme } from '@/theme/shadcnTheme';
 import { isTauri, invoke, listen } from '@/lib/invoke';
+import { applyAppFonts } from '@/lib/applyAppFonts';
+import { cssFontStack, DEFAULT_CODE_FONT_FALLBACK, DEFAULT_UI_FONT_FALLBACK } from '@/lib/cssFontFamily';
 import { preloadChatRenderers } from '@/lib/preloadChatRenderers';
+import { useSystemFontFaces } from '@/hooks/useSystemFontFaces';
 import { setupAgentEventListeners } from '@/stores/agentStore';
 import { enableD2 } from 'markstream-react';
 import { applyMarkstreamI18nMap } from '@/lib/markstreamI18n';
@@ -36,7 +39,6 @@ import './i18n';
 
 const { Sider, Content } = Layout;
 const { useToken } = theme;
-const DEFAULT_CHAT_FONT_FAMILY = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const ConversationPopoutInner = lazy(async () => {
   const module = await import('@/components/chat/ConversationPopoutInner');
   return { default: module.ConversationPopoutInner };
@@ -194,11 +196,15 @@ function AppRoot() {
   const fontSize = useSettingsStore((s) => s.settings.font_size);
   const fontWeight = useSettingsStore((s) => s.settings.font_weight);
   const fontFamily = useSettingsStore((s) => s.settings.font_family);
+  const fontStyle = useSettingsStore((s) => s.settings.font_style);
   const codeFontFamily = useSettingsStore((s) => s.settings.code_font_family);
   const chatFontSize = useSettingsStore((s) => s.settings.chat_font_size);
   const chatLineHeight = useSettingsStore((s) => s.settings.chat_line_height);
   const chatFontFamily = useSettingsStore((s) => s.settings.chat_font_family);
   const chatFontWeight = useSettingsStore((s) => s.settings.chat_font_weight);
+  const chatFontStyle = useSettingsStore((s) => s.settings.chat_font_style);
+  const interfaceFontFaces = useSystemFontFaces(fontFamily);
+  const chatFontFaces = useSystemFontFaces(chatFontFamily);
   const borderRadius = useSettingsStore((s) => s.settings.border_radius);
   const language = useSettingsStore((s) => s.settings.language);
   const isDark = useResolvedDarkMode(themeMode);
@@ -301,27 +307,41 @@ function AppRoot() {
 
   // Sync font settings to CSS custom properties
   useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--font-weight', String(fontWeight));
-    if (fontFamily) {
-      root.style.setProperty('--font-family', fontFamily);
-      document.body.style.fontFamily = fontFamily;
-    } else {
-      root.style.removeProperty('--font-family');
-      document.body.style.removeProperty('font-family');
-    }
-    if (codeFontFamily) {
-      root.style.setProperty('--code-font-family', codeFontFamily);
-    } else {
-      root.style.removeProperty('--code-font-family');
-    }
-    root.style.setProperty('--chat-font-size', `${chatFontSize ?? 15}px`);
-    root.style.setProperty('--chat-line-height', String(chatLineHeight ?? 1.7));
-    root.style.setProperty('--chat-font-family', chatFontFamily || DEFAULT_CHAT_FONT_FAMILY);
-    root.style.setProperty('--chat-font-weight', String(chatFontWeight ?? 400));
-  }, [fontWeight, fontFamily, codeFontFamily, chatFontSize, chatLineHeight, chatFontFamily, chatFontWeight]);
+    applyAppFonts({
+      fontFamily,
+      fontWeight,
+      fontStyle,
+      fontFaces: interfaceFontFaces,
+      codeFontFamily,
+      chatFontFamily,
+      chatFontWeight,
+      chatFontStyle,
+      chatFontFaces,
+      chatFontSize: chatFontSize ?? 15,
+      chatLineHeight: chatLineHeight ?? 1.7,
+    });
+  }, [
+    fontWeight,
+    fontFamily,
+    fontStyle,
+    interfaceFontFaces,
+    codeFontFamily,
+    chatFontSize,
+    chatLineHeight,
+    chatFontFamily,
+    chatFontWeight,
+    chatFontStyle,
+    chatFontFaces,
+  ]);
 
-  const themeConfig = useShadcnTheme(isDark, primaryColor, fontSize, borderRadius, fontFamily || undefined, codeFontFamily || undefined);
+  const themeConfig = useShadcnTheme(
+    isDark,
+    primaryColor,
+    fontSize,
+    borderRadius,
+    fontFamily ? cssFontStack(fontFamily, DEFAULT_UI_FONT_FALLBACK) : undefined,
+    codeFontFamily ? cssFontStack(codeFontFamily, DEFAULT_CODE_FONT_FALLBACK) : undefined,
+  );
 
   return (
     <ConfigProvider

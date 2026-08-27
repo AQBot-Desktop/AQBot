@@ -15,6 +15,7 @@ import i18n from '@/i18n';
 import type { SelectionToolbarToolView } from '@/types';
 import { useSelectionToolbarStore } from '@/stores/selectionToolbarStore';
 import { useSettingsStore } from '@/stores';
+import { quoteCssFontFamily } from '@/lib/cssFontFamily';
 import {
   SelectionToolbarStrip,
   selectionToolbarOverflowSurfaceHeight,
@@ -162,7 +163,7 @@ function ResultMarkdown({ output, streaming, isDark }: {
     [darkTheme, lightTheme],
   );
   const codeBlockMonacoOptions = useMemo(
-    () => codeFontFamily ? { fontFamily: codeFontFamily } : undefined,
+    () => codeFontFamily ? { fontFamily: quoteCssFontFamily(codeFontFamily) } : undefined,
     [codeFontFamily],
   );
   useEffect(() => {

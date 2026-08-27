@@ -21,11 +21,13 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
+  font-family: var(--font-family, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-weight: var(--font-weight, 400);
+  font-style: var(--font-style, normal);
 }
 
 body {
   margin: 0;
-  font-weight: var(--font-weight, 400);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -739,6 +741,7 @@ html[data-theme="dark"] .markstream-react .thematic-break {
   font-size: var(--chat-font-size, 15px);
   line-height: var(--chat-line-height, 1.7);
   font-weight: var(--chat-font-weight, 400);
+  font-style: var(--chat-font-style, normal);
   color: var(--chat-text-color, var(--color-text));
 }
 

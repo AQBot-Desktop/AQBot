@@ -17,12 +17,13 @@ import { useMemo } from 'react';
 import { useSettingsStore } from '@/stores';
 import type { SettingsSidebarDensity, TitlebarIconId, TitlebarToggleableIconId } from '@/types';
 import { SHIKI_LIGHT_THEMES, SHIKI_DARK_THEMES, formatThemeName } from '@/constants/codeThemes';
-import { useSystemFonts } from '@/hooks/useSystemFonts';
 import {
   TITLEBAR_ICON_IDS,
   TITLEBAR_ICON_LABEL_KEYS,
   isTitlebarIconVisible,
 } from '@/lib/titlebarIcons';
+import { normalizeFontStyle } from '@/lib/systemFonts';
+import { FontPicker } from './FontPicker';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
 
@@ -42,7 +43,6 @@ export function DisplaySettings() {
   const { token } = theme.useToken();
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
-  const systemFonts = useSystemFonts();
 
   const rowStyle = { padding: '4px 0' };
 
@@ -243,28 +243,21 @@ export function DisplaySettings() {
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />
-        <div style={{ padding: '4px 0' }}>
-          <span>{t('settings.fontWeight')}</span>
-          <Slider
-            min={100}
-            max={900}
-            step={100}
-            value={settings.font_weight}
-            onChange={(val) => saveSettings({ font_weight: val })}
-            marks={{ 100: '100', 300: '300', 400: '400', 500: '500', 700: '700', 900: '900' }}
-          />
-        </div>
-        <Divider style={{ margin: '4px 0' }} />
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.fontFamily')}</span>
-          <SettingsSelect
-            searchable
-            value={settings.font_family || ''}
-            onChange={(val) => saveSettings({ font_family: val })}
-            options={[
-              { label: t('settings.fontDefault'), value: '' },
-              ...systemFonts.map((f) => ({ label: f, value: f })),
-            ]}
+          <FontPicker
+            value={{
+              family: settings.font_family || '',
+              weight: settings.font_weight ?? 400,
+              style: normalizeFontStyle(settings.font_style),
+            }}
+            onChange={(next) => saveSettings({
+              font_family: next.family,
+              font_weight: next.weight,
+              font_style: next.style,
+            })}
+            familyAriaLabel={t('settings.fontFamily')}
+            styleAriaLabel={t('settings.fontStyle')}
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />

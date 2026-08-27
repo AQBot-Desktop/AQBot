@@ -25,6 +25,8 @@ import {
   normalizeContextStrategy,
 } from '@/lib/contextStrategy';
 import { useSystemFonts } from '@/hooks/useSystemFonts';
+import { normalizeFontStyle } from '@/lib/systemFonts';
+import { FontPicker } from './FontPicker';
 import {
   normalizeMultiModelExecutionMode,
   normalizeMultiModelSequentialInterval,
@@ -37,8 +39,8 @@ const CHAT_FONT_SIZE_MIN = 12;
 const CHAT_FONT_SIZE_MAX = 22;
 const CHAT_LINE_HEIGHT_MIN = 1.3;
 const CHAT_LINE_HEIGHT_MAX = 2.0;
-const CHAT_FONT_WEIGHT_MIN = 300;
-const CHAT_FONT_WEIGHT_MAX = 700;
+const CHAT_FONT_WEIGHT_MIN = 100;
+const CHAT_FONT_WEIGHT_MAX = 900;
 const CHAT_MESSAGE_AREA_BORDER_WIDTH_MIN = 1;
 const CHAT_MESSAGE_AREA_BORDER_WIDTH_MAX = 4;
 const DEFAULT_USER_MESSAGE_AREA_LIGHT_COLOR = 'rgba(0, 0, 0, 0)';
@@ -307,26 +309,19 @@ export function ConversationSettings() {
         <Divider style={{ margin: '4px 0' }} />
         <div className="flex items-center justify-between" style={rowStyle}>
           <span>{t('settings.chatFontFamily')}</span>
-          <SettingsSelect
-            searchable
-            value={settings.chat_font_family || ''}
-            onChange={(val) => saveSettings({ chat_font_family: val })}
-            options={fontOptions}
-          />
-        </div>
-        <Divider style={{ margin: '4px 0' }} />
-        <div className="flex items-center justify-between" style={rowStyle}>
-          <span>{t('settings.chatFontWeight')}</span>
-          <InputNumber
-            aria-label={t('settings.chatFontWeight')}
-            min={CHAT_FONT_WEIGHT_MIN}
-            max={CHAT_FONT_WEIGHT_MAX}
-            step={100}
-            value={settings.chat_font_weight ?? 400}
-            onChange={(value) => saveSettings({
-              chat_font_weight: normalizeChatFontWeight(value),
+          <FontPicker
+            value={{
+              family: settings.chat_font_family || '',
+              weight: settings.chat_font_weight ?? 400,
+              style: normalizeFontStyle(settings.chat_font_style),
+            }}
+            onChange={(next) => saveSettings({
+              chat_font_family: next.family,
+              chat_font_weight: normalizeChatFontWeight(next.weight),
+              chat_font_style: next.style,
             })}
-            style={{ width: 120 }}
+            familyAriaLabel={t('settings.chatFontFamily')}
+            styleAriaLabel={t('settings.chatFontWeight')}
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />
@@ -334,6 +329,7 @@ export function ConversationSettings() {
           <span>{t('settings.codeFontFamily')}</span>
           <SettingsSelect
             searchable
+            ariaLabel={t('settings.codeFontFamily')}
             value={settings.code_font_family || ''}
             onChange={(val) => saveSettings({ code_font_family: val })}
             options={fontOptions}

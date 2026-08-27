@@ -11,6 +11,7 @@ import NodeRenderer, {
 } from 'markstream-react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@/stores';
+import { quoteCssFontFamily } from '@/lib/cssFontFamily';
 import {
   CHAT_CUSTOM_HTML_TAGS,
   safeParseChatMarkdown,
@@ -152,7 +153,7 @@ export function ChatMarkdownRenderer({
     [codeBlockDarkTheme, codeBlockLightTheme],
   );
   const codeBlockMonacoOptions = useMemo(
-    () => codeFontFamily ? { fontFamily: codeFontFamily } : undefined,
+    () => codeFontFamily ? { fontFamily: quoteCssFontFamily(codeFontFamily) } : undefined,
     [codeFontFamily],
   );
 
@@ -257,7 +258,7 @@ export function ThinkNode(props: NodeComponentProps<{
     [darkTheme, lightTheme],
   );
   const codeBlockMonacoOptions = useMemo(
-    () => codeFontFamily ? { fontFamily: codeFontFamily } : undefined,
+    () => codeFontFamily ? { fontFamily: quoteCssFontFamily(codeFontFamily) } : undefined,
     [codeFontFamily],
   );
   const rendererKey = `${ctx?.customId ?? 'default'}:${ctx?.isDark ? 'dark' : 'light'}:${darkTheme}:${lightTheme}`;

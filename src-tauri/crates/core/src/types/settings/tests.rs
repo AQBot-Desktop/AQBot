@@ -636,6 +636,8 @@ fn chat_typography_defaults_and_roundtrips() {
     assert_eq!(settings.chat_line_height, 1.7);
     assert_eq!(settings.chat_font_family, "");
     assert_eq!(settings.chat_font_weight, 400);
+    assert_eq!(settings.font_style, "normal");
+    assert_eq!(settings.chat_font_style, "normal");
     assert_eq!(settings.chat_user_message_area_style, "none");
     assert_eq!(
         settings.chat_user_message_area_light_color,
@@ -659,6 +661,8 @@ fn chat_typography_defaults_and_roundtrips() {
         "chat_line_height": 1.8,
         "chat_font_family": "Inter",
         "chat_font_weight": 500,
+        "chat_font_style": "italic",
+        "font_style": "oblique",
         "chat_user_message_area_style": "border",
         "chat_user_message_area_light_color": "rgba(1, 2, 3, 0.4)",
         "chat_user_message_area_dark_color": "rgba(4, 5, 6, 0.5)",
@@ -674,6 +678,8 @@ fn chat_typography_defaults_and_roundtrips() {
     assert_eq!(settings.chat_line_height, 1.8);
     assert_eq!(settings.chat_font_family, "Inter");
     assert_eq!(settings.chat_font_weight, 500);
+    assert_eq!(settings.chat_font_style, "italic");
+    assert_eq!(settings.font_style, "oblique");
     assert_eq!(settings.chat_user_message_area_style, "border");
     assert_eq!(
         settings.chat_user_message_area_light_color,
@@ -698,6 +704,8 @@ fn chat_typography_defaults_and_roundtrips() {
     assert_eq!(settings.chat_line_height, 1.7);
     assert_eq!(settings.chat_font_family, "");
     assert_eq!(settings.chat_font_weight, 400);
+    assert_eq!(settings.font_style, "normal");
+    assert_eq!(settings.chat_font_style, "normal");
     assert_eq!(settings.chat_user_message_area_style, "none");
     assert_eq!(
         settings.chat_user_message_area_light_color,

@@ -194,14 +194,4 @@ pub async fn test_proxy(
     }
 }
 
-#[tauri::command]
-pub async fn list_system_fonts() -> Result<Vec<String>, String> {
-    tokio::task::spawn_blocking(|| {
-        let source = font_kit::source::SystemSource::new();
-        let mut families = source.all_families().map_err(|e| e.to_string())?;
-        families.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-        Ok(families)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+

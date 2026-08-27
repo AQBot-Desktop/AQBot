@@ -236,6 +236,10 @@ fn default_selection_toolbar_search_url() -> String {
     DEFAULT_SELECTION_TOOLBAR_SEARCH_URL.into()
 }
 
+fn default_font_style() -> String {
+    "normal".to_string()
+}
+
 /// The pre-language-placeholder translate prompt; stored copies that still
 /// match it are upgraded to [`DEFAULT_TRANSLATE_PROMPT`] on load.
 const LEGACY_TRANSLATE_PROMPT: &str = "Translate the following text into the current application language. Return only the translation:\n\n{selection}";
@@ -569,6 +573,9 @@ pub struct AppSettings {
     pub settings_sidebar_density: SettingsSidebarDensity,
     pub font_weight: u16,
     pub font_family: String,
+    /// CSS font-style for the interface font: "normal" | "italic" | "oblique".
+    #[serde(default = "default_font_style")]
+    pub font_style: String,
     pub code_font_family: String,
     /// Chat message content font size in px.
     pub chat_font_size: u8,
@@ -578,6 +585,9 @@ pub struct AppSettings {
     pub chat_font_family: String,
     /// Chat message content font weight.
     pub chat_font_weight: u16,
+    /// CSS font-style for chat content: "normal" | "italic" | "oblique".
+    #[serde(default = "default_font_style")]
+    pub chat_font_style: String,
     /// Chat input bottom action controls scale percentage.
     pub chat_input_actions_scale: u8,
     pub bubble_style: String,
@@ -760,11 +770,13 @@ impl Default for AppSettings {
             settings_sidebar_density: SettingsSidebarDensity::Standard,
             font_weight: 400,
             font_family: String::new(),
+            font_style: default_font_style(),
             code_font_family: String::new(),
             chat_font_size: 15,
             chat_line_height: 1.7,
             chat_font_family: String::new(),
             chat_font_weight: 400,
+            chat_font_style: default_font_style(),
             chat_input_actions_scale: 100,
             bubble_style: "minimal".to_string(),
             chat_user_message_area_style: "none".to_string(),

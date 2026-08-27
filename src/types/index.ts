@@ -780,11 +780,13 @@ export interface AppSettings {
   settings_sidebar_density: SettingsSidebarDensity;
   font_weight: number;
   font_family: string;
+  font_style: string;
   code_font_family: string;
   chat_font_size: number;
   chat_line_height: number;
   chat_font_family: string;
   chat_font_weight: number;
+  chat_font_style: string;
   chat_input_actions_scale: number;
   bubble_style: string;
   chat_user_message_area_style: ChatMessageAreaStyle;

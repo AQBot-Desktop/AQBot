@@ -16,9 +16,20 @@ interface SettingsSelectProps {
   style?: CSSProperties;
   disabled?: boolean;
   searchable?: boolean;
+  ariaLabel?: string;
+  labelMaxWidth?: number;
 }
 
-export function SettingsSelect({ value, onChange, options, style, disabled, searchable }: SettingsSelectProps) {
+export function SettingsSelect({
+  value,
+  onChange,
+  options,
+  style,
+  disabled,
+  searchable,
+  ariaLabel,
+  labelMaxWidth = 180,
+}: SettingsSelectProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const [hovered, setHovered] = useState(false);
@@ -46,6 +57,7 @@ export function SettingsSelect({ value, onChange, options, style, disabled, sear
     <div
       role="button"
       tabIndex={0}
+      aria-label={ariaLabel}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -64,7 +76,7 @@ export function SettingsSelect({ value, onChange, options, style, disabled, sear
         ...style,
       }}
     >
-      <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentLabel}</span>
+      <span style={{ maxWidth: labelMaxWidth, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentLabel}</span>
       <ChevronsUpDown size={12} style={{ opacity: 0.4 }} />
     </div>
   );
