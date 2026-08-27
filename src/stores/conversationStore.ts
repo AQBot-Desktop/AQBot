@@ -1,7 +1,25 @@
 import { create } from 'zustand';
 import { createConversationManagementActions } from './conversationStoreManagementActions';
 import { createConversationMessageActions } from './conversationStoreMessageActions';
-import type { ConversationState } from './conversationStoreSupport';
+import {
+  createConversationQueueActions,
+  createEmptyChatQueueBucket,
+} from './conversationStoreQueueActions';
+import type {
+  ChatQueueBucket,
+  ConversationState,
+} from './conversationStoreSupport';
+
+export type {
+  ChatQueueBucket,
+  ChatQueuePauseReason,
+  ChatQueuePhase,
+  ChatStreamTerminalEvent,
+  QueuedChatMessage,
+  QueuedChatMessageStatus,
+  SubmitChatMessageRejectedReason,
+  SubmitChatMessageResult,
+} from './conversationStoreSupport';
 
 export {
   MAX_LOADED_MESSAGES,
@@ -21,6 +39,25 @@ export {
   snapshotStreamSyncState,
   subscribeLiveStreamContent,
 } from './conversationStoreSupport';
+
+const EMPTY_CHAT_QUEUE_BUCKET: ChatQueueBucket = createEmptyChatQueueBucket();
+
+export function selectActiveChatQueue(state: ConversationState): ChatQueueBucket {
+  const conversationId = state.activeConversationId;
+  return conversationId
+    ? state.chatQueueByConversation[conversationId] ?? EMPTY_CHAT_QUEUE_BUCKET
+    : EMPTY_CHAT_QUEUE_BUCKET;
+}
+
+export function selectChatQueueForConversation(conversationId: string | null) {
+  return (state: ConversationState): ChatQueueBucket => conversationId
+    ? state.chatQueueByConversation[conversationId] ?? EMPTY_CHAT_QUEUE_BUCKET
+    : EMPTY_CHAT_QUEUE_BUCKET;
+}
+
+export function selectQueuedChatMessagesForConversation(conversationId: string | null) {
+  return (state: ConversationState) => selectChatQueueForConversation(conversationId)(state).messages;
+}
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
@@ -48,6 +85,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   streamActivityByMessageId: {},
   thinkingActiveMessageIds: new Set<string>(),
   error: null,
+  chatQueueByConversation: {},
   titleGeneratingConversationId: null,
   pendingCompanionModels: [],
   multiModelParentId: null,
@@ -69,4 +107,5 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   workspaceSnapshot: null,
   ...createConversationManagementActions(set, get),
   ...createConversationMessageActions(set, get),
+  ...createConversationQueueActions(set, get),
 }));

@@ -4,6 +4,9 @@ export {
   clearLiveStreamContent,
   getLiveStreamContent,
   isObservedStreamingFor,
+  selectActiveChatQueue,
+  selectChatQueueForConversation,
+  selectQueuedChatMessagesForConversation,
   selectUiMultiModelDoneMessageIds,
   selectUiMultiModelParentId,
   selectUiPendingCompanionModels,
@@ -14,6 +17,15 @@ export {
   snapshotStreamSyncState,
   subscribeLiveStreamContent,
   useConversationStore,
+} from './conversationStore';
+export type {
+  ChatQueueBucket,
+  ChatQueuePauseReason,
+  ChatQueuePhase,
+  QueuedChatMessage,
+  QueuedChatMessageStatus,
+  SubmitChatMessageRejectedReason,
+  SubmitChatMessageResult,
 } from './conversationStore';
 export { useCategoryStore } from './categoryStore';
 export { useSettingsStore } from './settingsStore';

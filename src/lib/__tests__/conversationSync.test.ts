@@ -43,6 +43,7 @@ describe('conversation sync bus', () => {
       kind: 'messages-changed',
       stream: {
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [],

@@ -28,6 +28,7 @@ describe('conversation stream UI overlay', () => {
       observedStream: {
         conversationId: 'conv-1',
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [{ providerId: 'p2', modelId: 'm2' }],
@@ -47,6 +48,7 @@ describe('conversation stream UI overlay', () => {
       observedStream: {
         conversationId: 'conv-2',
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [],
@@ -66,6 +68,7 @@ describe('conversation stream UI overlay', () => {
       observedStream: {
         conversationId: 'conv-1',
         streaming: true,
+        streamId: 'stream-remote',
         streamingMessageId: 'remote-assistant',
         multiModelParentId: 'remote-user',
         pendingCompanionModels: [],

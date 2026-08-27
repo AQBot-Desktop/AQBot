@@ -214,6 +214,16 @@ export function useComposerAttachments({
     return detached;
   }, []);
 
+  const detachAttachmentsById = useCallback((ids: ReadonlySet<string>) => {
+    if (ids.size === 0) return [];
+    const detached = attachmentsRef.current.filter((item) => ids.has(item.id));
+    if (detached.length === 0) return [];
+    const remaining = attachmentsRef.current.filter((item) => !ids.has(item.id));
+    attachmentsRef.current = remaining;
+    setAttachments(remaining);
+    return detached;
+  }, []);
+
   const restoreAttachments = useCallback((items: ComposerAttachment[]) => {
     if (!connectedRef.current) {
       revokeComposerAttachments(items);
@@ -377,6 +387,7 @@ export function useComposerAttachments({
     removeAttachment,
     resetAttachments,
     detachAttachments,
+    detachAttachmentsById,
     restoreAttachments,
     openFilePicker,
     handleFileChange,

@@ -1265,6 +1265,59 @@ function sanitizeActiveConversationCapabilityIds(
   return next;
 }
 
+export type QueuedChatMessageStatus = 'queued' | 'dispatching' | 'failed';
+
+export interface QueuedChatMessage {
+  id: string;
+  conversationId: string;
+  content: string;
+  attachments: AttachmentInput[];
+  searchProviderId: string | null;
+  status: QueuedChatMessageStatus;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ChatQueuePauseReason =
+  | 'error'
+  | 'cancelled'
+  | 'dispatch-error'
+  | 'cancel-error'
+  | null;
+export type ChatQueuePhase = 'waiting' | 'ready' | 'paused' | 'dispatching';
+
+export interface ChatQueueBucket {
+  messages: QueuedChatMessage[];
+  phase: ChatQueuePhase;
+  paused: boolean;
+  pauseReason: ChatQueuePauseReason;
+  error: string | null;
+  drainingMessageId: string | null;
+  drainingStreamId: string | null;
+  sendNowMessageId: string | null;
+}
+
+export type SubmitChatMessageRejectedReason =
+  | 'unsupported-mode'
+  | 'no-active-conversation'
+  | 'invalid-message'
+  | 'conversation-loading'
+  | 'other-conversation-busy';
+
+export type SubmitChatMessageResult =
+  | { kind: 'started'; message: Message }
+  | { kind: 'queued'; queueId: string }
+  | { kind: 'rejected'; reason: SubmitChatMessageRejectedReason };
+
+export interface ChatStreamTerminalEvent {
+  conversation_id: string;
+  message_id: string;
+  stream_id: string;
+  outcome: 'complete' | 'error' | 'cancelled';
+  error?: string | null;
+}
+
 export interface ConversationState {
   conversations: Conversation[];
   conversationsMeta: ResourceMeta;
@@ -1293,6 +1346,8 @@ export interface ConversationState {
   streamActivityByMessageId: Record<string, StreamActivity>;
   thinkingActiveMessageIds: Set<string>;
   error: string | null;
+  /** Per-conversation FIFO for ordinary single-model chat submissions. */
+  chatQueueByConversation: Record<string, ChatQueueBucket>;
   /** Whether web search is enabled for messages in the active conversation */
   searchEnabled: boolean;
   /** Which search provider to use */
@@ -1371,6 +1426,21 @@ export interface ConversationState {
   batchArchive: (ids: string[]) => Promise<void>;
   batchMoveToCategory: (ids: string[], categoryId: string | null) => Promise<number>;
   sendMessage: (content: string, attachments?: AttachmentInput[], searchProviderId?: string | null) => Promise<Message | null>;
+  submitChatMessage: (
+    content: string,
+    attachments?: AttachmentInput[],
+    searchProviderId?: string | null,
+  ) => Promise<SubmitChatMessageResult>;
+  updateQueuedChatMessage: (
+    conversationId: string,
+    messageId: string,
+    patch: Partial<Pick<QueuedChatMessage, 'content' | 'attachments'>>,
+  ) => boolean;
+  removeQueuedChatMessage: (conversationId: string, messageId: string) => boolean;
+  sendQueuedChatMessageNow: (conversationId: string, messageId: string) => Promise<boolean>;
+  resumeChatQueue: (conversationId: string) => Promise<void>;
+  drainChatQueue: (conversationId: string) => Promise<Message | null>;
+  handleChatStreamTerminal: (payload: ChatStreamTerminalEvent) => Promise<void>;
   /** Send a message in agent mode (non-streaming MVP) */
   sendAgentMessage: (content: string, attachments?: AttachmentInput[]) => Promise<void>;
   regenerateMessage: (targetMessageId?: string) => Promise<Message>;
@@ -1388,7 +1458,7 @@ export interface ConversationState {
   searchConversations: (query: string) => Promise<ConversationSearchResult[]>;
   startStreamListening: () => Promise<void>;
   stopStreamListening: () => void;
-  cancelCurrentStream: () => void;
+  cancelCurrentStream: (options?: { skipBackend?: boolean }) => void;
   applyRemoteConversationSync: (payload: {
     originWindow: string;
     conversationId: string;
@@ -1498,6 +1568,7 @@ export function snapshotStreamSyncState(
   state: Pick<
     ConversationState,
     | 'streaming'
+    | 'activeStreamId'
     | 'streamingMessageId'
     | 'multiModelParentId'
     | 'pendingCompanionModels'
@@ -1506,6 +1577,7 @@ export function snapshotStreamSyncState(
 ): ConversationStreamSyncState {
   return {
     streaming: state.streaming,
+    streamId: state.activeStreamId,
     streamingMessageId: state.streamingMessageId,
     multiModelParentId: state.multiModelParentId,
     pendingCompanionModels: [...state.pendingCompanionModels],

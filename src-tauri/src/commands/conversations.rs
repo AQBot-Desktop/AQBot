@@ -29,6 +29,8 @@ include!("conversations/message_versions.rs");
 include!("conversations/compression.rs");
 include!("conversations/tests.rs");
 #[cfg(test)]
+include!("conversations/stream_terminal_tests.rs");
+#[cfg(test)]
 include!("conversations/multi_model_continuation_tests.rs");
 #[cfg(test)]
 include!("conversations/long_paste_content_tests.rs");

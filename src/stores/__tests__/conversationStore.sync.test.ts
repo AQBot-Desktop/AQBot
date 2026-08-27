@@ -59,6 +59,7 @@ describe('conversationStore cross-window sync', () => {
       kind: 'messages-changed',
       stream: {
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [{ providerId: 'p2', modelId: 'm2' }],
@@ -70,6 +71,7 @@ describe('conversationStore cross-window sync', () => {
     expect(useConversationStore.getState().observedStream).toEqual({
       conversationId: 'conv-1',
       streaming: true,
+      streamId: 'stream-a',
       streamingMessageId: 'assistant-a',
       multiModelParentId: 'user-1',
       pendingCompanionModels: [{ providerId: 'p2', modelId: 'm2' }],
@@ -89,6 +91,7 @@ describe('conversationStore cross-window sync', () => {
       observedStream: {
         conversationId: 'conv-1',
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [],
@@ -102,6 +105,7 @@ describe('conversationStore cross-window sync', () => {
       kind: 'messages-changed',
       stream: {
         streaming: false,
+        streamId: 'stream-a',
         streamingMessageId: null,
         multiModelParentId: null,
         pendingCompanionModels: [],

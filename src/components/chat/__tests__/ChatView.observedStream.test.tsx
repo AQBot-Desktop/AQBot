@@ -196,6 +196,7 @@ describe('ChatView remote multi-model stream', () => {
       observedStream: {
         conversationId: 'conv-1',
         streaming: true,
+        streamId: 'stream-a',
         streamingMessageId: 'assistant-a',
         multiModelParentId: 'user-1',
         pendingCompanionModels: [

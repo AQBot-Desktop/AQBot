@@ -12,6 +12,7 @@ export type ConversationSyncKind = 'messages-changed' | 'conversation-meta';
 
 export interface ConversationStreamSyncState {
   streaming: boolean;
+  streamId: string | null;
   streamingMessageId: string | null;
   multiModelParentId: string | null;
   pendingCompanionModels: MultiModelTarget[];

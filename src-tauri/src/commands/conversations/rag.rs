@@ -8,6 +8,7 @@ pub(crate) fn apply_cancel_flags(
     match stream_id {
         Some(id) => flags
             .get(id)
+            .filter(|entry| entry.conversation_id == conversation_id)
             .map(|entry| vec![entry.flag.clone()])
             .unwrap_or_default(),
         None => flags
@@ -31,13 +32,17 @@ pub async fn cancel_stream(
         flag.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    if cancelled_count > 0 {
-        tracing::info!(
-            "[cancel_stream] Cancel requested for conversation {} ({} stream(s))",
-            conversation_id,
-            cancelled_count
-        );
+    if cancelled_count == 0 {
+        return Err(format!(
+            "No active stream matched the cancellation request for conversation {conversation_id}"
+        ));
     }
+
+    tracing::info!(
+        "[cancel_stream] Cancel requested for conversation {} ({} stream(s))",
+        conversation_id,
+        cancelled_count
+    );
     Ok(())
 }
 

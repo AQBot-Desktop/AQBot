@@ -727,6 +727,7 @@ export function createConversationManagementActions(
       // Check if this conversation had a stream complete while we were away
       const needsRefreshAfterStreamDone = runtime.pendingConversationRefresh.has(id);
       if (get().activeConversationId === id && !needsRefreshAfterStreamDone) {
+        void get().drainChatQueue(id);
         return;
       }
       if (needsRefreshAfterStreamDone) {
@@ -783,6 +784,7 @@ export function createConversationManagementActions(
         perfTraceDuration(canUseFreshCache ? 'chat.switch.cached' : 'chat.switch.empty', startedAt, {
           conversationId: id,
         });
+        void get().drainChatQueue(id);
         return;
       }
       get().fetchMessages(id, [], { setLoading: false }).then(() => {
@@ -818,6 +820,11 @@ export function createConversationManagementActions(
           // Clear any stale buffer reference.
           runtime.streamBuffer = null;
         }
+        if (get().error) {
+          runtime.pendingConversationRefresh.add(id);
+          return;
+        }
+        void get().drainChatQueue(id);
       });
     },
     createConversation: async (title, modelId, providerId, options) => {
@@ -955,11 +962,17 @@ export function createConversationManagementActions(
         const previous = get();
         await invoke('delete_conversation', { id });
         invalidateConversationMessageCache(id);
+        runtime.pendingConversationRefresh.delete(id);
         const nextActiveId = applyRemovedConversationIds([id]);
-        set({
-          conversations: previous.conversations.filter((c) => c.id !== id),
-          conversationsMeta: mutateConversationsMeta(previous.conversationsMeta),
-          error: null,
+        set((state) => {
+          const chatQueueByConversation = { ...state.chatQueueByConversation };
+          delete chatQueueByConversation[id];
+          return {
+            conversations: state.conversations.filter((c) => c.id !== id),
+            conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
+            chatQueueByConversation,
+            error: null,
+          };
         });
         if (previous.activeConversationId !== nextActiveId) {
           get().setActiveConversation(nextActiveId);
@@ -1065,6 +1078,7 @@ export function createConversationManagementActions(
         try {
           await invoke('delete_conversation', { id });
           invalidateConversationMessageCache(id);
+          runtime.pendingConversationRefresh.delete(id);
           deletedIds.push(id);
         } catch (e) {
           errors.push(String(e));
@@ -1075,6 +1089,10 @@ export function createConversationManagementActions(
       set((s) => ({
         conversations: s.conversations.filter((c) => !deletedIds.includes(c.id)),
         conversationsMeta: mutateConversationsMeta(s.conversationsMeta),
+        chatQueueByConversation: Object.fromEntries(
+          Object.entries(s.chatQueueByConversation)
+            .filter(([conversationId]) => !deletedIds.includes(conversationId)),
+        ),
         error: errors.length ? errors.join('; ') : null,
       }));
       if (previous.activeConversationId !== nextActiveId) {

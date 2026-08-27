@@ -649,6 +649,24 @@ mod tests {
     }
 
     #[test]
+    fn explicit_stream_id_cannot_cancel_another_conversation() {
+        let other = Arc::new(AtomicBool::new(false));
+        let mut flags = std::collections::HashMap::new();
+        flags.insert(
+            "stream-other".to_string(),
+            crate::StreamCancelEntry {
+                conversation_id: "conv-2".to_string(),
+                flag: other.clone(),
+            },
+        );
+
+        let cancelled = apply_cancel_flags(&flags, "conv-1", Some("stream-other"));
+
+        assert!(cancelled.is_empty());
+        assert!(!other.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
     fn none_stream_id_cancels_all_streams_for_the_conversation() {
         let live = Arc::new(AtomicBool::new(false));
         let other = Arc::new(AtomicBool::new(false));

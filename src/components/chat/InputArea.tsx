@@ -28,6 +28,7 @@ import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
 import { CompanionModelTags } from './CompanionModelTags';
+import { MessageQueueTray } from './MessageQueueTray';
 import { ModelSelector } from './ModelSelector';
 import { thinkingOptionIcon } from './thinkingOptionIcon';
 import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
@@ -46,6 +47,7 @@ import { SkillPickerPopover } from './toolbar/SkillPickerPopover';
 import {
   AttachmentChips,
   revokeComposerAttachments,
+  type ComposerAttachment,
 } from './AttachmentChips';
 import {
   DOCUMENT_ATTACHMENT_ACCEPT,
@@ -66,6 +68,12 @@ import {
 // In-memory draft cache: persists input text per-conversation across component unmounts
 const _draftCache = new Map<string, string>();
 
+type AcceptedDraftCleanup = {
+  attachmentIds: ReadonlySet<string>;
+  draftValue: string;
+  snippetIds: ReadonlySet<string>;
+};
+
 export function InputArea() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -73,8 +81,44 @@ export function InputArea() {
     const convId = useConversationStore.getState().activeConversationId;
     return convId ? _draftCache.get(convId) || '' : '';
   });
+  const draftRevisionRef = useRef(0);
+  const submitInFlightRef = useRef(false);
+  const updateDraftValue = useCallback((next: React.SetStateAction<string>) => {
+    draftRevisionRef.current += 1;
+    setValue(next);
+  }, []);
   const [pastedSnippets, setPastedSnippets] = useState<PastedSnippet[]>([]);
+  const pastedSnippetsRef = useRef(pastedSnippets);
+  pastedSnippetsRef.current = pastedSnippets;
   const pastedSnippetSeqRef = useRef(0);
+  const attachmentDraftCacheRef = useRef(new Map<string, ComposerAttachment[]>());
+  const snippetDraftCacheRef = useRef(new Map<string, {
+    snippets: PastedSnippet[];
+    sequence: number;
+  }>());
+  const acceptedDraftCleanupRef = useRef(new Map<string, AcceptedDraftCleanup>());
+  const cleanupAcceptedCachedDraft = useCallback((
+    conversationId: string,
+    cleanup: AcceptedDraftCleanup,
+  ) => {
+    const cachedAttachments = attachmentDraftCacheRef.current.get(conversationId) ?? [];
+    const acceptedAttachments = cachedAttachments.filter((attachment) => (
+      cleanup.attachmentIds.has(attachment.id)
+    ));
+    const remainingAttachments = cachedAttachments.filter((attachment) => (
+      !cleanup.attachmentIds.has(attachment.id)
+    ));
+    revokeComposerAttachments(acceptedAttachments);
+    if (remainingAttachments.length > 0) {
+      attachmentDraftCacheRef.current.set(conversationId, remainingAttachments);
+    } else {
+      attachmentDraftCacheRef.current.delete(conversationId);
+    }
+    if (_draftCache.get(conversationId) === cleanup.draftValue) {
+      _draftCache.delete(conversationId);
+      snippetDraftCacheRef.current.delete(conversationId);
+    }
+  }, []);
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpPopoverOpen, setMcpPopoverOpen] = useState(false);
@@ -86,6 +130,7 @@ export function InputArea() {
   const prevConvIdRef = useRef<string | null>(
     useConversationStore.getState().activeConversationId ?? null
   );
+  const creatingConversationTransferRef = useRef(false);
 
   // Drag-to-resize state: userMinHeight controls the minimum visible height of the textarea
   const INITIAL_MIN_HEIGHT = 44;
@@ -120,13 +165,17 @@ export function InputArea() {
   }, [setMultiModelContinuationMode]);
   const compressing = activeConversationId !== null
     && compressingConversationId === activeConversationId;
-  const sendMessage = useConversationStore((s) => s.sendMessage);
+  const submitChatMessage = useConversationStore((s) => s.submitChatMessage);
+  const updateQueuedChatMessage = useConversationStore((s) => s.updateQueuedChatMessage);
+  const removeQueuedChatMessage = useConversationStore((s) => s.removeQueuedChatMessage);
+  const sendQueuedChatMessageNow = useConversationStore((s) => s.sendQueuedChatMessageNow);
   const sendAgentMessage = useConversationStore((s) => s.sendAgentMessage);
   const createConversation = useConversationStore((s) => s.createConversation);
   const messages = useConversationStore((s) => s.messages);
   const totalActiveCount = useConversationStore((s) => s.totalActiveCount);
   const hasOlderMessages = useConversationStore((s) => s.hasOlderMessages);
   const conversations = useConversationStore((s) => s.conversations);
+  const archivedConversations = useConversationStore((s) => s.archivedConversations);
   const providers = useProviderStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
   const activeConversationForContext = conversations.find((c) => c.id === activeConversationId);
@@ -256,6 +305,9 @@ export function InputArea() {
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   const currentMode = activeConversation?.mode === 'agent' ? 'agent' : 'chat';
+  const activeChatQueue = useConversationStore((s) => (
+    activeConversationId ? s.chatQueueByConversation?.[activeConversationId] : undefined
+  ));
   const effectiveContextStrategyLabel = useMemo(() => {
     switch (effectiveContextStrategy) {
       case 'smart_summary': return t('settings.contextStrategySmartSummary');
@@ -312,17 +364,25 @@ export function InputArea() {
     }
   }, [currentMode, activeConversationId]);
 
-  // Pick up pending prompt text from welcome cards and send through the proper pipeline
+  // Pick up pending prompt text from welcome cards and send through the same composer pipeline.
   const pendingPromptText = useConversationStore((s) => s.pendingPromptText);
   useEffect(() => {
     if (!pendingPromptText) return;
     useConversationStore.getState().setPendingPromptText(null);
     const text = pendingPromptText;
+    const restorePendingPrompt = () => {
+      updateDraftValue((current) => current ? `${current}\n${text}` : text);
+    };
     (async () => {
       try {
         const latestTargets = useConversationStore.getState().multiModelTargets;
         const latestHistoryMode = useConversationStore.getState().multiModelContinuationMode;
-        if (latestTargets.length > 0) {
+        if (streaming && (currentMode === 'agent' || latestTargets.length > 0)) {
+          restorePendingPrompt();
+          messageApi.warning(t('chat.inputQueue.unsupported'));
+        } else if (currentMode === 'agent') {
+          await sendAgentMessage(text);
+        } else if (latestTargets.length > 0) {
           await sendMultiModelMessage({
             content: text,
             targetModels: latestTargets,
@@ -330,9 +390,27 @@ export function InputArea() {
             searchProviderId: searchEnabled ? searchProviderId : null,
           });
         } else {
-          await sendMessage(text, undefined, searchEnabled ? searchProviderId : null);
+          const result = await submitChatMessage(
+            text,
+            undefined,
+            searchEnabled ? searchProviderId : null,
+          );
+          if (result.kind === 'rejected') {
+            restorePendingPrompt();
+            let warning = t('common.failed');
+            if (result.reason === 'unsupported-mode') {
+              warning = t('chat.inputQueue.unsupported');
+            } else if (
+              result.reason === 'conversation-loading'
+              || result.reason === 'other-conversation-busy'
+            ) {
+              warning = t('chat.inputQueue.otherConversationBusy');
+            }
+            messageApi.warning(warning);
+          }
         }
       } catch (e) {
+        restorePendingPrompt();
         console.error('[InputArea] pendingPromptText send error:', e);
         messageApi.error(String(e));
       }
@@ -1010,8 +1088,8 @@ export function InputArea() {
     fileInputRef,
     isDragging,
     removeAttachment,
-    resetAttachments,
     detachAttachments,
+    detachAttachmentsById,
     restoreAttachments,
     openFilePicker: handleFileSelect,
     handleFileChange,
@@ -1023,30 +1101,98 @@ export function InputArea() {
     onReadError: handleAttachmentReadError,
   });
 
-  // Draft text follows the conversation; binary attachments remain composer-local.
+  // Composer drafts follow the conversation within this WebView.
   useEffect(() => {
     const previousId = prevConvIdRef.current;
     const nextId = activeConversationId ?? null;
     if (previousId === nextId) return;
+    if (!previousId && nextId && creatingConversationTransferRef.current) {
+      creatingConversationTransferRef.current = false;
+      prevConvIdRef.current = nextId;
+      return;
+    }
+    creatingConversationTransferRef.current = false;
     if (previousId) {
       const draft = valueRef.current;
-      if (draft) _draftCache.set(previousId, draft);
+      const acceptedCleanup = acceptedDraftCleanupRef.current.get(previousId);
+      const dropAcceptedDraft = acceptedCleanup?.draftValue === draft;
+      if (draft && !dropAcceptedDraft) _draftCache.set(previousId, draft);
       else _draftCache.delete(previousId);
+      const detached = detachAttachments();
+      const acceptedAttachments = acceptedCleanup
+        ? detached.filter((attachment) => acceptedCleanup.attachmentIds.has(attachment.id))
+        : [];
+      const remainingAttachments = acceptedCleanup
+        ? detached.filter((attachment) => !acceptedCleanup.attachmentIds.has(attachment.id))
+        : detached;
+      revokeComposerAttachments(acceptedAttachments);
+      if (remainingAttachments.length > 0) {
+        attachmentDraftCacheRef.current.set(previousId, remainingAttachments);
+      }
+      else attachmentDraftCacheRef.current.delete(previousId);
+      const snippets = pastedSnippetsRef.current;
+      const remainingSnippets = dropAcceptedDraft && acceptedCleanup
+        ? snippets.filter((snippet) => !acceptedCleanup.snippetIds.has(snippet.id))
+        : snippets;
+      if (remainingSnippets.length > 0) {
+        snippetDraftCacheRef.current.set(previousId, {
+          snippets: remainingSnippets,
+          sequence: pastedSnippetSeqRef.current,
+        });
+      } else {
+        snippetDraftCacheRef.current.delete(previousId);
+      }
+      acceptedDraftCleanupRef.current.delete(previousId);
     }
-    setValue(nextId ? _draftCache.get(nextId) || '' : '');
-    resetAttachments();
-    setPastedSnippets([]);
-    pastedSnippetSeqRef.current = 0;
+    updateDraftValue(nextId ? _draftCache.get(nextId) || '' : '');
+    const nextAttachments = nextId
+      ? attachmentDraftCacheRef.current.get(nextId) ?? []
+      : [];
+    if (nextId) attachmentDraftCacheRef.current.delete(nextId);
+    restoreAttachments(nextAttachments);
+    const nextSnippetDraft = nextId ? snippetDraftCacheRef.current.get(nextId) : undefined;
+    if (nextId) snippetDraftCacheRef.current.delete(nextId);
+    setPastedSnippets(nextSnippetDraft?.snippets ?? []);
+    pastedSnippetSeqRef.current = nextSnippetDraft?.sequence ?? 0;
     prevConvIdRef.current = nextId;
-  }, [activeConversationId, resetAttachments]);
+  }, [activeConversationId, detachAttachments, restoreAttachments, updateDraftValue]);
 
   useEffect(() => () => {
     const conversationId = prevConvIdRef.current;
-    if (conversationId && valueRef.current) {
-      _draftCache.set(conversationId, valueRef.current);
+    if (conversationId) {
+      if (valueRef.current) _draftCache.set(conversationId, valueRef.current);
+      else _draftCache.delete(conversationId);
     }
+    for (const attachments of attachmentDraftCacheRef.current.values()) {
+      revokeComposerAttachments(attachments);
+    }
+    attachmentDraftCacheRef.current.clear();
+    snippetDraftCacheRef.current.clear();
+    acceptedDraftCleanupRef.current.clear();
     revokeComposerAttachments(attachedFilesRef.current);
   }, [attachedFilesRef]);
+
+  useEffect(() => {
+    const knownConversationIds = new Set([
+      ...conversations.map((conversation) => conversation.id),
+      ...archivedConversations.map((conversation) => conversation.id),
+    ]);
+    const cachedConversationIds = new Set([
+      ..._draftCache.keys(),
+      ...attachmentDraftCacheRef.current.keys(),
+      ...snippetDraftCacheRef.current.keys(),
+      ...acceptedDraftCleanupRef.current.keys(),
+    ]);
+    for (const conversationId of cachedConversationIds) {
+      if (knownConversationIds.has(conversationId)) continue;
+      const attachments = attachmentDraftCacheRef.current.get(conversationId) ?? [];
+      revokeComposerAttachments(attachments);
+      attachmentDraftCacheRef.current.delete(conversationId);
+      snippetDraftCacheRef.current.delete(conversationId);
+      acceptedDraftCleanupRef.current.delete(conversationId);
+      _draftCache.delete(conversationId);
+    }
+  }, [archivedConversations, conversations]);
 
   const fileInputAccept = [
     'image/*',
@@ -1105,12 +1251,34 @@ export function InputArea() {
   }, [activeConversation, updateConversation, companionModels, setMultiModelTargets]);
 
   const handleSend = useCallback(async () => {
-    if (loading) return;
+    if (loading || submitInFlightRef.current) return;
 
     const submittedAttachments = attachedFiles;
     const submittedSnippets = pastedSnippets;
+    const submittedDraftRevision = draftRevisionRef.current;
     const mergedContent = mergePastedSnippetsIntoContent(value, submittedSnippets);
     if (!mergedContent && submittedAttachments.length === 0) return;
+
+    const latestTargets = useConversationStore.getState().multiModelTargets;
+    const latestHistoryMode = useConversationStore.getState().multiModelContinuationMode;
+    if (streaming && (currentMode === 'agent' || latestTargets.length > 0)) {
+      messageApi.warning(t('chat.inputQueue.unsupported'));
+      return;
+    }
+
+    if (latestTargets.length > 0) {
+      const hasUnavailableTarget = latestTargets.some((target) => {
+        const provider = providers.find((item) => item.id === target.providerId);
+        const model = provider?.models.find((item) => (
+          item.model_id === target.modelId && item.enabled
+        ));
+        return !provider?.enabled || !model;
+      });
+      if (hasUnavailableTarget) {
+        messageApi.warning(t('chat.multiModel.unavailableModel'));
+        return;
+      }
+    }
 
     // Attachment-only messages need a minimal content marker so downstream pipelines stay valid.
     const finalContent = mergedContent || t('chat.attachmentOnlyMessage');
@@ -1120,8 +1288,10 @@ export function InputArea() {
       || submittedAttachments[0]?.file.name
       || 'New chat';
 
+    submitInFlightRef.current = true;
     try {
-      if (!activeConversationId) {
+      let targetConversationId = activeConversationId;
+      if (!targetConversationId) {
         let provider = settings.default_provider_id
           ? providers.find((p) => p.id === settings.default_provider_id && p.enabled)
           : undefined;
@@ -1136,7 +1306,20 @@ export function InputArea() {
           messageApi.warning(t('chat.noModelsAvailable'));
           return;
         }
-        await createConversation(normalizeAutoConversationTitle(titleSeed), model.model_id, provider.id);
+        creatingConversationTransferRef.current = true;
+        try {
+          const createdConversation = await createConversation(
+            normalizeAutoConversationTitle(titleSeed),
+            model.model_id,
+            provider.id,
+          );
+          targetConversationId = createdConversation.id;
+          prevConvIdRef.current = createdConversation.id;
+          creatingConversationTransferRef.current = false;
+        } catch (error) {
+          creatingConversationTransferRef.current = false;
+          throw error;
+        }
       }
 
       let attachments: AttachmentInput[] | undefined;
@@ -1146,35 +1329,13 @@ export function InputArea() {
         );
       }
 
-      setValue('');
-      // Clear attachments without revoking yet — previews stay valid if send fails and we restore.
-      // On success, revoke after the request is accepted.
-      detachAttachments();
-      setPastedSnippets([]);
-      pastedSnippetSeqRef.current = 0;
-      // Reset textarea height and drag state after clearing content
-      hasUserResizedRef.current = false;
-      setUserMinHeight(INITIAL_MIN_HEIGHT);
-      userMinHeightRef.current = INITIAL_MIN_HEIGHT;
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
-      });
-      const latestTargets = useConversationStore.getState().multiModelTargets;
-      const latestHistoryMode = useConversationStore.getState().multiModelContinuationMode;
+      if (useConversationStore.getState().activeConversationId !== targetConversationId) {
+        throw t('chat.inputQueue.conversationChanged');
+      }
+
       if (currentMode === 'agent') {
         await sendAgentMessage(finalContent, attachments);
       } else if (latestTargets.length > 0) {
-        const hasUnavailableTarget = latestTargets.some((target) => {
-          const provider = providers.find((item) => item.id === target.providerId);
-          const model = provider?.models.find((item) => item.model_id === target.modelId && item.enabled);
-          return !provider?.enabled || !model;
-        });
-        if (hasUnavailableTarget) {
-          messageApi.warning(t('chat.multiModel.unavailableModel'));
-          return;
-        }
         await sendMultiModelMessage({
           content: finalContent,
           targetModels: latestTargets,
@@ -1183,31 +1344,80 @@ export function InputArea() {
           searchProviderId: searchEnabled ? searchProviderId : null,
         });
       } else {
-        const sent = await sendMessage(finalContent, attachments, searchEnabled ? searchProviderId : null);
-        if (sent === null) {
-          throw useConversationStore.getState().error || t('common.failed');
+        const result = await submitChatMessage(
+          finalContent,
+          attachments,
+          searchEnabled ? searchProviderId : null,
+        );
+        if (result.kind === 'rejected') {
+          let errorMessage = useConversationStore.getState().error || t('common.failed');
+          if (result.reason === 'unsupported-mode') {
+            errorMessage = t('chat.inputQueue.unsupported');
+          } else if (
+            result.reason === 'conversation-loading'
+            || result.reason === 'other-conversation-busy'
+          ) {
+            errorMessage = t('chat.inputQueue.otherConversationBusy');
+          }
+          throw errorMessage;
         }
       }
-      revokeComposerAttachments(submittedAttachments);
+
+      const submittedAttachmentIds = new Set(
+        submittedAttachments.map((attachment) => attachment.id),
+      );
+      const submittedSnippetIds = new Set(submittedSnippets.map((snippet) => snippet.id));
+      const latestActiveConversationId = useConversationStore.getState().activeConversationId;
+      const composerOwnsTarget = prevConvIdRef.current === targetConversationId;
+      if (latestActiveConversationId === targetConversationId && composerOwnsTarget) {
+        const detached = detachAttachmentsById(submittedAttachmentIds);
+        revokeComposerAttachments(detached);
+      } else if (targetConversationId) {
+        const cleanup: AcceptedDraftCleanup = {
+          attachmentIds: submittedAttachmentIds,
+          draftValue: value,
+          snippetIds: submittedSnippetIds,
+        };
+        acceptedDraftCleanupRef.current.set(targetConversationId, cleanup);
+        if (!composerOwnsTarget) {
+          cleanupAcceptedCachedDraft(targetConversationId, cleanup);
+          acceptedDraftCleanupRef.current.delete(targetConversationId);
+        }
+      }
+
+      const currentSnippetIds = new Set(pastedSnippetsRef.current.map((snippet) => snippet.id));
+      const currentDraftStillMatchesSubmission = valueRef.current === value
+        && currentSnippetIds.size === submittedSnippetIds.size
+        && [...submittedSnippetIds].every((snippetId) => currentSnippetIds.has(snippetId));
+      if (
+        latestActiveConversationId === targetConversationId
+        && composerOwnsTarget
+        && (
+          draftRevisionRef.current === submittedDraftRevision
+          || currentDraftStillMatchesSubmission
+        )
+      ) {
+        updateDraftValue('');
+        setPastedSnippets((current) => (
+          current.filter((snippet) => !submittedSnippetIds.has(snippet.id))
+        ));
+        pastedSnippetSeqRef.current = 0;
+        hasUserResizedRef.current = false;
+        setUserMinHeight(INITIAL_MIN_HEIGHT);
+        userMinHeightRef.current = INITIAL_MIN_HEIGHT;
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+        });
+      }
     } catch (e) {
-      setValue((current) => current || value);
-      restoreAttachments(submittedAttachments);
-      setPastedSnippets((current) => (current.length > 0 ? current : submittedSnippets));
       console.error('[handleSend] error:', e);
       messageApi.error(String(e));
-      // Re-expand textarea after restoring content
-      requestAnimationFrame(() => {
-        const textarea = textareaRef.current;
-        if (textarea) {
-          textarea.style.height = 'auto';
-          const desired = hasUserResizedRef.current
-            ? userMinHeightRef.current
-            : Math.max(textarea.scrollHeight, userMinHeightRef.current);
-          textarea.style.height = Math.min(desired, ABSOLUTE_MAX_HEIGHT) + 'px';
-        }
-      });
+    } finally {
+      submitInFlightRef.current = false;
     }
-  }, [value, attachedFiles, pastedSnippets, sendMessage, sendAgentMessage, sendMultiModelMessage, companionModels, multiModelHistoryMode, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, currentMode, detachAttachments, restoreAttachments]);
+  }, [value, attachedFiles, pastedSnippets, submitChatMessage, sendAgentMessage, sendMultiModelMessage, companionModels, multiModelHistoryMode, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, cleanupAcceptedCachedDraft, currentMode, detachAttachmentsById, streaming, updateDraftValue]);
 
   const handleFillLastMessage = useCallback(() => {
     if (loading || streaming) return;
@@ -1215,7 +1425,7 @@ export function InputArea() {
       .reverse()
       .find((message) => message.role === 'user' && message.status !== 'error');
     if (!lastUserMessage?.content) return;
-    setValue(lastUserMessage.content);
+    updateDraftValue(lastUserMessage.content);
     hasUserResizedRef.current = false;
     requestAnimationFrame(() => {
       const textarea = textareaRef.current;
@@ -1225,7 +1435,7 @@ export function InputArea() {
       const desired = Math.max(textarea.scrollHeight, userMinHeightRef.current);
       textarea.style.height = Math.min(desired, ABSOLUTE_MAX_HEIGHT) + 'px';
     });
-  }, [loading, messages, streaming]);
+  }, [loading, messages, streaming, updateDraftValue]);
 
   const handleCancel = useCallback(() => {
     cancelCurrentStream();
@@ -1248,11 +1458,11 @@ export function InputArea() {
     setPastedSnippets((prev) => {
       const target = prev.find((s) => s.id === id);
       if (!target) return prev;
-      setValue((current) => removePasteTokens(current, target.index));
+      updateDraftValue((current) => removePasteTokens(current, target.index));
       resizeTextareaToContent();
       return prev.filter((s) => s.id !== id);
     });
-  }, [resizeTextareaToContent]);
+  }, [resizeTextareaToContent, updateDraftValue]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (handleClipboardFiles(e)) return;
@@ -1271,7 +1481,7 @@ export function InputArea() {
       const start = textarea.selectionStart ?? currentValue.length;
       const end = textarea.selectionEnd ?? start;
       const { value: nextValue, caret } = insertPasteTokenAtSelection(currentValue, start, end, index);
-      setValue(nextValue);
+      updateDraftValue(nextValue);
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         if (!el) return;
@@ -1284,7 +1494,7 @@ export function InputArea() {
         el.style.height = Math.min(desired, ABSOLUTE_MAX_HEIGHT) + 'px';
       });
     }
-  }, [handleClipboardFiles]);
+  }, [handleClipboardFiles, updateDraftValue]);
 
   usePageSuspendCleanup(() => {
     setVoiceCallVisible(false);
@@ -1324,9 +1534,9 @@ export function InputArea() {
   }, []);
 
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setValue(e.target.value);
+    updateDraftValue(e.target.value);
     autoResizeTextarea(e.target);
-  }, [autoResizeTextarea]);
+  }, [autoResizeTextarea, updateDraftValue]);
 
   // Drag-to-resize: changes userMinHeight so the textarea grows even with short content
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -1403,7 +1613,7 @@ export function InputArea() {
     const onFillInput = (e: Event) => {
       const text = (e as CustomEvent).detail;
       if (typeof text !== 'string' || !text) return;
-      setValue((prev) => (prev ? prev + '\n' + text : text));
+      updateDraftValue((prev) => (prev ? prev + '\n' + text : text));
       requestAnimationFrame(() => {
         const textarea = textareaRef.current;
         if (!textarea) return;
@@ -1417,7 +1627,7 @@ export function InputArea() {
     };
     window.addEventListener('aqbot:fill-input', onFillInput);
     return () => window.removeEventListener('aqbot:fill-input', onFillInput);
-  }, []);
+  }, [updateDraftValue]);
 
   // Listen for mode toggle shortcut
   React.useEffect(() => {
@@ -1432,6 +1642,7 @@ export function InputArea() {
   const canSend =
     !loading &&
     (value.trim().length > 0 || attachedFiles.length > 0 || pastedSnippets.length > 0);
+  const canQueueDuringStream = currentMode === 'chat' && companionModels.length === 0;
 
   return (
     <div
@@ -1491,6 +1702,27 @@ export function InputArea() {
             onTargetsChange={setMultiModelTargets}
             onHistoryModeChange={setMultiModelHistoryMode}
             onClearAll={clearAllCompanionModels}
+          />
+        )}
+
+        {currentMode === 'chat'
+          && companionModels.length === 0
+          && activeConversationId
+          && activeChatQueue
+          && activeChatQueue.messages.length > 0 && (
+          <MessageQueueTray
+            messages={activeChatQueue.messages}
+            paused={activeChatQueue.phase === 'paused'}
+            error={activeChatQueue.error}
+            onEdit={(messageId, patch) => {
+              updateQueuedChatMessage(activeConversationId, messageId, patch);
+            }}
+            onSendNow={async (messageId) => {
+              await sendQueuedChatMessageNow(activeConversationId, messageId);
+            }}
+            onDelete={(messageId) => {
+              removeQueuedChatMessage(activeConversationId, messageId);
+            }}
           />
         )}
 
@@ -1836,6 +2068,23 @@ export function InputArea() {
                     onClick={handleCancel}
                   />
                 </Tooltip>
+                <Tooltip
+                  title={canQueueDuringStream
+                    ? t('chat.inputQueue.enqueue')
+                    : t('chat.sendMessage')}
+                >
+                  <Button
+                    type="primary"
+                    shape="circle"
+                    size="small"
+                    icon={<ArrowUp size={14} />}
+                    aria-label={canQueueDuringStream
+                      ? t('chat.inputQueue.enqueue')
+                      : t('chat.sendMessage')}
+                    onClick={handleSend}
+                    disabled={!canSend}
+                  />
+                </Tooltip>
               </>
             ) : (
               <Button
@@ -1843,6 +2092,7 @@ export function InputArea() {
                 shape="circle"
                 size="small"
                 icon={<ArrowUp size={14} />}
+                aria-label={t('chat.sendMessage')}
                 onClick={handleSend}
                 disabled={!canSend}
               />

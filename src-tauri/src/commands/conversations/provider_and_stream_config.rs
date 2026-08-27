@@ -354,6 +354,164 @@ fn duration_from_timeout_secs(seconds: u64) -> Option<Duration> {
 
 const ACTIVE_STREAM_EXISTS_ERROR: &str = "当前会话已有回复正在生成，请等待完成或停止后再发送";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ChatStreamTerminalOutcome {
+    Complete,
+    Error,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct ChatStreamTerminalEvent {
+    conversation_id: String,
+    message_id: String,
+    stream_id: String,
+    outcome: ChatStreamTerminalOutcome,
+    error: Option<String>,
+}
+
+fn build_stream_terminal_event(
+    conversation_id: &str,
+    message_id: &str,
+    stream_id: &str,
+    outcome: ChatStreamTerminalOutcome,
+    error: Option<String>,
+) -> ChatStreamTerminalEvent {
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
+    ChatStreamTerminalEvent {
+        conversation_id: safe(conversation_id),
+        message_id: safe(message_id),
+        stream_id: safe(stream_id),
+        outcome,
+        error: error.map(|value| safe(&value)),
+    }
+}
+
+fn emit_stream_terminal(app: &tauri::AppHandle, event: ChatStreamTerminalEvent) {
+    if let Err(error) = app.emit("chat-stream-terminal", event) {
+        tracing::error!(error = %error, "Failed to emit chat stream terminal event");
+    }
+}
+
+fn emit_stream_error(app: &tauri::AppHandle, event: ChatStreamErrorEvent) {
+    if let Err(error) = app.emit("chat-stream-error", event) {
+        tracing::error!(error = %error, "Failed to emit chat stream error event");
+    }
+}
+
+fn combine_stream_persistence_errors(errors: &[String]) -> Option<String> {
+    (!errors.is_empty()).then(|| errors.join("; "))
+}
+
+struct TerminalAssistantErrorPersistence<'a> {
+    conversation_id: &'a str,
+    message_id: &'a str,
+    error: &'a str,
+}
+
+async fn persist_terminal_assistant_error(
+    db: &sea_orm::DatabaseConnection,
+    input: TerminalAssistantErrorPersistence<'_>,
+) -> Result<(), String> {
+    let message = aqbot_core::repo::message::get_message(db, input.message_id)
+        .await
+        .map_err(|error| format!("Failed to load terminal assistant message: {error}"))?;
+    if message.conversation_id != input.conversation_id || message.role != MessageRole::Assistant {
+        return Err(
+            "Terminal message is not an assistant message in this conversation".to_string(),
+        );
+    }
+
+    aqbot_core::repo::message::mark_message_error(db, input.message_id, input.error)
+        .await
+        .map_err(|error| format!("Failed to persist terminal assistant error: {error}"))?;
+    aqbot_core::repo::conversation::increment_message_count(db, input.conversation_id)
+        .await
+        .map_err(|error| format!("Failed to persist assistant message count: {error}"))
+}
+
+struct AssistantPlaceholderPersistence<'a> {
+    conversation_id: &'a str,
+    message_id: &'a str,
+    parent_message_id: &'a str,
+    provider_id: &'a str,
+    model_id: &'a str,
+    content: &'a str,
+    version_index: i32,
+    created_at: i64,
+    deactivate_existing_versions: bool,
+    increment_message_count: bool,
+    is_active: bool,
+}
+
+async fn persist_assistant_placeholder(
+    db: &sea_orm::DatabaseConnection,
+    input: AssistantPlaceholderPersistence<'_>,
+) -> Result<(), String> {
+    use aqbot_core::entity::{conversations, messages};
+    use sea_orm::sea_query::Expr;
+
+    let transaction = db
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to begin cancelled stream persistence: {error}"))?;
+    if input.deactivate_existing_versions {
+        messages::Entity::update_many()
+            .filter(messages::Column::ConversationId.eq(input.conversation_id))
+            .filter(messages::Column::ParentMessageId.eq(input.parent_message_id))
+            .col_expr(messages::Column::IsActive, Expr::value(0))
+            .exec(&transaction)
+            .await
+            .map_err(|error| format!("Failed to deactivate assistant versions: {error}"))?;
+    }
+    messages::ActiveModel {
+        id: Set(input.message_id.to_string()),
+        conversation_id: Set(input.conversation_id.to_string()),
+        role: Set("assistant".to_string()),
+        content: Set(input.content.to_string()),
+        provider_id: Set(Some(input.provider_id.to_string())),
+        model_id: Set(Some(input.model_id.to_string())),
+        token_count: Set(None),
+        prompt_tokens: Set(None),
+        completion_tokens: Set(None),
+        attachments: Set("[]".to_string()),
+        thinking: Set(None),
+        created_at: Set(input.created_at),
+        branch_id: Set(None),
+        parent_message_id: Set(Some(input.parent_message_id.to_string())),
+        version_index: Set(input.version_index),
+        is_active: Set(if input.is_active { 1 } else { 0 }),
+        tool_calls_json: Set(None),
+        tool_call_id: Set(None),
+        status: Set("partial".to_string()),
+        tokens_per_second: Set(None),
+        first_token_latency_ms: Set(None),
+    }
+    .insert(&transaction)
+    .await
+    .map_err(|error| format!("Failed to persist cancelled assistant message: {error}"))?;
+    if input.increment_message_count {
+        conversations::Entity::update_many()
+            .filter(conversations::Column::Id.eq(input.conversation_id))
+            .col_expr(
+                conversations::Column::MessageCount,
+                Expr::col(conversations::Column::MessageCount).add(1),
+            )
+            .col_expr(
+                conversations::Column::UpdatedAt,
+                Expr::value(aqbot_core::utils::now_ts()),
+            )
+            .exec(&transaction)
+            .await
+            .map_err(|error| format!("Failed to persist assistant message count: {error}"))?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("Failed to commit cancelled stream persistence: {error}"))
+}
+
 async fn has_active_stream_for_conversation(
     cancel_flags: Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, crate::StreamCancelEntry>>,
@@ -361,10 +519,9 @@ async fn has_active_stream_for_conversation(
     conversation_id: &str,
 ) -> bool {
     let flags = cancel_flags.lock().await;
-    flags.values().any(|entry| {
-        entry.conversation_id == conversation_id
-            && !entry.flag.load(std::sync::atomic::Ordering::Relaxed)
-    })
+    flags
+        .values()
+        .any(|entry| entry.conversation_id == conversation_id)
 }
 
 async fn register_stream_cancel_flag(
@@ -377,10 +534,9 @@ async fn register_stream_cancel_flag(
     allow_parallel: bool,
 ) -> Result<(), String> {
     let mut flags = cancel_flags.lock().await;
-    let has_active_stream = flags.values().any(|entry| {
-        entry.conversation_id == conversation_id
-            && !entry.flag.load(std::sync::atomic::Ordering::Relaxed)
-    });
+    let has_active_stream = flags
+        .values()
+        .any(|entry| entry.conversation_id == conversation_id);
     if has_active_stream && !allow_parallel {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
     }
@@ -430,9 +586,20 @@ impl RegisteredStreamGuard {
         })
     }
 
-    async fn release(mut self) {
-        self.released = true;
+    async fn release(&mut self) -> bool {
+        if self.released {
+            return false;
+        }
+
         self.cancel_flags.lock().await.remove(&self.stream_id);
+        self.released = true;
+        true
+    }
+
+    async fn release_then_finalize<T>(&mut self, terminal: T, finalize: impl FnOnce(T)) {
+        if self.release().await {
+            finalize(terminal);
+        }
     }
 }
 
@@ -452,6 +619,95 @@ impl Drop for RegisteredStreamGuard {
             });
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct StreamSetupTerminalContext<'a> {
+    app: &'a tauri::AppHandle,
+    db: &'a sea_orm::DatabaseConnection,
+    conversation_id: &'a str,
+    message_id: &'a str,
+    stream_id: &'a str,
+    model_id: &'a str,
+    provider_id: &'a str,
+    persist_assistant_error: bool,
+}
+
+#[derive(Clone, Copy)]
+enum StreamSetupFailure<'a> {
+    ReleaseOnly,
+    EmitTerminal(StreamSetupTerminalContext<'a>),
+}
+
+async fn settle_registered_stream_setup<T>(
+    stream_guard: &mut RegisteredStreamGuard,
+    result: Result<T, String>,
+    failure: StreamSetupFailure<'_>,
+) -> Result<T, String> {
+    let setup_error = match result {
+        Ok(value) => return Ok(value),
+        Err(error) => error,
+    };
+
+    let context = match failure {
+        StreamSetupFailure::ReleaseOnly => {
+            stream_guard.release().await;
+            return Err(setup_error);
+        }
+        StreamSetupFailure::EmitTerminal(context) => context,
+    };
+
+    let persistence_error = if context.persist_assistant_error {
+        persist_terminal_assistant_error(
+            context.db,
+            TerminalAssistantErrorPersistence {
+                conversation_id: context.conversation_id,
+                message_id: context.message_id,
+                error: &setup_error,
+            },
+        )
+        .await
+        .err()
+    } else {
+        None
+    };
+    let (error, error_kind) = if let Some(persistence_error) = persistence_error {
+        (
+            format!("{setup_error}; {persistence_error}"),
+            "message_persistence_error",
+        )
+    } else {
+        (setup_error, "stream_setup_error")
+    };
+    let error_event = build_stream_error_event(
+        context.conversation_id,
+        context.message_id,
+        context.stream_id,
+        context.model_id,
+        context.provider_id,
+        error.clone(),
+        error_kind,
+        None,
+    );
+    let terminal_event = build_stream_terminal_event(
+        context.conversation_id,
+        context.message_id,
+        context.stream_id,
+        ChatStreamTerminalOutcome::Error,
+        Some(error_event.error.clone()),
+    );
+
+    stream_guard
+        .release_then_finalize(
+            (error_event, terminal_event),
+            |(error_event, terminal_event)| {
+                emit_stream_error(context.app, error_event);
+                emit_stream_terminal(context.app, terminal_event);
+            },
+        )
+        .await;
+
+    Err(error)
 }
 
 fn build_stream_error_event(
