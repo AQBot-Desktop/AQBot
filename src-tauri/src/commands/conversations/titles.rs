@@ -86,6 +86,13 @@ async fn call_title_chat(
     })
 }
 
+fn configured_title_summary_target(settings: &AppSettings) -> Option<(&str, &str)> {
+    settings
+        .title_summary_provider_id
+        .as_deref()
+        .zip(settings.title_summary_model_id.as_deref())
+}
+
 /// Generate an AI-powered conversation title using the configured title summary model.
 /// Returns Err with the actual error message if generation fails.
 pub async fn generate_ai_title(
@@ -113,10 +120,7 @@ pub async fn generate_ai_title(
     };
 
     // Resolve title summary provider/model: settings override → fallback to conversation model
-    if let (Some(ref pid), Some(ref mid)) = (
-        &settings.title_summary_provider_id,
-        &settings.title_summary_model_id,
-    ) {
+    if let Some((pid, mid)) = configured_title_summary_target(settings) {
         // Try to use the configured title summary provider
         let provider = match aqbot_core::repo::provider::get_provider(db, pid).await {
             Ok(p) => p,
@@ -213,6 +217,26 @@ pub async fn generate_ai_title(
             umc,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod title_target_tests {
+    use super::*;
+
+    #[test]
+    fn global_title_model_requires_a_complete_provider_and_model_pair() {
+        let mut settings = AppSettings::default();
+        assert_eq!(configured_title_summary_target(&settings), None);
+
+        settings.title_summary_provider_id = Some("title-provider".to_string());
+        assert_eq!(configured_title_summary_target(&settings), None);
+
+        settings.title_summary_model_id = Some("title-model".to_string());
+        assert_eq!(
+            configured_title_summary_target(&settings),
+            Some(("title-provider", "title-model"))
+        );
     }
 }
 

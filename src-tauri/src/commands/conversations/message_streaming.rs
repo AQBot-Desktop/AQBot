@@ -1698,6 +1698,8 @@ async fn start_target_stream(
         aqbot_core::repo::conversation::get_conversation(&state.sea_db, &conversation_id)
             .await
             .map_err(|e| e.to_string())?;
+    let is_first_message =
+        should_auto_generate_title_for_target(conversation.message_count, forced_version_index);
     conversation.model_id = target_model_id;
     conversation.provider_id = target_provider_id.clone();
 
@@ -2003,7 +2005,7 @@ async fn start_target_stream(
         ctx,
         chat_messages,
         stream_context_policy,
-        false,
+        is_first_message,
         target_user_content,
         user_msg.id,
         new_version_index,
@@ -2032,9 +2034,24 @@ async fn start_target_stream(
     ))
 }
 
+fn should_auto_generate_title_for_target(
+    message_count: u32,
+    forced_version_index: Option<i32>,
+) -> bool {
+    message_count <= 1 && forced_version_index == Some(0)
+}
+
 #[cfg(test)]
 mod message_streaming_activation_tests {
     use super::*;
+
+    #[test]
+    fn multi_model_first_target_is_the_only_fallback_title_trigger() {
+        assert!(should_auto_generate_title_for_target(1, Some(0)));
+        assert!(!should_auto_generate_title_for_target(1, Some(1)));
+        assert!(!should_auto_generate_title_for_target(2, Some(0)));
+        assert!(!should_auto_generate_title_for_target(1, None));
+    }
 
     #[tokio::test]
     async fn new_active_version_survives_deactivating_older_versions() {
