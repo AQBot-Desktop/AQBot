@@ -130,12 +130,15 @@
     "dislike": "Не нравится",
     "thinking": {
       "default": "По умолчанию",
+      "off": "Выкл.",
+      "minimal": "Мин.",
       "none": "Без рассуждений",
       "low": "Низкое",
       "medium": "Среднее",
       "high": "Высокое",
       "xhigh": "Очень высокое",
-      "max": "Максимальное"
+      "max": "Максимальное",
+      "followUnified": "Как общее значение"
     },
     "typingIndicator": "Печатает...",
     "thinkingIntensity": "Интенсивность рассуждений",
@@ -345,7 +348,8 @@
       "waitingNext": "Следующая модель через {{seconds}} с",
       "executionBadgeParallel": "Параллельно",
       "executionBadgeSequential": "По очереди",
-      "intervalBadge": "Интервал {{seconds}} с"
+      "intervalBadge": "Интервал {{seconds}} с",
+      "thinkingOverride": "Уровень рассуждений для {{model}}"
     },
     "multiModelUseAsContext": "Использовать как контекст",
     "multiModelCurrentContext": "Текущий контекст",

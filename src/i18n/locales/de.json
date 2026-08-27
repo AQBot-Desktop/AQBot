@@ -130,12 +130,15 @@
     "dislike": "Gefällt mir nicht",
     "thinking": {
       "default": "Standard",
+      "off": "Aus",
+      "minimal": "Geringst",
       "none": "Kein Reasoning",
       "low": "Niedrig",
       "medium": "Mittel",
       "high": "Hoch",
       "xhigh": "Sehr hoch",
-      "max": "Maximal"
+      "max": "Maximal",
+      "followUnified": "Gemeinsame Einstellung"
     },
     "typingIndicator": "Schreibt…",
     "thinkingIntensity": "Reasoning-Intensität",
@@ -345,7 +348,8 @@
       "waitingNext": "Nächstes Modell in {{seconds}} s",
       "executionBadgeParallel": "Parallel",
       "executionBadgeSequential": "Nacheinander",
-      "intervalBadge": "Abstand {{seconds}} s"
+      "intervalBadge": "Abstand {{seconds}} s",
+      "thinkingOverride": "Denkintensität für {{model}}"
     },
     "multiModelUseAsContext": "Als Kontext verwenden",
     "multiModelCurrentContext": "Aktueller Kontext",

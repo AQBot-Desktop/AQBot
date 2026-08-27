@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Button, Tooltip, App, theme, Dropdown, Tag, Popover, Checkbox, Badge, InputNumber } from 'antd';
 import type { MenuProps } from 'antd';
-import { Paperclip, Trash2, Mic, Eraser, Scissors, Globe, Brain, Atom, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, Shrink, Upload, GitCompareArrows, X, BookOpen, GripHorizontal, CircleOff, SignalLow, SignalMedium, SignalHigh, Signal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
+import { Paperclip, Mic, Eraser, Scissors, Globe, Brain, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, Shrink, Upload, GitCompareArrows, BookOpen, GripHorizontal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore, useMemoryStore, useKnowledgeStore } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
@@ -22,19 +22,15 @@ import {
   shouldNotifyContextExclusion,
 } from '@/lib/contextStrategy';
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
-import { getModelVersionGroupKey } from '@/lib/chatMultiModel';
 import { normalizeMultiModelContinuationMode } from '@/lib/multiModelContinuation';
-import {
-  normalizeMultiModelExecutionMode,
-  normalizeMultiModelSequentialInterval,
-} from '@/lib/multiModelExecution';
+import { mergeMultiModelTargetSelection } from '@/lib/resolveTargetReasoning';
 import type { ShortcutAction } from '@/lib/shortcuts';
 import { VoiceCall } from './VoiceCall';
 import { ConversationSettingsModal } from './ConversationSettingsModal';
+import { CompanionModelTags } from './CompanionModelTags';
 import { ModelSelector } from './ModelSelector';
-import { MultiModelFollowUpModeControl } from './MultiModelFollowUpModeControl';
+import { thinkingOptionIcon } from './thinkingOptionIcon';
 import { SearchProviderTypeIcon, PROVIDER_TYPE_LABELS } from '@/components/shared/SearchProviderIcon';
-import { ModelIcon } from '@lobehub/icons';
 import {
   DEFAULT_CHAT_INPUT_ACTIONS_SCALE,
   normalizeChatInputActionsScale,
@@ -751,34 +747,16 @@ export function InputArea() {
     [selectedThinkingKey, thinkingOptions],
   );
 
-  const thinkingIcon = useMemo(() => {
-    switch (selectedThinkingOption.icon) {
-      case 'off': return <CircleOff size={14} />;
-      case 'low': return <SignalLow size={14} />;
-      case 'medium': return <SignalMedium size={14} />;
-      case 'high': return <SignalHigh size={14} />;
-      case 'xhigh': return <Signal size={14} />;
-      case 'max': return <Signal size={14} />;
-      default: return <Atom size={14} />;
-    }
-  }, [selectedThinkingOption.icon]);
+  const thinkingIcon = useMemo(
+    () => thinkingOptionIcon(selectedThinkingOption.icon),
+    [selectedThinkingOption.icon],
+  );
 
   const thinkingMenuItems = useMemo<MenuProps['items']>(
     () => thinkingOptions.map((opt) => ({
       key: opt.key,
       label: opt.label,
-      icon: (() => {
-        switch (opt.icon) {
-          case 'off': return <CircleOff size={14} />;
-          case 'default': return <Atom size={14} />;
-          case 'low': return <SignalLow size={14} />;
-          case 'medium': return <SignalMedium size={14} />;
-          case 'high': return <SignalHigh size={14} />;
-          case 'xhigh': return <Signal size={14} />;
-          case 'max': return <Signal size={14} />;
-          default: return <Atom size={14} />;
-        }
-      })(),
+      icon: thinkingOptionIcon(opt.icon),
     })),
     [thinkingOptions],
   );
@@ -1077,27 +1055,8 @@ export function InputArea() {
 
   // Current model key for excluding from multi-select (no longer used - users can select any model)
 
-  const companionDisplayInfos = useMemo(() => {
-    return companionModels.map((cm) => {
-      const provider = providers.find((p) => p.id === cm.providerId);
-      const model = provider?.models.find((m) => m.model_id === cm.modelId && m.enabled);
-      const unavailable = !provider?.enabled || !model;
-      return {
-        ...cm,
-        modelName: model?.name ?? cm.modelId,
-        providerName: provider?.name ?? '',
-        unavailable,
-      };
-    });
-  }, [companionModels, providers]);
-  const hasUnavailableCompanionModels = companionDisplayInfos.some((item) => item.unavailable);
-
   const handleMultiModelSelect = useCallback((models: Array<{ providerId: string; modelId: string }>) => {
-    setMultiModelTargets(models);
-  }, [setMultiModelTargets]);
-
-  const removeCompanionModel = useCallback((index: number) => {
-    setMultiModelTargets(companionModels.filter((_, i) => i !== index));
+    setMultiModelTargets(mergeMultiModelTargetSelection(companionModels, models));
   }, [companionModels, setMultiModelTargets]);
 
   const clearAllCompanionModels = useCallback(() => {
@@ -1519,121 +1478,20 @@ export function InputArea() {
         >
           <GripHorizontal size={14} style={{ color: token.colorTextQuaternary, opacity: 0.5 }} />
         </div>
-        {/* Companion model tags */}
         {currentMode !== 'agent' && companionModels.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-3 pb-1">
-            <span
-              className="inline-flex items-center px-2 py-0.5 text-xs"
-              style={{ color: token.colorTextTertiary }}
-            >
-              {t('chat.multiModel.selectTitle')}:
-            </span>
-            <span
-              className="inline-flex items-center px-2 py-0.5 text-xs"
-              style={{ color: token.colorTextSecondary, backgroundColor: token.colorFillSecondary, borderRadius: token.borderRadiusSM }}
-            >
-              {normalizeMultiModelExecutionMode(settings.multi_model_execution_mode) === 'sequential'
-                ? t('chat.multiModel.executionBadgeSequential')
-                : t('chat.multiModel.executionBadgeParallel')}
-              {normalizeMultiModelExecutionMode(settings.multi_model_execution_mode) === 'sequential' && (
-                <> · {t('chat.multiModel.intervalBadge', {
-                  seconds: normalizeMultiModelSequentialInterval(settings.multi_model_sequential_interval_seconds),
-                })}</>
-              )}
-            </span>
-            {companionDisplayInfos.map((cm, idx) => (
-              <span
-                key={getModelVersionGroupKey(cm.providerId, cm.modelId)}
-                className="inline-flex items-center gap-1.5 pl-1.5 pr-1 py-0.5 text-xs"
-                title={cm.unavailable ? t('chat.multiModel.unavailableModel') : undefined}
-                style={{
-                  backgroundColor: cm.unavailable ? token.colorWarningBg : token.colorFillSecondary,
-                  borderRadius: token.borderRadiusSM,
-                  color: token.colorText,
-                }}
-              >
-                <span style={{
-                  minWidth: 16,
-                  textAlign: 'center',
-                  color: token.colorPrimary,
-                  fontWeight: 600,
-                }}>{idx + 1}</span>
-                <button
-                  type="button"
-                  aria-label={t('chat.multiModel.moveUp')}
-                  disabled={idx === 0}
-                  onClick={() => {
-                    if (idx === 0) return;
-                    const next = [...companionModels];
-                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                    setMultiModelTargets(next);
-                  }}
-                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: idx === 0 ? 'default' : 'pointer', color: token.colorTextTertiary }}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  aria-label={t('chat.multiModel.moveDown')}
-                  disabled={idx === companionModels.length - 1}
-                  onClick={() => {
-                    if (idx === companionModels.length - 1) return;
-                    const next = [...companionModels];
-                    [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
-                    setMultiModelTargets(next);
-                  }}
-                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: idx === companionModels.length - 1 ? 'default' : 'pointer', color: token.colorTextTertiary }}
-                >
-                  ↓
-                </button>
-                <ModelIcon model={cm.modelId} size={14} type="avatar" />
-                <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {cm.modelName}
-                </span>
-                {cm.providerName && (
-                  <span style={{ color: token.colorTextQuaternary, fontSize: 11 }}>
-                    {cm.providerName}
-                  </span>
-                )}
-                <X
-                  size={12}
-                  className="cursor-pointer flex-shrink-0"
-                  style={{ color: token.colorTextTertiary }}
-                  onClick={() => removeCompanionModel(idx)}
-                />
-              </span>
-            ))}
-            {hasUnavailableCompanionModels && (
-              <span style={{ color: token.colorWarning, fontSize: 12 }}>
-                {t('chat.multiModel.unavailableModel')}
-              </span>
-            )}
-            {multiModelRun?.phase === 'waiting' && multiModelRun.nextStartAt != null && (
-              <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-                {t('chat.multiModel.waitingNext', {
-                  seconds: Math.max(0, Math.ceil((multiModelRun.nextStartAt - Date.now()) / 1000)),
-                })}
-              </span>
-            )}
-            {companionModels.length >= 2 && (
-              <MultiModelFollowUpModeControl
-                value={multiModelHistoryMode}
-                onChange={setMultiModelHistoryMode}
-              />
-            )}
-            {/* Clear all companion models */}
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs cursor-pointer"
-              style={{
-                borderRadius: token.borderRadiusSM,
-                color: token.colorTextTertiary,
-              }}
-              onClick={clearAllCompanionModels}
-            >
-              <Trash2 size={11} />
-              {t('chat.clearAll')}
-            </span>
-          </div>
+          <CompanionModelTags
+            targets={companionModels}
+            providers={providers}
+            unifiedThinkingLevel={thinkingLevel}
+            unifiedThinkingBudget={thinkingBudget}
+            executionMode={settings.multi_model_execution_mode}
+            sequentialIntervalSeconds={settings.multi_model_sequential_interval_seconds}
+            historyMode={multiModelHistoryMode}
+            multiModelRun={multiModelRun}
+            onTargetsChange={setMultiModelTargets}
+            onHistoryModeChange={setMultiModelHistoryMode}
+            onClearAll={clearAllCompanionModels}
+          />
         )}
 
         {/* Textarea */}

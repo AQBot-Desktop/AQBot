@@ -156,12 +156,16 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: string | Record<string, unknown>) => {
       const thinkingLabels: Record<string, string> = {
+        'chat.thinking.default': 'Default',
+        'chat.thinking.off': 'Off',
         'chat.thinking.minimal': 'Minimal',
+        'chat.thinking.none': 'No Reasoning',
         'chat.thinking.low': 'Low',
         'chat.thinking.medium': 'Medium',
         'chat.thinking.high': 'High',
         'chat.thinking.xhigh': 'XHigh',
         'chat.thinking.max': 'Max',
+        'chat.thinking.followUnified': 'Follow unified',
       };
       if (thinkingLabels[key]) return thinkingLabels[key];
       if (typeof options === 'string') return options;
@@ -514,6 +518,31 @@ describe('InputArea', () => {
       searchProviderId: 'search-1',
     }));
     expect(setPendingPromptText).toHaveBeenCalledWith(null);
+  });
+
+  it('lets each companion model override the unified thinking level', async () => {
+    providerState.providers[0].models[0].capabilities = ['Reasoning'];
+    providerState.providers[1].models[0].capabilities = ['Reasoning'];
+    conversationState.thinkingLevel = 'high';
+    conversationState.multiModelTargets = [
+      { providerId: 'provider-1', modelId: 'model-1' },
+      { providerId: 'provider-2', modelId: 'model-1' },
+    ];
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByTestId('companion-thinking-0'));
+    expect(await screen.findByText('Follow unified')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Low'));
+
+    expect(conversationState.multiModelTargets).toEqual([
+      { providerId: 'provider-1', modelId: 'model-1', thinkingLevel: 'low' },
+      { providerId: 'provider-2', modelId: 'model-1' },
+    ]);
   });
 
   it('renders model-specific reasoning options for Gemini 3.1 models', async () => {

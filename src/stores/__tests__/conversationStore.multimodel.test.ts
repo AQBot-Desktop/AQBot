@@ -732,6 +732,77 @@ describe('conversationStore multi-model messages', () => {
     await pending;
   });
 
+  it('sends unified thinking plus per-target overrides to start_multi_model_run', async () => {
+    tauriAvailable = true;
+    listenMock.mockResolvedValue(() => {});
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    const user = {
+      ...makeMessage(1),
+      id: 'user-1',
+      role: 'user' as const,
+      content: 'compare thinking',
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'start_multi_model_run') {
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: 1,
+          activeRun: {
+            runId: 'run-1',
+            conversationId: 'conv-1',
+            parentMessageId: user.id,
+            mode: 'parallel',
+            intervalSeconds: 3,
+            phase: 'running',
+            nextStartAt: null,
+            targets: [],
+          },
+        });
+      }
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run' || command === 'cancel_stream') {
+        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+      thinkingLevel: 'high',
+      thinkingBudget: 4096,
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: user.content,
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b', thinkingLevel: 'low' },
+        { providerId: 'provider-c', modelId: 'model-c', thinkingLevel: null },
+      ],
+    });
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('start_multi_model_run', expect.objectContaining({
+      thinkingLevel: 'high',
+      thinkingBudget: undefined,
+      targets: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b', thinkingLevel: 'low' },
+        { providerId: 'provider-c', modelId: 'model-c', thinkingLevel: null },
+      ],
+    }));
+
+    useConversationStore.getState().cancelCurrentStream();
+    await pending;
+  });
+
   it('renders the user turn and live first-model chunks before later models start', async () => {
     tauriAvailable = true;
     const listeners = new Map<string, (event: any) => void>();

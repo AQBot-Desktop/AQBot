@@ -4,7 +4,9 @@ use super::types::{
     MultiModelRunSnapshot, MultiModelTargetSnapshot, MultiModelTargetState, MultiModelTurnAdapter,
     PersistUserTurnInput, StartMultiModelInput, StartTargetRequest, StreamHandle, StreamTerminal,
 };
-use aqbot_core::types::{validate_multi_model_targets, MultiModelExecutionMode, MultiModelTarget};
+use aqbot_core::types::{
+    resolve_target_thinking, validate_multi_model_targets, MultiModelExecutionMode, MultiModelTarget,
+};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -476,6 +478,11 @@ async fn start_one<A: MultiModelTurnAdapter>(
     target: &MultiModelTarget,
     parallel: bool,
 ) -> Result<StreamHandle, String> {
+    let (thinking_budget, thinking_level) = resolve_target_thinking(
+        target,
+        input.thinking_budget,
+        input.thinking_level.as_deref(),
+    );
     adapter
         .start_target(StartTargetRequest {
             conversation_id: input.conversation_id.clone(),
@@ -486,8 +493,8 @@ async fn start_one<A: MultiModelTurnAdapter>(
             allow_parallel: parallel,
             history_mode: input.history_mode,
             enabled_mcp_server_ids: input.enabled_mcp_server_ids.clone(),
-            thinking_budget: input.thinking_budget,
-            thinking_level: input.thinking_level.clone(),
+            thinking_budget,
+            thinking_level,
             enabled_knowledge_base_ids: input.enabled_knowledge_base_ids.clone(),
             enabled_memory_namespace_ids: input.enabled_memory_namespace_ids.clone(),
         })

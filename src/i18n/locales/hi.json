@@ -130,12 +130,15 @@
     "dislike": "नापसंद",
     "thinking": {
       "default": "डिफ़ॉल्ट",
+      "off": "बंद",
+      "minimal": "न्यूनतम",
       "none": "कोई तर्क नहीं",
       "low": "निम्न",
       "medium": "मध्यम",
       "high": "उच्च",
       "xhigh": "अत्यधिक उच्च",
-      "max": "अधिकतम"
+      "max": "अधिकतम",
+      "followUnified": "साझा सेटिंग अपनाएँ"
     },
     "typingIndicator": "टाइप हो रहा है...",
     "thinkingIntensity": "तर्क तीव्रता",
@@ -345,7 +348,8 @@
       "waitingNext": "{{seconds}} सेकंड बाद अगला मॉडल",
       "executionBadgeParallel": "समानांतर",
       "executionBadgeSequential": "क्रमिक",
-      "intervalBadge": "{{seconds}} सेकंड अंतराल"
+      "intervalBadge": "{{seconds}} सेकंड अंतराल",
+      "thinkingOverride": "{{model}} की सोच स्तर"
     },
     "multiModelUseAsContext": "संदर्भ के रूप में उपयोग करें",
     "multiModelCurrentContext": "वर्तमान संदर्भ",

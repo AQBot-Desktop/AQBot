@@ -34,11 +34,34 @@ impl std::str::FromStr for MultiModelContinuationMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiModelTarget {
     pub provider_id: String,
     pub model_id: String,
+    /// Three-state thinking override:
+    /// - missing (`None`) follows the conversation's unified thinking settings
+    /// - JSON `null` (`Some(None)`) uses this model's default
+    /// - string (`Some(Some(level))`) uses the specified reasoning level
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
+    pub thinking_level: Option<Option<String>>,
+}
+
+pub fn resolve_target_thinking(
+    target: &MultiModelTarget,
+    unified_budget: Option<u32>,
+    unified_level: Option<&str>,
+) -> (Option<u32>, Option<String>) {
+    match target.thinking_level.as_ref() {
+        None => (unified_budget, unified_level.map(str::to_string)),
+        Some(None) => (None, None),
+        Some(Some(level)) if level == "default" => (None, None),
+        Some(Some(level)) => (None, Some(level.clone())),
+    }
 }
 
 pub fn validate_multi_model_targets(targets: &[MultiModelTarget]) -> Result<(), String> {
@@ -541,12 +564,58 @@ mod tests {
         .unwrap();
         assert_eq!(target.provider_id, "provider-a");
         assert_eq!(target.model_id, "model-a");
+        assert_eq!(target.thinking_level, None);
         assert_eq!(
             serde_json::to_value(&target).unwrap(),
             serde_json::json!({
                 "providerId": "provider-a",
                 "modelId": "model-a"
             })
+        );
+    }
+
+    #[test]
+    fn multi_model_target_thinking_override_uses_double_option_wire_values() {
+        let follow: super::MultiModelTarget = serde_json::from_value(serde_json::json!({
+            "providerId": "provider-a",
+            "modelId": "model-a"
+        }))
+        .unwrap();
+        let model_default: super::MultiModelTarget = serde_json::from_value(serde_json::json!({
+            "providerId": "provider-a",
+            "modelId": "model-a",
+            "thinkingLevel": null
+        }))
+        .unwrap();
+        let specified: super::MultiModelTarget = serde_json::from_value(serde_json::json!({
+            "providerId": "provider-a",
+            "modelId": "model-a",
+            "thinkingLevel": "low"
+        }))
+        .unwrap();
+
+        assert_eq!(follow.thinking_level, None);
+        assert_eq!(model_default.thinking_level, Some(None));
+        assert_eq!(specified.thinking_level, Some(Some("low".into())));
+        assert_eq!(
+            serde_json::to_value(&model_default).unwrap(),
+            serde_json::json!({
+                "providerId": "provider-a",
+                "modelId": "model-a",
+                "thinkingLevel": null
+            })
+        );
+        assert_eq!(
+            super::resolve_target_thinking(&follow, Some(4096), Some("high")),
+            (Some(4096), Some("high".into()))
+        );
+        assert_eq!(
+            super::resolve_target_thinking(&model_default, Some(4096), Some("high")),
+            (None, None)
+        );
+        assert_eq!(
+            super::resolve_target_thinking(&specified, Some(4096), Some("high")),
+            (None, Some("low".into()))
         );
     }
 
@@ -574,21 +643,25 @@ mod tests {
         assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
             provider_id: "provider-a".into(),
             model_id: "model-a".into(),
+            thinking_level: None,
         }])
         .is_ok());
         assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
             provider_id: "".into(),
             model_id: "model-a".into(),
+            thinking_level: None,
         }])
         .is_err());
         assert!(super::validate_multi_model_targets(&[
             super::MultiModelTarget {
                 provider_id: "provider-a".into(),
                 model_id: "model-a".into(),
+                thinking_level: None,
             },
             super::MultiModelTarget {
                 provider_id: "provider-a".into(),
                 model_id: "model-a".into(),
+                thinking_level: None,
             },
         ])
         .is_err());

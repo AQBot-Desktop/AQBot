@@ -130,12 +130,15 @@
     "dislike": "No me gusta",
     "thinking": {
       "default": "Predeterminado",
+      "off": "Desactivado",
+      "minimal": "Mínimo",
       "none": "Sin razonamiento",
       "low": "Bajo",
       "medium": "Medio",
       "high": "Alto",
       "xhigh": "Muy alto",
-      "max": "Máximo"
+      "max": "Máximo",
+      "followUnified": "Seguir el ajuste unificado"
     },
     "typingIndicator": "Escribiendo...",
     "thinkingIntensity": "Intensidad de razonamiento",
@@ -345,7 +348,8 @@
       "waitingNext": "Siguiente modelo en {{seconds}} s",
       "executionBadgeParallel": "Paralelo",
       "executionBadgeSequential": "Secuencial",
-      "intervalBadge": "Intervalo de {{seconds}} s"
+      "intervalBadge": "Intervalo de {{seconds}} s",
+      "thinkingOverride": "Nivel de razonamiento de {{model}}"
     },
     "multiModelUseAsContext": "Usar como contexto",
     "multiModelCurrentContext": "Contexto actual",

@@ -9,6 +9,7 @@ use tokio::sync::{oneshot, Mutex};
 struct FakeAdapter {
     persist_count: Arc<AtomicUsize>,
     started: Arc<Mutex<Vec<String>>>,
+    started_thinking: Arc<Mutex<Vec<(String, Option<String>, Option<u32>)>>>,
     cancelled: Arc<Mutex<Vec<Option<String>>>>,
     envelopes: Arc<Mutex<Vec<MultiModelRunEnvelope>>>,
     terminals: Arc<Mutex<HashMap<String, oneshot::Sender<StreamTerminal>>>>,
@@ -20,6 +21,7 @@ impl FakeAdapter {
         Self {
             persist_count: Arc::new(AtomicUsize::new(0)),
             started: Arc::new(Mutex::new(Vec::new())),
+            started_thinking: Arc::new(Mutex::new(Vec::new())),
             cancelled: Arc::new(Mutex::new(Vec::new())),
             envelopes: Arc::new(Mutex::new(Vec::new())),
             terminals: Arc::new(Mutex::new(HashMap::new())),
@@ -60,6 +62,11 @@ impl MultiModelTurnAdapter for FakeAdapter {
             .lock()
             .await
             .push(request.target.model_id.clone());
+        self.started_thinking.lock().await.push((
+            request.target.model_id.clone(),
+            request.thinking_level.clone(),
+            request.thinking_budget,
+        ));
         let (tx, rx) = oneshot::channel();
         self.terminals
             .lock()
@@ -109,10 +116,12 @@ fn sample_input(mode: MultiModelExecutionMode, interval_seconds: u32) -> StartMu
             MultiModelTarget {
                 provider_id: "p1".to_string(),
                 model_id: "m1".to_string(),
+                thinking_level: None,
             },
             MultiModelTarget {
                 provider_id: "p2".to_string(),
                 model_id: "m2".to_string(),
+                thinking_level: None,
             },
         ],
         execution_mode: mode,
@@ -148,6 +157,33 @@ async fn parallel_starts_all_targets_immediately() {
     assert_eq!(
         *started.lock().await,
         vec!["m1".to_string(), "m2".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn parallel_resolves_per_target_thinking_overrides() {
+    let manager = MultiModelRunManager::new();
+    let adapter = FakeAdapter::new();
+    let started_thinking = adapter.started_thinking.clone();
+    let mut input = sample_input(MultiModelExecutionMode::Parallel, 3);
+    input.thinking_level = Some("high".to_string());
+    input.thinking_budget = Some(4096);
+    input.targets[0].thinking_level = None;
+    input.targets[1].thinking_level = Some(Some("low".to_string()));
+    input.targets.push(MultiModelTarget {
+        provider_id: "p3".to_string(),
+        model_id: "m3".to_string(),
+        thinking_level: Some(None),
+    });
+    manager.start(adapter, input).await.unwrap();
+    wait_until(|| async { started_thinking.lock().await.len() == 3 }).await;
+    assert_eq!(
+        *started_thinking.lock().await,
+        vec![
+            ("m1".to_string(), Some("high".to_string()), Some(4096)),
+            ("m2".to_string(), Some("low".to_string()), None),
+            ("m3".to_string(), None, None),
+        ]
     );
 }
 

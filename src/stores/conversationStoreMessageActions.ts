@@ -1387,8 +1387,10 @@ export function createConversationMessageActions(
           attachments,
           searchProviderId,
           enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
-          thinkingBudget: getEffectiveThinkingBudget(get, conversationId),
-          thinkingLevel: getEffectiveThinkingLevel(get, conversationId),
+          thinkingBudget: get().thinkingLevel !== null
+            ? undefined
+            : (get().thinkingBudget ?? undefined),
+          thinkingLevel: get().thinkingLevel ?? undefined,
           enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
           enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
           targets: models,

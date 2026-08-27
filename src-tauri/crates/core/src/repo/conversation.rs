@@ -2099,16 +2099,46 @@ mod tests {
                 crate::types::MultiModelTarget {
                     provider_id: "provider-a".into(),
                     model_id: "model-a".into(),
+                    thinking_level: None,
                 },
                 crate::types::MultiModelTarget {
                     provider_id: "provider-b".into(),
                     model_id: "model-b".into(),
+                    thinking_level: None,
                 },
             ]
         );
         assert_eq!(
             updated.multi_model_continuation_mode,
             MultiModelContinuationMode::PerModel
+        );
+
+        let with_overrides = update_conversation(
+            db,
+            &conversation.id,
+            update_input(serde_json::json!({
+                "multi_model_targets": [
+                    { "providerId": "provider-a", "modelId": "model-a", "thinkingLevel": "low" },
+                    { "providerId": "provider-b", "modelId": "model-b", "thinkingLevel": null }
+                ]
+            })),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            with_overrides.multi_model_targets,
+            vec![
+                crate::types::MultiModelTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: "model-a".into(),
+                    thinking_level: Some(Some("low".into())),
+                },
+                crate::types::MultiModelTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: "model-b".into(),
+                    thinking_level: Some(None),
+                },
+            ]
         );
 
         let preserved = update_conversation(
@@ -2118,7 +2148,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(preserved.multi_model_targets.len(), 2);
+        assert_eq!(preserved.multi_model_targets, with_overrides.multi_model_targets);
         assert_eq!(
             preserved.multi_model_continuation_mode,
             MultiModelContinuationMode::PerModel

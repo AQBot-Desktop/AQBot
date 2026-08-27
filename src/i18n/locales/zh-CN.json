@@ -140,12 +140,15 @@
     "dislike": "踩",
     "thinking": {
       "default": "默认",
+      "off": "关闭",
+      "minimal": "最低强度",
       "none": "禁止思考",
       "low": "低强度",
       "medium": "中强度",
       "high": "高强度",
       "xhigh": "超高强度",
-      "max": "最大强度"
+      "max": "最大强度",
+      "followUnified": "跟随统一设置"
     },
     "typingIndicator": "正在输入...",
     "thinkingIntensity": "思维强度",
@@ -381,7 +384,8 @@
       "waitingNext": "{{seconds}} 秒后启动下一个模型",
       "executionBadgeParallel": "并行",
       "executionBadgeSequential": "顺序",
-      "intervalBadge": "间隔 {{seconds}} 秒"
+      "intervalBadge": "间隔 {{seconds}} 秒",
+      "thinkingOverride": "{{model}} 的思考等级"
     },
     "multiModelUseAsContext": "用作上下文",
     "multiModelCurrentContext": "当前上下文",

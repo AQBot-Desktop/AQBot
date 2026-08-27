@@ -357,6 +357,13 @@ export const MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS = 300;
 export interface MultiModelTarget {
   providerId: string;
   modelId: string;
+  /**
+   * Per-target thinking override.
+   * - omitted/undefined: follow the conversation's unified thinking setting
+   * - null: use this model's default
+   * - string: specified reasoning option key
+   */
+  thinkingLevel?: string | null;
 }
 
 export type MultiModelTargetRunState =

@@ -130,12 +130,15 @@
     "dislike": "싫어요",
     "thinking": {
       "default": "기본",
+      "off": "끄기",
+      "minimal": "최소",
       "none": "추론 없음",
       "low": "낮음",
       "medium": "중간",
       "high": "높음",
       "xhigh": "매우 높음",
-      "max": "최대"
+      "max": "최대",
+      "followUnified": "공통 설정 따르기"
     },
     "typingIndicator": "입력 중...",
     "thinkingIntensity": "추론 강도",
@@ -345,7 +348,8 @@
       "waitingNext": "{{seconds}}초 후 다음 모델 시작",
       "executionBadgeParallel": "병렬",
       "executionBadgeSequential": "순차",
-      "intervalBadge": "{{seconds}}초 간격"
+      "intervalBadge": "{{seconds}}초 간격",
+      "thinkingOverride": "{{model}} 추론 강도"
     },
     "multiModelUseAsContext": "컨텍스트로 사용",
     "multiModelCurrentContext": "현재 컨텍스트",

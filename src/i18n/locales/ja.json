@@ -130,12 +130,15 @@
     "dislike": "よくない",
     "thinking": {
       "default": "デフォルト",
+      "off": "オフ",
+      "minimal": "最小",
       "none": "推論なし",
       "low": "低",
       "medium": "中",
       "high": "高",
       "xhigh": "超高",
-      "max": "最大"
+      "max": "最大",
+      "followUnified": "共通設定に従う"
     },
     "typingIndicator": "入力中...",
     "thinkingIntensity": "推論の強度",
@@ -345,7 +348,8 @@
       "waitingNext": "{{seconds}} 秒後に次のモデルを開始",
       "executionBadgeParallel": "並列",
       "executionBadgeSequential": "順次",
-      "intervalBadge": "間隔 {{seconds}} 秒"
+      "intervalBadge": "間隔 {{seconds}} 秒",
+      "thinkingOverride": "{{model}} の推論レベル"
     },
     "multiModelUseAsContext": "コンテキストとして使用",
     "multiModelCurrentContext": "現在のコンテキスト",

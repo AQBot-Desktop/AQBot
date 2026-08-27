@@ -130,12 +130,15 @@
     "dislike": "عدم إعجاب",
     "thinking": {
       "default": "افتراضي",
+      "off": "إيقاف",
+      "minimal": "أدنى",
       "none": "بدون تفكير",
       "low": "منخفض",
       "medium": "متوسط",
       "high": "عالٍ",
       "xhigh": "عالٍ جداً",
-      "max": "الحد الأقصى"
+      "max": "الحد الأقصى",
+      "followUnified": "اتباع الإعداد الموحد"
     },
     "typingIndicator": "يكتب...",
     "thinkingIntensity": "كثافة التفكير",
@@ -345,7 +348,8 @@
       "waitingNext": "النموذج التالي خلال {{seconds}} ث",
       "executionBadgeParallel": "متوازٍ",
       "executionBadgeSequential": "متتابع",
-      "intervalBadge": "فاصل {{seconds}} ث"
+      "intervalBadge": "فاصل {{seconds}} ث",
+      "thinkingOverride": "مستوى التفكير لـ {{model}}"
     },
     "multiModelUseAsContext": "استخدام كسياق",
     "multiModelCurrentContext": "السياق الحالي",

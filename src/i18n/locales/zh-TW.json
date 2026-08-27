@@ -130,12 +130,15 @@
     "dislike": "倒讚",
     "thinking": {
       "default": "預設",
+      "off": "關閉",
+      "minimal": "最低強度",
       "none": "禁止思考",
       "low": "低強度",
       "medium": "中強度",
       "high": "高強度",
       "xhigh": "超高強度",
-      "max": "最大強度"
+      "max": "最大強度",
+      "followUnified": "跟隨統一設定"
     },
     "typingIndicator": "正在輸入...",
     "thinkingIntensity": "思維強度",
@@ -345,7 +348,8 @@
       "waitingNext": "{{seconds}} 秒後啟動下一個模型",
       "executionBadgeParallel": "並行",
       "executionBadgeSequential": "順序",
-      "intervalBadge": "間隔 {{seconds}} 秒"
+      "intervalBadge": "間隔 {{seconds}} 秒",
+      "thinkingOverride": "{{model}} 的思考等級"
     },
     "multiModelUseAsContext": "用作上下文",
     "multiModelCurrentContext": "當前上下文",
