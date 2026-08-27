@@ -257,9 +257,10 @@ describe('ChatView assistant display policy', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
 
     expect(source).toContain('getRoleIntro');
-    expect(source).toContain('roleIntro.openingMessage');
-    expect(source).toContain('roleIntro.openingQuestions');
+    expect(source).toContain('RoleIntroPanel');
+    expect(source).toContain('handleRoleIntroSelect');
     expect(source).toContain('setPendingPromptText');
+    expect(source).not.toContain('roleIntroPromptItems');
   });
 
   it('injects a web-search display card for normal assistant replies with searched parent messages', () => {

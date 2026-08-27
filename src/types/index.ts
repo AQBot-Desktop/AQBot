@@ -1205,13 +1205,18 @@ export interface SkillUpdateInfo {
   sourceRef: string;
 }
 
+export interface RoleOpeningQuestion {
+  title: string | null;
+  content: string;
+}
+
 export interface Role {
   id: string;
   name: string;
   description: string | null;
   system_prompt: string;
   opening_message: string | null;
-  opening_questions: string[];
+  opening_questions: RoleOpeningQuestion[];
   tags: string[];
   avatar: string | null;
   avatar_type: string | null;
@@ -1231,7 +1236,7 @@ export interface CreateRoleInput {
   description?: string | null;
   system_prompt: string;
   opening_message?: string | null;
-  opening_questions: string[];
+  opening_questions: RoleOpeningQuestion[];
   tags: string[];
   avatar?: string | null;
   avatar_type?: string | null;
@@ -1249,7 +1254,7 @@ export interface UpdateRoleInput {
   description?: string | null;
   system_prompt?: string;
   opening_message?: string | null;
-  opening_questions?: string[];
+  opening_questions?: RoleOpeningQuestion[];
   tags?: string[];
   avatar?: string | null;
   avatar_type?: string | null;

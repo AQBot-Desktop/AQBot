@@ -1,5 +1,5 @@
 use super::serde_helpers::deserialize_double_option;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // === Conversation & Message ===
 
@@ -29,7 +29,9 @@ impl std::str::FromStr for MultiModelContinuationMode {
         match value {
             "selected" => Ok(Self::Selected),
             "per_model" => Ok(Self::PerModel),
-            _ => Err(format!("unsupported multi-model continuation mode: {value}")),
+            _ => Err(format!(
+                "unsupported multi-model continuation mode: {value}"
+            )),
         }
     }
 }
@@ -87,7 +89,9 @@ pub fn resolve_regenerate_version_index(
 ) -> Result<i32, String> {
     if let Some(target_version_index) = target_version_index {
         if !companion {
-            return Err("target_version_index is only allowed for companion regenerations".to_string());
+            return Err(
+                "target_version_index is only allowed for companion regenerations".to_string(),
+            );
         }
         if target_version_index <= 0 {
             return Err("target_version_index must be greater than 0".to_string());
@@ -437,6 +441,71 @@ pub struct UpdateConversationCategoryInput {
     pub default_frequency_penalty: Option<Option<f64>>,
 }
 
+const OPENING_QUESTION_TITLE_MAX_CHARS: usize = 80;
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RoleOpeningQuestionWire {
+    Content(String),
+    Item {
+        #[serde(default)]
+        title: Option<String>,
+        content: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RoleOpeningQuestion {
+    pub title: Option<String>,
+    pub content: String,
+}
+
+impl RoleOpeningQuestion {
+    pub const TITLE_MAX_CHARS: usize = OPENING_QUESTION_TITLE_MAX_CHARS;
+
+    pub fn untitled(content: impl Into<String>) -> Self {
+        Self {
+            title: None,
+            content: content.into(),
+        }
+    }
+}
+
+fn normalize_opening_question_title(title: Option<String>) -> Option<String> {
+    title.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+impl<'de> Deserialize<'de> for RoleOpeningQuestion {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match RoleOpeningQuestionWire::deserialize(deserializer)? {
+            RoleOpeningQuestionWire::Content(content) => Ok(Self::untitled(content)),
+            RoleOpeningQuestionWire::Item { title, content } => Ok(Self {
+                title: normalize_opening_question_title(title),
+                content,
+            }),
+        }
+    }
+}
+
+impl From<&str> for RoleOpeningQuestion {
+    fn from(content: &str) -> Self {
+        Self::untitled(content)
+    }
+}
+
+impl From<String> for RoleOpeningQuestion {
+    fn from(content: String) -> Self {
+        Self::untitled(content)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Role {
     pub id: String,
@@ -444,7 +513,7 @@ pub struct Role {
     pub description: Option<String>,
     pub system_prompt: String,
     pub opening_message: Option<String>,
-    pub opening_questions: Vec<String>,
+    pub opening_questions: Vec<RoleOpeningQuestion>,
     pub tags: Vec<String>,
     pub avatar: Option<String>,
     pub avatar_type: Option<String>,
@@ -467,7 +536,7 @@ pub struct CreateRoleInput {
     pub description: Option<String>,
     pub system_prompt: String,
     pub opening_message: Option<String>,
-    pub opening_questions: Vec<String>,
+    pub opening_questions: Vec<RoleOpeningQuestion>,
     pub tags: Vec<String>,
     pub avatar: Option<String>,
     pub avatar_type: Option<String>,
@@ -490,7 +559,7 @@ pub struct UpdateRoleInput {
     pub system_prompt: Option<String>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub opening_message: Option<Option<String>>,
-    pub opening_questions: Option<Vec<String>>,
+    pub opening_questions: Option<Vec<RoleOpeningQuestion>>,
     pub tags: Option<Vec<String>>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub avatar: Option<Option<String>>,
@@ -640,18 +709,22 @@ mod tests {
 
     #[test]
     fn validate_multi_model_targets_rejects_empty_or_duplicate_ids() {
-        assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
-            provider_id: "provider-a".into(),
-            model_id: "model-a".into(),
-            thinking_level: None,
-        }])
-        .is_ok());
-        assert!(super::validate_multi_model_targets(&[super::MultiModelTarget {
-            provider_id: "".into(),
-            model_id: "model-a".into(),
-            thinking_level: None,
-        }])
-        .is_err());
+        assert!(
+            super::validate_multi_model_targets(&[super::MultiModelTarget {
+                provider_id: "provider-a".into(),
+                model_id: "model-a".into(),
+                thinking_level: None,
+            }])
+            .is_ok()
+        );
+        assert!(
+            super::validate_multi_model_targets(&[super::MultiModelTarget {
+                provider_id: "".into(),
+                model_id: "model-a".into(),
+                thinking_level: None,
+            }])
+            .is_err()
+        );
         assert!(super::validate_multi_model_targets(&[
             super::MultiModelTarget {
                 provider_id: "provider-a".into(),

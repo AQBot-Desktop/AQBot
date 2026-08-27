@@ -2287,6 +2287,8 @@
     "openingMessage": "オープニングメッセージ",
     "openingMessagePlaceholder": "オープニングメッセージ",
     "openingQuestionPlaceholder": "オープニング質問を入力",
+    "openingQuestionTitle": "タイトル",
+    "openingQuestionTitlePlaceholder": "任意の短いタイトル",
     "openingQuestions": "オープニング質問",
     "openingQuestionsPlaceholder": "オープニング質問（1 行に 1 つ）",
     "removeOpeningQuestion": "質問を削除",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "ロール名は必須です",
       "systemPromptRequired": "システムプロンプトが必要です",
+      "openingQuestionContentRequired": "オープニング質問の本文を入力してください",
+      "openingQuestionTitleTooLong": "タイトルは {{max}} 文字以内",
+      "openingQuestionTitleHasNewline": "タイトルに改行は使えません",
       "failed": "検証に失敗しました: {{detail}}"
     }
   },

@@ -2287,6 +2287,8 @@
     "openingMessage": "Message d'ouverture",
     "openingMessagePlaceholder": "Message d'ouverture",
     "openingQuestionPlaceholder": "Saisir une question d'ouverture",
+    "openingQuestionTitle": "Titre",
+    "openingQuestionTitlePlaceholder": "Titre court facultatif",
     "openingQuestions": "Questions d'ouverture",
     "openingQuestionsPlaceholder": "Questions d'ouverture, une par ligne",
     "removeOpeningQuestion": "Supprimer la question",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "Le nom du rôle est requis",
       "systemPromptRequired": "Une invite système est requise",
+      "openingQuestionContentRequired": "Le contenu de la question d'ouverture est obligatoire",
+      "openingQuestionTitleTooLong": "Le titre doit contenir au plus {{max}} caractères",
+      "openingQuestionTitleHasNewline": "Le titre ne peut pas contenir de retours à la ligne",
       "failed": "Échec de la validation : {{detail}}"
     }
   },

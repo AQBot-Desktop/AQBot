@@ -2112,6 +2112,8 @@
     "openingMessagePlaceholder": "Opening message shown when starting a chat (optional)",
     "openingQuestionsPlaceholder": "Opening questions, one per line",
     "openingQuestionPlaceholder": "Enter an opening question",
+    "openingQuestionTitle": "Title",
+    "openingQuestionTitlePlaceholder": "Optional short title",
     "addOpeningQuestion": "Add question",
     "removeOpeningQuestion": "Remove question",
     "tagsPlaceholder": "Tags, comma separated",
@@ -2134,6 +2136,9 @@
     "validation": {
       "nameRequired": "Role name is required",
       "systemPromptRequired": "System prompt is required",
+      "openingQuestionContentRequired": "Opening question content is required",
+      "openingQuestionTitleTooLong": "Title must be {{max}} characters or fewer",
+      "openingQuestionTitleHasNewline": "Title cannot contain line breaks",
       "failed": "Validation failed: {{detail}}"
     }
   },

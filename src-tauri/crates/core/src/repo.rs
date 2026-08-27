@@ -21,6 +21,7 @@ pub mod message;
 pub mod program_policy;
 pub mod provider;
 pub mod provider_import;
+pub mod opening_questions;
 pub mod role;
 pub mod search_provider;
 pub mod settings;

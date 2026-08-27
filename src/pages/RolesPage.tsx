@@ -34,10 +34,16 @@ import {
 import { IconEditor } from '@/components/shared/IconEditor';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
+import { OpeningQuestionsEditor } from '@/components/roles/OpeningQuestionsEditor';
 import { buildApplyRoleUpdate, roleSkillNames, syncConversationRoleMetadata } from '@/lib/applyRole';
+import {
+  normalizeOpeningQuestions,
+  parseOpeningQuestionList,
+  type OpeningQuestionDraft,
+} from '@/lib/openingQuestions';
 import { getRoleErrorMessage, validateRoleDraft, type RoleDraftValidation } from '@/lib/roleErrorMessage';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
-import type { CreateRoleInput, MarketplaceRole, Role, UpdateRoleInput } from '@/types';
+import type { CreateRoleInput, MarketplaceRole, Role, RoleOpeningQuestion, UpdateRoleInput } from '@/types';
 import type { AvatarType } from '@/stores/userProfileStore';
 
 /** Keep modal inside the app window with room for margins; header/footer stay visible. */
@@ -67,7 +73,7 @@ interface RoleDraft {
   description: string;
   systemPrompt: string;
   openingMessage: string;
-  openingQuestions: string[];
+  openingQuestions: OpeningQuestionDraft[];
   tags: string[];
   avatarType: string | null;
   avatarValue: string;
@@ -100,7 +106,7 @@ function roleToDraft(role: Role): RoleDraft {
     description: role.description ?? '',
     systemPrompt: role.system_prompt,
     openingMessage: role.opening_message ?? '',
-    openingQuestions: role.opening_questions,
+    openingQuestions: questionsToDraft(role.opening_questions),
     tags: role.tags,
     avatarType: role.avatar_type ?? (role.avatar ? inferAvatarType(role.avatar) : null),
     avatarValue: role.avatar_value ?? role.avatar ?? '',
@@ -118,7 +124,7 @@ function draftToCreateInput(draft: RoleDraft): CreateRoleInput {
     description: draft.description.trim() || null,
     system_prompt: draft.systemPrompt.trim(),
     opening_message: draft.openingMessage.trim() || null,
-    opening_questions: cleanList(draft.openingQuestions),
+    opening_questions: draftOpeningQuestions(draft),
     tags: cleanList(draft.tags),
     avatar: draft.avatarType === 'emoji' ? avatarValue || null : null,
     avatar_type: draft.avatarType,
@@ -139,7 +145,7 @@ function draftToUpdateInput(draft: RoleDraft): UpdateRoleInput {
     description: draft.description.trim() || null,
     system_prompt: draft.systemPrompt.trim(),
     opening_message: draft.openingMessage.trim() || null,
-    opening_questions: cleanList(draft.openingQuestions),
+    opening_questions: draftOpeningQuestions(draft),
     tags: cleanList(draft.tags),
     avatar: draft.avatarType === 'emoji' ? avatarValue || null : null,
     avatar_type: draft.avatarType,
@@ -153,6 +159,18 @@ function draftToUpdateInput(draft: RoleDraft): UpdateRoleInput {
 
 function cleanList(values: string[]): string[] {
   return values.map((item) => item.trim()).filter(Boolean);
+}
+
+function questionsToDraft(value: Role['opening_questions']): OpeningQuestionDraft[] {
+  return (parseOpeningQuestionList(value) ?? []).map((item) => ({
+    title: item.title ?? '',
+    content: item.content,
+  }));
+}
+
+function draftOpeningQuestions(draft: RoleDraft): RoleOpeningQuestion[] {
+  const normalized = normalizeOpeningQuestions(draft.openingQuestions);
+  return normalized.ok ? normalized.items : [];
 }
 
 function inferAvatarType(value: string): string {
@@ -423,8 +441,13 @@ export function RolesPage() {
   const saveDraft = useCallback(async () => {
     const errors = validateRoleDraft(draft, t);
     setFieldErrors(errors);
-    if (errors.name || errors.systemPrompt) {
-      messageApi.error(errors.name || errors.systemPrompt);
+    if (errors.name || errors.systemPrompt || errors.openingQuestion) {
+      if (errors.openingQuestionIndex != null) {
+        document
+          .querySelector(`[data-opening-question-index="${errors.openingQuestionIndex}"]`)
+          ?.scrollIntoView({ block: 'center' });
+      }
+      messageApi.error(errors.name || errors.systemPrompt || errors.openingQuestion);
       return;
     }
 
@@ -490,24 +513,6 @@ export function RolesPage() {
 
   const removeTag = useCallback((tag: string) => {
     setDraft((s) => ({ ...s, tags: s.tags.filter((item) => item !== tag) }));
-  }, []);
-
-  const addOpeningQuestion = useCallback(() => {
-    setDraft((s) => ({ ...s, openingQuestions: [...s.openingQuestions, ''] }));
-  }, []);
-
-  const updateOpeningQuestion = useCallback((index: number, value: string) => {
-    setDraft((s) => ({
-      ...s,
-      openingQuestions: s.openingQuestions.map((item, i) => (i === index ? value : item)),
-    }));
-  }, []);
-
-  const removeOpeningQuestion = useCallback((index: number) => {
-    setDraft((s) => ({
-      ...s,
-      openingQuestions: s.openingQuestions.filter((_, i) => i !== index),
-    }));
   }, []);
 
   const renderRoleCard = (role: Role) => (
@@ -816,26 +821,25 @@ export function RolesPage() {
             />
           </Form.Item>
 
-          <Form.Item label={t('roles.openingQuestions')}>
-            <Space direction="vertical" style={{ width: '100%' }} size={8}>
-              {draft.openingQuestions.map((question, index) => (
-                <Space.Compact key={index} style={{ width: '100%' }}>
-                  <Input
-                    value={question}
-                    onChange={(event) => updateOpeningQuestion(index, event.target.value)}
-                    placeholder={t('roles.openingQuestionPlaceholder')}
-                  />
-                  <Button
-                    aria-label={t('roles.removeOpeningQuestion')}
-                    icon={<Trash2 size={14} />}
-                    onClick={() => removeOpeningQuestion(index)}
-                  />
-                </Space.Compact>
-              ))}
-              <Button icon={<Plus size={14} />} onClick={addOpeningQuestion}>
-                {t('roles.addOpeningQuestion')}
-              </Button>
-            </Space>
+          <Form.Item
+            label={t('roles.openingQuestions')}
+            validateStatus={fieldErrors.openingQuestion ? 'error' : undefined}
+            help={fieldErrors.openingQuestion}
+          >
+            <OpeningQuestionsEditor
+              items={draft.openingQuestions}
+              errorIndex={fieldErrors.openingQuestionIndex}
+              onChange={(openingQuestions) => {
+                setDraft((s) => ({ ...s, openingQuestions }));
+                if (fieldErrors.openingQuestion) {
+                  setFieldErrors((s) => ({
+                    ...s,
+                    openingQuestion: undefined,
+                    openingQuestionIndex: undefined,
+                  }));
+                }
+              }}
+            />
           </Form.Item>
 
           <Form.Item label={t('roles.tags')}>

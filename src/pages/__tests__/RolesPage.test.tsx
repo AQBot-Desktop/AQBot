@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RolesPage } from '../RolesPage';
@@ -28,7 +28,7 @@ const roles: Role[] = [
     description: '把用户输入翻译成中文',
     system_prompt: '你是中文翻译助手',
     opening_message: '发来文本',
-    opening_questions: ['翻译这段话'],
+    opening_questions: [{ title: null, content: '翻译这段话' }],
     tags: ['翻译'],
     avatar: '🌐',
     avatar_type: 'emoji',
@@ -96,6 +96,13 @@ vi.mock('react-i18next', () => ({
         'roles.systemPrompt': '系统提示词',
         'roles.openingMessage': '开场白',
         'roles.openingQuestions': '开场问题',
+        'roles.openingQuestionPlaceholder': '输入一个开场问题',
+        'roles.openingQuestionTitle': '标题',
+        'roles.openingQuestionTitlePlaceholder': '可选短标题',
+        'roles.addOpeningQuestion': '添加问题',
+        'roles.removeOpeningQuestion': '删除问题',
+        'roles.namePlaceholder': '请输入角色名称',
+        'roles.systemPromptPlaceholder': '定义角色的系统提示词（必填）',
         'roles.tags': '标签',
         'roles.modelParams': '模型参数',
         'roles.capabilities': '能力绑定',
@@ -109,6 +116,7 @@ vi.mock('react-i18next', () => ({
         'roles.skillsEmpty': '暂无已安装技能',
         'roles.validation.nameRequired': '请输入角色名称',
         'roles.validation.systemPromptRequired': '请输入系统提示词',
+        'roles.validation.openingQuestionContentRequired': '请填写开场问题正文',
         'roles.saveSuccess': '角色已保存',
         'roles.edit': '编辑',
         'roles.delete': '删除',
@@ -246,6 +254,7 @@ describe('RolesPage', () => {
     expect(JSON.parse(localStorage.getItem('aqbot_role_intro_conv-2') ?? '{}')).toEqual({
       openingMessage: '发来文本',
       openingQuestions: ['翻译这段话'],
+      openingQuestionItems: [{ title: null, content: '翻译这段话' }],
     });
     expect(mocks.setActiveConversation).toHaveBeenCalledWith('conv-2');
     expect(mocks.setActivePage).toHaveBeenCalledWith('chat');
@@ -396,5 +405,31 @@ describe('RolesPage', () => {
     expect(mocks.createRole).not.toHaveBeenCalled();
     expect(screen.getAllByText('请输入角色名称').length).toBeGreaterThan(0);
     expect(screen.getAllByText('请输入系统提示词').length).toBeGreaterThan(0);
+  });
+
+  it('saves an opening question title and multiline content', async () => {
+    const user = userEvent.setup();
+    mocks.createRole.mockResolvedValue({});
+
+    render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    fireEvent.change(screen.getByPlaceholderText('请输入角色名称'), { target: { value: '助手' } });
+    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（必填）'), { target: { value: '你是助手' } });
+    await user.click(screen.getByRole('button', { name: '添加问题' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '翻译' } });
+    fireEvent.change(screen.getByLabelText('输入一个开场问题'), { target: { value: '请翻译\n这段话' } });
+
+    const saveButton = Array.from(document.querySelectorAll('button')).find((btn) => {
+      const text = (btn.textContent || '').replace(/\s+/g, '');
+      return text === '保存' || text === 'Save' || text === 'common.save' || text === 'OK';
+    });
+    await user.click(saveButton!);
+
+    await waitFor(() => {
+      expect(mocks.createRole).toHaveBeenCalled();
+    });
+    expect(mocks.createRole.mock.calls[0][0].opening_questions).toEqual([
+      { title: '翻译', content: '请翻译\n这段话' },
+    ]);
   });
 });

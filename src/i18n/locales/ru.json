@@ -2287,6 +2287,8 @@
     "openingMessage": "Приветственное сообщение",
     "openingMessagePlaceholder": "Приветственное сообщение",
     "openingQuestionPlaceholder": "Введите приветственный вопрос",
+    "openingQuestionTitle": "Заголовок",
+    "openingQuestionTitlePlaceholder": "Короткий заголовок (необязательно)",
     "openingQuestions": "Приветственные вопросы",
     "openingQuestionsPlaceholder": "Приветственные вопросы, по одному в строке",
     "removeOpeningQuestion": "Удалить вопрос",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "Требуется имя роли",
       "systemPromptRequired": "Требуется системное приглашение",
+      "openingQuestionContentRequired": "Нужно указать текст вступительного вопроса",
+      "openingQuestionTitleTooLong": "Заголовок не длиннее {{max}} символов",
+      "openingQuestionTitleHasNewline": "Заголовок не может содержать переносы строк",
       "failed": "Проверка не удалась: {{detail}}"
     }
   },

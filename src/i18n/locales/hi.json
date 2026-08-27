@@ -2287,6 +2287,8 @@
     "openingMessage": "प्रारंभिक संदेश",
     "openingMessagePlaceholder": "प्रारंभिक संदेश",
     "openingQuestionPlaceholder": "प्रारंभिक प्रश्न दर्ज करें",
+    "openingQuestionTitle": "शीर्षक",
+    "openingQuestionTitlePlaceholder": "वैकल्पिक छोटा शीर्षक",
     "openingQuestions": "प्रारंभिक प्रश्न",
     "openingQuestionsPlaceholder": "प्रारंभिक प्रश्न, प्रति पंक्ति एक",
     "removeOpeningQuestion": "प्रश्न हटाएँ",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "भूमिका का नाम आवश्यक है",
       "systemPromptRequired": "सिस्टम प्रॉम्प्ट आवश्यक है",
+      "openingQuestionContentRequired": "प्रारंभिक प्रश्न की सामग्री आवश्यक है",
+      "openingQuestionTitleTooLong": "शीर्षक {{max}} अक्षरों से अधिक नहीं होना चाहिए",
+      "openingQuestionTitleHasNewline": "शीर्षक में पंक्ति विराम नहीं हो सकता",
       "failed": "सत्यापन विफल: {{detail}}"
     }
   },

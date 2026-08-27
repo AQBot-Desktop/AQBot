@@ -2287,6 +2287,8 @@
     "openingMessage": "Eröffnungsnachricht",
     "openingMessagePlaceholder": "Eröffnungsnachricht",
     "openingQuestionPlaceholder": "Eröffnungsfrage eingeben",
+    "openingQuestionTitle": "Titel",
+    "openingQuestionTitlePlaceholder": "Optionaler Kurztitel",
     "openingQuestions": "Eröffnungsfragen",
     "openingQuestionsPlaceholder": "Eröffnungsfragen, eine pro Zeile",
     "removeOpeningQuestion": "Frage entfernen",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "Rollenname ist erforderlich",
       "systemPromptRequired": "Systemaufforderung ist erforderlich",
+      "openingQuestionContentRequired": "Inhalt der Eröffnungsfrage ist erforderlich",
+      "openingQuestionTitleTooLong": "Titel darf höchstens {{max}} Zeichen haben",
+      "openingQuestionTitleHasNewline": "Titel darf keine Zeilenumbrüche enthalten",
       "failed": "Validierung fehlgeschlagen: {{detail}}"
     }
   },

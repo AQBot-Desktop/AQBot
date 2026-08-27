@@ -2308,6 +2308,8 @@
     "openingMessagePlaceholder": "進入會話時展示的開場白（可選）",
     "openingQuestionsPlaceholder": "開場問題，每行一個",
     "openingQuestionPlaceholder": "輸入一個開場問題",
+    "openingQuestionTitle": "標題",
+    "openingQuestionTitlePlaceholder": "可選短標題",
     "addOpeningQuestion": "新增問題",
     "removeOpeningQuestion": "刪除問題",
     "tagsPlaceholder": "標籤，用逗號分隔",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "請輸入角色名稱",
       "systemPromptRequired": "請輸入系統提示詞",
+      "openingQuestionContentRequired": "請填寫開場問題正文",
+      "openingQuestionTitleTooLong": "標題最多 {{max}} 個字",
+      "openingQuestionTitleHasNewline": "標題不能包含換行",
       "failed": "校驗失敗：{{detail}}"
     }
   },

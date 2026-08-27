@@ -105,6 +105,7 @@ import { ChatScrollIndicator } from './ChatScrollIndicator';
 import { CodeBlockPreviewModal } from './CodeBlockPreviewModal';
 import { ConversationModelIcon } from './ConversationModelIcon';
 import { InputArea } from './InputArea';
+import { RoleIntroPanel } from './RoleIntroPanel';
 import { MessageAttachmentPreview } from './MessageAttachmentPreview';
 import { ModelSelector } from './ModelSelector';
 import { MultiModelDisplay } from './MultiModelDisplay';
@@ -1038,21 +1039,9 @@ export function ChatView() {
     return getRoleIntro(activeConversationId);
   }, [activeConversation?.message_count, activeConversationId, loading, messages.length]);
 
-  const roleIntroPromptItems: PromptsItemType[] = useMemo(
-    () => {
-      if (!roleIntro) return [];
-      return roleIntro.openingQuestions.map((question, index) => ({
-        key: `role-intro-${index}`,
-        label: question,
-      }));
-    },
-    [roleIntro],
-  );
-
-  const handleRoleIntroPromptClick = useCallback((info: { data: PromptsItemType }) => {
-    const text = typeof info.data.label === 'string' ? info.data.label : '';
-    if (!text) return;
-    useConversationStore.getState().setPendingPromptText(text);
+  const handleRoleIntroSelect = useCallback((content: string) => {
+    if (!content) return;
+    useConversationStore.getState().setPendingPromptText(content);
   }, []);
 
   // ── Bubble items (only show active messages) ────────────────────────
@@ -2502,27 +2491,7 @@ export function ChatView() {
             </div>
           ) : (
             roleIntro ? (
-              <div
-                className="flex flex-col items-center justify-center h-full"
-                style={{ padding: '0 24px', textAlign: 'center', gap: 16 }}
-              >
-                {roleIntro.openingMessage ? (
-                  <Typography.Text
-                    type="secondary"
-                    style={{ maxWidth: 620, fontSize: 15, lineHeight: 1.7 }}
-                  >
-                    {roleIntro.openingMessage}
-                  </Typography.Text>
-                ) : null}
-                {roleIntroPromptItems.length > 0 ? (
-                  <Prompts
-                    items={roleIntroPromptItems}
-                    onItemClick={handleRoleIntroPromptClick}
-                    wrap
-                    style={{ marginTop: 4, justifyContent: 'center' }}
-                  />
-                ) : null}
-              </div>
+              <RoleIntroPanel intro={roleIntro} onSelect={handleRoleIntroSelect} />
             ) : (
               <div className="flex flex-col items-center justify-center h-full" style={{ padding: '0 24px' }}>
                 <Typography.Title level={3} style={{ marginBottom: 24, fontWeight: 500 }}>

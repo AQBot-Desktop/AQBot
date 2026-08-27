@@ -56,6 +56,7 @@ mod m20260825_000002_add_memory_l1_sort_order;
 mod m20260825_000003_fix_assistant_version_slots;
 mod m20260825_000004_add_conversation_multi_model_preferences;
 mod m20260825_000005_add_conversation_tab_pin_order;
+mod m20260827_000001_add_role_opening_questions_v2;
 
 pub struct Migrator;
 
@@ -121,6 +122,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260825_000003_fix_assistant_version_slots::Migration),
             Box::new(m20260825_000004_add_conversation_multi_model_preferences::Migration),
             Box::new(m20260825_000005_add_conversation_tab_pin_order::Migration),
+            Box::new(m20260827_000001_add_role_opening_questions_v2::Migration),
         ]
     }
 }

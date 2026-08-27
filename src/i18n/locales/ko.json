@@ -2287,6 +2287,8 @@
     "openingMessage": "오프닝 메시지",
     "openingMessagePlaceholder": "오프닝 메시지",
     "openingQuestionPlaceholder": "오프닝 질문 입력",
+    "openingQuestionTitle": "제목",
+    "openingQuestionTitlePlaceholder": "선택적 짧은 제목",
     "openingQuestions": "오프닝 질문",
     "openingQuestionsPlaceholder": "오프닝 질문, 한 줄에 하나",
     "removeOpeningQuestion": "질문 제거",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "역할 이름이 필요합니다",
       "systemPromptRequired": "시스템 프롬프트가 필요합니다",
+      "openingQuestionContentRequired": "오프닝 질문 본문을 입력하세요",
+      "openingQuestionTitleTooLong": "제목은 {{max}}자 이하여야 합니다",
+      "openingQuestionTitleHasNewline": "제목에는 줄바꿈을 넣을 수 없습니다",
       "failed": "검증 실패: {{detail}}"
     }
   },

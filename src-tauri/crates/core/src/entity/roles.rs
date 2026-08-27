@@ -11,6 +11,7 @@ pub struct Model {
     pub system_prompt: String,
     pub opening_message: Option<String>,
     pub opening_questions_json: String,
+    pub opening_questions_v2_json: Option<String>,
     pub tags_json: String,
     pub avatar: Option<String>,
     pub avatar_type: Option<String>,

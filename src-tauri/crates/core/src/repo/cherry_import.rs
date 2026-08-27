@@ -1239,6 +1239,7 @@ where
         let (temperature, top_p) = assistant_temperature_top_p(&assistant);
         let now = now_ts();
         let source_ref = assistant_source_ref(&assistant);
+        let opening_questions = crate::repo::opening_questions::OpeningQuestionColumns::empty();
 
         roles::ActiveModel {
             id: Set(gen_id()),
@@ -1246,7 +1247,8 @@ where
             description: Set(description),
             system_prompt: Set(system_prompt),
             opening_message: Set(None),
-            opening_questions_json: Set("[]".to_string()),
+            opening_questions_json: Set(opening_questions.legacy_json),
+            opening_questions_v2_json: Set(Some(opening_questions.v2_json)),
             tags_json: Set(serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string())),
             avatar: Set(emoji.clone()),
             avatar_type: Set(emoji.as_ref().map(|_| "emoji".to_string())),

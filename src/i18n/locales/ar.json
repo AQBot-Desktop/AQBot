@@ -2287,6 +2287,8 @@
     "openingMessage": "رسالة افتتاحية",
     "openingMessagePlaceholder": "رسالة افتتاحية",
     "openingQuestionPlaceholder": "أدخل سؤالًا افتتاحيًا",
+    "openingQuestionTitle": "العنوان",
+    "openingQuestionTitlePlaceholder": "عنوان قصير اختياري",
     "openingQuestions": "أسئلة افتتاحية",
     "openingQuestionsPlaceholder": "أسئلة افتتاحية، واحد في كل سطر",
     "removeOpeningQuestion": "إزالة السؤال",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "اسم الدور مطلوب",
       "systemPromptRequired": "مطلوب موجه النظام",
+      "openingQuestionContentRequired": "يرجى إدخال نص السؤال الافتتاحي",
+      "openingQuestionTitleTooLong": "يجب ألا يتجاوز العنوان {{max}} حرفًا",
+      "openingQuestionTitleHasNewline": "لا يمكن أن يحتوي العنوان على أسطر جديدة",
       "failed": "فشل التحقق من الصحة: {{detail}}"
     }
   },

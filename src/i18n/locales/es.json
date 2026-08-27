@@ -2287,6 +2287,8 @@
     "openingMessage": "Mensaje de apertura",
     "openingMessagePlaceholder": "Mensaje de apertura",
     "openingQuestionPlaceholder": "Escriba una pregunta de apertura",
+    "openingQuestionTitle": "Título",
+    "openingQuestionTitlePlaceholder": "Título corto opcional",
     "openingQuestions": "Preguntas de apertura",
     "openingQuestionsPlaceholder": "Preguntas de apertura, una por línea",
     "removeOpeningQuestion": "Quitar pregunta",
@@ -2315,6 +2317,9 @@
     "validation": {
       "nameRequired": "El nombre del rol es obligatorio",
       "systemPromptRequired": "Se requiere aviso del sistema",
+      "openingQuestionContentRequired": "El contenido de la pregunta de apertura es obligatorio",
+      "openingQuestionTitleTooLong": "El título debe tener {{max}} caracteres o menos",
+      "openingQuestionTitleHasNewline": "El título no puede contener saltos de línea",
       "failed": "Validación fallida: {{detail}}"
     }
   },

@@ -2127,6 +2127,8 @@
     "openingMessagePlaceholder": "进入会话时展示的开场白（可选）",
     "openingQuestionsPlaceholder": "开场问题，每行一个",
     "openingQuestionPlaceholder": "输入一个开场问题",
+    "openingQuestionTitle": "标题",
+    "openingQuestionTitlePlaceholder": "可选短标题",
     "addOpeningQuestion": "添加问题",
     "removeOpeningQuestion": "删除问题",
     "tagsPlaceholder": "标签，用逗号分隔",
@@ -2134,6 +2136,9 @@
     "validation": {
       "nameRequired": "请输入角色名称",
       "systemPromptRequired": "请输入系统提示词",
+      "openingQuestionContentRequired": "请填写开场问题正文",
+      "openingQuestionTitleTooLong": "标题最多 {{max}} 个字",
+      "openingQuestionTitleHasNewline": "标题不能包含换行",
       "failed": "校验失败：{{detail}}"
     }
   },

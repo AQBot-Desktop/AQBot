@@ -2,7 +2,8 @@ use sea_orm::*;
 
 use crate::entity::roles;
 use crate::error::{AQBotError, Result};
-use crate::types::{CreateRoleInput, Role, UpdateRoleInput};
+use crate::repo::opening_questions::{decode_columns, encode_columns, prepare_opening_questions};
+use crate::types::{CreateRoleInput, Role, RoleOpeningQuestion, UpdateRoleInput};
 use crate::utils::{gen_id, now_ts};
 
 fn parse_string_list(raw: &str) -> Vec<String> {
@@ -44,16 +45,25 @@ fn required_text(value: String, field: &str) -> Result<String> {
     Ok(value)
 }
 
-fn role_from_entity(m: roles::Model) -> Role {
+fn encoded_opening_questions(items: Vec<RoleOpeningQuestion>) -> Result<(String, Option<String>)> {
+    let prepared = prepare_opening_questions(items)?;
+    let encoded = encode_columns(&prepared)?;
+    Ok((encoded.legacy_json, Some(encoded.v2_json)))
+}
+
+fn role_from_entity(m: roles::Model) -> Result<Role> {
     let fallback_avatar_type = m.avatar.as_deref().map(infer_avatar_type);
     let fallback_avatar_value = m.avatar.clone();
-    Role {
+    Ok(Role {
         id: m.id,
         name: m.name,
         description: m.description,
         system_prompt: m.system_prompt,
         opening_message: m.opening_message,
-        opening_questions: parse_string_list(&m.opening_questions_json),
+        opening_questions: decode_columns(
+            &m.opening_questions_json,
+            m.opening_questions_v2_json.as_deref(),
+        )?,
         tags: parse_string_list(&m.tags_json),
         avatar: m.avatar,
         avatar_type: m.avatar_type.or(fallback_avatar_type),
@@ -66,7 +76,7 @@ fn role_from_entity(m: roles::Model) -> Role {
         source_ref: m.source_ref,
         created_at: m.created_at,
         updated_at: m.updated_at,
-    }
+    })
 }
 
 pub async fn list_roles(db: &DatabaseConnection) -> Result<Vec<Role>> {
@@ -74,7 +84,7 @@ pub async fn list_roles(db: &DatabaseConnection) -> Result<Vec<Role>> {
         .order_by_desc(roles::Column::UpdatedAt)
         .all(db)
         .await?;
-    Ok(rows.into_iter().map(role_from_entity).collect())
+    rows.into_iter().map(role_from_entity).collect()
 }
 
 pub async fn get_role(db: &DatabaseConnection, id: &str) -> Result<Role> {
@@ -82,7 +92,7 @@ pub async fn get_role(db: &DatabaseConnection, id: &str) -> Result<Role> {
         .one(db)
         .await?
         .ok_or_else(|| AQBotError::NotFound(format!("Role {id}")))?;
-    Ok(role_from_entity(row))
+    role_from_entity(row)
 }
 
 pub async fn create_role(db: &DatabaseConnection, input: CreateRoleInput) -> Result<Role> {
@@ -97,13 +107,16 @@ pub async fn create_role(db: &DatabaseConnection, input: CreateRoleInput) -> Res
             None
         }
     });
+    let (opening_questions_json, opening_questions_v2_json) =
+        encoded_opening_questions(input.opening_questions)?;
     let model = roles::ActiveModel {
         id: Set(id.clone()),
         name: Set(required_text(input.name, "name")?),
         description: Set(clean_optional_text(input.description)),
         system_prompt: Set(required_text(input.system_prompt, "system_prompt")?),
         opening_message: Set(clean_optional_text(input.opening_message)),
-        opening_questions_json: Set(stringify_string_list(&clean_list(input.opening_questions))?),
+        opening_questions_json: Set(opening_questions_json),
+        opening_questions_v2_json: Set(opening_questions_v2_json),
         tags_json: Set(stringify_string_list(&clean_list(input.tags))?),
         avatar: Set(avatar),
         avatar_type: Set(avatar_type),
@@ -149,7 +162,9 @@ pub async fn update_role(
         model.opening_message = Set(clean_optional_text(opening_message));
     }
     if let Some(opening_questions) = input.opening_questions {
-        model.opening_questions_json = Set(stringify_string_list(&clean_list(opening_questions))?);
+        let (legacy_json, v2_json) = encoded_opening_questions(opening_questions)?;
+        model.opening_questions_json = Set(legacy_json);
+        model.opening_questions_v2_json = Set(v2_json);
     }
     if let Some(tags) = input.tags {
         model.tags_json = Set(stringify_string_list(&clean_list(tags))?);
@@ -194,8 +209,9 @@ pub async fn delete_role(db: &DatabaseConnection, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use crate::db::create_test_pool;
-    use crate::types::{CreateRoleInput, UpdateRoleInput};
-    use sea_orm::{ConnectionTrait, DbBackend, Statement};
+    use crate::entity::roles;
+    use crate::types::{CreateRoleInput, RoleOpeningQuestion, UpdateRoleInput};
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, EntityTrait, Set, Statement};
 
     #[tokio::test]
     async fn role_repo_crud_roundtrip() {
@@ -225,7 +241,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(created.name, "翻译助手");
-        assert_eq!(created.opening_questions, vec!["翻译这段话"]);
+        assert_eq!(
+            created.opening_questions,
+            vec![crate::types::RoleOpeningQuestion::untitled("翻译这段话")]
+        );
         assert_eq!(created.tags, vec!["translation"]);
         assert_eq!(created.avatar_type.as_deref(), Some("emoji"));
         assert_eq!(created.avatar_value.as_deref(), Some("🌐"));
@@ -285,7 +304,8 @@ mod tests {
                 DROP TABLE roles;
                 DELETE FROM seaql_migrations
                   WHERE version LIKE '%roles%'
-                     OR version LIKE '%role_capability%';
+                     OR version LIKE '%role_capability%'
+                     OR version LIKE '%opening_questions%';
                 CREATE TABLE roles (
                     id varchar NOT NULL PRIMARY KEY,
                     name varchar NOT NULL,
@@ -321,5 +341,58 @@ mod tests {
         assert_eq!(roles.len(), 1);
         assert_eq!(roles[0].avatar_type.as_deref(), Some("emoji"));
         assert_eq!(roles[0].avatar_value.as_deref(), Some("🌐"));
+    }
+
+    #[tokio::test]
+    async fn opening_questions_dual_write_roundtrip_and_legacy_mismatch() {
+        let h = create_test_pool().await.unwrap();
+        let created = super::create_role(
+            &h.conn,
+            CreateRoleInput {
+                name: "翻译助手".into(),
+                description: None,
+                system_prompt: "你是翻译助手".into(),
+                opening_message: None,
+                opening_questions: vec![RoleOpeningQuestion {
+                    title: Some("翻译".into()),
+                    content: "请翻译\n这段话".into(),
+                }],
+                tags: vec![],
+                avatar: None,
+                avatar_type: None,
+                avatar_value: None,
+                temperature: None,
+                top_p: None,
+                enabled_mcp_server_ids: vec![],
+                enabled_skill_names: vec![],
+                source_kind: Some("local".into()),
+                source_ref: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.opening_questions[0].title.as_deref(), Some("翻译"));
+        assert_eq!(created.opening_questions[0].content, "请翻译\n这段话");
+
+        let stored = roles::Entity::find_by_id(&created.id)
+            .one(&h.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.opening_questions_json, "[\"请翻译\\n这段话\"]");
+        assert!(stored
+            .opening_questions_v2_json
+            .as_deref()
+            .unwrap()
+            .contains("\"version\":2"));
+
+        let mut stale: roles::ActiveModel = stored.into();
+        stale.opening_questions_json = Set(r#"["旧版本改过的正文"]"#.into());
+        stale.update(&h.conn).await.unwrap();
+
+        let reread = super::get_role(&h.conn, &created.id).await.unwrap();
+        assert_eq!(reread.opening_questions[0].title, None);
+        assert_eq!(reread.opening_questions[0].content, "旧版本改过的正文");
     }
 }
