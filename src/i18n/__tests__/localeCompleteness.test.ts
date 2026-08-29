@@ -40,6 +40,7 @@ const languageNeutralKeys = new Set([
   'settings.proxySocks5',
   'settings.github',
   'settings.extraBodyPlaceholder',
+  'settings.newApiHostPlaceholder',
   'settings.searchProviders.zhipu',
   'settings.searchProviders.bocha',
   'settings.titlebarIcon.github',

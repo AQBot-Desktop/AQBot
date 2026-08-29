@@ -14,6 +14,7 @@ const BUILTIN_PROVIDER_WEBSITES: Record<string, string> = {
   minimax: 'https://www.minimax.io',
   shuaiapi: 'https://api.shuaiapi.com',
   gptnb: 'https://goapi.gptnb.ai',
+  newapi: 'https://www.newapi.ai',
   jina: 'https://jina.ai',
   cohere: 'https://cohere.com',
   voyage: 'https://www.voyageai.com',

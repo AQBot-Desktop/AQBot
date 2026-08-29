@@ -8,10 +8,13 @@ import { parseProviderIcon } from '@/lib/providerIconCodec';
 
 const SHUAI_API_LOGO_URL = 'https://api.shuaiapi.com/images/logo.svg';
 const GPTNB_LOGO_URL = 'https://pic.scdn.app/images/2023/06/26/favicon.png';
+const NEW_API_LOGO_URL =
+  'https://cdn.jsdelivr.net/gh/QuantumNous/new-api@main/web/public/logo.png';
 
 const BUILTIN_LOGO_URLS: Record<string, string> = {
   shuaiapi: SHUAI_API_LOGO_URL,
   gptnb: GPTNB_LOGO_URL,
+  newapi: NEW_API_LOGO_URL,
 };
 
 const TYPE_TO_PROVIDER: Record<string, string> = {

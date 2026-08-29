@@ -539,6 +539,13 @@ pub fn get_builtin_providers() -> Vec<BuiltinProvider> {
             models: vec![],
         },
         BuiltinProvider {
+            builtin_id: "newapi",
+            name: "New API",
+            provider_type: ProviderType::OpenAI,
+            api_host: "",
+            models: vec![],
+        },
+        BuiltinProvider {
             builtin_id: "jina",
             name: "Jina",
             provider_type: ProviderType::Jina,
@@ -644,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn gptnb_builtin_is_registered_between_shuaiapi_and_jina() {
+    fn gptnb_builtin_is_registered_between_shuaiapi_and_newapi() {
         let providers = get_builtin_providers();
         let gptnb_index = providers
             .iter()
@@ -653,11 +660,28 @@ mod tests {
         let gptnb = &providers[gptnb_index];
 
         assert_eq!(providers[gptnb_index - 1].builtin_id, "shuaiapi");
-        assert_eq!(providers[gptnb_index + 1].builtin_id, "jina");
+        assert_eq!(providers[gptnb_index + 1].builtin_id, "newapi");
         assert_eq!(gptnb.name, "GPTNB");
         assert_eq!(gptnb.provider_type, ProviderType::OpenAI);
         assert_eq!(gptnb.api_host, "https://goapi.gptnb.ai");
         assert!(gptnb.models.is_empty());
+    }
+
+    #[test]
+    fn newapi_builtin_is_registered_between_gptnb_and_jina() {
+        let providers = get_builtin_providers();
+        let newapi_index = providers
+            .iter()
+            .position(|provider| provider.builtin_id == "newapi")
+            .expect("missing New API builtin provider");
+        let newapi = &providers[newapi_index];
+
+        assert_eq!(providers[newapi_index - 1].builtin_id, "gptnb");
+        assert_eq!(providers[newapi_index + 1].builtin_id, "jina");
+        assert_eq!(newapi.name, "New API");
+        assert_eq!(newapi.provider_type, ProviderType::OpenAI);
+        assert_eq!(newapi.api_host, "");
+        assert!(newapi.models.is_empty());
     }
 
     #[test]

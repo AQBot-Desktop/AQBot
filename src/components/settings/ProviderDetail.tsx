@@ -66,6 +66,7 @@ import {
   DEFAULT_HOSTS,
   DEFAULT_PATHS,
   DEFAULT_VERSIONS,
+  getProviderDefaultHost,
   EMPTY_BEDROCK_CREDENTIALS,
   REASONING_PROFILE_OPTIONS,
   REASONING_PROFILE_POPUP_WIDTH,
@@ -281,8 +282,14 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   // Resolve actual request URLs for preview
   const resolvedUrls = useMemo(() => {
     const providerType = provider?.provider_type ?? 'custom';
-    const host = apiHostLocal || DEFAULT_HOSTS[providerType] || '';
+    const host = apiHostLocal || getProviderDefaultHost({
+      builtin_id: provider?.builtin_id,
+      provider_type: providerType,
+    });
     const path = apiPathLocal || DEFAULT_PATHS[providerType] || '';
+    if (!host.trim()) {
+      return { resolvedBase: '', chatUrl: '', modelsUrl: '' };
+    }
 
     const defaultVersion = DEFAULT_VERSIONS[providerType];
 
@@ -322,7 +329,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     const modelsUrl = `${resolvedBase.replace(/\/+$/, '')}/models`;
 
     return { resolvedBase, chatUrl, modelsUrl };
-  }, [apiHostLocal, apiPathLocal, provider?.provider_type]);
+  }, [apiHostLocal, apiPathLocal, provider?.builtin_id, provider?.provider_type]);
 
   const filteredModels = useMemo(
     () =>
@@ -553,6 +560,10 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   );
 
   const handleRefreshModels = useCallback(async () => {
+    if (!isBedrock && !apiHostLocal.trim()) {
+      message.error(t('settings.noApiHostError'));
+      return;
+    }
     setRefreshing(true);
     try {
       const result = await fetchRemoteModels(providerId);
@@ -577,7 +588,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     } finally {
       setRefreshing(false);
     }
-  }, [providerId, fetchRemoteModels, message, t]);
+  }, [apiHostLocal, isBedrock, providerId, fetchRemoteModels, message, t]);
 
   const handlePickerApply = useCallback(async (models: Model[]) => {
     try {
@@ -1434,12 +1445,16 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
               <Input
                 value={apiHostLocal}
                 onChange={(e) => handleApiHostChange(e.target.value)}
-                placeholder={DEFAULT_HOSTS[provider.provider_type]}
+                placeholder={
+                  provider.builtin_id === 'newapi'
+                    ? t('settings.newApiHostPlaceholder')
+                    : DEFAULT_HOSTS[provider.provider_type]
+                }
               />
               <Button
                 icon={<Undo2 size={16} />}
                 onClick={() => {
-                  const defaultHost = DEFAULT_HOSTS[provider.provider_type];
+                  const defaultHost = getProviderDefaultHost(provider);
                   setApiHostLocal(defaultHost);
                   updateProvider(providerId, { api_host: defaultHost });
                 }}
@@ -1447,6 +1462,11 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 {t('settings.resetDefault')}
               </Button>
             </Space.Compact>
+            {provider.builtin_id === 'newapi' && (
+              <div style={{ marginTop: 4, fontSize: 12, color: token.colorTextSecondary }}>
+                {t('settings.newApiHostHelp')}
+              </div>
+            )}
             <div style={{ marginTop: 4, fontSize: 12, color: token.colorTextQuaternary }}>
               {t('settings.urlPreviewLabel')}{resolvedUrls.resolvedBase}
             </div>

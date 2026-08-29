@@ -215,6 +215,17 @@ Point the **Base URL** to the address of your inference server (e.g. `http://loc
 
 For relay or aggregator services (e.g. OpenRouter, one-api), set the type to **OpenAI**, enter the relay's base URL, and provide the relay's API key.
 
+### New API
+
+[New API](https://github.com/QuantumNous/new-api) is a self-hosted gateway with no official public Base URL. AQBot includes it as a built-in provider:
+
+1. Open **Settings → Providers** and select **New API**.
+2. Enter the root URL of your instance (for example `http://127.0.0.1:3000`). Do not paste a full path such as `/v1/chat/completions`.
+3. Add the token issued by your New API admin console.
+4. Click **Sync Models**, pick the models you need, then enable the provider.
+
+The default endpoint format is **OpenAI**. New API can convert most upstream models into OpenAI-compatible requests. To call native Claude or Gemini endpoints instead, change **Endpoint Format** in the provider editor.
+
 ---
 
 ## Default Model Settings

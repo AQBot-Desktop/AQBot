@@ -412,6 +412,21 @@ const BUILT_IN_PROVIDERS = [
     updated_at: 1700000000000,
   },
   {
+    id: 'builtin-newapi',
+    builtin_id: 'newapi',
+    name: 'New API',
+    provider_type: 'openai',
+    api_host: '',
+    api_path: null,
+    enabled: false,
+    models: [],
+    keys: [],
+    proxy_config: null,
+    sort_order: 11,
+    created_at: 1700000000000,
+    updated_at: 1700000000000,
+  },
+  {
     id: 'builtin-jina',
     name: 'Jina',
     provider_type: 'jina',
@@ -425,7 +440,7 @@ const BUILT_IN_PROVIDERS = [
     ],
     keys: [],
     proxy_config: null,
-    sort_order: 11,
+    sort_order: 12,
     created_at: 1700000000000,
     updated_at: 1700000000000,
   },
@@ -444,7 +459,7 @@ const BUILT_IN_PROVIDERS = [
     ],
     keys: [],
     proxy_config: null,
-    sort_order: 12,
+    sort_order: 13,
     created_at: 1700000000000,
     updated_at: 1700000000000,
   },
@@ -463,7 +478,7 @@ const BUILT_IN_PROVIDERS = [
     ],
     keys: [],
     proxy_config: null,
-    sort_order: 13,
+    sort_order: 14,
     created_at: 1700000000000,
     updated_at: 1700000000000,
   },
@@ -485,6 +500,13 @@ const LEGACY_RERANK_SORT_BEFORE_GPTNB: Record<string, number> = {
   'builtin-jina': 10,
   'builtin-cohere': 11,
   'builtin-voyage': 12,
+};
+
+/** Pre-New API sort orders (after GPTNB occupied 10). */
+const LEGACY_RERANK_SORT_BEFORE_NEWAPI: Record<string, number> = {
+  'builtin-jina': 11,
+  'builtin-cohere': 12,
+  'builtin-voyage': 13,
 };
 
 function shiftRerankProviderSortOrders(
@@ -512,12 +534,16 @@ function initProviders(): any[] {
   // Restore missing built-in providers and models (e.g. after an upgrade or a bad fetch_remote_models wipe)
   const isShuaiApiMissing = !existing.some((provider: any) => provider.id === 'builtin-shuaiapi');
   const isGptnbMissing = !existing.some((provider: any) => provider.id === 'builtin-gptnb');
+  const isNewApiMissing = !existing.some((provider: any) => provider.id === 'builtin-newapi');
   let dirty = false;
   if (isShuaiApiMissing) {
     dirty = shiftRerankProviderSortOrders(existing, LEGACY_RERANK_SORT_BEFORE_SHUAIAPI) || dirty;
   }
   if (isGptnbMissing) {
     dirty = shiftRerankProviderSortOrders(existing, LEGACY_RERANK_SORT_BEFORE_GPTNB) || dirty;
+  }
+  if (isNewApiMissing) {
+    dirty = shiftRerankProviderSortOrders(existing, LEGACY_RERANK_SORT_BEFORE_NEWAPI) || dirty;
   }
   for (const builtin of BUILT_IN_PROVIDERS) {
     const stored = existing.find((p: any) => p.id === builtin.id);

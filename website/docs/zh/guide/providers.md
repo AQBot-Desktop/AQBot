@@ -250,6 +250,17 @@ AQBot 支持连接任何兼容 OpenAI API 格式的服务，以下是常见场�
 3. API Key 填写中转服务提供的密钥
 4. 获取或手动添加模型
 
+### New API
+
+[New API](https://github.com/QuantumNous/new-api) 是自托管网关，没有官方公网 Base URL。AQBot 已将其列为内置服务商：
+
+1. 打开 **设置 → 服务商**，选择 **New API**
+2. 填写你的实例根地址（例如 `http://127.0.0.1:3000`），不要粘贴 `/v1/chat/completions` 这类完整路径
+3. 添加 New API 管理后台颁发的令牌
+4. 点击 **同步模型**，勾选需要的模型后启用该服务商
+
+默认端点格式为 **OpenAI**。New API 会把多数上游模型转换成 OpenAI 兼容请求。若要走 Claude 或 Gemini 原生协议，可在服务商编辑里改 **端点格式**。
+
 ## 默认模型设置
 
 AQBot 支持为不同用途设置默认模型，在 **设置 → 默认模型** 中配置：

@@ -103,6 +103,18 @@ export const DEFAULT_HOSTS: Record<ProviderType, string> = {
   custom: '',
 };
 
+const EMPTY_HOST_BUILTINS = new Set(['newapi']);
+
+export function getProviderDefaultHost(provider: {
+  builtin_id?: string | null;
+  provider_type: ProviderType;
+}): string {
+  if (provider.builtin_id && EMPTY_HOST_BUILTINS.has(provider.builtin_id)) {
+    return '';
+  }
+  return DEFAULT_HOSTS[provider.provider_type] ?? '';
+}
+
 export const DEFAULT_VERSIONS: Record<ProviderType, string> = {
   openai: '/v1',
   openai_responses: '/v1',

@@ -112,6 +112,14 @@ fn provider_resolution_handles_special_mappings_and_known_hosts() {
         None
     );
     assert_eq!(
+        canonical_provider(
+            &ProviderType::OpenAI,
+            Some("newapi"),
+            "http://127.0.0.1:3000"
+        ),
+        None
+    );
+    assert_eq!(
         canonical_provider(&ProviderType::Custom, None, "https://example.invalid/v1"),
         None
     );

@@ -279,6 +279,37 @@ describe('ProviderDetail', () => {
     });
   });
 
+  it('does not fall back to the OpenAI host for an empty New API provider', async () => {
+    provider = {
+      ...createProviderFixture(),
+      builtin_id: 'newapi',
+      name: 'New API',
+      api_host: '',
+      api_path: null,
+      enabled: false,
+      models: [],
+      keys: [],
+    };
+
+    render(
+      <App>
+        <ProviderDetail providerId="provider-1" />
+      </App>,
+    );
+
+    expect(screen.getByPlaceholderText('settings.newApiHostPlaceholder')).toBeInTheDocument();
+    expect(screen.getByText('settings.newApiHostHelp')).toBeInTheDocument();
+    expect(screen.queryByText(/api\.openai\.com/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'settings.resetDefault' }));
+    expect(mocks.updateProvider).toHaveBeenCalledWith('provider-1', { api_host: '' });
+
+    const syncButtons = screen.getAllByRole('button', { name: 'settings.syncModels' });
+    await userEvent.click(syncButtons[syncButtons.length - 1]);
+    expect(mocks.fetchRemoteModels).not.toHaveBeenCalled();
+    expect(await screen.findByText('settings.noApiHostError')).toBeInTheDocument();
+  });
+
   it('shows official website link for built-in providers', () => {
     provider.builtin_id = 'openai';
 

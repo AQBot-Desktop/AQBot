@@ -190,7 +190,7 @@ fn canonical_builtin_provider(builtin_id: &str) -> Option<Option<&'static str>> 
         "jina" => Some("jina"),
         "cohere" => Some("cohere"),
         "voyage" => Some("voyage"),
-        "siliconflow" => None,
+        "siliconflow" | "newapi" => None,
         _ => return None,
     };
     Some(provider)
