@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAcpStore } from '@/stores/acpStore';
-import type { ConfiguredAgent, RegistryAgent } from '@/types/acp';
+import type { AcpRegistryRefreshPolicy, ConfiguredAgent, RegistryAgent } from '@/types/acp';
 import {
   AcpAgentIcon,
   decodeAcpAgentIcon,
@@ -197,6 +197,10 @@ interface AgentFormState {
   env?: Record<string, string>;
 }
 
+function launchCommandLine(command: string, args: string[] | undefined): string {
+  return [command, ...(args ?? [])].filter(Boolean).join(' ');
+}
+
 function emptyCustomForm(sort: number): AgentFormState {
   return {
     id: '',
@@ -238,6 +242,7 @@ export function AcpAgentSettings() {
   const loadConfig = useAcpStore((s) => s.loadConfig);
   const loadRegistry = useAcpStore((s) => s.loadRegistry);
   const setAgentEnabled = useAcpStore((s) => s.setAgentEnabled);
+  const previewFromRegistry = useAcpStore((s) => s.previewFromRegistry);
   const addFromRegistry = useAcpStore((s) => s.addFromRegistry);
   const saveGeneral = useAcpStore((s) => s.saveGeneral);
   const upsertCustom = useAcpStore((s) => s.upsertCustom);
@@ -275,6 +280,15 @@ export function AcpAgentSettings() {
     () => [
       { value: 'default', label: t('common.permissionDefault') },
       { value: 'auto_approve', label: t('common.permissionAutoApprove') },
+    ],
+    [t],
+  );
+
+  const refreshPolicyOptions = useMemo(
+    () => [
+      { value: 'on_start', label: t('settings.acpAgents.registryRefreshOnStart') },
+      { value: 'manual', label: t('settings.acpAgents.registryRefreshManual') },
+      { value: 'never', label: t('settings.acpAgents.registryRefreshNever') },
     ],
     [t],
   );
@@ -370,11 +384,64 @@ export function AcpAgentSettings() {
     }
   };
 
+  const commitFromRegistry = async (
+    agent: RegistryAgent,
+    options?: { allowInstaller?: boolean; approvalToken?: string | null },
+  ) => {
+    await addFromRegistry(agent.id, options);
+    message.success(t('settings.acpAgents.addSuccess', { name: agent.name }));
+  };
+
   const handleAddFromRegistry = async (agent: RegistryAgent) => {
     setAddingId(agent.id);
     try {
-      await addFromRegistry(agent.id);
-      message.success(t('settings.acpAgents.addSuccess', { name: agent.name }));
+      const preview = await previewFromRegistry(agent.id);
+      if (preview.outcome === 'alreadyConfigured') {
+        return;
+      }
+      if (preview.outcome === 'quarantined') {
+        message.warning(t('settings.acpAgents.quarantineBlocked'));
+        return;
+      }
+      if (preview.outcome === 'manualRequired') {
+        Modal.info({
+          title: t('settings.acpAgents.manualRequiredTitle'),
+          content: t('settings.acpAgents.manualRequiredContent', {
+            reason: preview.manualReason ?? '',
+          }),
+        });
+        return;
+      }
+      if (preview.outcome === 'installRequired') {
+        const command = launchCommandLine(preview.command, preview.args);
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: t('settings.acpAgents.installConfirmTitle'),
+            content: (
+              <div>
+                <div>{t('settings.acpAgents.installConfirmContent', { command })}</div>
+                <div style={{ marginTop: 8, color: token.colorTextSecondary, fontSize: 12 }}>
+                  {t('settings.acpAgents.installConfirmHint')}
+                </div>
+              </div>
+            ),
+            okText: t('settings.acpAgents.installConfirmOk'),
+            cancelText: t('common.cancel'),
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!confirmed) return;
+        await commitFromRegistry(agent, {
+          allowInstaller: true,
+          approvalToken: preview.approvalToken,
+        });
+        return;
+      }
+      await commitFromRegistry(agent, {
+        allowInstaller: false,
+        approvalToken: preview.approvalToken,
+      });
     } catch (e) {
       message.error(String(e));
     } finally {
@@ -450,6 +517,26 @@ export function AcpAgentSettings() {
             onChange={(v) => {
               if (!config) return;
               void saveGeneral({ ...config.general, permissionDefault: v });
+            }}
+          />
+        </div>
+        <Divider style={{ margin: '4px 0' }} />
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div>
+            <div>{t('settings.acpAgents.registryRefreshPolicy')}</div>
+            <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+              {t('settings.acpAgents.registryRefreshHint')}
+            </div>
+          </div>
+          <SettingsSelect
+            value={config?.general.registryRefresh ?? 'on_start'}
+            options={refreshPolicyOptions}
+            onChange={(v) => {
+              if (!config) return;
+              void saveGeneral({
+                ...config.general,
+                registryRefresh: v as AcpRegistryRefreshPolicy,
+              });
             }}
           />
         </div>
@@ -613,6 +700,17 @@ export function AcpAgentSettings() {
       >
         <div
           style={{
+            color: token.colorTextSecondary,
+            fontSize: 12,
+            marginBottom: 12,
+          }}
+        >
+          {t('settings.acpAgents.localFirstHint')}
+          {' '}
+          {t('settings.acpAgents.refreshKeepsLaunchHint')}
+        </div>
+        <div
+          style={{
             alignItems: 'center',
             display: 'flex',
             gap: 8,
@@ -671,7 +769,9 @@ export function AcpAgentSettings() {
                       <div style={{ fontWeight: 500 }}>{row.name}</div>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {row.id}
-                        {row.version ? ` · ${row.version}` : ''}
+                        {row.version
+                          ? ` · ${t('settings.acpAgents.catalogVersion', { version: row.version })}`
+                          : ''}
                       </Text>
                       {row.description && (
                         <div

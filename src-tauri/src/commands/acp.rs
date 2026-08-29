@@ -2,10 +2,10 @@
 
 use crate::AppState;
 use aqbot_acp_client::config::{
-    enabled_agents, is_agent_enabled, load_agents_file, migrate_agents_file, probe_agent,
-    remove_agent, reorder_agents, save_agents_file, set_agent_enabled,
-    sync_configured_registry_agents, upsert_from_registry, AcpAgentsFile, AcpGeneralConfig,
-    ConfiguredAgent,
+    apply_registry_refresh, commit_registry_agent, enabled_agents, is_agent_enabled,
+    load_agents_file, migrate_agents_file, preview_registry_agent, probe_agent, remove_agent,
+    reorder_agents, save_agents_file, set_agent_enabled, AcpAgentsFile, AcpGeneralConfig,
+    ConfiguredAgent, QuarantinedConfiguredAgent, RegistryAddPreview,
 };
 use aqbot_acp_client::proxy::{
     configured_agent_with_proxy, resolve_proxy_environment, resolve_system_proxy,

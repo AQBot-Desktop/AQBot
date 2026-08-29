@@ -10,6 +10,7 @@ import type {
   AcpSessionSnapshot,
   AcpThread,
   ConfiguredAgent,
+  RegistryAddPreview,
   RegistryFile,
 } from '@/types/acp';
 import type { PermissionOptionButton } from '@/components/chat/PermissionCard';
@@ -428,7 +429,11 @@ interface AcpStore {
   loadConfig: () => Promise<void>;
   loadRegistry: (refresh?: boolean) => Promise<void>;
   setAgentEnabled: (agentId: string, enabled: boolean) => Promise<void>;
-  addFromRegistry: (agentId: string) => Promise<void>;
+  previewFromRegistry: (agentId: string) => Promise<RegistryAddPreview>;
+  addFromRegistry: (
+    agentId: string,
+    options?: { allowInstaller?: boolean; approvalToken?: string | null },
+  ) => Promise<void>;
   saveGeneral: (general: AcpAgentsFile['general']) => Promise<void>;
   upsertCustom: (agent: ConfiguredAgent) => Promise<void>;
   removeAgent: (agentId: string) => Promise<void>;
@@ -1092,10 +1097,16 @@ export const useAcpStore = create<AcpStore>()(
     prewarmConfiguredAgents();
   },
 
-  addFromRegistry: async (agentId) => {
+  previewFromRegistry: async (agentId) => {
+    return invoke<RegistryAddPreview>('acp_preview_registry_agent', { agentId });
+  },
+
+  addFromRegistry: async (agentId, options) => {
     const config = await invoke<AcpAgentsFile>('acp_add_agent_from_registry', {
       agentId,
       enabled: true,
+      allowInstaller: options?.allowInstaller ?? false,
+      approvalToken: options?.approvalToken ?? null,
     });
     _acpConfigMutationVersion += 1;
     set({ config, configError: null });

@@ -1,12 +1,19 @@
 //! User ACP agent configuration: `~/.aqbot/acp/agents.toml`
 
 use crate::paths::{agents_toml_path, ensure_acp_dirs};
-use crate::registry::{resolve_launch, RegistryAgent, RegistryFile};
+use crate::registry::{
+    is_direct_grok_fingerprint, official_quarantine_reason, resolve_launch, RegistryAgent,
+    RegistryFile, GROK_AGENT_ID, GROK_NPM_MARKER,
+};
+use crate::registry_plan::{
+    consume_approval_token, issue_approval_token, plan_registry_launch, RegistryLaunchPlan,
+    RegistryPlanOutcome,
+};
 use crate::types::AgentProbeResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::{Component, Path};
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +108,7 @@ impl Default for AcpGeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfiguredAgent {
     pub id: String,
@@ -164,65 +171,15 @@ fn apply_resolved_launch(
     true
 }
 
-fn is_persisted_npx_cache_bin(command: &str) -> bool {
-    let path = Path::new(command);
-    if !path.is_absolute() {
+fn is_grok_stdio_launch(agent: &ConfiguredAgent) -> bool {
+    agent.id == GROK_AGENT_ID && is_direct_grok_fingerprint(&agent.command, &agent.args)
+}
+
+fn strip_legacy_grok_npm_marker(agent: &mut ConfiguredAgent) -> bool {
+    if !is_grok_stdio_launch(agent) {
         return false;
     }
-    let parts = path
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(part) => Some(part),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    parts.iter().enumerate().any(|(index, part)| {
-        let Some(hash) = parts.get(index + 1).and_then(|part| part.to_str()) else {
-            return false;
-        };
-        *part == "_npx"
-            && hash.len() == 16
-            && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-            && parts
-                .get(index + 2)
-                .is_some_and(|part| *part == "node_modules")
-            && parts.get(index + 3).is_some_and(|part| *part == ".bin")
-            && index + 5 == parts.len()
-    })
-}
-
-fn has_missing_registry_npx_bin(agent: &ConfiguredAgent) -> bool {
-    agent.source == "registry"
-        && is_persisted_npx_cache_bin(&agent.command)
-        && !Path::new(&agent.command).is_file()
-}
-
-fn repair_missing_registry_npx_bins_with(
-    file: &mut AcpAgentsFile,
-    registry: &RegistryFile,
-    resolve_registry_agent: impl Fn(&RegistryAgent) -> Option<crate::registry::ResolvedLaunch>,
-) -> bool {
-    let mut updated = false;
-    for configured in file
-        .agents
-        .iter_mut()
-        .filter(|agent| has_missing_registry_npx_bin(agent))
-    {
-        let Some(registry_agent) = registry
-            .agents
-            .iter()
-            .find(|agent| agent.id == configured.id)
-        else {
-            tracing::warn!(agent = %configured.id, "missing Registry entry for stale npx cache launch");
-            continue;
-        };
-        let Some(launch) = resolve_registry_agent(registry_agent) else {
-            tracing::warn!(agent = %configured.id, "Registry entry cannot repair stale npx cache launch");
-            continue;
-        };
-        updated |= apply_resolved_launch(configured, launch);
-    }
-    updated
+    agent.env.remove(GROK_NPM_MARKER).is_some()
 }
 
 fn normalize_loaded_agents_with(
@@ -233,11 +190,12 @@ fn normalize_loaded_agents_with(
     for agent in &mut file.agents {
         if agent.enabled
             && agent.source == "registry"
-            && crate::registry::official_quarantine_reason(&agent.id).is_some()
+            && official_quarantine_reason(&agent.id).is_some()
         {
             agent.enabled = false;
             updated = true;
         }
+        updated |= strip_legacy_grok_npm_marker(agent);
         if agent.source != "registry" {
             continue;
         }
@@ -250,15 +208,9 @@ fn normalize_loaded_agents_with(
 }
 
 fn normalize_loaded_agents(file: &mut AcpAgentsFile) -> anyhow::Result<bool> {
-    let mut updated = normalize_loaded_agents_with(file, |agent| {
+    Ok(normalize_loaded_agents_with(file, |agent| {
         crate::registry::resolve_configured_npx_trampoline(&agent.command, &agent.args, &agent.env)
-    });
-    if !file.agents.iter().any(has_missing_registry_npx_bin) {
-        return Ok(updated);
-    }
-    let registry = crate::registry::load_registry()?;
-    updated |= repair_missing_registry_npx_bins_with(file, &registry, resolve_launch);
-    Ok(updated)
+    }))
 }
 
 pub fn load_agents_file() -> anyhow::Result<AcpAgentsFile> {
@@ -407,77 +359,268 @@ pub fn is_agent_enabled(agent: &ConfiguredAgent) -> bool {
             && crate::registry::official_quarantine_reason(&agent.id).is_some())
 }
 
-/// Add or update agent from registry entry (enables by default).
+fn insert_registry_agent(
+    file: &mut AcpAgentsFile,
+    agent: &RegistryAgent,
+    launch: crate::registry::ResolvedLaunch,
+    enabled: bool,
+) {
+    let sort = file.agents.len() as i32;
+    file.agents.push(ConfiguredAgent {
+        id: agent.id.clone(),
+        name: agent.name.clone(),
+        enabled,
+        source: "registry".into(),
+        command: launch.command,
+        args: launch.args,
+        env: launch.env,
+        icon: None,
+        sort,
+    });
+}
+
+/// Insert a Registry agent launch. Existing user configuration is never overwritten.
 pub fn upsert_from_registry(
     file: &mut AcpAgentsFile,
     agent: &RegistryAgent,
     enabled: bool,
 ) -> anyhow::Result<()> {
+    if file
+        .agents
+        .iter()
+        .any(|configured| configured.id == agent.id)
+    {
+        return Ok(());
+    }
     let launch = resolve_launch(agent)
         .ok_or_else(|| anyhow::anyhow!("no launch method for agent {}", agent.id))?;
-    // Do not persist registry CDN icon URLs — the UI resolves brand Color icons
-    // from agent id/name (Codex Avatar is white-on-white and CDN SVGs often mismatch).
-    // Keep a pre-existing *custom* icon if the user already set one.
-    if let Some(existing) = file.agents.iter_mut().find(|a| a.id == agent.id) {
-        existing.name = agent.name.clone();
-        existing.command = launch.command;
-        existing.args = launch.args;
-        existing.env = launch.env;
-        // Drop auto official-registry CDN icons only (keep user emoji/file/custom url)
-        if existing
-            .icon
-            .as_ref()
-            .is_some_and(|u| u.contains("cdn.agentclientprotocol.com"))
-        {
-            existing.icon = None;
-        }
-        existing.source = "registry".into();
-        existing.enabled = enabled;
-    } else {
-        let sort = file.agents.len() as i32;
-        file.agents.push(ConfiguredAgent {
-            id: agent.id.clone(),
-            name: agent.name.clone(),
-            enabled,
-            source: "registry".into(),
-            command: launch.command,
-            args: launch.args,
-            env: launch.env,
-            icon: None,
-            sort,
-        });
-    }
+    insert_registry_agent(file, agent, launch, enabled);
     Ok(())
 }
 
-/// Refresh launch metadata for configured Registry-managed agents while
-/// preserving local enablement, order, and custom agents.
+#[derive(Debug, Clone, Default)]
+pub struct RegistryRefreshSync {
+    pub quarantined: Vec<QuarantinedConfiguredAgent>,
+    pub disabled_agent_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuarantinedConfiguredAgent {
+    pub agent_id: String,
+    pub reason: String,
+}
+
+/// Refresh only applies official quarantine. User launch fields stay untouched.
 pub fn sync_configured_registry_agents(
     file: &mut AcpAgentsFile,
     registry: &RegistryFile,
 ) -> anyhow::Result<usize> {
-    let configured = file
+    Ok(apply_registry_refresh(file, registry).quarantined.len())
+}
+
+pub fn apply_registry_refresh(
+    file: &mut AcpAgentsFile,
+    registry: &RegistryFile,
+) -> RegistryRefreshSync {
+    let mut quarantined = Vec::new();
+    let mut disabled_agent_ids = Vec::new();
+    for configured in file
         .agents
-        .iter()
+        .iter_mut()
         .filter(|agent| agent.source == "registry")
-        .map(|agent| (agent.id.clone(), agent.enabled))
-        .collect::<Vec<_>>();
-    let mut synced = 0;
-    for (agent_id, enabled) in configured {
-        let Some(agent) = registry.agents.iter().find(|agent| agent.id == agent_id) else {
+    {
+        let reason = official_quarantine_reason(&configured.id)
+            .map(str::to_string)
+            .or_else(|| {
+                registry
+                    .agents
+                    .iter()
+                    .find(|item| item.id == configured.id)
+                    .and_then(|item| item.quarantine_reason.clone())
+            });
+        let Some(reason) = reason else {
             continue;
         };
-        if agent.quarantine_reason.is_some() {
-            if let Some(configured) = file.agents.iter_mut().find(|item| item.id == agent_id) {
-                configured.enabled = false;
-            }
-            synced += 1;
-            continue;
+        quarantined.push(QuarantinedConfiguredAgent {
+            agent_id: configured.id.clone(),
+            reason,
+        });
+        if configured.enabled {
+            configured.enabled = false;
+            disabled_agent_ids.push(configured.id.clone());
         }
-        upsert_from_registry(file, agent, enabled)?;
-        synced += 1;
     }
-    Ok(synced)
+    RegistryRefreshSync {
+        quarantined,
+        disabled_agent_ids,
+    }
+}
+
+pub fn preview_registry_agent(
+    file: &AcpAgentsFile,
+    registry: &RegistryFile,
+    agent_id: &str,
+) -> anyhow::Result<RegistryAddPreview> {
+    if let Some(existing) = file
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .cloned()
+    {
+        return Ok(RegistryAddPreview::already_configured(existing));
+    }
+    let agent = crate::registry::find_registry_agent(registry, agent_id)
+        .ok_or_else(|| anyhow::anyhow!("agent `{agent_id}` not in registry"))?;
+    let plan = plan_registry_launch(agent);
+    Ok(RegistryAddPreview::from_plan(agent_id, plan))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryAddPreview {
+    pub agent_id: String,
+    pub outcome: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub kind: String,
+    pub source: String,
+    pub version: Option<String>,
+    pub catalog_version: Option<String>,
+    pub installer_kind: Option<String>,
+    pub installer_spec: Option<String>,
+    pub approval_token: Option<String>,
+    pub configured: Option<ConfiguredAgent>,
+    pub quarantine_reason: Option<String>,
+    pub manual_reason: Option<String>,
+}
+
+impl RegistryAddPreview {
+    pub fn already_configured(existing: ConfiguredAgent) -> Self {
+        Self {
+            agent_id: existing.id.clone(),
+            outcome: RegistryPlanOutcome::AlreadyConfigured.as_str().into(),
+            command: existing.command.clone(),
+            args: existing.args.clone(),
+            env: existing.env.clone(),
+            kind: "configured".into(),
+            source: "configured".into(),
+            version: None,
+            catalog_version: None,
+            installer_kind: None,
+            installer_spec: None,
+            approval_token: None,
+            configured: Some(existing),
+            quarantine_reason: None,
+            manual_reason: None,
+        }
+    }
+
+    fn from_plan(agent_id: &str, plan: RegistryLaunchPlan) -> Self {
+        let approval_token = matches!(
+            plan.outcome,
+            RegistryPlanOutcome::ReuseLocal | RegistryPlanOutcome::InstallRequired
+        )
+        .then(|| issue_approval_token(agent_id, &plan));
+        Self {
+            agent_id: agent_id.into(),
+            outcome: plan.outcome.as_str().into(),
+            command: plan.command,
+            args: plan.args,
+            env: plan.env,
+            kind: plan.kind,
+            source: plan.source,
+            version: plan.version,
+            catalog_version: plan.catalog_version,
+            installer_kind: plan.installer_kind,
+            installer_spec: plan.installer_spec,
+            approval_token,
+            configured: None,
+            quarantine_reason: plan.quarantine_reason,
+            manual_reason: plan.manual_reason,
+        }
+    }
+}
+
+pub fn commit_registry_agent(
+    file: &mut AcpAgentsFile,
+    agent: &RegistryAgent,
+    enabled: bool,
+    allow_installer: bool,
+    approval_token: Option<&str>,
+) -> anyhow::Result<RegistryPlanOutcome> {
+    commit_registry_agent_with(
+        file,
+        agent,
+        enabled,
+        allow_installer,
+        approval_token,
+        plan_registry_launch,
+    )
+}
+
+pub fn commit_registry_agent_with(
+    file: &mut AcpAgentsFile,
+    agent: &RegistryAgent,
+    enabled: bool,
+    allow_installer: bool,
+    approval_token: Option<&str>,
+    plan_launch: impl Fn(&RegistryAgent) -> RegistryLaunchPlan,
+) -> anyhow::Result<RegistryPlanOutcome> {
+    if file
+        .agents
+        .iter()
+        .any(|configured| configured.id == agent.id)
+    {
+        return Ok(RegistryPlanOutcome::AlreadyConfigured);
+    }
+    let plan = plan_launch(agent);
+    match plan.outcome {
+        RegistryPlanOutcome::AlreadyConfigured => Ok(RegistryPlanOutcome::AlreadyConfigured),
+        RegistryPlanOutcome::Quarantined => anyhow::bail!(
+            "agent `{}` is quarantined by the official ACP Registry: {}",
+            agent.id,
+            plan.quarantine_reason
+                .unwrap_or_else(|| "quarantined".into())
+        ),
+        RegistryPlanOutcome::ManualRequired => anyhow::bail!(
+            "{}",
+            plan.manual_reason
+                .unwrap_or_else(|| format!("agent `{}` requires manual installation", agent.id))
+        ),
+        RegistryPlanOutcome::ReuseLocal => {
+            let token = approval_token.ok_or_else(|| {
+                anyhow::anyhow!("adding `{}` requires a matching approval token", agent.id)
+            })?;
+            consume_approval_token(&agent.id, &plan, token)?;
+            let launch = plan
+                .launch()
+                .ok_or_else(|| anyhow::anyhow!("no local launch for agent {}", agent.id))?;
+            insert_registry_agent(file, agent, launch, enabled);
+            Ok(RegistryPlanOutcome::ReuseLocal)
+        }
+        RegistryPlanOutcome::InstallRequired => {
+            if !allow_installer {
+                anyhow::bail!(
+                    "installing `{}` requires explicit installer approval",
+                    agent.id
+                );
+            }
+            let token = approval_token.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "installing `{}` requires a matching approval token",
+                    agent.id
+                )
+            })?;
+            consume_approval_token(&agent.id, &plan, token)?;
+            let launch = plan
+                .launch()
+                .ok_or_else(|| anyhow::anyhow!("no installer launch for agent {}", agent.id))?;
+            insert_registry_agent(file, agent, launch, enabled);
+            Ok(RegistryPlanOutcome::InstallRequired)
+        }
+    }
 }
 
 pub fn set_agent_enabled(file: &mut AcpAgentsFile, agent_id: &str, enabled: bool) -> bool {
@@ -524,25 +667,30 @@ pub fn remove_agent(file: &mut AcpAgentsFile, agent_id: &str) -> bool {
     }
 }
 
+fn configured_command_is_available(command: &str, env: &HashMap<String, String>) -> bool {
+    if command.contains('/') || command.contains('\\') {
+        return Path::new(command).is_file();
+    }
+    let mut process_env = env.clone();
+    crate::shell_path::inject_shell_path(&mut process_env, crate::shell_path::get_shell_path());
+    let which = if cfg!(windows) { "where" } else { "which" };
+    Command::new(which)
+        .arg(command)
+        .envs(process_env)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Lightweight availability probe (does not start full ACP session).
 pub fn probe_agent(agent: &ConfiguredAgent) -> AgentProbeResult {
     let cmd_display = format!("{} {}", agent.command, agent.args.join(" "));
-    let mut process_env = agent.env.clone();
-    crate::shell_path::inject_shell_path(&mut process_env, crate::shell_path::get_shell_path());
-    // Check the command against the same runtime PATH used for ACP processes.
-    let which = if cfg!(windows) { "where" } else { "which" };
-    let available = Command::new(which)
-        .arg(&agent.command)
-        .envs(process_env)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
+    let available = configured_command_is_available(&agent.command, &agent.env);
     let message = if available {
-        format!("Found `{}` on PATH", agent.command)
+        format!("Found `{}`", agent.command)
     } else {
         format!(
-            "`{}` not found on PATH. Install the agent CLI, then re-check.",
+            "Configured command `{}` is not available and will not fall back to the Registry or an installer.",
             agent.command
         )
     };
@@ -695,100 +843,67 @@ mod tests {
     }
 
     #[test]
-    fn deleted_registry_cache_bin_recovers_to_exact_npx_but_custom_is_untouched() {
+    fn deleted_registry_cache_bin_stays_configured_and_readiness_fails() {
         let managed = deleted_npx_cache_bin("github-copilot-cli", "registry");
         let custom = deleted_npx_cache_bin("custom-cache-agent", "custom");
+        let missing_command = managed.command.clone();
         let custom_command = custom.command.clone();
         let mut file = AcpAgentsFile {
             general: AcpGeneralConfig::default(),
             agents: vec![managed, custom],
         };
-        let mut registry = crate::registry::load_builtin_registry().expect("builtin Registry");
-        let missing_cache =
-            std::env::temp_dir().join(format!("aqbot-empty-npm-cache-{}", uuid::Uuid::new_v4()));
-        registry
-            .agents
-            .iter_mut()
-            .find(|agent| agent.id == "github-copilot-cli")
-            .and_then(|agent| agent.distribution.as_mut())
-            .and_then(|distribution| distribution.npx.as_mut())
-            .expect("Copilot npx distribution")
-            .env
-            .insert(
-                "npm_config_cache".into(),
-                missing_cache.to_string_lossy().into_owned(),
-            );
 
-        let updated = repair_missing_registry_npx_bins_with(&mut file, &registry, resolve_launch);
+        let updated = normalize_loaded_agents_with(&mut file, |_| None);
 
-        assert!(updated);
-        assert_eq!(file.agents[0].command, "npx");
-        assert_eq!(
-            file.agents[0].args.last().map(String::as_str),
-            Some("--acp")
-        );
+        assert!(!updated);
+        assert_eq!(file.agents[0].command, missing_command);
         assert_eq!(file.agents[1].command, custom_command);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn deleted_registry_cache_bin_can_move_to_a_new_verified_cache_bin() {
-        let fixture = crate::registry::NpxCacheFixture::new(
-            "@agentclientprotocol/codex-acp",
-            "1.1.13",
-            "codex-acp",
-            "dist/index.js",
-        );
-        let mut file = AcpAgentsFile {
-            general: AcpGeneralConfig::default(),
-            agents: vec![deleted_npx_cache_bin("codex-acp", "registry")],
-        };
-        let mut registry = crate::registry::load_builtin_registry().expect("builtin Registry");
-        registry
-            .agents
-            .iter_mut()
-            .find(|agent| agent.id == "codex-acp")
-            .and_then(|agent| agent.distribution.as_mut())
-            .and_then(|distribution| distribution.npx.as_mut())
-            .expect("Codex npx distribution")
-            .env
-            .insert(
-                "npm_config_cache".into(),
-                fixture.npm_cache.to_string_lossy().into_owned(),
-            );
-
-        let updated = repair_missing_registry_npx_bins_with(&mut file, &registry, resolve_launch);
-
-        assert!(updated);
-        assert_eq!(Path::new(&file.agents[0].command), fixture.bin_link);
+        let probe = probe_agent(&file.agents[0]);
+        assert!(!probe.available);
+        assert!(probe.message.contains("will not fall back"));
     }
 
     #[test]
-    fn registry_refresh_updates_only_managed_agents_and_preserves_local_state() {
+    fn registry_refresh_preserves_user_launch_and_only_quarantine_mutates() {
         let mut managed = agent("codex-acp");
         managed.source = "registry".into();
         managed.enabled = false;
         managed.command = "obsolete-codex-launch".into();
+        managed.args = vec!["--user".into()];
+        managed.env.insert("AQBOT_KEEP".into(), "1".into());
         managed.sort = 7;
+        managed.name = "My Codex".into();
+        managed.icon = Some("star".into());
         let custom = agent("my-private-agent");
         let mut file = AcpAgentsFile {
             general: AcpGeneralConfig::default(),
-            agents: vec![managed, custom.clone()],
+            agents: vec![managed.clone(), custom.clone()],
         };
-        let registry = crate::registry::load_builtin_registry().expect("builtin Registry");
+        let mut registry = crate::registry::load_builtin_registry().expect("builtin Registry");
+        if let Some(codex) = registry
+            .agents
+            .iter_mut()
+            .find(|agent| agent.id == "codex-acp")
+        {
+            codex.version = Some("9.9.9".into());
+        }
 
         assert_eq!(
             sync_configured_registry_agents(&mut file, &registry).expect("sync Registry"),
-            1
+            0
         );
         let managed = file
             .agents
             .iter()
             .find(|agent| agent.id == "codex-acp")
             .expect("managed agent remains configured");
-        assert_ne!(managed.command, "obsolete-codex-launch");
+        assert_eq!(managed.command, "obsolete-codex-launch");
+        assert_eq!(managed.args, ["--user"]);
+        assert_eq!(managed.env.get("AQBOT_KEEP"), Some(&"1".into()));
         assert!(!managed.enabled);
         assert_eq!(managed.sort, 7);
+        assert_eq!(managed.name, "My Codex");
+        assert_eq!(managed.icon.as_deref(), Some("star"));
         assert_eq!(
             file.agents
                 .iter()
@@ -802,17 +917,24 @@ mod tests {
     fn registry_refresh_disables_officially_quarantined_agents() {
         let mut quarantined = agent("fast-agent");
         quarantined.source = "registry".into();
+        quarantined.command = "user-fast-agent".into();
+        quarantined.args = vec!["--keep".into()];
+        quarantined.name = "My Fast Agent".into();
         let mut file = AcpAgentsFile {
             general: AcpGeneralConfig::default(),
             agents: vec![quarantined],
         };
         let registry = crate::registry::load_builtin_registry().expect("builtin Registry");
 
-        assert_eq!(
-            sync_configured_registry_agents(&mut file, &registry).expect("sync Registry"),
-            1
-        );
+        let sync = apply_registry_refresh(&mut file, &registry);
+        assert_eq!(sync.quarantined.len(), 1);
+        assert_eq!(sync.quarantined[0].agent_id, "fast-agent");
+        assert!(!sync.quarantined[0].reason.is_empty());
+        assert_eq!(sync.disabled_agent_ids, ["fast-agent"]);
         assert!(!file.agents[0].enabled);
+        assert_eq!(file.agents[0].command, "user-fast-agent");
+        assert_eq!(file.agents[0].args, ["--keep"]);
+        assert_eq!(file.agents[0].name, "My Fast Agent");
     }
 
     #[test]
@@ -903,5 +1025,239 @@ mod tests {
             1,
             "temporary config file was not cleaned up"
         );
+    }
+
+    fn grok_registry_agent() -> crate::registry::RegistryAgent {
+        crate::registry::find_registry_agent(
+            &crate::registry::load_builtin_registry().expect("builtin"),
+            "grok-build",
+        )
+        .expect("grok-build")
+        .clone()
+    }
+
+    #[test]
+    fn add_existing_registry_agent_is_idempotent_and_preserves_the_full_tuple() {
+        let mut existing = agent("grok-build");
+        existing.source = "registry".into();
+        existing.command = "/opt/user-grok".into();
+        existing.args = vec!["agent".into(), "stdio".into()];
+        existing.env.insert("USER_KEY".into(), "keep".into());
+        existing.icon = Some("star".into());
+        existing.sort = 4;
+        existing.enabled = false;
+        existing.name = "My Grok".into();
+        let mut file = AcpAgentsFile {
+            general: AcpGeneralConfig::default(),
+            agents: vec![existing.clone()],
+        };
+        let registry_agent = grok_registry_agent();
+
+        let outcome = commit_registry_agent_with(
+            &mut file,
+            &registry_agent,
+            true,
+            true,
+            Some("unused"),
+            |_| panic!("existing agent must not resolve Registry"),
+        )
+        .expect("idempotent add");
+
+        assert_eq!(outcome, RegistryPlanOutcome::AlreadyConfigured);
+        assert_eq!(file.agents, vec![existing]);
+    }
+
+    #[test]
+    fn grok_legacy_direct_marker_is_stripped_and_other_env_is_kept() {
+        let mut grok = agent("grok-build");
+        grok.source = "registry".into();
+        grok.command = "/opt/grok".into();
+        grok.args = vec!["agent".into(), "stdio".into()];
+        grok.env.insert(GROK_NPM_MARKER.into(), "1".into());
+        grok.env.insert("USER_TOKEN".into(), "abc".into());
+        let mut custom = agent("custom-grok");
+        custom.command = "/opt/grok".into();
+        custom.args = vec!["agent".into(), "stdio".into()];
+        custom.env.insert(GROK_NPM_MARKER.into(), "1".into());
+        let mut file = AcpAgentsFile {
+            general: AcpGeneralConfig::default(),
+            agents: vec![grok, custom],
+        };
+
+        assert!(normalize_loaded_agents_with(&mut file, |_| None));
+        assert!(!file.agents[0].env.contains_key(GROK_NPM_MARKER));
+        assert_eq!(file.agents[0].env.get("USER_TOKEN"), Some(&"abc".into()));
+        assert_eq!(file.agents[1].env.get(GROK_NPM_MARKER), Some(&"1".into()));
+    }
+
+    #[test]
+    fn reuse_local_commit_does_not_require_installer_and_skips_npx() {
+        let mut file = AcpAgentsFile::default();
+        let agent = grok_registry_agent();
+        let plan = crate::registry_plan::plan_registry_launch_with(
+            &agent,
+            |_| Some("/opt/old-grok".into()),
+            None,
+        );
+        let token = crate::registry_plan::issue_approval_token("grok-build", &plan);
+        let outcome =
+            commit_registry_agent_with(&mut file, &agent, true, false, Some(&token), |_| {
+                crate::registry_plan::plan_registry_launch_with(
+                    &agent,
+                    |_| Some("/opt/old-grok".into()),
+                    None,
+                )
+            })
+            .expect("reuse local");
+
+        assert_eq!(outcome, RegistryPlanOutcome::ReuseLocal);
+        assert_eq!(file.agents[0].command, "/opt/old-grok");
+        assert_eq!(file.agents[0].args, ["agent", "stdio"]);
+        assert!(!file.agents[0].env.contains_key(GROK_NPM_MARKER));
+    }
+
+    #[test]
+    fn install_required_without_approval_does_not_write_config() {
+        let mut file = AcpAgentsFile::default();
+        let agent = grok_registry_agent();
+        let error = commit_registry_agent_with(&mut file, &agent, true, false, None, |_| {
+            crate::registry_plan::plan_registry_launch_with(&agent, |_| None, None)
+        })
+        .expect_err("installer unauthorized");
+
+        assert!(error.to_string().contains("explicit installer approval"));
+        assert!(file.agents.is_empty());
+    }
+
+    #[test]
+    fn exact_version_install_persists_previewed_spec_after_token() {
+        let mut file = AcpAgentsFile::default();
+        let agent = grok_registry_agent();
+        let plan = crate::registry_plan::plan_registry_launch_with(&agent, |_| None, None);
+        let token = crate::registry_plan::issue_approval_token("grok-build", &plan);
+        let outcome =
+            commit_registry_agent_with(&mut file, &agent, true, true, Some(&token), |_| {
+                crate::registry_plan::plan_registry_launch_with(&agent, |_| None, None)
+            })
+            .expect("approved install");
+
+        assert_eq!(outcome, RegistryPlanOutcome::InstallRequired);
+        assert_eq!(file.agents[0].command, "npx");
+        assert!(file.agents[0]
+            .args
+            .iter()
+            .any(|arg| arg == "@xai-official/grok@1.0.0"));
+        assert!(!file.agents[0].env.contains_key(GROK_NPM_MARKER));
+    }
+
+    #[test]
+    fn stale_approval_token_fails_when_plan_changes() {
+        let mut file = AcpAgentsFile::default();
+        let mut agent = grok_registry_agent();
+        let first = crate::registry_plan::plan_registry_launch_with(&agent, |_| None, None);
+        let token = crate::registry_plan::issue_approval_token("grok-build", &first);
+        agent
+            .distribution
+            .as_mut()
+            .expect("distribution")
+            .npx
+            .as_mut()
+            .expect("npx")
+            .package = "@xai-official/grok@1.0.1".into();
+        agent.distribution.as_mut().expect("distribution").binary = None;
+
+        let error =
+            commit_registry_agent_with(&mut file, &agent, true, true, Some(&token), |current| {
+                crate::registry_plan::plan_registry_launch_with(current, |_| None, None)
+            })
+            .expect_err("stale token");
+
+        assert!(error.to_string().contains("does not match"));
+        assert!(file.agents.is_empty());
+    }
+
+    #[test]
+    fn variable_version_commit_is_rejected() {
+        let mut file = AcpAgentsFile::default();
+        let mut agent = grok_registry_agent();
+        agent
+            .distribution
+            .as_mut()
+            .expect("distribution")
+            .npx
+            .as_mut()
+            .expect("npx")
+            .package = "@xai-official/grok@latest".into();
+        agent.distribution.as_mut().expect("distribution").binary = None;
+
+        let error =
+            commit_registry_agent_with(&mut file, &agent, true, true, Some("token"), |current| {
+                crate::registry_plan::plan_registry_launch_with(current, |_| None, None)
+            })
+            .expect_err("variable spec");
+
+        assert!(error.to_string().contains("exact version"));
+        assert!(file.agents.is_empty());
+    }
+
+    #[test]
+    fn grok_npx_migrates_to_any_local_binary_and_keeps_other_env() {
+        let mut grok = agent("grok-build");
+        grok.source = "registry".into();
+        grok.command = "npx".into();
+        grok.args = vec![
+            "-y".into(),
+            "--registry=https://registry.npmjs.org".into(),
+            "@xai-official/grok@1.0.0".into(),
+            "agent".into(),
+            "stdio".into(),
+        ];
+        grok.env.insert(GROK_NPM_MARKER.into(), "1".into());
+        grok.env.insert("USER_TOKEN".into(), "abc".into());
+        let mut file = AcpAgentsFile {
+            general: AcpGeneralConfig::default(),
+            agents: vec![grok],
+        };
+
+        let updated = normalize_loaded_agents_with(&mut file, |agent| {
+            crate::registry::resolve_configured_npx_trampoline_with(
+                &agent.command,
+                &agent.args,
+                &agent.env,
+                |_| Some("/isolated/grok-0.2.121".into()),
+            )
+        });
+
+        assert!(updated);
+        assert_eq!(file.agents[0].command, "/isolated/grok-0.2.121");
+        assert_eq!(file.agents[0].args, ["agent", "stdio"]);
+        assert_eq!(file.agents[0].env.get("USER_TOKEN"), Some(&"abc".into()));
+        assert!(!file.agents[0].env.contains_key(GROK_NPM_MARKER));
+    }
+
+    #[test]
+    fn preview_already_configured_skips_registry_lookup() {
+        let mut existing = agent("grok-build");
+        existing.command = "/opt/user-grok".into();
+        existing.args = vec!["agent".into(), "stdio".into()];
+        existing.env.insert("USER_KEY".into(), "keep".into());
+        let file = AcpAgentsFile {
+            general: AcpGeneralConfig::default(),
+            agents: vec![existing.clone()],
+        };
+        let empty_registry = crate::registry::RegistryFile {
+            version: "test".into(),
+            agents: Vec::new(),
+            source: None,
+            fetched_at: None,
+        };
+
+        let preview =
+            preview_registry_agent(&file, &empty_registry, "grok-build").expect("preview");
+
+        assert_eq!(preview.outcome, "alreadyConfigured");
+        assert_eq!(preview.command, "/opt/user-grok");
+        assert_eq!(preview.configured.as_ref(), Some(&existing));
+        assert!(preview.approval_token.is_none());
     }
 }

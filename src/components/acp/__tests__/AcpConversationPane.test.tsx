@@ -254,7 +254,7 @@ describe('AcpConversationPane', () => {
           idleTimeoutSecs: 300,
           maxConcurrentProcesses: 2,
           permissionDefault: 'default',
-          registryRefresh: 'weekly',
+          registryRefresh: 'manual',
         },
         agents: [
           {

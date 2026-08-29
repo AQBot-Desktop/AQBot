@@ -75,7 +75,7 @@ describe('AgentPage', () => {
             idleTimeoutSecs: 300,
             maxConcurrentProcesses: 4,
             permissionDefault: 'default',
-            registryRefresh: 'daily',
+            registryRefresh: 'on_start',
           },
           agents: [{
             id: 'codex',
@@ -116,7 +116,7 @@ describe('AgentPage', () => {
             idleTimeoutSecs: 300,
             maxConcurrentProcesses: 4,
             permissionDefault: 'default',
-            registryRefresh: 'daily',
+            registryRefresh: 'on_start',
           },
           agents: [{
             id: 'codex',
