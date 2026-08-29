@@ -1,10 +1,37 @@
 import type { Attachment } from './index';
 
+export type AcpRegistryRefreshPolicy = 'on_start' | 'manual' | 'never';
+
 export interface AcpGeneralConfig {
   idleTimeoutSecs: number;
   maxConcurrentProcesses: number;
   permissionDefault: string;
-  registryRefresh: string;
+  registryRefresh: AcpRegistryRefreshPolicy;
+}
+
+export type RegistryAddOutcome =
+  | 'alreadyConfigured'
+  | 'reuseLocal'
+  | 'installRequired'
+  | 'manualRequired'
+  | 'quarantined';
+
+export interface RegistryAddPreview {
+  agentId: string;
+  outcome: RegistryAddOutcome;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  kind: string;
+  source: string;
+  version?: string | null;
+  catalogVersion?: string | null;
+  installerKind?: string | null;
+  installerSpec?: string | null;
+  approvalToken?: string | null;
+  configured?: ConfiguredAgent | null;
+  quarantineReason?: string | null;
+  manualReason?: string | null;
 }
 
 export interface ConfiguredAgent {

@@ -7,8 +7,18 @@ pub async fn acp_get_registry() -> Result<RegistryFile, String> {
     load_registry().map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRegistryRefreshResult {
+    #[serde(flatten)]
+    pub registry: RegistryFile,
+    pub quarantined_agents: Vec<QuarantinedConfiguredAgent>,
+}
+
 #[tauri::command]
-pub async fn acp_refresh_registry(state: State<'_, AppState>) -> Result<RegistryFile, String> {
+pub async fn acp_refresh_registry(
+    state: State<'_, AppState>,
+) -> Result<AcpRegistryRefreshResult, String> {
     let proxy_settings = load_process_proxy_settings(&state).await?;
     let proxy = resolve_proxy_environment(&proxy_settings).map_err(|error| error.to_string())?;
     let registry = refresh_registry_with_proxy(&proxy)
@@ -16,34 +26,18 @@ pub async fn acp_refresh_registry(state: State<'_, AppState>) -> Result<Registry
         .map_err(|e| e.to_string())?;
     let _guard = config_lock().lock().await;
     let mut file = load_agents_file().map_err(|e| e.to_string())?;
-    let previous_agents = file.agents.clone();
-    let synced = sync_configured_registry_agents(&mut file, &registry)
-        .map_err(|error| format!("failed to apply refreshed ACP Registry: {error}"))?;
-    let changed_agents = file
-        .agents
-        .iter()
-        .filter(|agent| agent.source == "registry")
-        .filter(|agent| {
-            previous_agents
-                .iter()
-                .find(|previous| previous.id == agent.id)
-                .is_some_and(|previous| {
-                    previous.enabled != agent.enabled
-                        || previous.command != agent.command
-                        || previous.args != agent.args
-                        || previous.env != agent.env
-                })
-        })
-        .map(|agent| agent.id.clone())
-        .collect::<Vec<_>>();
-    if synced > 0 {
+    let sync = apply_registry_refresh(&mut file, &registry);
+    if !sync.disabled_agent_ids.is_empty() {
         save_agents_file(&file).map_err(|e| e.to_string())?;
-    }
-    if !changed_agents.is_empty() {
         note_launch_config_changed();
+        runtime()
+            .drop_agent_sessions(&sync.disabled_agent_ids)
+            .await;
     }
-    runtime().drop_agent_sessions(&changed_agents).await;
-    Ok(registry)
+    Ok(AcpRegistryRefreshResult {
+        registry,
+        quarantined_agents: sync.quarantined,
+    })
 }
 
 #[tauri::command]
@@ -73,29 +67,56 @@ pub async fn acp_save_general(general: AcpGeneralConfig) -> Result<AcpAgentsFile
 }
 
 #[tauri::command]
-pub async fn acp_add_agent_from_registry(
-    agent_id: String,
-    enabled: Option<bool>,
-) -> Result<AcpAgentsFile, String> {
+pub async fn acp_preview_registry_agent(agent_id: String) -> Result<RegistryAddPreview, String> {
     let _guard = config_lock().lock().await;
-    let registry = load_registry().map_err(|e| e.to_string())?;
-    let agent = find_registry_agent(&registry, &agent_id)
-        .ok_or_else(|| format!("agent `{agent_id}` not in registry"))?;
-    if let Some(reason) = agent.quarantine_reason.as_deref() {
-        return Err(format!(
-            "agent `{agent_id}` is quarantined by the official ACP Registry: {reason}"
-        ));
-    }
-    let mut file = load_agents_file().map_err(|e| e.to_string())?;
-    let previous = file
+    let file = load_agents_file().map_err(|e| e.to_string())?;
+    if let Some(existing) = file
         .agents
         .iter()
         .find(|configured| configured.id == agent_id)
-        .cloned();
-    upsert_from_registry(&mut file, agent, enabled.unwrap_or(true)).map_err(|e| e.to_string())?;
+        .cloned()
+    {
+        return Ok(RegistryAddPreview::already_configured(existing));
+    }
+    let registry = load_registry().map_err(|e| e.to_string())?;
+    preview_registry_agent(&file, &registry, &agent_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn acp_add_agent_from_registry(
+    agent_id: String,
+    enabled: Option<bool>,
+    allow_installer: Option<bool>,
+    approval_token: Option<String>,
+) -> Result<AcpAgentsFile, String> {
+    let _guard = config_lock().lock().await;
+    let mut file = load_agents_file().map_err(|e| e.to_string())?;
+    if file
+        .agents
+        .iter()
+        .any(|configured| configured.id == agent_id)
+    {
+        return Ok(file);
+    }
+    let registry = load_registry().map_err(|e| e.to_string())?;
+    let agent = find_registry_agent(&registry, &agent_id)
+        .ok_or_else(|| format!("agent `{agent_id}` not in registry"))?;
+    let outcome = commit_registry_agent(
+        &mut file,
+        agent,
+        enabled.unwrap_or(true),
+        allow_installer.unwrap_or(false),
+        approval_token.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    if matches!(
+        outcome,
+        aqbot_acp_client::RegistryPlanOutcome::AlreadyConfigured
+    ) {
+        return Ok(file);
+    }
     save_agents_file(&file).map_err(|e| e.to_string())?;
-    let current = file.agents.iter().find(|agent| agent.id == agent_id);
-    if note_agent_launch_change(previous.as_ref(), current) {
+    if note_agent_launch_change(None, file.agents.iter().find(|agent| agent.id == agent_id)) {
         runtime()
             .drop_agent_sessions(std::slice::from_ref(&agent_id))
             .await;

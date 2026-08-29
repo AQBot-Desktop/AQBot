@@ -17,7 +17,10 @@ use std::os::unix::fs::PermissionsExt;
 
 pub const REGISTRY_URL: &str =
     "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
-const OFFICIAL_NPM_REGISTRY: &str = "https://registry.npmjs.org";
+pub(crate) const OFFICIAL_NPM_REGISTRY: &str = "https://registry.npmjs.org";
+pub(crate) const GROK_NPM_PACKAGE: &str = "@xai-official/grok";
+pub(crate) const GROK_AGENT_ID: &str = "grok-build";
+pub(crate) const GROK_NPM_MARKER: &str = "GROK_MANAGED_BY_NPM";
 
 /// Full offline snapshot of the official ACP registry (kept in sync with CDN).
 /// Online refresh still updates `~/.aqbot/acp/registry.cache.json` when available.
@@ -81,6 +84,34 @@ pub fn official_quarantine_reason(agent_id: &str) -> Option<&'static str> {
     }
 }
 
+pub(crate) fn grok_stdio_args() -> Vec<String> {
+    vec!["agent".into(), "stdio".into()]
+}
+
+pub(crate) fn grok_command_name(command: &str) -> Option<String> {
+    let name = Path::new(command)
+        .file_stem()?
+        .to_str()?
+        .to_ascii_lowercase();
+    (name == "grok" || name.starts_with("grok-")).then_some(name)
+}
+
+pub(crate) fn is_direct_grok_fingerprint(command: &str, args: &[String]) -> bool {
+    grok_command_name(command).is_some() && args == grok_stdio_args()
+}
+
+pub(crate) fn is_grok_registry_agent(agent: &RegistryAgent) -> bool {
+    agent.id == GROK_AGENT_ID
+        || agent
+            .distribution
+            .as_ref()
+            .and_then(|distribution| distribution.npx.as_ref())
+            .is_some_and(|npx| {
+                exact_npm_package_spec(&npx.package)
+                    .is_some_and(|(package, _)| package == GROK_NPM_PACKAGE)
+            })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryDistribution {
@@ -135,7 +166,7 @@ pub struct ResolvedLaunch {
     pub kind: String,
 }
 
-fn current_platform_key() -> String {
+pub(crate) fn current_platform_key() -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     let os_part = match os {
@@ -154,7 +185,7 @@ fn current_platform_key() -> String {
 /// Resolve a CLI to an absolute path when possible.
 /// GUI apps often lack shell-augmented PATH entries like `~/.grok/bin` or nvm,
 /// so also probe well-known install locations for common agent CLIs.
-fn resolve_command_path(cmd: &str) -> Option<String> {
+pub(crate) fn resolve_command_path(cmd: &str) -> Option<String> {
     // Already absolute / relative with separator
     if cmd.contains('/') || cmd.contains('\\') {
         let p = PathBuf::from(cmd);
@@ -195,13 +226,6 @@ fn resolve_command_path(cmd: &str) -> Option<String> {
     None
 }
 
-fn canonical_file_name(path: &str) -> Option<String> {
-    std::fs::canonicalize(path)
-        .ok()?
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-}
-
 fn is_valid_npm_package_name(package: &str) -> bool {
     let valid_segment = |segment: &str| {
         !segment.is_empty()
@@ -221,7 +245,7 @@ fn is_valid_npm_package_name(package: &str) -> bool {
     }
 }
 
-fn exact_npm_package_spec(spec: &str) -> Option<(&str, &str)> {
+pub(crate) fn exact_npm_package_spec(spec: &str) -> Option<(&str, &str)> {
     let (package, version) = spec.rsplit_once('@')?;
     if !is_valid_npm_package_name(package) || semver::Version::parse(version).is_err() {
         return None;
@@ -241,7 +265,7 @@ fn npx_cache_key(spec: &str) -> Option<String> {
 }
 
 #[cfg(unix)]
-fn configured_npx_cache_dir(env: &HashMap<String, String>) -> Option<PathBuf> {
+pub(crate) fn configured_npx_cache_dir(env: &HashMap<String, String>) -> Option<PathBuf> {
     let configured = env
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case("npm_config_cache"))
@@ -253,7 +277,7 @@ fn configured_npx_cache_dir(env: &HashMap<String, String>) -> Option<PathBuf> {
 }
 
 #[cfg(not(unix))]
-fn configured_npx_cache_dir(_env: &HashMap<String, String>) -> Option<PathBuf> {
+pub(crate) fn configured_npx_cache_dir(_env: &HashMap<String, String>) -> Option<PathBuf> {
     None
 }
 
@@ -339,7 +363,7 @@ fn is_sha512_integrity(integrity: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn resolve_cached_exact_npx(npx: &NpxDist, npx_cache: &Path) -> Option<ResolvedLaunch> {
+pub(crate) fn resolve_cached_exact_npx(npx: &NpxDist, npx_cache: &Path) -> Option<ResolvedLaunch> {
     let (package, version) = exact_npm_package_spec(&npx.package)?;
     let install_dir = npx_cache.join(npx_cache_key(&npx.package)?);
     let cache_root = std::fs::canonicalize(npx_cache).ok()?;
@@ -408,43 +432,38 @@ fn verified_cached_bin_launch(
 }
 
 #[cfg(not(unix))]
-fn resolve_cached_exact_npx(_npx: &NpxDist, _npx_cache: &Path) -> Option<ResolvedLaunch> {
+pub(crate) fn resolve_cached_exact_npx(
+    _npx: &NpxDist,
+    _npx_cache: &Path,
+) -> Option<ResolvedLaunch> {
     None
 }
 
-/// Some npm packages are only thin trampolines to a canonical, versioned CLI
-/// already installed on the machine. Running npm for every ACP process adds a
-/// registry lookup and an extra Node process without changing the executable.
-fn resolve_installed_npx_trampoline(
+/// Reuse a local Grok CLI whenever one is already executable.
+///
+/// Registry version pins and installer filenames are not authoritative for an
+/// already-installed binary. AQBot must not inject npm-managed markers or
+/// auto-update flags; Grok's own config remains the source of truth.
+pub(crate) fn resolve_installed_npx_trampoline(
     npx: &NpxDist,
     resolve_command: impl Fn(&str) -> Option<String>,
-    resolved_file_name: impl Fn(&str) -> Option<String>,
 ) -> Option<ResolvedLaunch> {
-    let (package, requested_version) = exact_npm_package_spec(&npx.package)?;
-    if package != "@xai-official/grok" {
+    let (package, _) = exact_npm_package_spec(&npx.package)?;
+    if package != GROK_NPM_PACKAGE {
         return None;
     }
     let command = resolve_command("grok")?;
-    let expected = if cfg!(windows) {
-        format!("grok-{requested_version}.exe")
-    } else {
-        format!("grok-{requested_version}")
-    };
-    if resolved_file_name(&command).as_deref() != Some(expected.as_str()) {
-        return None;
-    }
     let mut env = npx.env.clone();
-    env.entry("GROK_MANAGED_BY_NPM".into())
-        .or_insert_with(|| "1".into());
+    env.remove(GROK_NPM_MARKER);
     Some(ResolvedLaunch {
         command,
-        args: npx.args.clone(),
+        args: grok_stdio_args(),
         env,
         kind: "binary".into(),
     })
 }
 
-fn configured_npx_distribution(
+pub(crate) fn configured_npx_distribution(
     command: &str,
     args: &[String],
     env: &HashMap<String, String>,
@@ -477,29 +496,20 @@ fn resolve_configured_npx_with_cache(
     env: &HashMap<String, String>,
     npx_cache: Option<&Path>,
     resolve_command: impl Fn(&str) -> Option<String>,
-    resolved_file_name: impl Fn(&str) -> Option<String>,
 ) -> Option<ResolvedLaunch> {
     let distribution = configured_npx_distribution(command, args, env)?;
-    resolve_installed_npx_trampoline(&distribution, resolve_command, resolved_file_name)
+    resolve_installed_npx_trampoline(&distribution, resolve_command)
         .or_else(|| npx_cache.and_then(|cache| resolve_cached_exact_npx(&distribution, cache)))
 }
 
 #[cfg(test)]
-fn resolve_configured_npx_trampoline_with(
+pub(crate) fn resolve_configured_npx_trampoline_with(
     command: &str,
     args: &[String],
     env: &HashMap<String, String>,
     resolve_command: impl Fn(&str) -> Option<String>,
-    resolved_file_name: impl Fn(&str) -> Option<String>,
 ) -> Option<ResolvedLaunch> {
-    resolve_configured_npx_with_cache(
-        command,
-        args,
-        env,
-        None,
-        resolve_command,
-        resolved_file_name,
-    )
+    resolve_configured_npx_with_cache(command, args, env, None, resolve_command)
 }
 
 /// Upgrade an already-persisted exact Registry npx launch without waiting for
@@ -517,11 +527,10 @@ pub(crate) fn resolve_configured_npx_trampoline(
         env,
         npx_cache.as_deref(),
         resolve_command_path,
-        canonical_file_name,
     )
 }
 
-fn resolve_npx_launch(npx: &NpxDist, npx_cache: Option<&Path>) -> ResolvedLaunch {
+pub(crate) fn resolve_npx_launch(npx: &NpxDist, npx_cache: Option<&Path>) -> ResolvedLaunch {
     if let Some(cache) = npx_cache {
         if let Some(launch) = resolve_cached_exact_npx(npx, cache) {
             return launch;
@@ -585,9 +594,7 @@ fn resolve_launch_with_npx_cache(
     }
 
     if let Some(npx) = &dist.npx {
-        if let Some(launch) =
-            resolve_installed_npx_trampoline(npx, resolve_command_path, canonical_file_name)
-        {
+        if let Some(launch) = resolve_installed_npx_trampoline(npx, resolve_command_path) {
             return Some(launch);
         }
         return Some(resolve_npx_launch(npx, npx_cache));
@@ -932,6 +939,7 @@ pub fn find_registry_agent<'a>(registry: &'a RegistryFile, id: &str) -> Option<&
 #[cfg(all(test, unix))]
 pub(crate) struct NpxCacheFixture {
     root: PathBuf,
+    #[allow(dead_code)]
     pub(crate) npm_cache: PathBuf,
     pub(crate) npx_cache: PathBuf,
     pub(crate) package_dir: PathBuf,
@@ -1411,7 +1419,6 @@ mod tests {
             &HashMap::new(),
             Some(&fixture.npx_cache),
             |_| None,
-            |_| None,
         )
         .expect("cached configured npx launch");
 
@@ -1457,38 +1464,21 @@ mod tests {
     }
 
     #[test]
-    fn npx_only_grok_prefers_the_matching_installed_trampoline_target() {
+    fn npx_only_grok_reuses_any_local_binary_without_npm_marker() {
         let npx = NpxDist {
             package: "@xai-official/grok@1.0.0".into(),
             args: vec!["agent".into(), "stdio".into()],
-            env: HashMap::new(),
+            env: HashMap::from([(GROK_NPM_MARKER.into(), "1".into())]),
         };
-        let resolved = resolve_installed_npx_trampoline(
-            &npx,
-            |command| (command == "grok").then(|| "/opt/grok".into()),
-            |_| {
-                Some(if cfg!(windows) {
-                    "grok-1.0.0.exe".into()
-                } else {
-                    "grok-1.0.0".into()
-                })
-            },
-        )
-        .expect("matching installed Grok binary");
+        let resolved = resolve_installed_npx_trampoline(&npx, |command| {
+            (command == "grok").then(|| "/opt/grok-0.2.121".into())
+        })
+        .expect("any installed Grok binary");
 
-        assert_eq!(resolved.command, "/opt/grok");
+        assert_eq!(resolved.command, "/opt/grok-0.2.121");
         assert_eq!(resolved.args, ["agent", "stdio"]);
-        assert_eq!(resolved.env.get("GROK_MANAGED_BY_NPM"), Some(&"1".into()));
-        assert!(resolve_installed_npx_trampoline(
-            &npx,
-            |_| Some("/opt/grok".into()),
-            |_| Some(if cfg!(windows) {
-                "grok-0.2.121.exe".into()
-            } else {
-                "grok-0.2.121".into()
-            }),
-        )
-        .is_none());
+        assert!(!resolved.env.contains_key(GROK_NPM_MARKER));
+        assert!(resolve_installed_npx_trampoline(&npx, |_| None).is_none());
     }
 
     #[test]
@@ -1503,20 +1493,13 @@ mod tests {
         let resolved = resolve_configured_npx_trampoline_with(
             "/usr/local/bin/npx",
             &args,
-            &HashMap::new(),
-            |_| Some("/opt/grok".into()),
-            |_| {
-                Some(if cfg!(windows) {
-                    "grok-1.0.0.exe".into()
-                } else {
-                    "grok-1.0.0".into()
-                })
-            },
+            &HashMap::from([(GROK_NPM_MARKER.into(), "1".into())]),
+            |_| Some("/usr/local/bin/grok".into()),
         )
-        .expect("matching installed Grok binary");
+        .expect("any installed Grok binary");
 
-        assert_eq!(resolved.command, "/opt/grok");
+        assert_eq!(resolved.command, "/usr/local/bin/grok");
         assert_eq!(resolved.args, ["agent", "stdio"]);
-        assert_eq!(resolved.env.get("GROK_MANAGED_BY_NPM"), Some(&"1".into()));
+        assert!(!resolved.env.contains_key(GROK_NPM_MARKER));
     }
 }

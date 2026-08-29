@@ -267,7 +267,7 @@ describe('acpStore session mode', () => {
     },
   );
 
-  it('reloads managed Agent launches after a live Registry refresh', async () => {
+  it('keeps managed Agent launches and sessions after a catalog-only Registry refresh', async () => {
     const registry: RegistryFile = {
       version: '1',
       source: 'live',
@@ -286,15 +286,8 @@ describe('acpStore session mode', () => {
         enabled: true,
         source: 'registry',
         command: 'npx',
-        args: ['-y', '@agentclientprotocol/codex-acp@1.1.14'],
-        sort: 0,
-      }],
-    };
-    const previousConfig: AcpAgentsFile = {
-      ...config,
-      agents: [{
-        ...config.agents[0],
         args: ['-y', '@agentclientprotocol/codex-acp@1.1.13'],
+        sort: 0,
       }],
     };
     const cachedSnapshot: AcpSessionSnapshot = {
@@ -305,12 +298,13 @@ describe('acpStore session mode', () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'acp_refresh_registry') return registry;
       if (command === 'acp_get_config') return config;
+      if (command === 'acp_prewarm_enabled_agents') return [];
       throw new Error(`Unexpected invoke: ${command}`);
     });
 
     const { useAcpStore } = await import('../acpStore');
     useAcpStore.setState({
-      config: previousConfig,
+      config,
       threads: [thread('thread-running', null), thread('thread-idle', null)],
       allThreads: [thread('thread-running', null), thread('thread-idle', null)],
       sessionByThread: {
@@ -333,8 +327,9 @@ describe('acpStore session mode', () => {
     expect(useAcpStore.getState().registry).toEqual(registry);
     expect(useAcpStore.getState().config).toEqual(config);
     expect(useAcpStore.getState().sessionByThread['thread-running']).toEqual(cachedSnapshot);
-    expect(useAcpStore.getState().sessionByThread['thread-idle']).toBeUndefined();
+    expect(useAcpStore.getState().sessionByThread['thread-idle']).toEqual(cachedSnapshot);
     expect(useAcpStore.getState().spawnModelByThread['thread-running']).toBe('model-a');
-    expect(useAcpStore.getState().spawnModelByThread['thread-idle']).toBeUndefined();
+    expect(useAcpStore.getState().spawnModelByThread['thread-idle']).toBe('model-a');
+    expect(invokeMock).not.toHaveBeenCalledWith('acp_prewarm_enabled_agents');
   });
 });

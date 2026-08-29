@@ -558,6 +558,7 @@ pub fn run() {
         commands::acp::acp_refresh_registry,
         commands::acp::acp_get_config,
         commands::acp::acp_save_general,
+        commands::acp::acp_preview_registry_agent,
         commands::acp::acp_add_agent_from_registry,
         commands::acp::acp_upsert_custom_agent,
         commands::acp::acp_set_agent_enabled,
