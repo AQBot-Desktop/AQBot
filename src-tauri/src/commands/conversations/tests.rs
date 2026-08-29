@@ -784,25 +784,6 @@ mod tests {
         assert!(content.contains("模型响应空闲超时"));
     }
 
-    #[test]
-    fn truncate_mcp_tool_result_keeps_small_outputs() {
-        let content = "short MCP result";
-
-        assert_eq!(truncate_mcp_tool_result_content(content, 50), content);
-    }
-
-    #[test]
-    fn truncate_mcp_tool_result_marks_large_outputs_without_splitting_utf8() {
-        let content = format!("{}终", "好".repeat(20));
-
-        let truncated = truncate_mcp_tool_result_content(&content, 25);
-
-        assert!(truncated.starts_with("好好好"));
-        assert!(truncated.contains("MCP tool output truncated"));
-        assert!(truncated.is_char_boundary(truncated.len()));
-        assert!(!truncated.contains("终"));
-    }
-
     #[tokio::test]
     async fn execute_tool_future_returns_cancelled_without_waiting_for_timeout() {
         let cancel_flag = AtomicBool::new(true);
@@ -819,6 +800,21 @@ mod tests {
         assert_eq!(content, "Error: Tool execution cancelled");
         assert!(is_error);
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn execute_tool_future_keeps_caller_timeout() {
+        let cancel_flag = AtomicBool::new(false);
+        let (content, is_error) = execute_tool_future(
+            pending::<aqbot_core::error::Result<aqbot_core::mcp_client::McpToolResult>>(),
+            0,
+            Duration::ZERO,
+            &cancel_flag,
+        )
+        .await;
+
+        assert_eq!(content, "Error: Tool execution timed out after 0s");
+        assert!(is_error);
     }
 
     #[test]

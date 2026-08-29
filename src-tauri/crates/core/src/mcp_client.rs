@@ -1,4 +1,5 @@
 use crate::error::{AQBotError, Result};
+use crate::types::McpServer;
 use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::{
     model::{CallToolRequestParams, CallToolResult, Tool},
@@ -25,6 +26,21 @@ use tokio_util::sync::CancellationToken;
 pub struct McpToolResult {
     pub content: String,
     pub is_error: bool,
+}
+
+/// Truncate an MCP tool result without splitting a UTF-8 code point.
+pub fn truncate_mcp_tool_result_content(content: &str, max_bytes: usize) -> String {
+    if content.len() <= max_bytes {
+        return content.to_string();
+    }
+
+    let end = content.floor_char_boundary(max_bytes);
+    format!(
+        "{}\n\n[MCP tool output truncated: showing first {} bytes of {} bytes]",
+        &content[..end],
+        end,
+        content.len()
+    )
 }
 
 /// A tool discovered from an MCP server via tools/list.
@@ -776,6 +792,87 @@ impl StdioClientManager {
     }
 }
 
+/// Dispatch one MCP tool call through the configured server transport.
+pub async fn call_tool_for_server(
+    stdio_clients: &StdioClientManager,
+    server: &McpServer,
+    tool_name: &str,
+    arguments: Value,
+) -> Result<McpToolResult> {
+    match server.transport.as_str() {
+        "builtin" => crate::builtin_tools::dispatch(&server.name, tool_name, arguments).await,
+        "stdio" => call_stdio_tool_for_server(stdio_clients, server, tool_name, arguments).await,
+        "http" => {
+            let endpoint = server.endpoint.as_deref().ok_or_else(|| {
+                AQBotError::Gateway("HTTP server has no endpoint configured".to_string())
+            })?;
+            call_tool_http(
+                endpoint,
+                server.headers_json.as_deref(),
+                tool_name,
+                arguments,
+            )
+            .await
+        }
+        "sse" => {
+            let endpoint = server.endpoint.as_deref().ok_or_else(|| {
+                AQBotError::Gateway("SSE server has no endpoint configured".to_string())
+            })?;
+            call_tool_sse(
+                endpoint,
+                server.headers_json.as_deref(),
+                tool_name,
+                arguments,
+            )
+            .await
+        }
+        other => Err(AQBotError::Gateway(format!(
+            "Unsupported transport '{}'",
+            other
+        ))),
+    }
+}
+
+async fn call_stdio_tool_for_server(
+    stdio_clients: &StdioClientManager,
+    server: &McpServer,
+    tool_name: &str,
+    arguments: Value,
+) -> Result<McpToolResult> {
+    let command = server
+        .command
+        .clone()
+        .ok_or_else(|| AQBotError::Gateway("stdio server has no command configured".to_string()))?;
+    let args = server
+        .args_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| AQBotError::Gateway(format!("Invalid stdio args JSON: {error}")))?
+        .unwrap_or_default();
+    let env = server
+        .env_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| AQBotError::Gateway(format!("Invalid stdio env JSON: {error}")))?
+        .unwrap_or_default();
+    stdio_clients
+        .call_tool(
+            StdioServerLaunch {
+                server_id: server.id.clone(),
+                command,
+                args,
+                env,
+            },
+            StdioToolCall {
+                name: tool_name.to_string(),
+                arguments,
+            },
+        )
+        .await
+}
+
 fn ensure_stdio_slot_active(slot: &StdioClientSlot, server_id: &str) -> Result<()> {
     if slot.retired.load(Ordering::Acquire) {
         Err(AQBotError::Gateway(format!(
@@ -1501,6 +1598,26 @@ for line in sys.stdin:
         }
     }
 
+    fn test_mcp_server(transport: &str) -> McpServer {
+        McpServer {
+            id: "test-server".to_string(),
+            name: "test-server".to_string(),
+            transport: transport.to_string(),
+            command: None,
+            args_json: None,
+            endpoint: None,
+            env_json: None,
+            enabled: true,
+            permission_policy: "ask".to_string(),
+            source: "custom".to_string(),
+            discover_timeout_secs: None,
+            execute_timeout_secs: None,
+            headers_json: None,
+            icon_type: None,
+            icon_value: None,
+        }
+    }
+
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
@@ -1554,6 +1671,93 @@ for line in sys.stdin:
                 .unwrap(),
             "value"
         );
+    }
+
+    #[test]
+    fn truncate_mcp_tool_result_keeps_small_outputs() {
+        let content = "short MCP result";
+
+        assert_eq!(truncate_mcp_tool_result_content(content, 50), content);
+    }
+
+    #[test]
+    fn truncate_mcp_tool_result_marks_large_outputs_without_splitting_utf8() {
+        let content = format!("{}终", "好".repeat(20));
+
+        let truncated = truncate_mcp_tool_result_content(&content, 25);
+
+        assert!(truncated.starts_with("好好好"));
+        assert!(truncated.contains("MCP tool output truncated"));
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert!(!truncated.contains("终"));
+    }
+
+    #[tokio::test]
+    async fn call_tool_for_server_propagates_transport_configuration_errors() {
+        let manager = StdioClientManager::new();
+        for (transport, expected) in [
+            ("builtin", "Unknown builtin server"),
+            ("stdio", "no command configured"),
+            ("http", "no endpoint configured"),
+            ("sse", "no endpoint configured"),
+            ("unsupported", "Unsupported transport"),
+        ] {
+            let error = call_tool_for_server(
+                &manager,
+                &test_mcp_server(transport),
+                "echo",
+                serde_json::json!({}),
+            )
+            .await
+            .unwrap_err();
+
+            assert!(error.to_string().contains(expected), "{transport}: {error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn call_tool_for_server_propagates_http_and_sse_header_errors() {
+        let manager = StdioClientManager::new();
+        for transport in ["http", "sse"] {
+            let server = McpServer {
+                endpoint: Some("http://127.0.0.1:1".to_string()),
+                headers_json: Some("{invalid-json".to_string()),
+                ..test_mcp_server(transport)
+            };
+
+            let error = call_tool_for_server(&manager, &server, "echo", serde_json::json!({}))
+                .await
+                .unwrap_err();
+
+            assert!(
+                error
+                    .to_string()
+                    .contains("Invalid MCP custom headers JSON"),
+                "{transport}: {error}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn call_tool_for_server_rejects_invalid_stdio_configuration_json() {
+        let manager = StdioClientManager::new();
+        for (field, expected) in [
+            ("args", "Invalid stdio args JSON"),
+            ("env", "Invalid stdio env JSON"),
+        ] {
+            let server = McpServer {
+                command: Some("unused".to_string()),
+                args_json: (field == "args").then(|| "{invalid-json".to_string()),
+                env_json: (field == "env").then(|| "{invalid-json".to_string()),
+                ..test_mcp_server("stdio")
+            };
+
+            let error = call_tool_for_server(&manager, &server, "echo", serde_json::json!({}))
+                .await
+                .unwrap_err();
+
+            assert!(error.to_string().contains(expected), "{field}: {error}");
+        }
     }
 
     #[test]
@@ -1677,7 +1881,7 @@ for line in sys.stdin:
     }
 
     #[tokio::test]
-    async fn stdio_client_reuses_process_between_discovery_and_tool_call() {
+    async fn call_tool_for_server_reuses_process_after_discovery() {
         let dir = tempfile::tempdir().unwrap();
         let counter_path = dir.path().join("starts.txt");
         let launch = test_stdio_launch("reuse", &counter_path);
@@ -1686,14 +1890,14 @@ for line in sys.stdin:
         let tools = manager.discover_tools(launch.clone()).await.unwrap();
         assert_eq!(tools.len(), 1);
 
-        let result = manager
-            .call_tool(
-                launch,
-                StdioToolCall {
-                    name: "echo".to_string(),
-                    arguments: serde_json::json!({}),
-                },
-            )
+        let server = McpServer {
+            id: launch.server_id,
+            command: Some(launch.command),
+            args_json: Some(serde_json::to_string(&launch.args).unwrap()),
+            env_json: Some(serde_json::to_string(&launch.env).unwrap()),
+            ..test_mcp_server("stdio")
+        };
+        let result = call_tool_for_server(&manager, &server, "echo", serde_json::json!({}))
             .await
             .unwrap();
         assert_eq!(

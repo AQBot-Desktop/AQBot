@@ -563,7 +563,7 @@ export function InputArea() {
           ? t('agent.permissionFullAccessWarningTitle')
           : t('agent.permissionAcceptEditsWarningTitle'),
         content: isFullAccess
-          ? t('agent.permissionFullAccessWarning')
+          ? t('agent.permissionFullAccessChatWarning')
           : t('agent.permissionAcceptEditsWarning'),
         okText: t('common.confirm'),
         cancelText: t('common.cancel'),
@@ -1834,37 +1834,38 @@ export function InputArea() {
             </Tooltip>
             <RoleSwitcherPopover />
             {currentMode === 'agent' && <SkillPickerPopover />}
-            {currentMode !== 'agent' && (
             <Popover
               trigger="click"
               placement="topLeft"
               content={(
                 <div>
                   {mcpPopoverContent}
-                  <div
-                    data-testid="mcp-terminal-hint"
-                    style={{
-                      borderTop: `1px solid ${token.colorBorderSecondary}`,
-                      marginTop: 8,
-                      paddingTop: 8,
-                    }}
-                  >
-                    <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 4 }}>
-                      {t('chat.mcp.terminalHint')}
-                    </div>
-                    <Button
-                      type="link"
-                      size="small"
-                      style={{ padding: 0, fontSize: 12 }}
-                      aria-label={t('chat.mcp.switchToAgent')}
-                      onClick={() => {
-                        setMcpPopoverOpen(false);
-                        void handleModeSwitch('agent');
+                  {currentMode !== 'agent' && (
+                    <div
+                      data-testid="mcp-terminal-hint"
+                      style={{
+                        borderTop: `1px solid ${token.colorBorderSecondary}`,
+                        marginTop: 8,
+                        paddingTop: 8,
                       }}
                     >
-                      {t('chat.mcp.switchToAgent')}
-                    </Button>
-                  </div>
+                      <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 4 }}>
+                        {t('chat.mcp.terminalHint')}
+                      </div>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, fontSize: 12 }}
+                        aria-label={t('chat.mcp.switchToAgent')}
+                        onClick={() => {
+                          setMcpPopoverOpen(false);
+                          void handleModeSwitch('agent');
+                        }}
+                      >
+                        {t('chat.mcp.switchToAgent')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
               arrow={false}
@@ -1908,7 +1909,6 @@ export function InputArea() {
                 </Badge>
               </Tooltip>
             </Popover>
-            )}
             <Popover
               trigger="click"
               placement="topLeft"

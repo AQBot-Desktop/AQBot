@@ -1873,7 +1873,7 @@
     "cut": "Ausschneiden",
     "paste": "Einfügen",
     "agentMode": "Agent",
-    "agentModeCapabilities": "Dateien, Terminal und Aufgabenausführung",
+    "agentModeCapabilities": "Dateien, Terminal, Skills und ausgewählte MCP-Tools",
     "command": "Befehl",
     "riskReadOnly": "Nur lesen",
     "riskWrite": "Schreiben",
@@ -2135,6 +2135,7 @@
     "permissionFullAccessWarningTitle": "Vollzugriffsmodus",
     "permissionAcceptEditsWarningTitle": "Bearbeitungsmodus akzeptieren",
     "permissionFullAccessWarning": "Der Agent hat vollen Zugriff und kann jeden Dateivorgang ohne Pfadbeschränkungen ausführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und der Systemaufforderung vertrauen.",
+    "permissionFullAccessChatWarning": "Der Agent erhält vollständigen Zugriff und kann Terminalbefehle ausführen, ausgewählte MCP-Tools aufrufen und Dateioperationen ohne Pfadbeschränkungen oder Bestätigung jeder einzelnen Aktion durchführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und dem System-Prompt vertrauen.",
     "permissionAcceptEditsWarning": "Der Agent genehmigt Dateiänderungen automatisch ohne individuelle Bestätigung. Stellen Sie sicher, dass Sie die potenziellen Sicherheitsrisiken verstehen.",
     "cwdIsProcessStart": "Startverzeichnis des Prozesses, kein Dateisystem-Sandkasten"
   },

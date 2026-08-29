@@ -2042,14 +2042,14 @@ describe('InputArea', () => {
 
   function seedMcpServer() {
     mcpState.servers = [{
-      id: 'mcp-fetch',
-      name: '@aqbot/fetch',
+      id: 'mcp-postgres',
+      name: 'Postgres',
       transport: 'stdio',
       enabled: true,
       permissionPolicy: 'ask',
-      source: 'builtin',
+      source: 'custom',
     }];
-    conversationState.enabledMcpServerIds = ['mcp-fetch'];
+    conversationState.enabledMcpServerIds = ['mcp-postgres'];
   }
 
   it('shows a terminal hint in the Chat MCP panel that is not an MCP server', async () => {
@@ -2066,7 +2066,7 @@ describe('InputArea', () => {
     await user.click(screen.getByRole('button', { name: 'chat.mcp.title' }));
     expect(await screen.findByText('chat.mcp.terminalHint')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'chat.mcp.switchToAgent' })).toBeInTheDocument();
-    expect(screen.getByText('@aqbot/fetch')).toBeInTheDocument();
+    expect(screen.getByText('Postgres')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'chat.mcp.terminalHint' })).not.toBeInTheDocument();
   });
 
@@ -2112,11 +2112,11 @@ describe('InputArea', () => {
 
     expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('curl POST later');
     expect(screen.getByText('notes.txt')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'chat.mcp.title' })).not.toBeInTheDocument();
-    expect(conversationState.enabledMcpServerIds).toEqual(['mcp-fetch']);
+    expect(screen.getByRole('button', { name: 'chat.mcp.title' })).toBeInTheDocument();
+    expect(conversationState.enabledMcpServerIds).toEqual(['mcp-postgres']);
   });
 
-  it('hides the MCP selector in Agent mode and describes terminal capabilities on the mode entry', async () => {
+  it('shows the MCP selector in Agent mode without the Chat-only terminal hint', async () => {
     const user = userEvent.setup();
     enableFunctionCalling();
     seedMcpServer();
@@ -2128,8 +2128,29 @@ describe('InputArea', () => {
       </App>,
     );
 
-    expect(screen.queryByRole('button', { name: 'chat.mcp.title' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /common.agentMode/ }));
-    expect(await screen.findByText('common.agentModeCapabilities')).toBeInTheDocument();
+    const mcpButton = screen.getByRole('button', { name: 'chat.mcp.title' });
+    expect(mcpButton.closest('.ant-badge')?.querySelector('.ant-badge-count')).toHaveTextContent('1');
+    await user.click(mcpButton);
+    expect(await screen.findByText('Postgres')).toBeInTheDocument();
+    expect(screen.queryByTestId('mcp-terminal-hint')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'chat.mcp.switchToAgent' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Postgres' }));
+    expect(toggleMcpServer).toHaveBeenCalledWith('mcp-postgres');
+  });
+
+  it('uses the conversation Agent warning for Full Access', async () => {
+    const user = userEvent.setup();
+    conversationState.conversations[0].mode = 'agent';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'common.permissionDefault' }));
+    await user.click(await screen.findByText('common.permissionFullAccess'));
+    expect(await screen.findByText('agent.permissionFullAccessChatWarning')).toBeInTheDocument();
   });
 });

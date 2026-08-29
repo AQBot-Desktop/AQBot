@@ -1873,7 +1873,7 @@
     "cut": "切り取り",
     "paste": "貼り付け",
     "agentMode": "エージェント",
-    "agentModeCapabilities": "ファイル、ターミナル、タスク実行に対応",
+    "agentModeCapabilities": "ファイル、ターミナル、スキル、選択した MCP ツールに対応",
     "command": "コマンド",
     "riskReadOnly": "読み取り専用",
     "riskWrite": "書き込み",
@@ -2135,6 +2135,7 @@
     "permissionFullAccessWarningTitle": "フルアクセスモード",
     "permissionAcceptEditsWarningTitle": "編集モードを受け入れる",
     "permissionFullAccessWarning": "エージェントは完全なアクセス権を持ち、パスの制限なしであらゆるファイル操作を実行できます。現在のモデルとシステム プロンプトを信頼していることを確認してください。",
+    "permissionFullAccessChatWarning": "エージェントはフルアクセス権を持ち、操作ごとの確認なしでターミナルコマンドの実行、選択した MCP ツールの呼び出し、パス制限のないファイル操作を行えます。現在のモデルとシステムプロンプトを信頼できることを確認してください。",
     "permissionAcceptEditsWarning": "エージェントは、個別に確認することなく、ファイルの編集を自動的に承認します。潜在的なセキュリティリスクを必ず理解してください。",
     "cwdIsProcessStart": "プロセスの開始作業ディレクトリであり、ファイルシステムのサンドボックスではありません"
   },

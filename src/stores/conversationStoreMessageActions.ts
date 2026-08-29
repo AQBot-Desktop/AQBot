@@ -733,6 +733,12 @@ export function createConversationMessageActions(
 
       const providerId = conversation.provider_id;
       const modelId = conversation.model_id;
+      const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
+      const mcpIds = getEffectiveMcpServerIds(get, {
+        providerId,
+        modelId,
+        mcpIds: capabilityIds.enabledMcpServerIds,
+      });
 
       // Optimistic user message
       const optimisticUserMsg: Message = {
@@ -1045,6 +1051,7 @@ export function createConversationMessageActions(
           providerId,
           modelId,
           attachments: attachments ?? [],
+          enabledMcpServerIds: mcpIds,
         });
 
         // Keep listening until done/error/cancel. Return now so the composer

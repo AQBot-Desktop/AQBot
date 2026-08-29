@@ -1873,7 +1873,7 @@
     "cut": "Cortar",
     "paste": "Pegar",
     "agentMode": "Agente",
-    "agentModeCapabilities": "Archivos, terminal y ejecución de tareas",
+    "agentModeCapabilities": "Archivos, terminal, habilidades y herramientas MCP seleccionadas",
     "command": "Comando",
     "riskReadOnly": "Solo lectura",
     "riskWrite": "Escritura",
@@ -2135,6 +2135,7 @@
     "permissionFullAccessWarningTitle": "Modo de acceso total",
     "permissionAcceptEditsWarningTitle": "Aceptar modo de edición",
     "permissionFullAccessWarning": "El agente tendrá acceso completo y podrá realizar cualquier operación de archivo sin restricciones de ruta. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
+    "permissionFullAccessChatWarning": "El agente tendrá acceso completo y podrá ejecutar comandos de terminal, invocar las herramientas MCP seleccionadas y realizar operaciones de archivos sin restricciones de ruta ni confirmación para cada acción. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
     "permissionAcceptEditsWarning": "El agente aprobará automáticamente las ediciones de archivos sin confirmación individual. Asegúrese de comprender los posibles riesgos de seguridad.",
     "cwdIsProcessStart": "Directorio de trabajo inicial del proceso, no un entorno aislado del sistema de archivos"
   },

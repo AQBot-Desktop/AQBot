@@ -400,20 +400,6 @@ pub(crate) fn fixup_think_tags(content: &str, durations: &[u64]) -> String {
     result
 }
 
-fn truncate_mcp_tool_result_content(content: &str, max_bytes: usize) -> String {
-    if content.len() <= max_bytes {
-        return content.to_string();
-    }
-
-    let end = content.floor_char_boundary(max_bytes);
-    format!(
-        "{}\n\n[MCP tool output truncated: showing first {} bytes of {} bytes]",
-        &content[..end],
-        end,
-        content.len()
-    )
-}
-
 async fn execute_tool_future<F>(
     future: F,
     timeout_secs: u64,
@@ -430,7 +416,10 @@ where
     tokio::select! {
         result = future => match result {
             Ok(result) => (
-                truncate_mcp_tool_result_content(&result.content, MCP_TOOL_RESULT_MAX_BYTES),
+                aqbot_core::mcp_client::truncate_mcp_tool_result_content(
+                    &result.content,
+                    MCP_TOOL_RESULT_MAX_BYTES,
+                ),
                 result.is_error,
             ),
             Err(e) => (format!("Error executing tool: {}", e), true),
@@ -495,90 +484,16 @@ async fn execute_tool_call(
     let timeout_secs = server.execute_timeout_secs.unwrap_or(30) as u64;
     let timeout_duration = std::time::Duration::from_secs(timeout_secs);
 
-    match server.transport.as_str() {
-        "builtin" => {
-            execute_tool_future(
-                aqbot_core::builtin_tools::dispatch(
-                    &server.name,
-                    &tool_call.function.name,
-                    arguments,
-                ),
-                timeout_secs,
-                timeout_duration,
-                cancel_flag,
-            )
-            .await
-        }
-        "stdio" => {
-            let command = match &server.command {
-                Some(cmd) => cmd.clone(),
-                None => return ("Error: stdio server has no command configured".into(), true),
-            };
-            let args: Vec<String> = server
-                .args_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_default();
-            let env: std::collections::HashMap<String, String> = server
-                .env_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_default();
-            execute_tool_future(
-                mcp_stdio_clients.call_tool(
-                    StdioServerLaunch {
-                        server_id: server.id.clone(),
-                        command,
-                        args,
-                        env,
-                    },
-                    StdioToolCall {
-                        name: tool_call.function.name.clone(),
-                        arguments,
-                    },
-                ),
-                timeout_secs,
-                timeout_duration,
-                cancel_flag,
-            )
-            .await
-        }
-        "http" => {
-            let endpoint = match &server.endpoint {
-                Some(ep) => ep.clone(),
-                None => return ("Error: HTTP server has no endpoint configured".into(), true),
-            };
-            execute_tool_future(
-                aqbot_core::mcp_client::call_tool_http(
-                    &endpoint,
-                    server.headers_json.as_deref(),
-                    &tool_call.function.name,
-                    arguments,
-                ),
-                timeout_secs,
-                timeout_duration,
-                cancel_flag,
-            )
-            .await
-        }
-        "sse" => {
-            let endpoint = match &server.endpoint {
-                Some(ep) => ep.clone(),
-                None => return ("Error: SSE server has no endpoint configured".into(), true),
-            };
-            execute_tool_future(
-                aqbot_core::mcp_client::call_tool_sse(
-                    &endpoint,
-                    server.headers_json.as_deref(),
-                    &tool_call.function.name,
-                    arguments,
-                ),
-                timeout_secs,
-                timeout_duration,
-                cancel_flag,
-            )
-            .await
-        }
-        other => return (format!("Error: Unsupported transport '{}'", other), true),
-    }
+    execute_tool_future(
+        aqbot_core::mcp_client::call_tool_for_server(
+            mcp_stdio_clients,
+            &server,
+            &tool_call.function.name,
+            arguments,
+        ),
+        timeout_secs,
+        timeout_duration,
+        cancel_flag,
+    )
+    .await
 }

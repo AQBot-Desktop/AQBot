@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod agent;
+pub(crate) mod agent_mcp;
 pub mod artifacts;
 pub mod backup;
 pub mod branches;

@@ -1873,7 +1873,7 @@
     "cut": "잘라내기",
     "paste": "붙여넣기",
     "agentMode": "에이전트",
-    "agentModeCapabilities": "파일, 터미널, 작업 실행 지원",
+    "agentModeCapabilities": "파일, 터미널, 스킬, 선택한 MCP 도구 지원",
     "command": "명령",
     "riskReadOnly": "읽기 전용",
     "riskWrite": "쓰기",
@@ -2135,6 +2135,7 @@
     "permissionFullAccessWarningTitle": "전체 액세스 모드",
     "permissionAcceptEditsWarningTitle": "편집 모드 수락",
     "permissionFullAccessWarning": "에이전트는 전체 액세스 권한을 가지며 경로 제한 없이 모든 파일 작업을 수행할 수 있습니다. 현재 모델과 시스템 프롬프트를 신뢰하는지 확인하세요.",
+    "permissionFullAccessChatWarning": "에이전트는 전체 액세스 권한으로 작업별 확인 없이 터미널 명령을 실행하고, 선택한 MCP 도구를 호출하며, 경로 제한 없이 파일 작업을 수행할 수 있습니다. 현재 모델과 시스템 프롬프트를 신뢰할 수 있는지 확인하세요.",
     "permissionAcceptEditsWarning": "개별 확인 없이 파일 편집 내용을 에이전트가 자동으로 승인합니다. 잠재적인 보안 위험을 이해하고 있는지 확인하십시오.",
     "cwdIsProcessStart": "프로세스 시작 작업 디렉터리이며 파일 시스템 샌드박스가 아닙니다"
   },

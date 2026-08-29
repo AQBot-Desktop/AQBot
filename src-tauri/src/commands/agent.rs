@@ -28,6 +28,7 @@ static RUNNING_AGENTS: LazyLock<Mutex<HashMap<String, String>>> =
 
 const DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT: &str = "YYYY-MM-DD-HH-mm-ss";
 const MAX_AGENT_WORKSPACE_NAME_LEN: usize = 80;
+const AGENT_HIDDEN_SDK_TOOLS: &[&str] = &["ListMcpResources", "ReadMcpResource"];
 
 /// RAII guard that removes a conversation ID from RUNNING_AGENTS on drop.
 /// Ensures cleanup even if the spawned task panics.
@@ -364,6 +365,21 @@ fn filter_agent_tool_identity(tool_use_id: &str, tool_name: &str) -> (String, St
         filter_complete_agent_event_text(tool_use_id),
         filter_complete_agent_event_text(tool_name),
     )
+}
+
+fn escape_tool_call_attribute(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn append_captured_agent_text(
@@ -717,6 +733,7 @@ pub async fn agent_query(
     provider_id: String,
     model_id: String,
     attachments: Option<Vec<AttachmentInput>>,
+    enabled_mcp_server_ids: Vec<String>,
 ) -> Result<(), String> {
     // 1. Get agent session (must exist)
     let session =
@@ -755,6 +772,13 @@ pub async fn agent_query(
     let pre_conv = conversation::get_conversation(&state.sea_db, &conversation_id)
         .await
         .map_err(|e| e.to_string())?;
+    let (mcp_tools, mcp_display_names) = super::agent_mcp::build_agent_mcp_tools(
+        &state.sea_db,
+        state.mcp_stdio_clients.clone(),
+        &enabled_mcp_server_ids,
+    )
+    .await?;
+    let mcp_display_names = Arc::new(mcp_display_names);
     let is_first_message = pre_conv.message_count <= 1;
     let attachment_inputs = attachments.unwrap_or_default();
     let persisted_attachments =
@@ -902,6 +926,7 @@ pub async fn agent_query(
     let assistant_id_for_task = current_assistant_id_for_perm.clone();
     let db_for_perm = state.sea_db.clone();
     let cancel_token_for_perm = cancel_token.clone();
+    let mcp_display_names_for_perm = mcp_display_names.clone();
 
     let can_use_tool: CanUseToolFn = Arc::new(move |tool_name: &str, input: &Value| {
         let tool_name = tool_name.to_string();
@@ -915,6 +940,7 @@ pub async fn agent_query(
         let assistant_id = current_assistant_id_for_perm.clone();
         let db = db_for_perm.clone();
         let cancel_token = cancel_token_for_perm.clone();
+        let mcp_display_names = mcp_display_names_for_perm.clone();
 
         Box::pin(async move {
             if cancel_token.is_cancelled() {
@@ -932,6 +958,9 @@ pub async fn agent_query(
 
             // 2. Decision matrix. Execute tools never honor a cached always-allow.
             let risk = classify_tool_risk(&tool_name);
+            let display_tool_name =
+                super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name)
+                    .to_string();
             let is_always_allowed = if allows_persistent_approval(risk) {
                 let map = always_allowed_map.lock().await;
                 map.get(&conv_id_allowed)
@@ -957,7 +986,7 @@ pub async fn agent_query(
                         &conv_id,
                         assistant_id.read().await.as_deref(),
                         "__agent_sdk__",
-                        &tool_name,
+                        &display_tool_name,
                         Some(&input_str),
                         Some("pending"),
                     )
@@ -981,7 +1010,7 @@ pub async fn agent_query(
                                 .clone()
                                 .unwrap_or_default(),
                             tool_use_id: filter_complete_agent_event_text(&perm_id),
-                            tool_name: filter_complete_agent_event_text(&tool_name),
+                            tool_name: filter_complete_agent_event_text(&display_tool_name),
                             input: filter_agent_event_json(&input),
                             risk_level: risk_str.to_string(),
                             working_directory: if cwd.is_empty() {
@@ -1074,6 +1103,8 @@ pub async fn agent_query(
     let skill_tool: Arc<dyn open_agent_sdk::types::Tool> = Arc::new(
         open_agent_sdk::tools::skill_tool::SkillTool::new(skill_registry),
     );
+    let mut custom_tools = mcp_tools;
+    custom_tools.push(skill_tool);
 
     // Build ask_fn for AskUserQuestion tool
     let ask_senders = state.agent_ask_senders.clone();
@@ -1132,7 +1163,13 @@ pub async fn agent_query(
         skills_summary,
         ask_fn: Some(ask_fn),
         can_use_tool: Some(can_use_tool),
-        custom_tools: vec![skill_tool],
+        custom_tools,
+        disallowed_tools: Some(
+            AGENT_HIDDEN_SDK_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
+        ),
         abort_signal: Some(cancel_token.clone()),
         shell_binary: global_settings.agent_bash_path.clone(),
         ..Default::default()
@@ -1181,6 +1218,7 @@ pub async fn agent_query(
     let title_model_id = model_id.clone();
     let title_settings = global_settings.clone();
     let title_prompt = prompt.clone();
+    let mcp_display_names_for_events = mcp_display_names;
 
     tokio::spawn(async move {
         // RAII guard: ensures conv_id is removed from RUNNING_AGENTS on exit (even panic)
@@ -1208,6 +1246,7 @@ pub async fn agent_query(
         let mut thinking_ipc_filter = InlineDataStreamFilter::default();
         let mut inline_data_capture = InlineDataStreamCapture::default();
         let mut inline_capture_error: Option<String> = None;
+        let mcp_display_names = mcp_display_names_for_events;
         // Map SDK tool_use_id → DB tool_execution.id
         let mut tool_exec_map: HashMap<String, String> = HashMap::new();
 
@@ -1331,7 +1370,10 @@ pub async fn agent_query(
                         }
 
                         for (sdk_id, name, input) in &pending_tool_uses {
-                            let (safe_sdk_id, safe_name) = filter_agent_tool_identity(sdk_id, name);
+                            let display_name =
+                                super::agent_mcp::display_agent_tool_name(&mcp_display_names, name);
+                            let (safe_sdk_id, safe_name) =
+                                filter_agent_tool_identity(sdk_id, display_name);
                             tracing::info!(
                                 "[agent] ToolUse in assistant message: {} ({}), assistantMsgId={:?}",
                                 safe_name, safe_sdk_id, current_assistant_msg_id
@@ -1347,7 +1389,7 @@ pub async fn agent_query(
                                 &conv_id,
                                 current_assistant_msg_id.as_deref(),
                                 "__agent_sdk__",
-                                &name,
+                                display_name,
                                 Some(&input_str),
                                 None,
                             )
@@ -1362,12 +1404,13 @@ pub async fn agent_query(
 
                             // Build inline <tool-call> marker with DB execution ID
                             let summary = filter_complete_agent_event_text(
-                                &get_tool_input_summary(name, input),
+                                &get_tool_input_summary(display_name, input),
                             );
                             let tag_id = exec_id.as_deref().unwrap_or(&safe_sdk_id);
+                            let marker_name = escape_tool_call_attribute(&safe_name);
                             let marker = format!(
                                 "\n\n<tool-call data-aqbot=\"1\" id=\"{}\" name=\"{}\">{}</tool-call>\n\n",
-                                tag_id, safe_name, summary
+                                tag_id, marker_name, summary
                             );
                             append_captured!('agent_messages, &marker);
 
@@ -1414,9 +1457,11 @@ pub async fn agent_query(
                     tool_name,
                     input,
                 } => {
-                    tracing::info!("[agent] ToolStart: {} ({})", tool_name, tool_use_id);
+                    let display_name =
+                        super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name);
+                    tracing::info!("[agent] ToolStart: {} ({})", display_name, tool_use_id);
                     let (safe_tool_use_id, safe_tool_name) =
-                        filter_agent_tool_identity(&tool_use_id, &tool_name);
+                        filter_agent_tool_identity(&tool_use_id, display_name);
                     // Emit agent-tool-start
                     let _ = app.emit(
                         "agent-tool-start",
@@ -1445,8 +1490,10 @@ pub async fn agent_query(
                     content,
                     is_error,
                 } => {
+                    let display_name =
+                        super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name);
                     let (safe_tool_use_id, safe_tool_name) =
-                        filter_agent_tool_identity(&tool_use_id, &tool_name);
+                        filter_agent_tool_identity(&tool_use_id, display_name);
                     // Emit agent-tool-result
                     let _ = app.emit(
                         "agent-tool-result",
@@ -1487,8 +1534,10 @@ pub async fn agent_query(
                     input,
                     ..
                 } => {
+                    let display_name =
+                        super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name);
                     let (safe_tool_use_id, safe_tool_name) =
-                        filter_agent_tool_identity(&tool_use_id, &tool_name);
+                        filter_agent_tool_identity(&tool_use_id, display_name);
                     let risk_str = match classify_tool_risk(&tool_name) {
                         aqbot_agent::permission::RiskLevel::ReadOnly => "read_only",
                         aqbot_agent::permission::RiskLevel::Write => "write",
@@ -1669,8 +1718,10 @@ pub async fn agent_query(
                     tool_name,
                     content,
                 } => {
+                    let display_name =
+                        super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name);
                     let (safe_tool_use_id, safe_tool_name) =
-                        filter_agent_tool_identity(&tool_use_id, &tool_name);
+                        filter_agent_tool_identity(&tool_use_id, display_name);
                     if let Err(error) = app.emit(
                         "agent-tool-output",
                         AgentToolOutputPayload {
@@ -2304,6 +2355,25 @@ mod tests {
             assert!(!payload.contains("data:image"));
             assert!(!payload.contains("base64"));
         }
+    }
+
+    #[test]
+    fn mcp_display_name_is_escaped_only_inside_tool_call_attribute() {
+        let display_name = "MCP · server \"<unsafe>&'\" · tool";
+
+        assert_eq!(
+            escape_tool_call_attribute(display_name),
+            "MCP · server &quot;&lt;unsafe&gt;&amp;&#39;&quot; · tool"
+        );
+        assert_eq!(filter_complete_agent_event_text(display_name), display_name);
+    }
+
+    #[test]
+    fn disconnected_sdk_mcp_resource_tools_are_hidden() {
+        assert_eq!(
+            AGENT_HIDDEN_SDK_TOOLS,
+            &["ListMcpResources", "ReadMcpResource"]
+        );
     }
 
     fn test_conversation(id: &str, created_at: i64) -> aqbot_core::types::Conversation {

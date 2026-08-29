@@ -34,15 +34,20 @@ pub enum PermissionAction {
     HardDeny,
 }
 
+/// Agent-facing alias prefix for tools backed by external MCP servers.
+pub const MCP_TOOL_ALIAS_PREFIX: &str = "mcp__";
+
 /// Classify a tool's risk level based on its name
 pub fn classify_tool_risk(tool_name: &str) -> RiskLevel {
     let name_lower = tool_name.to_lowercase();
 
     // Execute-level tools
-    if matches!(
-        name_lower.as_str(),
-        "bash" | "shell" | "run_command" | "execute"
-    ) || name_lower.contains("exec")
+    if name_lower.starts_with(MCP_TOOL_ALIAS_PREFIX)
+        || matches!(
+            name_lower.as_str(),
+            "bash" | "shell" | "run_command" | "execute"
+        )
+        || name_lower.contains("exec")
         || name_lower.contains("run")
         || name_lower.contains("bash")
         || name_lower.contains("shell")
@@ -155,5 +160,25 @@ mod tests {
             decide_permission(PermissionMode::Default, RiskLevel::Write, true),
             PermissionAction::AutoAllow
         );
+    }
+
+    #[test]
+    fn mcp_tools_are_execute_only_and_never_persistently_approved() {
+        let risk = classify_tool_risk("mcp__server_query__0123456789abcdef");
+
+        assert_eq!(risk, RiskLevel::Execute);
+        assert_eq!(
+            decide_permission(PermissionMode::Default, risk, true),
+            PermissionAction::RequireApproval
+        );
+        assert_eq!(
+            decide_permission(PermissionMode::AcceptEdits, risk, true),
+            PermissionAction::RequireApproval
+        );
+        assert_eq!(
+            decide_permission(PermissionMode::FullAccess, risk, true),
+            PermissionAction::AutoAllow
+        );
+        assert!(!allows_persistent_approval(risk));
     }
 }

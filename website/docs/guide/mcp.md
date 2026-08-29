@@ -180,7 +180,9 @@ AQBot ships with built-in tools that are available without adding any external M
 
 Built-in tools are listed in the MCP Servers settings alongside your custom servers and can be enabled or disabled individually.
 
-Ordinary Chat MCP does not run terminal commands. Local shell access is provided by Agent mode in the conversation: switch modes to reuse the existing approval card, starting working directory, timeout and cancel flow. The selected directory is the process starting CWD, not a filesystem sandbox. Agent mode also does not inject the MCP servers selected in Chat.
+Ordinary Chat MCP does not run terminal commands. Local shell access is provided by Agent mode in the conversation: switch modes to reuse the existing approval card, starting working directory, timeout and cancel flow. The selected directory is the process starting CWD, not a filesystem sandbox. Agent mode reuses the MCP servers selected for the current conversation and exposes them alongside its built-in tools. Default and Accept Edits ask before every MCP tool call and do not offer permanent approval; Full Access runs selected MCP tools without confirmation.
+
+Agent mode currently exposes MCP Tools only. MCP Resources and Prompts are not connected to the Agent runtime yet.
 
 ---
 
