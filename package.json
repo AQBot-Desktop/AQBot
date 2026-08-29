@@ -6,7 +6,8 @@
   "packageManager": "pnpm@10.32.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/tauri-cli.mjs dev",
+    "dev:web": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "node scripts/tauri-cli.mjs",

@@ -4,7 +4,7 @@
   "version": "0.0.143",
   "identifier": "top.aqbot.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm exec vite",
     "devUrl": "http://127.0.0.1:1300",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"

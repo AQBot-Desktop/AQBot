@@ -18,6 +18,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  DEV_BUNDLE_IDENTIFIER,
+  DEV_URL_SCHEME,
+  devAppInfoPlist,
+} from "./tauri-dev-plist.mjs";
+import {
+  restoreInstalledUrlSchemeHandler,
+  setDefaultUrlSchemeHandler,
+} from "./tauri-dev-url-scheme.mjs";
+import {
   clearOwnedSessionMarker,
   stopExistingApp,
 } from "./tauri-dev-session.mjs";
@@ -26,7 +35,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..");
 const tauriDir = path.join(repoRoot, "src-tauri");
 const identity = "AQBot Dev";
-const bundleIdentifier = "top.aqbot.desktop.dev";
+const bundleIdentifier = DEV_BUNDLE_IDENTIFIER;
 
 function fail(message) {
   console.error(message);
@@ -71,42 +80,6 @@ function cargoTargetDir(args) {
     : path.join(tauriDir, "target");
   const target = optionValue(args, "--target", "-t");
   return target ? path.join(configured, target) : configured;
-}
-
-function plist(version) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>AQBot Dev</string>
-  <key>CFBundleExecutable</key>
-  <string>AQBot</string>
-  <key>CFBundleIconFile</key>
-  <string>icon.icns</string>
-  <key>CFBundleIdentifier</key>
-  <string>${bundleIdentifier}</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>AQBot Dev</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${version}</string>
-  <key>CFBundleVersion</key>
-  <string>${version}</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>11.0</string>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-`;
 }
 
 function diagnosticLogPath() {
@@ -184,16 +157,43 @@ async function assembleBundle(binary, bundle) {
   chmodSync(executable, 0o755);
   cpSync(path.join(tauriDir, "icons", "icon.icns"), path.join(resources, "icon.icns"));
   const { version } = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-  writeFileSync(path.join(bundle, "Contents", "Info.plist"), plist(version));
+  writeFileSync(path.join(bundle, "Contents", "Info.plist"), devAppInfoPlist(version));
   return executable;
 }
 
-function launch(bundle, executable, appArgs) {
-  const lsregister = [
+function lsregisterPath() {
+  return [
     "/System/Library/Frameworks/CoreServices.framework",
     "Frameworks/LaunchServices.framework/Support/lsregister",
   ].join("/");
-  run(lsregister, ["-f", bundle], { cwd: repoRoot });
+}
+
+function registerBundle(bundlePath, { quiet = false } = {}) {
+  if (!existsSync(bundlePath)) return;
+  run(lsregisterPath(), ["-f", bundlePath], { cwd: repoRoot, quiet });
+}
+
+function restoreInstalledUrlHandler() {
+  registerBundle("/Applications/AQBot.app", { quiet: true });
+  try {
+    restoreInstalledUrlSchemeHandler(DEV_URL_SCHEME);
+  } catch (error) {
+    console.warn(error.message);
+  }
+}
+
+function claimDevUrlScheme() {
+  try {
+    setDefaultUrlSchemeHandler(DEV_URL_SCHEME, bundleIdentifier);
+  } catch (error) {
+    console.warn(error.message);
+    console.warn("aqbot:// may still open the installed AQBot.app instead of AQBot Dev.");
+  }
+}
+
+function launch(bundle, executable, appArgs) {
+  registerBundle(bundle);
+  claimDevUrlScheme();
 
   const launchedAt = Date.now();
   const child = spawn(executable, appArgs, {
@@ -226,6 +226,7 @@ function launch(bundle, executable, appArgs) {
   process.on("SIGTERM", stop);
   child.on("error", (error) => fail(`Could not launch AQBot Dev.app: ${error.message}`));
   child.on("exit", async (code, signal) => {
+    restoreInstalledUrlHandler();
     if (forceTimer) clearTimeout(forceTimer);
     if (requestedStop) {
       clearOwnedSessionMarker(sessionMarkerPath(), child.pid);
