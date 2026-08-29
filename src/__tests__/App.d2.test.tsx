@@ -36,6 +36,7 @@ const settingsState = {
 
 const uiState = {
   activePage: 'chat',
+  settingsSection: 'general' as const,
   enterSettings: vi.fn(),
   setSettingsSection: vi.fn(),
   setSelectedProviderId: vi.fn(),
@@ -127,6 +128,10 @@ vi.mock('@/hooks/useCommandPalette', () => ({
     open: false,
     setOpen: vi.fn(),
   }),
+}));
+
+vi.mock('@/hooks/useProviderDeepLink', () => ({
+  ProviderDeepLinkDialog: () => null,
 }));
 
 vi.mock('@/stores', () => ({

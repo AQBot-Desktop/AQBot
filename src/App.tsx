@@ -25,7 +25,7 @@ import { useResolvedDarkMode } from '@/hooks/useResolvedDarkMode';
 import { useGlobalOverlayScrollbars } from '@/hooks/useGlobalOverlayScrollbars';
 import { useUpdateChecker } from '@/hooks/useUpdateChecker';
 import { useTrayMenuActions } from '@/hooks/useTrayMenuActions';
-import { useProviderDeepLink } from '@/hooks/useProviderDeepLink';
+import { ProviderDeepLinkDialog } from '@/hooks/useProviderDeepLink';
 import { useShadcnTheme } from '@/theme/shadcnTheme';
 import { isTauri, invoke, listen } from '@/lib/invoke';
 import { applyAppFonts } from '@/lib/applyAppFonts';
@@ -59,18 +59,19 @@ async function showWindow() {
 function AppInner() {
   const { token } = useToken();
   const { t } = useTranslation();
-  const { modal, message } = AntdApp.useApp();
+  const { modal } = AntdApp.useApp();
   const appRootRef = useRef<HTMLDivElement>(null);
   const activePage = useUIStore((s) => s.activePage);
+  const settingsSection = useUIStore((s) => s.settingsSection);
   const renderedActivePage = useDeferredValue(activePage);
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
   const isInSettings = renderedActivePage === 'settings';
+  const providersSettingsVisible = isInSettings && settingsSection === 'providers';
   const windowLabel = getCurrentWindowLabel();
   const frontendKind = frontendKindForWindow(windowLabel);
   const popoutConversationId = conversationIdFromPopoutLabel(windowLabel);
   const isConversationPopout = frontendKind === 'conversation-popout';
   useConversationTabsCoordinator(!isConversationPopout);
-  useProviderDeepLink({ modal, message });
   useTrayMenuActions();
   useGlobalOverlayScrollbars(appRootRef);
 
@@ -148,6 +149,7 @@ function AppInner() {
       style={{ backgroundColor: token.colorBgContainer }}
     >
       <TitleBar variant={isConversationPopout ? 'popout' : 'main'} />
+      <ProviderDeepLinkDialog providersSettingsVisible={providersSettingsVisible} />
       {!isConversationPopout && (
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
       )}

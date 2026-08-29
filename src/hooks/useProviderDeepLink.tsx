@@ -1,6 +1,5 @@
-import { Descriptions, Typography } from 'antd';
-import { useCallback, useEffect } from 'react';
-import type { ReactNode } from 'react';
+import { App as AntdApp, Descriptions, Modal, Typography } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isTauri } from '@/lib/invoke';
 import {
@@ -9,32 +8,19 @@ import {
   type ProviderDeepLinkPayload,
 } from '@/lib/providerDeepLink';
 import { useProviderStore, useUIStore } from '@/stores';
-import type { DeepLinkProviderImportResult, SettingsSection } from '@/types';
-
-interface ModalLike {
-  confirm: (config: {
-    title: string;
-    content: ReactNode;
-    okText: string;
-    cancelText: string;
-    onOk: () => Promise<void>;
-  }) => unknown;
-}
+import type { DeepLinkProviderImportResult } from '@/types';
 
 interface MessageLike {
   success: (content: string) => unknown;
   error: (content: string) => unknown;
 }
 
-interface ConfirmProviderDeepLinkDeps {
-  modal: ModalLike;
+interface SubmitProviderDeepLinkDeps {
   message: MessageLike;
-  enterSettings: () => void;
-  setSettingsSection: (section: SettingsSection) => void;
   setSelectedProviderId: (id: string | null) => void;
   importProvider: (payload: ProviderDeepLinkPayload) => Promise<DeepLinkProviderImportResult>;
   fetchProviders: () => Promise<void>;
-  t: (key: string, fallback?: string) => string;
+  t: (key: string) => string;
 }
 
 function getSuccessMessageKey(result: DeepLinkProviderImportResult): string {
@@ -48,7 +34,7 @@ function ProviderDeepLinkConfirmContent({
   t,
 }: {
   payload: ProviderDeepLinkPayload;
-  t: ConfirmProviderDeepLinkDeps['t'];
+  t: SubmitProviderDeepLinkDeps['t'];
 }) {
   return (
     <Descriptions size="small" column={1}>
@@ -64,40 +50,93 @@ function ProviderDeepLinkConfirmContent({
   );
 }
 
-export function confirmProviderDeepLinkImport(
-  payload: ProviderDeepLinkPayload,
-  deps: ConfirmProviderDeepLinkDeps,
-) {
-  deps.enterSettings();
-  deps.setSettingsSection('providers');
-
-  deps.modal.confirm({
-    title: deps.t('settings.deepLinkProviderConfirmTitle'),
-    content: <ProviderDeepLinkConfirmContent payload={payload} t={deps.t} />,
-    okText: deps.t('common.confirm'),
-    cancelText: deps.t('common.cancel'),
-    onOk: async () => {
-      try {
-        const result = await deps.importProvider(payload);
-        await deps.fetchProviders();
-        deps.setSelectedProviderId(result.provider_id);
-        deps.message.success(deps.t(getSuccessMessageKey(result)));
-      } catch (e) {
-        deps.message.error(`${deps.t('settings.deepLinkProviderImportFailed')}: ${String(e)}`);
-        throw e;
-      }
-    },
-  });
-}
-
-export function useProviderDeepLink({ modal, message }: { modal: ModalLike; message: MessageLike }) {
-  const { t } = useTranslation();
-  const translate = useCallback((key: string) => t(key), [t]);
-  const importProvider = useProviderStore((s) => s.importProviderFromDeepLink);
-  const fetchProviders = useProviderStore((s) => s.fetchProviders);
+export function useProviderDeepLinkDialogState(providersSettingsVisible: boolean) {
+  const [pending, setPending] = useState<ProviderDeepLinkPayload | null>(null);
   const enterSettings = useUIStore((s) => s.enterSettings);
   const setSettingsSection = useUIStore((s) => s.setSettingsSection);
+
+  const queue = useCallback((next: ProviderDeepLinkPayload) => {
+    enterSettings();
+    setSettingsSection('providers');
+    setPending(next);
+  }, [enterSettings, setSettingsSection]);
+
+  const clear = useCallback(() => {
+    setPending(null);
+  }, []);
+
+  return {
+    pending,
+    open: pending !== null && providersSettingsVisible,
+    queue,
+    clear,
+  };
+}
+
+export async function submitProviderDeepLinkImport(
+  payload: ProviderDeepLinkPayload,
+  deps: SubmitProviderDeepLinkDeps,
+) {
+  try {
+    const result = await deps.importProvider(payload);
+    await deps.fetchProviders();
+    deps.setSelectedProviderId(result.provider_id);
+    deps.message.success(deps.t(getSuccessMessageKey(result)));
+  } catch (e) {
+    deps.message.error(`${deps.t('settings.deepLinkProviderImportFailed')}: ${String(e)}`);
+    throw e;
+  }
+}
+
+export function ProviderDeepLinkConfirmModal({
+  payload,
+  open,
+  message,
+  onClear,
+}: {
+  payload: ProviderDeepLinkPayload | null;
+  open: boolean;
+  message: MessageLike;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const importProvider = useProviderStore((s) => s.importProviderFromDeepLink);
+  const fetchProviders = useProviderStore((s) => s.fetchProviders);
   const setSelectedProviderId = useUIStore((s) => s.setSelectedProviderId);
+  const translate = useCallback((key: string) => t(key), [t]);
+
+  return (
+    <Modal
+      open={open}
+      title={t('settings.deepLinkProviderConfirmTitle')}
+      okText={t('common.confirm')}
+      cancelText={t('common.cancel')}
+      destroyOnHidden
+      onCancel={onClear}
+      onOk={async () => {
+        if (!payload) return;
+        await submitProviderDeepLinkImport(payload, {
+          message,
+          importProvider,
+          fetchProviders,
+          setSelectedProviderId,
+          t: translate,
+        });
+        onClear();
+      }}
+    >
+      {payload ? <ProviderDeepLinkConfirmContent payload={payload} t={translate} /> : null}
+    </Modal>
+  );
+}
+
+export function ProviderDeepLinkDialog({
+  providersSettingsVisible,
+}: {
+  providersSettingsVisible: boolean;
+}) {
+  const { message } = AntdApp.useApp();
+  const { pending, open, queue, clear } = useProviderDeepLinkDialogState(providersSettingsVisible);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -106,18 +145,9 @@ export function useProviderDeepLink({ modal, message }: { modal: ModalLike; mess
     let unlisten: (() => void) | null = null;
 
     const handleUrls = (urls: string[] | null | undefined) => {
-      const payload = urls?.map(parseProviderDeepLink).find((item): item is ProviderDeepLinkPayload => item !== null);
-      if (!payload || disposed) return;
-      confirmProviderDeepLinkImport(payload, {
-        modal,
-        message,
-        enterSettings,
-        setSettingsSection,
-        setSelectedProviderId,
-        importProvider,
-        fetchProviders,
-        t: translate,
-      });
+      const parsed = urls?.map(parseProviderDeepLink).find((item): item is ProviderDeepLinkPayload => item !== null);
+      if (!parsed || disposed) return;
+      queue(parsed);
     };
 
     const setup = async () => {
@@ -136,14 +166,14 @@ export function useProviderDeepLink({ modal, message }: { modal: ModalLike; mess
       disposed = true;
       unlisten?.();
     };
-  }, [
-    enterSettings,
-    fetchProviders,
-    importProvider,
-    message,
-    modal,
-    setSelectedProviderId,
-    setSettingsSection,
-    translate,
-  ]);
+  }, [queue]);
+
+  return (
+    <ProviderDeepLinkConfirmModal
+      payload={pending}
+      open={open}
+      message={message}
+      onClear={clear}
+    />
+  );
 }
