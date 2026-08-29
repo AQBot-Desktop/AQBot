@@ -269,7 +269,9 @@
       "title": "MCP-Werkzeuge",
       "noServers": "Bitte konfigurieren und aktivieren Sie zuerst MCP-Server in den Einstellungen",
       "goConfig": "Zu den Einstellungen →",
-      "unsupported": "Das aktuelle Modell unterstützt keinen Tool-Aufruf. MCP ist deaktiviert"
+      "unsupported": "Das aktuelle Modell unterstützt keinen Tool-Aufruf. MCP ist deaktiviert",
+      "terminalHint": "Terminalbefehle kommen aus dem Agent-Modus, nicht als MCP-Server",
+      "switchToAgent": "Zum Agent wechseln"
     },
     "contextCleared": "Kontext wurde ab hier zurückgesetzt",
     "knowledge": {
@@ -824,7 +826,7 @@
     "renderUserMarkdownDesc": "Benutzernachrichten mit Markdown-Formatierung rendern, einschließlich Codeblöcke, Zeilenumbrüche usw.",
     "agentSettings": "Agent",
     "agentWorkspaceRoot": "Standard-Arbeitsverzeichnis",
-    "agentWorkspaceRootDesc": "Neue Agent-Unterhaltungen legen darunter ein isoliertes Arbeitsverzeichnis an. Leer lassen für ~/.aqbot/workspace.",
+    "agentWorkspaceRootDesc": "Neue Agent-Unterhaltungen legen darunter ein Start-Arbeitsverzeichnis an. Es ist das Prozess-CWD, kein Sandkasten. Leer lassen für ~/.aqbot/workspace.",
     "agentWorkspaceRootPlaceholder": "Leer lassen für Standardverzeichnis",
     "selectAgentWorkspaceRoot": "Standard-Arbeitsverzeichnis wählen",
     "resetAgentWorkspaceRoot": "Standardverzeichnis zurücksetzen",
@@ -1853,6 +1855,12 @@
     "cut": "Ausschneiden",
     "paste": "Einfügen",
     "agentMode": "Agent",
+    "agentModeCapabilities": "Dateien, Terminal und Aufgabenausführung",
+    "command": "Befehl",
+    "riskReadOnly": "Nur lesen",
+    "riskWrite": "Schreiben",
+    "riskExecute": "Ausführen",
+    "timeout": "Zeitlimit",
     "chatMode": "Chatten",
     "permissionDefault": "Standard",
     "permissionAcceptEdits": "Bearbeitungen erlauben",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "Vollzugriffsmodus",
     "permissionAcceptEditsWarningTitle": "Bearbeitungsmodus akzeptieren",
     "permissionFullAccessWarning": "Der Agent hat vollen Zugriff und kann jeden Dateivorgang ohne Pfadbeschränkungen ausführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und der Systemaufforderung vertrauen.",
-    "permissionAcceptEditsWarning": "Der Agent genehmigt Dateiänderungen automatisch ohne individuelle Bestätigung. Stellen Sie sicher, dass Sie die potenziellen Sicherheitsrisiken verstehen."
+    "permissionAcceptEditsWarning": "Der Agent genehmigt Dateiänderungen automatisch ohne individuelle Bestätigung. Stellen Sie sicher, dass Sie die potenziellen Sicherheitsrisiken verstehen.",
+    "cwdIsProcessStart": "Startverzeichnis des Prozesses, kein Dateisystem-Sandkasten"
   },
   "imageProtocol": {
     "title": "Bildprotokoll",

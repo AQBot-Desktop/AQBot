@@ -86,8 +86,8 @@ pub fn decide_permission(
     risk: RiskLevel,
     is_always_allowed: bool,
 ) -> PermissionAction {
-    // If tool was previously approved with "always allow", auto-allow
-    if is_always_allowed {
+    // Cached "always allow" never covers Execute tools.
+    if is_always_allowed && allows_persistent_approval(risk) {
         return PermissionAction::AutoAllow;
     }
 
@@ -104,5 +104,56 @@ pub fn decide_permission(
 
         // Full access: everything auto-allowed
         (PermissionMode::FullAccess, _) => PermissionAction::AutoAllow,
+    }
+}
+
+/// Whether "always allow" may be persisted for this risk.
+pub fn allows_persistent_approval(risk: RiskLevel) -> bool {
+    !matches!(risk, RiskLevel::Execute)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bash_and_shell_are_execute() {
+        assert_eq!(classify_tool_risk("Bash"), RiskLevel::Execute);
+        assert_eq!(classify_tool_risk("shell"), RiskLevel::Execute);
+        assert_eq!(classify_tool_risk("run_command"), RiskLevel::Execute);
+    }
+
+    #[test]
+    fn default_and_accept_edits_require_approval_for_execute() {
+        assert_eq!(
+            decide_permission(PermissionMode::Default, RiskLevel::Execute, false),
+            PermissionAction::RequireApproval
+        );
+        assert_eq!(
+            decide_permission(PermissionMode::AcceptEdits, RiskLevel::Execute, false),
+            PermissionAction::RequireApproval
+        );
+    }
+
+    #[test]
+    fn full_access_auto_allows_execute() {
+        assert_eq!(
+            decide_permission(PermissionMode::FullAccess, RiskLevel::Execute, false),
+            PermissionAction::AutoAllow
+        );
+    }
+
+    #[test]
+    fn execute_cannot_use_persistent_allow_or_cached_always_allowed() {
+        assert!(!allows_persistent_approval(RiskLevel::Execute));
+        assert!(allows_persistent_approval(RiskLevel::Write));
+        assert_eq!(
+            decide_permission(PermissionMode::Default, RiskLevel::Execute, true),
+            PermissionAction::RequireApproval
+        );
+        assert_eq!(
+            decide_permission(PermissionMode::Default, RiskLevel::Write, true),
+            PermissionAction::AutoAllow
+        );
     }
 }

@@ -38,7 +38,7 @@ AQBot 是一款本地优先的桌面 AI 工作台，统一多服务商对话、A
 ### AI Agent
 
 - **两种 Agent 使用方式** — AQBot 同时提供对话模块内置 Agent 与独立 ACP Agent 工作台；前者使用用户配置的服务商 API，后者连接 ACP 兼容的外部 Agent 进程，可按模型来源和工作流自由选择。
-- **对话 Agent（服务商 API）** — 在普通对话中切换至 Agent 模式，直接使用已配置服务商与模型的 API，让模型在独立工作目录中读取/编辑文件、执行命令并分析代码。
+- **对话 Agent（服务商 API）** — 在普通对话中切换至 Agent 模式，直接使用已配置服务商与模型的 API，让模型在所选工作目录中读取/编辑文件、执行命令并分析代码。该目录只是进程的起始 CWD，不是文件系统沙箱。
 - **对话 Agent 管控** — 支持每次询问、自动接受编辑和完全访问等权限模式，实时展示工具调用与审批，并记录单次任务的 token 和成本。
 - **ACP Agent 工作台** — 通过 [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) 在独立工作台中运行兼容的编程 Agent，流式查看回复、思考过程和工具调用。
 - **ACP Registry 与自定义接入** — 可从 Registry 添加 Codex、Claude Agent、Gemini CLI、Cline、OpenCode、Grok Build 等 Agent，也可配置自定义命令、参数、环境变量和图标，并自由启停与排序。

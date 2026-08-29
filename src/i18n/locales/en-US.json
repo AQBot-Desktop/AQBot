@@ -293,7 +293,9 @@
       "title": "MCP Tools",
       "noServers": "Please configure and enable MCP servers in settings first",
       "goConfig": "Go to Settings →",
-      "unsupported": "Current model does not support tool calling; MCP is disabled"
+      "unsupported": "Current model does not support tool calling; MCP is disabled",
+      "terminalHint": "Terminal commands are provided by Agent mode, not as an MCP server",
+      "switchToAgent": "Switch to Agent"
     },
     "contextCleared": "Context has been reset from here",
     "knowledge": {
@@ -837,7 +839,7 @@
     "inheritConversationPreferencesOnCreateDesc": "When enabled, new conversations inherit the current conversation's web search, knowledge, memory, tools, reasoning, multi-model selection, and follow-up mode.",
     "agentSettings": "Agent",
     "agentWorkspaceRoot": "Default Working Directory",
-    "agentWorkspaceRootDesc": "New Agent conversations create an isolated working directory under this root. Leave empty to use ~/.aqbot/workspace.",
+    "agentWorkspaceRootDesc": "New Agent conversations create a starting working directory under this root. It is the process CWD, not a sandbox. Leave empty to use ~/.aqbot/workspace.",
     "agentWorkspaceRootPlaceholder": "Leave empty to use the default directory",
     "selectAgentWorkspaceRoot": "Select default working directory",
     "resetAgentWorkspaceRoot": "Reset default directory",
@@ -1859,7 +1861,13 @@
     "cut": "Cut",
     "paste": "Paste",
     "agentMode": "Agent",
+    "agentModeCapabilities": "Files, terminal, and task execution",
     "agentDefault": "Agent Default",
+    "command": "Command",
+    "riskReadOnly": "Read-only",
+    "riskWrite": "Write",
+    "riskExecute": "Execute",
+    "timeout": "Timeout",
     "chatMode": "Chat",
     "permissionDefault": "Default",
     "permissionAskEveryTime": "Ask Every Time",
@@ -2175,7 +2183,8 @@
     "permissionFullAccessWarningTitle": "Full Access Mode",
     "permissionAcceptEditsWarningTitle": "Accept Edits Mode",
     "permissionFullAccessWarning": "The agent will have full access and can perform any file operation without path restrictions. Make sure you trust the current model and System Prompt.",
-    "permissionAcceptEditsWarning": "The agent will automatically approve file edits without individual confirmation. Make sure you understand the potential security risks."
+    "permissionAcceptEditsWarning": "The agent will automatically approve file edits without individual confirmation. Make sure you understand the potential security risks.",
+    "cwdIsProcessStart": "Process starting working directory, not a filesystem sandbox"
   },
   "imageProtocol": {
     "title": "Image protocol",

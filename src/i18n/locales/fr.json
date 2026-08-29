@@ -269,7 +269,9 @@
       "title": "Outils MCP",
       "noServers": "Veuillez d'abord configurer et activer des serveurs MCP dans les paramètres",
       "goConfig": "Aller aux paramètres →",
-      "unsupported": "Le modèle actuel ne prend pas en charge l'appel d'outil ; MCP est désactivé"
+      "unsupported": "Le modèle actuel ne prend pas en charge l'appel d'outil ; MCP est désactivé",
+      "terminalHint": "Les commandes terminales viennent du mode Agent, pas d’un serveur MCP",
+      "switchToAgent": "Passer en Agent"
     },
     "contextCleared": "Le contexte a été réinitialisé à partir d'ici",
     "knowledge": {
@@ -824,7 +826,7 @@
     "renderUserMarkdownDesc": "Afficher les messages utilisateur avec le formatage Markdown, y compris les blocs de code, les sauts de ligne, etc.",
     "agentSettings": "Agent",
     "agentWorkspaceRoot": "Répertoire de travail par défaut",
-    "agentWorkspaceRootDesc": "Les nouvelles conversations Agent créent un répertoire de travail isolé sous cette racine. Laisser vide pour ~/.aqbot/workspace.",
+    "agentWorkspaceRootDesc": "Les nouvelles conversations Agent créent un répertoire de travail de départ sous cette racine. C’est le CWD du processus, pas un bac à sable. Laisser vide pour ~/.aqbot/workspace.",
     "agentWorkspaceRootPlaceholder": "Laisser vide pour le répertoire par défaut",
     "selectAgentWorkspaceRoot": "Choisir le répertoire de travail par défaut",
     "resetAgentWorkspaceRoot": "Réinitialiser le répertoire par défaut",
@@ -1853,6 +1855,12 @@
     "cut": "Couper",
     "paste": "Coller",
     "agentMode": "Agent",
+    "agentModeCapabilities": "Fichiers, terminal et exécution de tâches",
+    "command": "Commande",
+    "riskReadOnly": "Lecture seule",
+    "riskWrite": "Écriture",
+    "riskExecute": "Exécution",
+    "timeout": "Délai d’expiration",
     "chatMode": "Discuter",
     "permissionDefault": "Par défaut",
     "permissionAcceptEdits": "Accepter les modifications",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "Mode d'accès complet",
     "permissionAcceptEditsWarningTitle": "Accepter le mode d'édition",
     "permissionFullAccessWarning": "L'agent aura un accès complet et pourra effectuer n'importe quelle opération sur les fichiers sans restrictions de chemin. Assurez-vous de faire confiance au modèle actuel et à l'invite système.",
-    "permissionAcceptEditsWarning": "L'agent approuvera automatiquement les modifications du fichier sans confirmation individuelle. Assurez-vous de comprendre les risques de sécurité potentiels."
+    "permissionAcceptEditsWarning": "L'agent approuvera automatiquement les modifications du fichier sans confirmation individuelle. Assurez-vous de comprendre les risques de sécurité potentiels.",
+    "cwdIsProcessStart": "Répertoire de travail de départ du processus, pas un bac à sable du système de fichiers"
   },
   "imageProtocol": {
     "title": "Protocole d’image",

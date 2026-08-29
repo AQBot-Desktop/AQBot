@@ -269,7 +269,9 @@
       "title": "أدوات MCP",
       "noServers": "يرجى ضبط خوادم MCP وتفعيلها في الإعدادات أولاً",
       "goConfig": "الذهاب إلى الإعدادات →",
-      "unsupported": "النموذج الحالي لا يدعم استدعاء الأدوات؛ تم تعطيل MCP"
+      "unsupported": "النموذج الحالي لا يدعم استدعاء الأدوات؛ تم تعطيل MCP",
+      "terminalHint": "أوامر الطرفية تتوفر في وضع الوكيل وليست خادم MCP",
+      "switchToAgent": "التبديل إلى الوكيل"
     },
     "contextCleared": "تمت إعادة تعيين السياق من هنا",
     "knowledge": {
@@ -824,7 +826,7 @@
     "renderUserMarkdownDesc": "عرض رسائل المستخدم بتنسيق Markdown بما في ذلك كتل التعليمات البرمجية وفواصل الأسطر وما إلى ذلك",
     "agentSettings": "الوكيل",
     "agentWorkspaceRoot": "دليل العمل الافتراضي",
-    "agentWorkspaceRootDesc": "محادثات Agent الجديدة تنشئ دليل عمل معزولًا تحت هذا الجذر. اتركه فارغًا لاستخدام ~/.aqbot/workspace.",
+    "agentWorkspaceRootDesc": "محادثات الوكيل الجديدة تنشئ دليل عمل ابتدائيًا تحت هذا الجذر. إنه دليل العمل الابتدائي للعملية وليس صندوق رمل. اتركه فارغًا لاستخدام ~/.aqbot/workspace.",
     "agentWorkspaceRootPlaceholder": "اتركه فارغًا للدليل الافتراضي",
     "selectAgentWorkspaceRoot": "اختر دليل العمل الافتراضي",
     "resetAgentWorkspaceRoot": "إعادة تعيين الدليل الافتراضي",
@@ -1853,6 +1855,12 @@
     "cut": "قص",
     "paste": "لصق",
     "agentMode": "الوكيل",
+    "agentModeCapabilities": "الملفات والطرفية وتنفيذ المهام",
+    "command": "الأمر",
+    "riskReadOnly": "للقراءة فقط",
+    "riskWrite": "كتابة",
+    "riskExecute": "تنفيذ",
+    "timeout": "المهلة",
     "chatMode": "الدردشة",
     "permissionDefault": "افتراضي",
     "permissionAcceptEdits": "قبول التعديلات",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "وضع الوصول الكامل",
     "permissionAcceptEditsWarningTitle": "قبول وضع التحرير",
     "permissionFullAccessWarning": "سيكون لدى الوكيل حق الوصول الكامل ويمكنه تنفيذ أي عملية ملف دون قيود المسار. تأكد من أنك تثق في النموذج الحالي وموجه النظام.",
-    "permissionAcceptEditsWarning": "سيوافق الوكيل تلقائيًا على تعديلات الملف دون تأكيد فردي. تأكد من أنك تفهم المخاطر الأمنية المحتملة."
+    "permissionAcceptEditsWarning": "سيوافق الوكيل تلقائيًا على تعديلات الملف دون تأكيد فردي. تأكد من أنك تفهم المخاطر الأمنية المحتملة.",
+    "cwdIsProcessStart": "دليل العمل الابتدائي للعملية وليس صندوق رمل لنظام الملفات"
   },
   "imageProtocol": {
     "title": "بروتوكول الصور",

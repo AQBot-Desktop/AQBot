@@ -1,5 +1,7 @@
 use crate::AppState;
-use aqbot_agent::permission::{classify_tool_risk, decide_permission, PermissionAction};
+use aqbot_agent::permission::{
+    allows_persistent_approval, classify_tool_risk, decide_permission, PermissionAction,
+};
 use aqbot_agent::security::check_path_safety;
 use aqbot_core::inline_media::{InlineDataStreamCapture, InlineDataStreamFilter};
 use aqbot_core::repo::{agent_session, conversation, message, provider, tool_execution};
@@ -525,6 +527,8 @@ pub struct AgentPermissionRequestPayload {
     pub input: Value,
     #[serde(rename = "riskLevel")]
     pub risk_level: String,
+    #[serde(rename = "workingDirectory", skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -926,19 +930,16 @@ pub async fn agent_query(
                 }
             }
 
-            // 2. Check conversation-level always_allowed cache
-            {
-                let map = always_allowed_map.lock().await;
-                if let Some(set) = map.get(&conv_id_allowed) {
-                    if set.contains(&tool_name) {
-                        return PermissionDecision::Allow;
-                    }
-                }
-            }
-
-            // 3. Decision matrix
+            // 2. Decision matrix. Execute tools never honor a cached always-allow.
             let risk = classify_tool_risk(&tool_name);
-            match decide_permission(permission_mode, risk, false) {
+            let is_always_allowed = if allows_persistent_approval(risk) {
+                let map = always_allowed_map.lock().await;
+                map.get(&conv_id_allowed)
+                    .is_some_and(|set| set.contains(&tool_name))
+            } else {
+                false
+            };
+            match decide_permission(permission_mode, risk, is_always_allowed) {
                 PermissionAction::AutoAllow => PermissionDecision::Allow,
                 PermissionAction::RequireApproval => {
                     // Create oneshot channel
@@ -983,6 +984,11 @@ pub async fn agent_query(
                             tool_name: filter_complete_agent_event_text(&tool_name),
                             input: filter_agent_event_json(&input),
                             risk_level: risk_str.to_string(),
+                            working_directory: if cwd.is_empty() {
+                                None
+                            } else {
+                                Some(cwd.clone())
+                            },
                         },
                     );
 
@@ -991,13 +997,17 @@ pub async fn agent_query(
                         result = rx => match result {
                             Ok(decision_str) => match decision_str.as_str() {
                                 "allow_once" => PermissionDecision::Allow,
-                                "allow_always" => {
+                                "allow_always" if allows_persistent_approval(risk) => {
                                     always_allowed_map.lock().await
                                         .entry(conv_id_allowed.clone())
                                         .or_default()
                                         .insert(tool_name.clone());
                                     PermissionDecision::Allow
                                 }
+                                "allow_always" => PermissionDecision::Deny(
+                                    "Persistent allow is not permitted for execute tools"
+                                        .to_string(),
+                                ),
                                 "deny" => PermissionDecision::Deny(
                                     "User denied permission".to_string(),
                                 ),
@@ -1163,6 +1173,7 @@ pub async fn agent_query(
 
     let db = state.sea_db.clone();
     let session_id = session.id.clone();
+    let session_cwd = session.cwd.clone();
     let conv_id = conversation_id.clone();
     let user_msg_id = user_message.id.clone();
     let master_key = state.master_key;
@@ -1478,6 +1489,11 @@ pub async fn agent_query(
                 } => {
                     let (safe_tool_use_id, safe_tool_name) =
                         filter_agent_tool_identity(&tool_use_id, &tool_name);
+                    let risk_str = match classify_tool_risk(&tool_name) {
+                        aqbot_agent::permission::RiskLevel::ReadOnly => "read_only",
+                        aqbot_agent::permission::RiskLevel::Write => "write",
+                        aqbot_agent::permission::RiskLevel::Execute => "execute",
+                    };
                     // Emit agent-permission-request
                     let _ = app.emit(
                         "agent-permission-request",
@@ -1489,7 +1505,8 @@ pub async fn agent_query(
                             tool_use_id: safe_tool_use_id,
                             tool_name: safe_tool_name,
                             input: filter_agent_event_json(&input),
-                            risk_level: "execute".to_string(),
+                            risk_level: risk_str.to_string(),
+                            working_directory: session_cwd.clone(),
                         },
                     );
 

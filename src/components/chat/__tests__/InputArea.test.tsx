@@ -3,7 +3,7 @@ import { Activity } from 'react';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppSettings, Message } from '@/types';
+import type { AppSettings, McpServer, Message } from '@/types';
 import { InputArea } from '../InputArea';
 
 const sendMessage = vi.fn();
@@ -34,6 +34,8 @@ const setActivePage = vi.fn();
 const enterSettings = vi.fn();
 const setSettingsSection = vi.fn();
 const setSelectedProviderId = vi.fn();
+const updateConversation = vi.fn();
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 const conversationState = {
   streaming: false,
@@ -89,6 +91,7 @@ const conversationState = {
   clearAllMessages,
   clearFirstRounds,
   getContextUsage,
+  updateConversation,
 };
 
 const providerState = {
@@ -150,7 +153,10 @@ const searchState = {
   ensureProvidersLoaded: loadSearchProviders,
 };
 
-const mcpState = {
+const mcpState: {
+  servers: McpServer[];
+  ensureServersLoaded: typeof loadMcpServers;
+} = {
   servers: [],
   ensureServersLoaded: loadMcpServers,
 };
@@ -265,6 +271,10 @@ vi.mock('@lobehub/icons', () => ({
   ModelIcon: () => null,
 }));
 
+vi.mock('@/lib/invoke', () => ({
+  invoke,
+}));
+
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({
     onDragDropEvent: vi.fn(async () => () => {}),
@@ -313,10 +323,20 @@ describe('InputArea', () => {
     conversationState.multiModelContinuationMode = 'selected';
     conversationState.error = null;
     conversationState.chatQueueByConversation = {};
+    conversationState.enabledMcpServerIds = [];
+    mcpState.servers = [];
     sendMessage.mockResolvedValue({ kind: 'started', message: {} });
     sendAgentMessage.mockResolvedValue(undefined);
     sendQueuedChatMessageNow.mockResolvedValue(true);
     getContextUsage.mockResolvedValue(null);
+    updateConversation.mockResolvedValue(undefined);
+    invoke.mockReset();
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'agent_update_session') return { cwd: null };
+      if (command === 'agent_ensure_workspace') return '/tmp/workspace-conv-1';
+      if (command === 'agent_get_session') return null;
+      return undefined;
+    });
     settingsState.settings.default_provider_id = null;
     settingsState.settings.default_model_id = null;
     settingsState.settings.document_attachment_reading_enabled = false;
@@ -1991,5 +2011,102 @@ describe('InputArea', () => {
       expect(textarea).toHaveValue('[[paste:#1]]');
     });
     expect(await screen.findByText('common.failed')).toBeInTheDocument();
+  });
+
+  function enableFunctionCalling() {
+    providerState.providers[0].models[0].capabilities = ['FunctionCalling'];
+  }
+
+  function seedMcpServer() {
+    mcpState.servers = [{
+      id: 'mcp-fetch',
+      name: '@aqbot/fetch',
+      transport: 'stdio',
+      enabled: true,
+      permissionPolicy: 'ask',
+      source: 'builtin',
+    }];
+    conversationState.enabledMcpServerIds = ['mcp-fetch'];
+  }
+
+  it('shows a terminal hint in the Chat MCP panel that is not an MCP server', async () => {
+    const user = userEvent.setup();
+    enableFunctionCalling();
+    seedMcpServer();
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'chat.mcp.title' }));
+    expect(await screen.findByText('chat.mcp.terminalHint')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chat.mcp.switchToAgent' })).toBeInTheDocument();
+    expect(screen.getByText('@aqbot/fetch')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'chat.mcp.terminalHint' })).not.toBeInTheDocument();
+  });
+
+  it('switches to Agent from the MCP terminal hint, initializes the workspace, and keeps the draft', async () => {
+    const user = userEvent.setup();
+    enableFunctionCalling();
+    seedMcpServer();
+    settingsState.settings.document_attachment_reading_enabled = true;
+
+    const view = render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'curl POST later' } });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(['notes'], 'notes.txt', { type: 'text/plain' }));
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'chat.mcp.title' }));
+    await user.click(await screen.findByRole('button', { name: 'chat.mcp.switchToAgent' }));
+
+    await waitFor(() => {
+      expect(updateConversation).toHaveBeenCalledWith('conv-1', { mode: 'agent' });
+    });
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('agent_update_session', { conversationId: 'conv-1' });
+    });
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('agent_ensure_workspace', { conversationId: 'conv-1' });
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendAgentMessage).not.toHaveBeenCalled();
+
+    conversationState.conversations[0].mode = 'agent';
+    view.rerender(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('curl POST later');
+    expect(screen.getByText('notes.txt')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'chat.mcp.title' })).not.toBeInTheDocument();
+    expect(conversationState.enabledMcpServerIds).toEqual(['mcp-fetch']);
+  });
+
+  it('hides the MCP selector in Agent mode and describes terminal capabilities on the mode entry', async () => {
+    const user = userEvent.setup();
+    enableFunctionCalling();
+    seedMcpServer();
+    conversationState.conversations[0].mode = 'agent';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'chat.mcp.title' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /common.agentMode/ }));
+    expect(await screen.findByText('common.agentModeCapabilities')).toBeInTheDocument();
   });
 });

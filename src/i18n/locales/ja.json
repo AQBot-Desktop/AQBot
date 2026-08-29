@@ -269,7 +269,9 @@
       "title": "MCPツール",
       "noServers": "先に設定でMCPサーバーを設定して有効にしてください",
       "goConfig": "設定へ →",
-      "unsupported": "現在のモデルはツール呼び出しをサポートしていません。 MCP が無効になっています"
+      "unsupported": "現在のモデルはツール呼び出しをサポートしていません。 MCP が無効になっています",
+      "terminalHint": "端末コマンドは Agent モードで提供され、MCP サーバーではありません",
+      "switchToAgent": "Agent に切り替える"
     },
     "contextCleared": "ここからコンテキストがリセットされました",
     "knowledge": {
@@ -824,7 +826,7 @@
     "renderUserMarkdownDesc": "ユーザーメッセージをMarkdown形式で表示します（コードブロック、改行など）",
     "agentSettings": "エージェント",
     "agentWorkspaceRoot": "デフォルト作業ディレクトリ",
-    "agentWorkspaceRootDesc": "新しい Agent 会話はこのルート配下に独立した作業ディレクトリを作成します。空の場合は ~/.aqbot/workspace を使用します。",
+    "agentWorkspaceRootDesc": "新しい Agent 会話はこの配下に開始作業ディレクトリを作成します。これはプロセスの開始 CWD であり、サンドボックスではありません。空欄なら ~/.aqbot/workspace を使います。",
     "agentWorkspaceRootPlaceholder": "空欄でデフォルトを使用",
     "selectAgentWorkspaceRoot": "デフォルト作業ディレクトリを選択",
     "resetAgentWorkspaceRoot": "デフォルトディレクトリにリセット",
@@ -1853,6 +1855,12 @@
     "cut": "切り取り",
     "paste": "貼り付け",
     "agentMode": "エージェント",
+    "agentModeCapabilities": "ファイル、ターミナル、タスク実行に対応",
+    "command": "コマンド",
+    "riskReadOnly": "読み取り専用",
+    "riskWrite": "書き込み",
+    "riskExecute": "実行",
+    "timeout": "タイムアウト",
     "chatMode": "チャット",
     "permissionDefault": "デフォルト",
     "permissionAcceptEdits": "編集を許可",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "フルアクセスモード",
     "permissionAcceptEditsWarningTitle": "編集モードを受け入れる",
     "permissionFullAccessWarning": "エージェントは完全なアクセス権を持ち、パスの制限なしであらゆるファイル操作を実行できます。現在のモデルとシステム プロンプトを信頼していることを確認してください。",
-    "permissionAcceptEditsWarning": "エージェントは、個別に確認することなく、ファイルの編集を自動的に承認します。潜在的なセキュリティリスクを必ず理解してください。"
+    "permissionAcceptEditsWarning": "エージェントは、個別に確認することなく、ファイルの編集を自動的に承認します。潜在的なセキュリティリスクを必ず理解してください。",
+    "cwdIsProcessStart": "プロセスの開始作業ディレクトリであり、ファイルシステムのサンドボックスではありません"
   },
   "imageProtocol": {
     "title": "画像プロトコル",

@@ -40,13 +40,16 @@ export interface ToolResultEvent {
   isError: boolean;
 }
 
+export type AgentRiskLevel = 'read_only' | 'write' | 'execute';
+
 export interface PermissionRequestEvent {
   conversationId: string;
   assistantMessageId: string;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
-  riskLevel: 'read_only' | 'write' | 'execute';
+  riskLevel: AgentRiskLevel;
+  workingDirectory?: string;
 }
 
 export interface AskUserEvent {

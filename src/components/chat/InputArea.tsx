@@ -1834,10 +1834,39 @@ export function InputArea() {
             </Tooltip>
             <RoleSwitcherPopover />
             {currentMode === 'agent' && <SkillPickerPopover />}
+            {currentMode !== 'agent' && (
             <Popover
               trigger="click"
               placement="topLeft"
-              content={mcpPopoverContent}
+              content={(
+                <div>
+                  {mcpPopoverContent}
+                  <div
+                    data-testid="mcp-terminal-hint"
+                    style={{
+                      borderTop: `1px solid ${token.colorBorderSecondary}`,
+                      marginTop: 8,
+                      paddingTop: 8,
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 4 }}>
+                      {t('chat.mcp.terminalHint')}
+                    </div>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, fontSize: 12 }}
+                      aria-label={t('chat.mcp.switchToAgent')}
+                      onClick={() => {
+                        setMcpPopoverOpen(false);
+                        void handleModeSwitch('agent');
+                      }}
+                    >
+                      {t('chat.mcp.switchToAgent')}
+                    </Button>
+                  </div>
+                </div>
+              )}
               arrow={false}
               open={hasFunctionCalling ? mcpPopoverOpen : false}
               onOpenChange={(open) => {
@@ -1867,6 +1896,7 @@ export function InputArea() {
                   type="text"
                   size="small"
                   icon={<Plug size={14} />}
+                  aria-label={t('chat.mcp.title')}
                   disabled={!hasFunctionCalling}
                   style={
                     hasFunctionCalling
@@ -1878,6 +1908,7 @@ export function InputArea() {
                 </Badge>
               </Tooltip>
             </Popover>
+            )}
             <Popover
               trigger="click"
               placement="topLeft"
@@ -2119,7 +2150,17 @@ export function InputArea() {
                 {
                   key: 'agent',
                   icon: <Bot size={14} />,
-                  label: <>{t('common.agentMode')} <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', marginLeft: 2 }}>Beta</Tag></>,
+                  label: (
+                    <div>
+                      <div>
+                        {t('common.agentMode')}{' '}
+                        <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', marginLeft: 2 }}>Beta</Tag>
+                      </div>
+                      <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                        {t('common.agentModeCapabilities')}
+                      </div>
+                    </div>
+                  ),
                 },
               ],
               selectedKeys: [currentMode],

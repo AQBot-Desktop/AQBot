@@ -269,7 +269,9 @@
       "title": "MCP 工具",
       "noServers": "請先在設定中設定並啟用 MCP 伺服器",
       "goConfig": "前往設定 →",
-      "unsupported": "目前模型不支援工具調用，已停用 MCP"
+      "unsupported": "目前模型不支援工具調用，已停用 MCP",
+      "terminalHint": "終端命令由 Agent 模式提供，不是 MCP 伺服器",
+      "switchToAgent": "切換到 Agent"
     },
     "contextCleared": "上下文已從此處重置",
     "knowledge": {
@@ -837,7 +839,7 @@
     "inheritConversationPreferencesOnCreateDesc": "開啟後，新建對話會沿用目前對話的聯網、知識庫、記憶、工具、思考設定，以及多模型選擇與續問方式。",
     "agentSettings": "Agent",
     "agentWorkspaceRoot": "預設工作目錄",
-    "agentWorkspaceRootDesc": "新 Agent 對話會在該目錄下自動建立獨立工作目錄。留空時使用 ~/.aqbot/workspace。",
+    "agentWorkspaceRootDesc": "新 Agent 對話會在該目錄下建立起始工作目錄。該目錄只是命令的起始 CWD，不能限制存取其他路徑。留空時使用 ~/.aqbot/workspace。",
     "agentWorkspaceRootPlaceholder": "留空使用預設目錄",
     "selectAgentWorkspaceRoot": "選擇預設工作目錄",
     "resetAgentWorkspaceRoot": "重設預設目錄",
@@ -1859,6 +1861,12 @@
     "cut": "剪下",
     "paste": "貼上",
     "agentMode": "Agent",
+    "agentModeCapabilities": "支援檔案、終端與任務執行",
+    "command": "命令",
+    "riskReadOnly": "唯讀",
+    "riskWrite": "寫入",
+    "riskExecute": "執行",
+    "timeout": "逾時",
     "chatMode": "問答",
     "permissionDefault": "預設",
     "permissionAskEveryTime": "每次詢問",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "完全訪問模式",
     "permissionAcceptEditsWarningTitle": "允許編輯模式",
     "permissionFullAccessWarning": "Agent 將擁有完全存取權限，可以執行任何檔案操作且不受路徑限制。請確保你信任目前使用的模型和 System Prompt。",
-    "permissionAcceptEditsWarning": "Agent 將自動批准文件編輯操作，無需逐一確認。請確保你了解潛在的安全風險。"
+    "permissionAcceptEditsWarning": "Agent 將自動批准文件編輯操作，無需逐一確認。請確保你了解潛在的安全風險。",
+    "cwdIsProcessStart": "進程起始工作目錄，不是檔案系統沙箱"
   },
   "imageProtocol": {
     "title": "圖片協議",

@@ -110,6 +110,8 @@ Every regeneration creates a new version. Switch between versions using the **â—
 
 Enrich your prompts by attaching files, search results, or MCP tool outputs directly to the conversation context.
 
+Terminal and shell commands are not Chat MCP tools. Switch the conversation to Agent mode to run non-interactive commands after approval. The selected working directory is the process starting CWD, not a filesystem sandbox.
+
 ---
 
 ## Shortcuts

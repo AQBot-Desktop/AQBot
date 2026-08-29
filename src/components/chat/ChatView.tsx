@@ -1977,6 +1977,8 @@ export function ChatView() {
                     toolName={pr.toolName}
                     input={pr.input}
                     status={permStatus}
+                    workingDirectory={pr.workingDirectory}
+                    riskLevel={pr.riskLevel}
                   />
                 );
               })}

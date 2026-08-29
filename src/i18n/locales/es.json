@@ -269,7 +269,9 @@
       "title": "Herramientas MCP",
       "noServers": "Configure y active primero los servidores MCP en ajustes",
       "goConfig": "Ir a configuración →",
-      "unsupported": "El modelo actual no admite llamadas a herramientas; MCP está deshabilitado"
+      "unsupported": "El modelo actual no admite llamadas a herramientas; MCP está deshabilitado",
+      "terminalHint": "Los comandos de terminal los ofrece el modo Agente, no un servidor MCP",
+      "switchToAgent": "Cambiar a Agente"
     },
     "contextCleared": "El contexto se ha restablecido desde aquí",
     "knowledge": {
@@ -824,7 +826,7 @@
     "renderUserMarkdownDesc": "Renderizar mensajes del usuario con formato Markdown, incluyendo bloques de código, saltos de línea, etc.",
     "agentSettings": "Agente",
     "agentWorkspaceRoot": "Directorio de trabajo predeterminado",
-    "agentWorkspaceRootDesc": "Las nuevas conversaciones de Agent crean un directorio de trabajo aislado bajo esta raíz. Déjelo vacío para usar ~/.aqbot/workspace.",
+    "agentWorkspaceRootDesc": "Las nuevas conversaciones de Agent crean un directorio de trabajo inicial bajo esta raíz. Es el CWD del proceso, no un entorno aislado. Déjelo vacío para usar ~/.aqbot/workspace.",
     "agentWorkspaceRootPlaceholder": "Vacío para el directorio predeterminado",
     "selectAgentWorkspaceRoot": "Seleccionar directorio de trabajo predeterminado",
     "resetAgentWorkspaceRoot": "Restablecer directorio predeterminado",
@@ -1853,6 +1855,12 @@
     "cut": "Cortar",
     "paste": "Pegar",
     "agentMode": "Agente",
+    "agentModeCapabilities": "Archivos, terminal y ejecución de tareas",
+    "command": "Comando",
+    "riskReadOnly": "Solo lectura",
+    "riskWrite": "Escritura",
+    "riskExecute": "Ejecución",
+    "timeout": "Tiempo de espera",
     "chatMode": "Charla",
     "permissionDefault": "Predeterminado",
     "permissionAcceptEdits": "Aceptar ediciones",
@@ -2109,7 +2117,8 @@
     "permissionFullAccessWarningTitle": "Modo de acceso total",
     "permissionAcceptEditsWarningTitle": "Aceptar modo de edición",
     "permissionFullAccessWarning": "El agente tendrá acceso completo y podrá realizar cualquier operación de archivo sin restricciones de ruta. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
-    "permissionAcceptEditsWarning": "El agente aprobará automáticamente las ediciones de archivos sin confirmación individual. Asegúrese de comprender los posibles riesgos de seguridad."
+    "permissionAcceptEditsWarning": "El agente aprobará automáticamente las ediciones de archivos sin confirmación individual. Asegúrese de comprender los posibles riesgos de seguridad.",
+    "cwdIsProcessStart": "Directorio de trabajo inicial del proceso, no un entorno aislado del sistema de archivos"
   },
   "imageProtocol": {
     "title": "Protocolo de imagen",

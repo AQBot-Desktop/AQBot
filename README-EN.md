@@ -38,7 +38,7 @@ AQBot is a local-first desktop AI workspace that brings multi-provider chat, ACP
 ### AI Agent
 
 - **Two ways to use agents** — AQBot provides both a built-in agent inside Chat and a separate ACP agent workbench. The first uses your configured provider APIs; the second connects to external ACP-compatible agent processes, so you can choose the right path for each model and workflow.
-- **Chat agent (provider API)** — Switch a regular conversation to Agent mode and use any configured provider and model API to read or edit files, run commands and analyze code inside an isolated working directory.
+- **Chat agent (provider API)** — Switch a regular conversation to Agent mode and use any configured provider and model API to read or edit files, run commands and analyze code in a chosen working directory. That directory is the process starting CWD, not a filesystem sandbox.
 - **Chat agent controls** — Choose permission modes such as ask every time, accept edits or full access, review tool calls and approvals in real time, and track token and cost usage for each run.
 - **ACP agent workbench** — Run compatible coding agents through [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) in a dedicated workbench, with streaming responses, reasoning and tool calls.
 - **ACP Registry and custom integrations** — Add agents such as Codex, Claude Agent, Gemini CLI, Cline, OpenCode and Grok Build from the Registry, or configure a custom command, arguments, environment variables and icon; agents can be enabled and reordered freely.
