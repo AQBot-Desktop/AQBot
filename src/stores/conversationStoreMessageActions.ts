@@ -1047,8 +1047,11 @@ export function createConversationMessageActions(
           attachments: attachments ?? [],
         });
 
-        // Wait for agent-done or agent-error event
-        await eventPromise;
+        // Keep listening until done/error/cancel. Return now so the composer
+        // can clear while the assistant placeholder stays on screen.
+        void eventPromise.catch((error) => {
+          console.error('[sendAgentMessage] stream error:', error);
+        });
       } catch (e) {
         cleanup();
         const errMsg = String(e);

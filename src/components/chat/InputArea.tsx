@@ -2099,23 +2099,19 @@ export function InputArea() {
                     onClick={handleCancel}
                   />
                 </Tooltip>
-                <Tooltip
-                  title={canQueueDuringStream
-                    ? t('chat.inputQueue.enqueue')
-                    : t('chat.sendMessage')}
-                >
+                {canQueueDuringStream && (
+                <Tooltip title={t('chat.inputQueue.enqueue')}>
                   <Button
                     type="primary"
                     shape="circle"
                     size="small"
                     icon={<ArrowUp size={14} />}
-                    aria-label={canQueueDuringStream
-                      ? t('chat.inputQueue.enqueue')
-                      : t('chat.sendMessage')}
+                    aria-label={t('chat.inputQueue.enqueue')}
                     onClick={handleSend}
                     disabled={!canSend}
                   />
                 </Tooltip>
+                )}
               </>
             ) : (
               <Button

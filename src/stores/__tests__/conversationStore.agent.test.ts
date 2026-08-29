@@ -169,4 +169,33 @@ describe('conversationStore agent streaming', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('list_messages_page', expect.anything());
     expect(useConversationStore.getState().streaming).toBe(false);
   });
+
+  it('returns after agent_query starts so the composer can clear while the reply keeps streaming', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation()] as never[],
+      messages: [],
+      streaming: false,
+      streamingMessageId: null,
+      streamingConversationId: null,
+      thinkingActiveMessageIds: new Set<string>(),
+      enabledMcpServerIds: [],
+      thinkingBudget: null,
+      enabledKnowledgeBaseIds: [],
+      enabledMemoryNamespaceIds: [],
+    });
+
+    const run = useConversationStore.getState().sendAgentMessage('你好呀');
+    await expect(run).resolves.toBeUndefined();
+
+    const state = useConversationStore.getState();
+    expect(state.streaming).toBe(true);
+    expect(state.messages.some((message) => message.role === 'user' && message.content === '你好呀')).toBe(true);
+    expect(state.messages.some((message) => message.role === 'assistant' && message.status === 'partial')).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('agent_query', expect.objectContaining({
+      conversationId: 'conv-1',
+      prompt: '你好呀',
+    }));
+  });
 });

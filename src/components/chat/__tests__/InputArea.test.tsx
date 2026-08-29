@@ -902,7 +902,7 @@ describe('InputArea', () => {
       mode: 'chat' as const,
       targets: [{ providerId: 'provider-1', modelId: 'model-1' }],
     },
-  ])('preserves the draft when $mode busy mode does not support queuing', async ({ mode, targets }) => {
+  ])('hides send during $mode streaming when queuing is unsupported', ({ mode, targets }) => {
     conversationState.streaming = true;
     conversationState.conversations[0].mode = mode;
     conversationState.multiModelTargets = targets;
@@ -913,16 +913,39 @@ describe('InputArea', () => {
       </App>,
     );
 
+    expect(screen.getByLabelText('common.stop')).toBeInTheDocument();
+    expect(screen.queryByLabelText('chat.sendMessage')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('chat.inputQueue.enqueue')).not.toBeInTheDocument();
+  });
+
+  it('clears the Agent composer after send starts', async () => {
+    conversationState.conversations[0].mode = 'agent';
+    sendAgentMessage.mockImplementation(async () => {
+      conversationState.streaming = true;
+    });
+
+    const view = render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
-    await userEvent.type(textarea, 'keep this draft');
+    fireEvent.change(textarea, { target: { value: '你好呀' } });
     await userEvent.click(screen.getByLabelText('chat.sendMessage'));
 
-    expect(textarea).toHaveValue('keep this draft');
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(sendAgentMessage).not.toHaveBeenCalled();
-    expect(sendMultiModelMessage).not.toHaveBeenCalled();
-    expect(await screen.findByText('chat.inputQueue.unsupported')).toBeInTheDocument();
-    fireEvent.change(textarea, { target: { value: '' } });
+    await waitFor(() => {
+      expect(sendAgentMessage).toHaveBeenCalledWith('你好呀', undefined);
+    });
+    expect(textarea).toHaveValue('');
+
+    view.rerender(
+      <App>
+        <InputArea />
+      </App>,
+    );
+    expect(screen.getByLabelText('common.stop')).toBeInTheDocument();
+    expect(screen.queryByLabelText('chat.sendMessage')).not.toBeInTheDocument();
   });
 
   it('renders the active queue and wires send-now and delete actions', async () => {
