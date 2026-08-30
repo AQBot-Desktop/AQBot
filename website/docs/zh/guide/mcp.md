@@ -183,7 +183,7 @@ AQBot 开箱即用地提供了一些内置 MCP 工具服务器，无需额外安
 内置工具服务器在 MCP 服务器列表中默认显示，可以直接在对话中启用使用，无需任何额外配置。
 :::
 
-普通 Chat 的 MCP 链路不会执行终端命令。本地 Shell 由对话内的 Agent 模式提供：切换后使用已有的审批卡片、起始工作目录、超时和取消。所选工作目录只是进程起始 CWD，不是文件系统沙箱。Agent 模式会沿用当前对话勾选的 MCP 服务器，并与内置 Agent 工具一起提供给模型。Default 与 Accept Edits 会在每次 MCP 工具调用前请求确认，且不提供永久允许；Full Access 会直接执行已选 MCP 工具。
+普通 Chat 的 MCP 链路不会执行终端命令。本地 Shell 由对话内的 Agent 模式提供：切换后使用已有的审批卡片、起始工作目录、超时和取消。所选工作目录只是进程起始 CWD，不是文件系统沙箱。Agent 模式会沿用当前对话勾选的 MCP 服务器，并与内置 Agent 工具一起提供给模型。Default 会在每次 MCP 工具调用前请求确认，且不提供永久允许；Accept Edits 与 Full Access 会直接执行已选 MCP 工具，Accept Edits 下的终端命令仍需确认。
 
 Agent 模式目前仅接入 MCP Tools，MCP Resources 与 Prompts 尚未接入 Agent 运行时。
 

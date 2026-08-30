@@ -2136,7 +2136,7 @@
     "permissionAcceptEditsWarningTitle": "允許編輯模式",
     "permissionFullAccessWarning": "Agent 將擁有完全存取權限，可以執行任何檔案操作且不受路徑限制。請確保你信任目前使用的模型和 System Prompt。",
     "permissionFullAccessChatWarning": "Agent 將擁有完全存取權限，可以在不逐次確認的情況下執行終端命令、呼叫已選 MCP 工具，以及執行不受路徑限制的檔案操作。請確保你信任目前使用的模型和 System Prompt。",
-    "permissionAcceptEditsWarning": "Agent 將自動批准文件編輯操作，無需逐一確認。請確保你了解潛在的安全風險。",
+    "permissionAcceptEditsWarning": "Agent 將自動批准檔案編輯和已選 MCP 工具呼叫，無需逐一確認，終端命令仍需審批。請確保你了解潛在的安全風險。",
     "cwdIsProcessStart": "進程起始工作目錄，不是檔案系統沙箱"
   },
   "imageProtocol": {

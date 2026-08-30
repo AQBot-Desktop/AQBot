@@ -998,7 +998,8 @@ pub async fn agent_query(
                     let risk_str = match risk {
                         aqbot_agent::permission::RiskLevel::ReadOnly => "read_only",
                         aqbot_agent::permission::RiskLevel::Write => "write",
-                        aqbot_agent::permission::RiskLevel::Execute => "execute",
+                        aqbot_agent::permission::RiskLevel::Mcp
+                        | aqbot_agent::permission::RiskLevel::Execute => "execute",
                     };
                     let _ = app.emit(
                         "agent-permission-request",
@@ -1541,7 +1542,8 @@ pub async fn agent_query(
                     let risk_str = match classify_tool_risk(&tool_name) {
                         aqbot_agent::permission::RiskLevel::ReadOnly => "read_only",
                         aqbot_agent::permission::RiskLevel::Write => "write",
-                        aqbot_agent::permission::RiskLevel::Execute => "execute",
+                        aqbot_agent::permission::RiskLevel::Mcp
+                        | aqbot_agent::permission::RiskLevel::Execute => "execute",
                     };
                     // Emit agent-permission-request
                     let _ = app.emit(

@@ -2202,7 +2202,7 @@
     "permissionAcceptEditsWarningTitle": "允许编辑模式",
     "permissionFullAccessWarning": "Agent 将拥有完全访问权限，可以执行任何文件操作且不受路径限制。请确保你信任当前使用的模型和 System Prompt。",
     "permissionFullAccessChatWarning": "Agent 将拥有完全访问权限，可以在不逐次确认的情况下执行终端命令、调用已选 MCP 工具，以及执行不受路径限制的文件操作。请确保你信任当前使用的模型和 System Prompt。",
-    "permissionAcceptEditsWarning": "Agent 将自动批准文件编辑操作，无需逐一确认。请确保你了解潜在的安全风险。",
+    "permissionAcceptEditsWarning": "Agent 将自动批准文件编辑和已选 MCP 工具调用，无需逐一确认，终端命令仍需审批。请确保你了解潜在的安全风险。",
     "cwdIsProcessStart": "进程起始工作目录，不是文件系统沙箱"
   },
   "imageProtocol": {
