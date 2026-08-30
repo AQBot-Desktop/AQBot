@@ -1333,8 +1333,64 @@ export function InputArea() {
         throw t('chat.inputQueue.conversationChanged');
       }
 
+      const submittedAttachmentIds = new Set(
+        submittedAttachments.map((attachment) => attachment.id),
+      );
+      const submittedSnippetIds = new Set(submittedSnippets.map((snippet) => snippet.id));
+      let draftAccepted = false;
+      const acceptSubmittedDraft = () => {
+        if (draftAccepted) return;
+        draftAccepted = true;
+
+        const latestActiveConversationId = useConversationStore.getState().activeConversationId;
+        const composerOwnsTarget = prevConvIdRef.current === targetConversationId;
+        if (latestActiveConversationId === targetConversationId && composerOwnsTarget) {
+          const detached = detachAttachmentsById(submittedAttachmentIds);
+          revokeComposerAttachments(detached);
+        } else if (targetConversationId) {
+          const cleanup: AcceptedDraftCleanup = {
+            attachmentIds: submittedAttachmentIds,
+            draftValue: value,
+            snippetIds: submittedSnippetIds,
+          };
+          acceptedDraftCleanupRef.current.set(targetConversationId, cleanup);
+          if (!composerOwnsTarget) {
+            cleanupAcceptedCachedDraft(targetConversationId, cleanup);
+            acceptedDraftCleanupRef.current.delete(targetConversationId);
+          }
+        }
+
+        const currentSnippetIds = new Set(pastedSnippetsRef.current.map((snippet) => snippet.id));
+        const currentDraftStillMatchesSubmission = valueRef.current === value
+          && currentSnippetIds.size === submittedSnippetIds.size
+          && [...submittedSnippetIds].every((snippetId) => currentSnippetIds.has(snippetId));
+        if (
+          latestActiveConversationId === targetConversationId
+          && composerOwnsTarget
+          && (
+            draftRevisionRef.current === submittedDraftRevision
+            || currentDraftStillMatchesSubmission
+          )
+        ) {
+          updateDraftValue('');
+          setPastedSnippets((current) => (
+            current.filter((snippet) => !submittedSnippetIds.has(snippet.id))
+          ));
+          pastedSnippetSeqRef.current = 0;
+          hasUserResizedRef.current = false;
+          setUserMinHeight(INITIAL_MIN_HEIGHT);
+          userMinHeightRef.current = INITIAL_MIN_HEIGHT;
+          requestAnimationFrame(() => {
+            if (textareaRef.current) {
+              textareaRef.current.style.height = 'auto';
+            }
+          });
+        }
+      };
+
       if (currentMode === 'agent') {
         await sendAgentMessage(finalContent, attachments);
+        acceptSubmittedDraft();
       } else if (latestTargets.length > 0) {
         await sendMultiModelMessage({
           content: finalContent,
@@ -1342,6 +1398,7 @@ export function InputArea() {
           historyMode: latestHistoryMode,
           attachments,
           searchProviderId: searchEnabled ? searchProviderId : null,
+          onAccepted: acceptSubmittedDraft,
         });
       } else {
         const result = await submitChatMessage(
@@ -1361,55 +1418,7 @@ export function InputArea() {
           }
           throw errorMessage;
         }
-      }
-
-      const submittedAttachmentIds = new Set(
-        submittedAttachments.map((attachment) => attachment.id),
-      );
-      const submittedSnippetIds = new Set(submittedSnippets.map((snippet) => snippet.id));
-      const latestActiveConversationId = useConversationStore.getState().activeConversationId;
-      const composerOwnsTarget = prevConvIdRef.current === targetConversationId;
-      if (latestActiveConversationId === targetConversationId && composerOwnsTarget) {
-        const detached = detachAttachmentsById(submittedAttachmentIds);
-        revokeComposerAttachments(detached);
-      } else if (targetConversationId) {
-        const cleanup: AcceptedDraftCleanup = {
-          attachmentIds: submittedAttachmentIds,
-          draftValue: value,
-          snippetIds: submittedSnippetIds,
-        };
-        acceptedDraftCleanupRef.current.set(targetConversationId, cleanup);
-        if (!composerOwnsTarget) {
-          cleanupAcceptedCachedDraft(targetConversationId, cleanup);
-          acceptedDraftCleanupRef.current.delete(targetConversationId);
-        }
-      }
-
-      const currentSnippetIds = new Set(pastedSnippetsRef.current.map((snippet) => snippet.id));
-      const currentDraftStillMatchesSubmission = valueRef.current === value
-        && currentSnippetIds.size === submittedSnippetIds.size
-        && [...submittedSnippetIds].every((snippetId) => currentSnippetIds.has(snippetId));
-      if (
-        latestActiveConversationId === targetConversationId
-        && composerOwnsTarget
-        && (
-          draftRevisionRef.current === submittedDraftRevision
-          || currentDraftStillMatchesSubmission
-        )
-      ) {
-        updateDraftValue('');
-        setPastedSnippets((current) => (
-          current.filter((snippet) => !submittedSnippetIds.has(snippet.id))
-        ));
-        pastedSnippetSeqRef.current = 0;
-        hasUserResizedRef.current = false;
-        setUserMinHeight(INITIAL_MIN_HEIGHT);
-        userMinHeightRef.current = INITIAL_MIN_HEIGHT;
-        requestAnimationFrame(() => {
-          if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-          }
-        });
+        acceptSubmittedDraft();
       }
     } catch (e) {
       console.error('[handleSend] error:', e);

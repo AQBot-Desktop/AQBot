@@ -326,6 +326,13 @@ describe('InputArea', () => {
     conversationState.enabledMcpServerIds = [];
     mcpState.servers = [];
     sendMessage.mockResolvedValue({ kind: 'started', message: {} });
+    sendMultiModelMessage.mockImplementation(async ({
+      onAccepted,
+    }: {
+      onAccepted?: () => void;
+    }) => {
+      onAccepted?.();
+    });
     sendAgentMessage.mockResolvedValue(undefined);
     sendQueuedChatMessageNow.mockResolvedValue(true);
     getContextUsage.mockResolvedValue(null);
@@ -1052,7 +1059,41 @@ describe('InputArea', () => {
       historyMode: 'per_model',
       attachments: undefined,
       searchProviderId: 'search-1',
+      onAccepted: expect.any(Function),
     }));
+  });
+
+  it('clears the composer as soon as a multi-model request is accepted', async () => {
+    let acceptRun!: () => void;
+    let finishRun!: () => void;
+    sendMultiModelMessage.mockImplementationOnce(({
+      onAccepted,
+    }: {
+      onAccepted?: () => void;
+    }) => new Promise<void>((resolve) => {
+      acceptRun = () => onAccepted?.();
+      finishRun = resolve;
+    }));
+    conversationState.multiModelTargets = [
+      { providerId: 'provider-1', modelId: 'model-1' },
+      { providerId: 'provider-2', modelId: 'model-1' },
+    ];
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    await userEvent.type(textarea, 'clear after multi-model start');
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => expect(sendMultiModelMessage).toHaveBeenCalled());
+    expect(textarea).toHaveValue('clear after multi-model start');
+    act(() => acceptRun());
+    await waitFor(() => expect(textarea).toHaveValue(''));
+    act(() => finishRun());
   });
 
   it('keeps the draft when a selected companion model is unavailable', async () => {

@@ -704,6 +704,8 @@ describe('conversationStore multi-model messages', () => {
       messages: [],
     });
 
+    const onAccepted = vi.fn();
+    let completed = false;
     const pending = useConversationStore.getState().sendMultiModelMessage({
       content: user.content,
       targetModels: [
@@ -711,6 +713,10 @@ describe('conversationStore multi-model messages', () => {
         { providerId: 'provider-b', modelId: 'shared-model' },
       ],
       historyMode: 'per_model',
+      onAccepted,
+    });
+    void pending.then(() => {
+      completed = true;
     });
     await flushPromises();
 
@@ -727,6 +733,8 @@ describe('conversationStore multi-model messages', () => {
       role: 'user',
       content: user.content,
     });
+    expect(onAccepted).toHaveBeenCalledOnce();
+    expect(completed).toBe(false);
 
     useConversationStore.getState().cancelCurrentStream();
     await pending;

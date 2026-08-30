@@ -1616,6 +1616,8 @@ export interface SendMultiModelMessageInput {
   historyMode?: MultiModelContinuationMode;
   attachments?: AttachmentInput[];
   searchProviderId?: string | null;
+  /** Runs after the backend accepts the user turn, before model responses finish. */
+  onAccepted?: () => void;
 }
 
 function appendStreamChunk(

@@ -1399,6 +1399,7 @@ export function createConversationMessageActions(
       historyMode,
       attachments = [],
       searchProviderId = null,
+      onAccepted,
     }) => {
       const conversationId = get().activeConversationId;
       const models = (targetModels && targetModels.length > 0) ? targetModels : get().multiModelTargets;
@@ -1510,6 +1511,7 @@ export function createConversationMessageActions(
         ),
       }));
       notifyConversationChanged(conversationId, snapshotStreamSyncState(get()));
+      onAccepted?.();
 
       const allDone = new Promise<void>((resolve) => {
         if (!envelope.activeRun) {
