@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   FolderOpen, RefreshCw, Download, Trash2, Sparkles, Store, Star, Github,
-  ChevronRight, Layers, Radio,
+  ChevronRight, Layers, Bot,
 } from 'lucide-react';
 import { Claude, Codex } from '@lobehub/icons';
 import appLogo from '@/assets/image/logo.png';
@@ -15,15 +15,73 @@ import type { Skill, MarketplaceSkill } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
 
 const INSTALL_TARGETS = [
-  { key: 'aqbot', label: '~/.aqbot/skills/', desc: 'AQBot', icon: <Sparkles size={14} /> },
-  // Codex.Avatar is white-on-white; Color is the brand tile with gradient mark.
-  { key: 'codex', label: '~/.codex/skills/', desc: 'Codex', icon: <Codex.Color size={14} /> },
-  { key: 'claude', label: '~/.claude/skills/', desc: 'Claude', icon: <FolderOpen size={14} /> },
-  { key: 'agents', label: '~/.agents/skills/', desc: 'Agents', icon: <FolderOpen size={14} /> },
+  { key: 'aqbot', label: '~/.aqbot/skills/', desc: 'AQBot' },
+  { key: 'codex', label: '~/.codex/skills/', desc: 'Codex' },
+  { key: 'claude', label: '~/.claude/skills/', desc: 'Claude' },
+  { key: 'agents', label: '~/.agents/skills/', desc: 'Agents' },
 ] as const;
 
 type SkillInstallTarget = typeof INSTALL_TARGETS[number]['key'];
 type SourceFilter = 'all' | SkillInstallTarget;
+
+function SkillSourceIcon({ source, size = 16 }: { source: string; size?: number }) {
+  const icon = (() => {
+    switch (source) {
+      case 'aqbot':
+        return (
+          <img
+            src={appLogo}
+            alt=""
+            width={size}
+            height={size}
+            style={{ display: 'block', width: size, height: size }}
+          />
+        );
+      case 'codex':
+        return <Codex.Color size={size} />;
+      case 'claude':
+        return <Claude.Color size={size} />;
+      case 'agents':
+        return <Bot size={size} />;
+      default:
+        return null;
+    }
+  })();
+
+  if (!icon) return null;
+
+  return (
+    <span
+      data-testid={`${source}-icon`}
+      aria-hidden
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: size,
+        height: size,
+        flexShrink: 0,
+        overflow: 'hidden',
+        borderRadius: 4,
+        lineHeight: 0,
+      }}
+    >
+      {icon}
+    </span>
+  );
+}
+
+function InstallTargetLabel({ target }: { target: typeof INSTALL_TARGETS[number] }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <SkillSourceIcon source={target.key} size={16} />
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <span>{target.desc}</span>
+        <span style={{ fontSize: 12, opacity: 0.65, lineHeight: 1.2 }}>{target.label}</span>
+      </span>
+    </span>
+  );
+}
 
 const openExternalUrl = (url: string) => {
   import('@tauri-apps/plugin-opener')
@@ -36,13 +94,49 @@ const { Text, Paragraph } = Typography;
 
 
 const SOURCE_ICONS: Record<string, React.ReactNode> = {
-  aqbot: <img src={appLogo} alt="" style={{ width: 14, height: 14, verticalAlign: 'middle' }} />,
-  codex: <Codex.Color size={14} />,
-  claude: <Claude.Color size={14} />,
-  agents: <Radio size={14} />,
+  aqbot: <SkillSourceIcon source="aqbot" size={14} />,
+  codex: <SkillSourceIcon source="codex" size={14} />,
+  claude: <SkillSourceIcon source="claude" size={14} />,
+  agents: <SkillSourceIcon source="agents" size={14} />,
 };
 
 const ALL_SOURCE_ICON = <Layers size={14} />;
+
+function marketplaceInstallRef(skill: MarketplaceSkill): string {
+  if (skill.installRef) return skill.installRef;
+  if (skill.skillId) return `${skill.repo}@${skill.skillId}`;
+  return skill.repo;
+}
+
+function skillGithubUrl(skill: MarketplaceSkill): string {
+  return skill.repo.includes('/') ? `https://github.com/${skill.repo}` : `https://skills.sh/${skill.repo}`;
+}
+
+async function fetchMarketplaceSkillMarkdown(skill: MarketplaceSkill): Promise<string> {
+  const skillId = skill.skillId || skill.name;
+  const branches = ['main', 'master'];
+  const paths = [
+    'SKILL.md',
+    skillId ? `skills/${skillId}/SKILL.md` : '',
+    skillId ? `.claude/skills/${skillId}/SKILL.md` : '',
+    skillId ? `.agents/skills/${skillId}/SKILL.md` : '',
+    skillId ? `.codex/skills/${skillId}/SKILL.md` : '',
+  ].filter(Boolean);
+  if (!skill.repo.includes('/')) {
+    return '';
+  }
+  for (const branch of branches) {
+    for (const path of paths) {
+      try {
+        const res = await fetch(`https://raw.githubusercontent.com/${skill.repo}/${branch}/${path}`);
+        if (res.ok) return await res.text();
+      } catch {
+        // try the next candidate
+      }
+    }
+  }
+  return '';
+}
 
 function SkillCard({
   skill,
@@ -137,13 +231,15 @@ function MarketplaceCard({
   source,
 }: {
   skill: MarketplaceSkill;
-  onInstall: (repo: string, target: string) => void;
-  onDetail: (repo: string) => void;
+  onInstall: (source: string, target: string) => void;
+  onDetail: (installRef: string) => void;
   installing: string | null;
   t: (key: string) => string;
   source: string;
 }) {
-  const githubUrl = `https://github.com/${skill.repo}`;
+  const installRef = marketplaceInstallRef(skill);
+  const githubUrl = skillGithubUrl(skill);
+  const sourceLabel = skill.skillId ? `${skill.repo}@${skill.skillId}` : skill.repo;
 
   return (
     <Card
@@ -155,7 +251,7 @@ function MarketplaceCard({
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <Text strong className="skill-card-title" style={{ cursor: 'pointer' }} onClick={() => onDetail(skill.repo)}>
+            <Text strong className="skill-card-title" style={{ cursor: 'pointer' }} onClick={() => onDetail(installRef)}>
               {skill.name}
             </Text>
             <CopyButton text={skill.name} size={12} />
@@ -173,12 +269,12 @@ function MarketplaceCard({
             <Text
               type="secondary"
               style={{ fontSize: 12, display: 'block', marginBottom: 2, cursor: 'pointer' }}
-              onClick={() => onDetail(skill.repo)}
+              onClick={() => onDetail(installRef)}
             >
               {skill.description}
             </Text>
           ) : null}
-          <Text type="secondary" style={{ fontSize: 12 }}>{skill.repo}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{sourceLabel}</Text>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <Button
@@ -198,18 +294,17 @@ function MarketplaceCard({
               menu={{
                 items: INSTALL_TARGETS.map((target) => ({
                   key: target.key,
-                  icon: target.icon,
-                  label: `${target.desc} (${target.label})`,
+                  label: <InstallTargetLabel target={target} />,
                 })),
-                onClick: ({ key }) => onInstall(skill.repo, key),
+                onClick: ({ key }) => onInstall(installRef, key),
               }}
               trigger={['click']}
-              disabled={installing === skill.repo}
+              disabled={installing === installRef}
             >
               <Button
                 size="small"
                 type="primary"
-                loading={installing === skill.repo}
+                loading={installing === installRef}
                 icon={<Download size={14} />}
               >
                 {t('skills.install')}
@@ -297,22 +392,30 @@ export function SkillsPage() {
     setDetailOpen(true);
   }, [getSkill]);
 
-  const handleMarketplaceDetail = useCallback(async (repo: string) => {
-    const skill = marketplaceSkills.find(s => s.repo === repo);
+  const handleMarketplaceDetail = useCallback(async (installRef: string) => {
+    const skill = marketplaceSkills.find((item) => marketplaceInstallRef(item) === installRef);
     if (!skill) return;
+    const sourceLabel = skill.skillId ? `${skill.repo}@${skill.skillId}` : skill.repo;
     setMarketplaceDetailOpen(true);
     setMarketplaceDetailLoading(true);
-    setMarketplaceDetailContent({ name: skill.name, repo: skill.repo, content: '' });
+    setMarketplaceDetailContent({ name: skill.name, repo: sourceLabel, content: '' });
     try {
-      const res = await fetch(`https://raw.githubusercontent.com/${repo}/main/SKILL.md`);
-      const content = res.ok ? await res.text() : '(SKILL.md not found)';
-      setMarketplaceDetailContent({ name: skill.name, repo: skill.repo, content });
+      const content = await fetchMarketplaceSkillMarkdown(skill);
+      setMarketplaceDetailContent({
+        name: skill.name,
+        repo: sourceLabel,
+        content: content || t('skills.skillMdNotFound'),
+      });
     } catch {
-      setMarketplaceDetailContent({ name: skill.name, repo: skill.repo, content: '(Failed to fetch SKILL.md)' });
+      setMarketplaceDetailContent({
+        name: skill.name,
+        repo: sourceLabel,
+        content: t('skills.skillMdFetchFailed'),
+      });
     } finally {
       setMarketplaceDetailLoading(false);
     }
-  }, [marketplaceSkills]);
+  }, [marketplaceSkills, t]);
 
   const handleUninstall = useCallback(async (name: string, sourcePath: string) => {
     try {
@@ -397,8 +500,7 @@ export function SkillsPage() {
             menu={{
               items: INSTALL_TARGETS.map((target) => ({
                 key: target.key,
-                icon: target.icon,
-                label: `${target.desc} (${target.label})`,
+                label: <InstallTargetLabel target={target} />,
               })),
               onClick: ({ key }) => handleInstallFromUrl(key),
             }}
@@ -611,7 +713,7 @@ export function SkillsPage() {
         ) : (
           marketplaceSkills.map((skill) => (
             <MarketplaceCard
-              key={skill.repo}
+              key={marketplaceInstallRef(skill)}
               skill={skill}
               onInstall={handleInstallFromMarketplace}
               onDetail={handleMarketplaceDetail}

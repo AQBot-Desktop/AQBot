@@ -54,6 +54,10 @@ pub struct MarketplaceSkill {
     pub name: String,
     pub description: String,
     pub repo: String,
+    #[serde(default)]
+    pub skill_id: String,
+    #[serde(default)]
+    pub install_ref: String,
     pub stars: i64,
     pub installs: i64,
     pub installed: bool,

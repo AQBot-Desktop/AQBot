@@ -2119,7 +2119,9 @@
     "sourceAll": "Все",
     "manifestSource": "Источник",
     "installedAt": "Установлено",
-    "filesLabel": "Файлы"
+    "filesLabel": "Файлы",
+    "skillMdNotFound": "SKILL.md не найден",
+    "skillMdFetchFailed": "Не удалось загрузить SKILL.md"
   },
   "agent": {
     "askUserPlaceholder": "Введите ваш ответ...",

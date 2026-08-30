@@ -2119,7 +2119,9 @@
     "sourceAll": "全部",
     "manifestSource": "來源",
     "installedAt": "安裝時間",
-    "filesLabel": "文件"
+    "filesLabel": "文件",
+    "skillMdNotFound": "找不到 SKILL.md",
+    "skillMdFetchFailed": "取得 SKILL.md 失敗"
   },
   "agent": {
     "askUserPlaceholder": "輸入您的回答...",

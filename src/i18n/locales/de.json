@@ -2119,7 +2119,9 @@
     "sourceAll": "Alle",
     "manifestSource": "Quelle",
     "installedAt": "Installiert",
-    "filesLabel": "Dateien"
+    "filesLabel": "Dateien",
+    "skillMdNotFound": "SKILL.md nicht gefunden",
+    "skillMdFetchFailed": "SKILL.md konnte nicht geladen werden"
   },
   "agent": {
     "askUserPlaceholder": "Geben Sie Ihre Antwort ein...",

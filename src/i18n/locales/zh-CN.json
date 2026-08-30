@@ -2119,7 +2119,9 @@
     "sourceAll": "全部",
     "manifestSource": "来源",
     "installedAt": "安装时间",
-    "filesLabel": "文件"
+    "filesLabel": "文件",
+    "skillMdNotFound": "未找到 SKILL.md",
+    "skillMdFetchFailed": "获取 SKILL.md 失败"
   },
   "roles": {
     "title": "角色",

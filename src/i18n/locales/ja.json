@@ -2119,7 +2119,9 @@
     "sourceAll": "すべて",
     "manifestSource": "ソース",
     "installedAt": "インストール済み",
-    "filesLabel": "ファイル"
+    "filesLabel": "ファイル",
+    "skillMdNotFound": "SKILL.md が見つかりません",
+    "skillMdFetchFailed": "SKILL.md の取得に失敗しました"
   },
   "agent": {
     "askUserPlaceholder": "回答を入力...",

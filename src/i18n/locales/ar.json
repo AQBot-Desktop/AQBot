@@ -2119,7 +2119,9 @@
     "sourceAll": "الكل",
     "manifestSource": "المصدر",
     "installedAt": "تم التثبيت",
-    "filesLabel": "الملفات"
+    "filesLabel": "الملفات",
+    "skillMdNotFound": "لم يتم العثور على SKILL.md",
+    "skillMdFetchFailed": "فشل جلب SKILL.md"
   },
   "agent": {
     "askUserPlaceholder": "اكتب إجابتك...",

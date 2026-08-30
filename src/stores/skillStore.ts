@@ -7,6 +7,12 @@ import type { Skill, SkillDetail, MarketplaceSkill, SkillUpdateInfo } from '@/ty
 const SKILLS_RESOURCE_KEY = 'skills';
 let skillsRequest: { revision: number; promise: Promise<void> } | null = null;
 
+function marketplaceInstallRef(skill: MarketplaceSkill): string {
+  if (skill.installRef) return skill.installRef;
+  if (skill.skillId) return `${skill.repo}@${skill.skillId}`;
+  return skill.repo;
+}
+
 function mutateSkillsMeta(meta: ResourceMeta): ResourceMeta {
   const remainsComplete = meta.status === 'ready' && meta.key === SKILLS_RESOURCE_KEY;
   return {
@@ -152,7 +158,9 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     // Mark matching marketplace skill as installed
     set({
       marketplaceSkills: get().marketplaceSkills.map(s =>
-        s.repo === source ? { ...s, installed: true } : s
+        marketplaceInstallRef(s) === source || s.repo === source
+          ? { ...s, installed: true }
+          : s
       ),
     });
     return name;

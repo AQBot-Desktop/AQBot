@@ -2119,7 +2119,9 @@
     "sourceAll": "Todos",
     "manifestSource": "Fuente",
     "installedAt": "Instalado",
-    "filesLabel": "Archivos"
+    "filesLabel": "Archivos",
+    "skillMdNotFound": "No se encontró SKILL.md",
+    "skillMdFetchFailed": "Error al obtener SKILL.md"
   },
   "agent": {
     "askUserPlaceholder": "Escriba su respuesta...",

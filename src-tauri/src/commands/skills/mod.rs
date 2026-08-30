@@ -1,8 +1,17 @@
+mod install;
+mod marketplace;
+
+pub use install::{install_skill, __cmd__install_skill};
+pub use marketplace::{search_marketplace, __cmd__search_marketplace};
+
 use crate::paths::aqbot_home;
 use crate::AppState;
 use aqbot_core::types::*;
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
+
+#[cfg(test)]
+mod tests;
 
 fn home_dir() -> PathBuf {
     dirs::home_dir().expect("Could not determine home directory")
@@ -33,7 +42,7 @@ fn skill_roots() -> [PathBuf; 4] {
     ]
 }
 
-fn install_target_dir(target: Option<&str>) -> PathBuf {
+pub(super) fn install_target_dir(target: Option<&str>) -> PathBuf {
     match target {
         Some("codex") => codex_skills_dir(),
         Some("claude") => claude_skills_dir(),
@@ -49,14 +58,6 @@ fn source_root(source: &str) -> Option<PathBuf> {
         "claude" => Some(claude_skills_dir()),
         "agents" => Some(agents_skills_dir()),
         _ => None,
-    }
-}
-
-fn skill_target_dir(target_dir: &Path, name: &str) -> Result<PathBuf, String> {
-    let mut components = Path::new(name).components();
-    match (components.next(), components.next()) {
-        (Some(Component::Normal(_)), None) => Ok(target_dir.join(name)),
-        _ => Err(format!("Invalid skill directory name: {}", name)),
     }
 }
 
@@ -156,7 +157,7 @@ pub async fn get_skill(
                 .map(|path| s.path == *path)
                 .unwrap_or_else(|| s.name == name)
         })
-        .ok_or_else(|| format!("Skill '{}' not found", name))?;
+        .ok_or_else(|| format!("Skill '{name}' not found"))?;
 
     let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
         .await
@@ -164,7 +165,6 @@ pub async fn get_skill(
 
     let skill_dir = skill.path.parent().unwrap_or(Path::new(""));
 
-    // List files in skill directory
     let files = std::fs::read_dir(skill_dir)
         .map(|entries| {
             entries
@@ -174,7 +174,6 @@ pub async fn get_skill(
         })
         .unwrap_or_default();
 
-    // Read manifest if exists
     let manifest_path = skill_dir.join("skill-manifest.json");
     let manifest = std::fs::read_to_string(&manifest_path)
         .ok()
@@ -227,161 +226,6 @@ pub async fn toggle_skill(
 }
 
 #[tauri::command]
-pub async fn install_skill(source: String, target: Option<String>) -> Result<String, String> {
-    let target_dir = install_target_dir(target.as_deref());
-    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
-
-    if source.starts_with('/') || source.starts_with('.') {
-        install_from_local(&source, &target_dir).await
-    } else {
-        let (owner, repo) = parse_github_source(&source)?;
-        install_from_github(&owner, &repo, &target_dir).await
-    }
-}
-
-fn parse_github_source(source: &str) -> Result<(String, String), String> {
-    let clean = source.trim_end_matches('/').trim_end_matches(".git");
-
-    if clean.contains("github.com") {
-        let parts: Vec<&str> = clean.split('/').collect();
-        let len = parts.len();
-        if len >= 2 {
-            return Ok((parts[len - 2].to_string(), parts[len - 1].to_string()));
-        }
-        return Err(format!("Invalid GitHub URL: {}", source));
-    }
-
-    let parts: Vec<&str> = source.split('/').collect();
-    if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
-        Ok((parts[0].to_string(), parts[1].to_string()))
-    } else {
-        Err(format!(
-            "Invalid source format '{}'. Expected 'owner/repo', GitHub URL, or local path.",
-            source
-        ))
-    }
-}
-
-async fn install_from_github(owner: &str, repo: &str, target_dir: &Path) -> Result<String, String> {
-    let url = format!("https://api.github.com/repos/{}/{}/zipball", owner, repo);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&url)
-        .header("User-Agent", "AQBot")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download skill: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "GitHub API returned status {}: {}",
-            response.status(),
-            response.text().await.unwrap_or_default()
-        ));
-    }
-
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-
-    let temp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let cursor = std::io::Cursor::new(&bytes);
-    let mut archive =
-        zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to read zip: {}", e))?;
-
-    // GitHub zipball has a top-level directory like "owner-repo-hash/"
-    let top_dir = archive
-        .file_names()
-        .next()
-        .and_then(|n| n.split('/').next())
-        .map(String::from)
-        .ok_or("Empty archive")?;
-
-    archive
-        .extract(temp_dir.path())
-        .map_err(|e| format!("Failed to extract: {}", e))?;
-
-    let extracted = temp_dir.path().join(&top_dir);
-    let skill_target = skill_target_dir(target_dir, repo)?;
-
-    if skill_target.exists() {
-        std::fs::remove_dir_all(&skill_target).map_err(|e| e.to_string())?;
-    }
-
-    copy_dir_recursive(&extracted, &skill_target)?;
-
-    let manifest = serde_json::json!({
-        "source_kind": "github",
-        "source_ref": format!("{}/{}", owner, repo),
-        "branch": "main",
-        "commit": top_dir.split('-').last().unwrap_or("unknown"),
-        "installed_at": chrono::Utc::now().to_rfc3339(),
-        "installed_via": "marketplace"
-    });
-    let manifest_path = skill_target.join("skill-manifest.json");
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(repo.to_string())
-}
-
-async fn install_from_local(source: &str, target_dir: &Path) -> Result<String, String> {
-    let source_path = PathBuf::from(source);
-    if !source_path.exists() {
-        return Err(format!("Source path does not exist: {}", source));
-    }
-    if !source_path.is_dir() {
-        return Err(format!("Source path is not a directory: {}", source));
-    }
-
-    let name = source_path
-        .file_name()
-        .ok_or("Invalid source directory name")?
-        .to_string_lossy()
-        .to_string();
-
-    let skill_target = skill_target_dir(target_dir, &name)?;
-    if skill_target.exists() {
-        std::fs::remove_dir_all(&skill_target).map_err(|e| e.to_string())?;
-    }
-
-    copy_dir_recursive(&source_path, &skill_target)?;
-
-    let manifest = serde_json::json!({
-        "source_kind": "local",
-        "source_ref": source,
-        "installed_at": chrono::Utc::now().to_rfc3339(),
-        "installed_via": "local"
-    });
-    let manifest_path = skill_target.join("skill-manifest.json");
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(name)
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
-    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let ty = entry.file_type().map_err(|e| e.to_string())?;
-        let dst_path = dst.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dst_path)?;
-        } else {
-            std::fs::copy(entry.path(), &dst_path).map_err(|e| e.to_string())?;
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn uninstall_skill(name: String, source_path: Option<String>) -> Result<(), String> {
     let skill_dir = if let Some(source_path) = source_path {
         let path = PathBuf::from(source_path);
@@ -396,7 +240,7 @@ pub async fn uninstall_skill(name: String, source_path: Option<String>) -> Resul
         skills_dir().join(&name)
     };
     if !skill_dir.exists() {
-        return Err(format!("Skill '{}' not found in ~/.aqbot/skills/", name));
+        return Err(format!("Skill '{name}' not found in ~/.aqbot/skills/"));
     }
     ensure_removable_skill_dir(&skill_dir)?;
     std::fs::remove_dir_all(&skill_dir).map_err(|e| e.to_string())?;
@@ -405,7 +249,6 @@ pub async fn uninstall_skill(name: String, source_path: Option<String>) -> Resul
 
 #[tauri::command]
 pub async fn uninstall_skill_group(group: String, source: Option<String>) -> Result<(), String> {
-    // Search all skill roots for a directory matching the group name
     let roots = source
         .as_deref()
         .and_then(source_root)
@@ -421,14 +264,14 @@ pub async fn uninstall_skill_group(group: String, source: Option<String>) -> Res
         }
     }
 
-    Err(format!("Skill group '{}' not found", group))
+    Err(format!("Skill group '{group}' not found"))
 }
 
 #[tauri::command]
 pub async fn open_skills_dir() -> Result<(), String> {
     let dir = skills_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    open::that(&dir).map_err(|e| format!("Failed to open directory: {}", e))
+    open::that(&dir).map_err(|e| format!("Failed to open directory: {e}"))
 }
 
 #[tauri::command]
@@ -442,19 +285,16 @@ pub async fn open_skill_dir(path: String) -> Result<(), String> {
             .unwrap_or_else(|| p.to_path_buf())
     };
     if dir.exists() {
-        open::that(&dir).map_err(|e| format!("Failed to open directory: {}", e))
+        open::that(&dir).map_err(|e| format!("Failed to open directory: {e}"))
     } else {
         Err(format!("Directory does not exist: {}", dir.display()))
     }
 }
 
-/// Collect `source_ref` values from `skill-manifest.json` files across all
-/// global skill directories so marketplace results can be marked as
-/// installed regardless of the directory name.
-fn installed_source_refs() -> std::collections::HashSet<String> {
+pub(super) fn installed_source_refs() -> std::collections::HashSet<String> {
     let mut refs = std::collections::HashSet::new();
     for dir in skill_roots() {
-        collect_source_refs(&dir, &mut refs, /* depth */ 0);
+        collect_source_refs(&dir, &mut refs, 0);
     }
     refs
 }
@@ -475,8 +315,6 @@ fn collect_source_refs(dir: &Path, refs: &mut std::collections::HashSet<String>,
                 refs.insert(sr);
             }
         }
-        // Recurse one level for group containers (dirs without SKILL.md but
-        // with subdirs that have skill-manifest.json).
         if depth == 0 {
             collect_source_refs(&path, refs, depth + 1);
         }
@@ -492,100 +330,6 @@ fn read_source_ref(manifest: &Path) -> Option<String> {
         None
     } else {
         Some(normalized)
-    }
-}
-
-#[tauri::command]
-pub async fn search_marketplace(
-    query: String,
-    source: Option<String>,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    let installed_refs = installed_source_refs();
-
-    match source.as_deref().unwrap_or("skills.sh") {
-        "github" => {
-            let url = format!(
-                "https://api.github.com/search/repositories?q={}+topic:agent-skill&sort=stars&per_page=20",
-                urlencoding::encode(&query)
-            );
-
-            let client = reqwest::Client::new();
-            let response = client
-                .get(&url)
-                .header("User-Agent", "AQBot")
-                .header("Accept", "application/vnd.github.v3+json")
-                .send()
-                .await
-                .map_err(|e| format!("Search failed: {}", e))?;
-
-            if !response.status().is_success() {
-                return Err(format!("GitHub API error: {}", response.status()));
-            }
-
-            let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-            let items = body["items"].as_array().cloned().unwrap_or_default();
-
-            let results: Vec<MarketplaceSkill> = items
-                .into_iter()
-                .map(|item| {
-                    let skill_name = item["name"].as_str().unwrap_or("").to_string();
-                    let repo = item["full_name"].as_str().unwrap_or("").to_string();
-                    let installed =
-                        installed_refs.contains(&repo.trim().trim_end_matches('/').to_lowercase());
-                    MarketplaceSkill {
-                        name: skill_name,
-                        description: item["description"].as_str().unwrap_or("").to_string(),
-                        repo,
-                        stars: item["stargazers_count"].as_i64().unwrap_or(0),
-                        installs: 0,
-                        installed,
-                    }
-                })
-                .collect();
-
-            Ok(results)
-        }
-        _ => {
-            let url = format!(
-                "https://skills.sh/api/search?q={}",
-                urlencoding::encode(&query)
-            );
-
-            let client = reqwest::Client::new();
-            let response = client
-                .get(&url)
-                .header("User-Agent", "AQBot")
-                .send()
-                .await
-                .map_err(|e| format!("Search failed: {}", e))?;
-
-            if !response.status().is_success() {
-                return Err(format!("skills.sh API error: {}", response.status()));
-            }
-
-            let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-            let items = body["skills"].as_array().cloned().unwrap_or_default();
-
-            let results: Vec<MarketplaceSkill> = items
-                .into_iter()
-                .map(|item| {
-                    let skill_name = item["name"].as_str().unwrap_or("").to_string();
-                    let repo = item["source"].as_str().unwrap_or("").to_string();
-                    let installed =
-                        installed_refs.contains(&repo.trim().trim_end_matches('/').to_lowercase());
-                    MarketplaceSkill {
-                        name: skill_name,
-                        description: String::new(),
-                        repo,
-                        stars: 0,
-                        installs: item["installs"].as_i64().unwrap_or(0),
-                        installed,
-                    }
-                })
-                .collect();
-
-            Ok(results)
-        }
     }
 }
 
@@ -625,15 +369,11 @@ pub async fn check_skill_updates() -> Result<Vec<SkillUpdateInfo>, String> {
                 continue;
             }
 
-            let parts: Vec<&str> = source_ref.split('/').collect();
-            if parts.len() != 2 {
+            let Some((owner, repo)) = install::github_owner_repo(&source_ref) else {
                 continue;
-            }
+            };
 
-            let url = format!(
-                "https://api.github.com/repos/{}/{}/commits?per_page=1",
-                parts[0], parts[1]
-            );
+            let url = format!("https://api.github.com/repos/{owner}/{repo}/commits?per_page=1");
 
             let client = reqwest::Client::new();
             let response = client

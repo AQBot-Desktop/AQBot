@@ -1193,6 +1193,8 @@ export interface MarketplaceSkill {
   name: string;
   description: string;
   repo: string;
+  skillId?: string;
+  installRef?: string;
   stars: number;
   installs: number;
   installed: boolean;

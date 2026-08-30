@@ -2119,7 +2119,9 @@
     "sourceAll": "All",
     "manifestSource": "Source",
     "installedAt": "Installed",
-    "filesLabel": "Files"
+    "filesLabel": "Files",
+    "skillMdNotFound": "SKILL.md not found",
+    "skillMdFetchFailed": "Failed to fetch SKILL.md"
   },
   "roles": {
     "title": "Roles",

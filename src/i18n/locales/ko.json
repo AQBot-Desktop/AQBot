@@ -2119,7 +2119,9 @@
     "sourceAll": "전체",
     "manifestSource": "소스",
     "installedAt": "설치됨",
-    "filesLabel": "파일"
+    "filesLabel": "파일",
+    "skillMdNotFound": "SKILL.md를 찾을 수 없습니다",
+    "skillMdFetchFailed": "SKILL.md를 가져오지 못했습니다"
   },
   "agent": {
     "askUserPlaceholder": "답변을 입력하세요...",

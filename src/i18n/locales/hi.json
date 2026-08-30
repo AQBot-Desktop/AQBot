@@ -2119,7 +2119,9 @@
     "sourceAll": "सभी",
     "manifestSource": "स्रोत",
     "installedAt": "स्थापित",
-    "filesLabel": "फ़ाइलें"
+    "filesLabel": "फ़ाइलें",
+    "skillMdNotFound": "SKILL.md नहीं मिला",
+    "skillMdFetchFailed": "SKILL.md प्राप्त करने में विफल"
   },
   "agent": {
     "askUserPlaceholder": "अपना उत्तर टाइप करें...",
