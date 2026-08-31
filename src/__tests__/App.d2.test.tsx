@@ -209,4 +209,18 @@ describe('AppRoot D2 setup', () => {
       expect(document.documentElement.style.getPropertyValue('--chat-font-weight')).toBe('500');
     });
   });
+
+  it('routes quit requests directly by default and to confirmation when enabled', async () => {
+    const { runQuitFlow } = await import('../App');
+    const confirm = vi.fn();
+    const quit = vi.fn();
+
+    runQuitFlow(false, confirm, quit);
+    expect(quit).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
+
+    runQuitFlow(true, confirm, quit);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(quit).toHaveBeenCalledTimes(1);
+  });
 });

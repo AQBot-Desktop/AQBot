@@ -867,6 +867,7 @@ export interface AppSettings {
   start_minimized?: boolean;
   close_to_tray?: boolean;
   release_webview_on_tray?: boolean;
+  confirm_on_quit?: boolean;
   notify_backup?: boolean;
   notify_import?: boolean;
   notify_errors?: boolean;

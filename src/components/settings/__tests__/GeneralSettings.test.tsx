@@ -41,6 +41,7 @@ vi.mock('react-i18next', () => ({
         'settings.trayIconUpdateFailed': '无法更新托盘图标',
         'settings.minimizeToTray': '关闭时最小化到托盘',
         'settings.releaseWebviewOnTray': '释放界面进程',
+        'settings.confirmOnQuit': '退出应用时确认',
         'desktop.alwaysOnTop': '窗口置顶',
         'desktop.startMinimized': '启动时最小化',
       };
@@ -181,6 +182,7 @@ describe('GeneralSettings', () => {
       always_on_top: false,
       start_minimized: false,
       release_webview_on_tray: false,
+      confirm_on_quit: true,
       model_catalog_source: 'builtin',
     };
   });
@@ -209,6 +211,19 @@ describe('GeneralSettings', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('set_release_webview_on_tray', {
       enabled: true,
     });
+  });
+
+  it('defaults quit confirmation to on and saves it when disabled', () => {
+    render(<GeneralSettings />);
+
+    const row = screen.getByText('退出应用时确认').parentElement;
+    expect(row).not.toBeNull();
+    const toggle = within(row as HTMLElement).getByRole('switch');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(toggle);
+
+    expect(mocks.saveSettings).toHaveBeenCalledWith({ confirm_on_quit: false });
   });
 
   it('disables release-webview setting when close-to-tray is disabled', () => {

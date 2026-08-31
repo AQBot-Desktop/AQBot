@@ -56,6 +56,15 @@ async function showWindow() {
   }
 }
 
+export function runQuitFlow(
+  confirmOnQuit: boolean,
+  showConfirmation: () => void,
+  quit: () => void,
+) {
+  if (confirmOnQuit) showConfirmation();
+  else quit();
+}
+
 function AppInner() {
   const { token } = useToken();
   const { t } = useTranslation();
@@ -67,6 +76,7 @@ function AppInner() {
   const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
   const isInSettings = renderedActivePage === 'settings';
   const providersSettingsVisible = isInSettings && settingsSection === 'providers';
+  const confirmOnQuit = useSettingsStore((s) => s.settings.confirm_on_quit ?? true);
   const windowLabel = getCurrentWindowLabel();
   const frontendKind = frontendKindForWindow(windowLabel);
   const popoutConversationId = conversationIdFromPopoutLabel(windowLabel);
@@ -77,15 +87,21 @@ function AppInner() {
 
   // Handle app close confirmation from backend
   const handleCloseRequested = useCallback(() => {
-    modal.confirm({
-      title: t('desktop.closeConfirmTitle'),
-      content: t('desktop.closeConfirmContent'),
-      okText: t('desktop.closeConfirmOk'),
-      cancelText: t('desktop.closeConfirmCancel'),
-      okButtonProps: { danger: true },
-      onOk: () => invoke('force_quit'),
-    });
-  }, [modal, t]);
+    runQuitFlow(
+      confirmOnQuit,
+      () => {
+        modal.confirm({
+          title: t('desktop.closeConfirmTitle'),
+          content: t('desktop.closeConfirmContent'),
+          okText: t('desktop.closeConfirmOk'),
+          cancelText: t('desktop.closeConfirmCancel'),
+          okButtonProps: { danger: true },
+          onOk: () => invoke('force_quit'),
+        });
+      },
+      () => { void invoke('force_quit'); },
+    );
+  }, [confirmOnQuit, modal, t]);
 
   useEffect(() => {
     if (!isTauri()) return;

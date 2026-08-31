@@ -211,6 +211,15 @@ export function GeneralSettings() {
             }}
           />
         </div>
+        <Divider style={{ margin: '4px 0' }} />
+        <div style={rowStyle} className="flex items-center justify-between">
+          <span>{t('settings.confirmOnQuit')}</span>
+          <Switch
+            checked={settings.confirm_on_quit ?? true}
+            onChange={(checked) => saveSettings({ confirm_on_quit: checked })}
+            disabled={!inTauri}
+          />
+        </div>
       </SettingsGroup>
     </div>
   );

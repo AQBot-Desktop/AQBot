@@ -115,6 +115,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   start_minimized: false,
   close_to_tray: true,
   release_webview_on_tray: false,
+  confirm_on_quit: true,
   notify_backup: true,
   notify_import: true,
   notify_errors: true,

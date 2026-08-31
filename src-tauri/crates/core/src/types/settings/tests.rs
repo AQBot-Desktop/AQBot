@@ -36,6 +36,19 @@ fn release_webview_on_tray_defaults_to_disabled() {
 }
 
 #[test]
+fn confirm_on_quit_defaults_to_enabled_and_roundtrips() {
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert!(settings.confirm_on_quit);
+
+    let settings: AppSettings = serde_json::from_value(json!({
+        "confirm_on_quit": false
+    }))
+    .expect("settings should deserialize");
+    assert!(!settings.confirm_on_quit);
+}
+
+#[test]
 fn tray_icon_style_defaults_to_color_and_roundtrips() {
     let default_settings = AppSettings::default();
     assert_eq!(default_settings.tray_icon_style, TrayIconStyle::Color);
