@@ -189,7 +189,10 @@ describe('ChatView independent-window model columns', () => {
       ragDisplayByMessageId: {},
       searchDisplayByMessageId: {},
       pendingCompanionModels: [],
-      multiModelTargets: [{ providerId: 'provider-b', modelId: 'model-b' }],
+      multiModelTargets: [
+        { providerId: 'provider-b', modelId: 'model-b' },
+        { providerId: 'provider-a', modelId: 'model-a' },
+      ],
       multiModelParentId: null,
       multiModelDoneMessageIds: [],
       thinkingActiveMessageIds: new Set(),
@@ -215,6 +218,12 @@ describe('ChatView independent-window model columns', () => {
     );
 
     expect(await screen.findByTestId('multi-model-lane-workspace')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^multi-model-lane-column-/).map((column) => (
+      column.getAttribute('data-testid')
+    ))).toEqual([
+      'multi-model-lane-column-provider-b:model-b',
+      'multi-model-lane-column-provider-a:model-a',
+    ]);
     const columnA = screen.getByTestId('multi-model-lane-column-provider-a:model-a');
     const columnB = screen.getByTestId('multi-model-lane-column-provider-b:model-b');
     expect(screen.getAllByText('compare these models')).toHaveLength(2);

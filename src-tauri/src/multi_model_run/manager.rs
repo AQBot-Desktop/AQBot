@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 
 const ACTIVE_RUN_EXISTS_ERROR: &str = "当前会话已有多模型回答正在进行，请等待完成或停止后再发送";
@@ -25,6 +25,7 @@ struct ActiveRun {
     snapshot: MultiModelRunSnapshot,
     stop: StopSignal,
     skip_current: Arc<AtomicBool>,
+    completion: watch::Receiver<bool>,
     #[allow(dead_code)]
     task: JoinHandle<()>,
 }
@@ -109,6 +110,7 @@ impl MultiModelRunManager {
         let task_stop = stop.clone();
         let task_skip = skip_current.clone();
         let task_adapter = adapter.clone();
+        let (completion_tx, completion_rx) = watch::channel(false);
         let task = tokio::spawn(async move {
             run_plan(
                 manager,
@@ -119,6 +121,7 @@ impl MultiModelRunManager {
                 task_skip,
             )
             .await;
+            let _ = completion_tx.send(true);
         });
 
         let envelope = {
@@ -132,6 +135,7 @@ impl MultiModelRunManager {
                 snapshot,
                 stop,
                 skip_current,
+                completion: completion_rx,
                 task,
             });
             envelope_from_slot(&conversation_id, Some(slot))
@@ -188,7 +192,7 @@ impl MultiModelRunManager {
         adapter: &A,
         run_id: &str,
     ) -> Result<MultiModelRunEnvelope, String> {
-        let (conversation_id, stream_ids, stop) = {
+        let (conversation_id, stream_ids, stop, mut completion) = {
             let mut inner = self.inner.lock().await;
             let found = inner.iter_mut().find_map(|(cid, slot)| {
                 let active = slot.active.as_mut()?;
@@ -204,7 +208,12 @@ impl MultiModelRunManager {
                     .iter()
                     .filter_map(|target| target.stream_id.clone())
                     .collect::<Vec<_>>();
-                Some((cid.clone(), stream_ids, active.stop.clone()))
+                Some((
+                    cid.clone(),
+                    stream_ids,
+                    active.stop.clone(),
+                    active.completion.clone(),
+                ))
             });
             match found {
                 Some(value) => value,
@@ -220,6 +229,12 @@ impl MultiModelRunManager {
                     .cancel_stream(&conversation_id, Some(&stream_id))
                     .await?;
             }
+        }
+        if !*completion.borrow() {
+            completion
+                .changed()
+                .await
+                .map_err(|_| "多模型停止等待通道意外关闭".to_string())?;
         }
         let envelope = self.snapshot(&conversation_id).await;
         adapter.emit_envelope(envelope.clone()).await;

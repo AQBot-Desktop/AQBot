@@ -97,6 +97,9 @@ type ConversationMessageActions = Pick<ConversationState,
   | 'applyRemoteConversationSync'
 >;
 
+let multiModelCancelRequestedRunId: number | null = null;
+let pendingMultiModelStop: { backendRunId: string; promise: Promise<void> } | null = null;
+
 function composerAttachmentsToMessages(attachments: AttachmentInput[] = []): Attachment[] {
   return attachments.map((attachment, index) => ({
     id: `temp-att-${index}`,
@@ -146,39 +149,6 @@ function insertMessageBeforeChildren(
   return [...messages.slice(0, childIndex), message, ...messages.slice(childIndex)];
 }
 
-function upsertLiveUserMessage(
-  set: ConversationStoreSet,
-  conversationId: string,
-  userMessageId: string,
-  content: string,
-  attachments: AttachmentInput[] = [],
-) {
-  set((state) => {
-    const existing = state.messages.find((message) => message.id === userMessageId);
-    if (existing) {
-      if (existing.role === 'user' && existing.content === content) {
-        return { multiModelParentId: userMessageId };
-      }
-      return {
-        multiModelParentId: userMessageId,
-        messages: state.messages.map((message) =>
-          message.id === userMessageId
-            ? { ...message, content, attachments: composerAttachmentsToMessages(attachments) }
-            : message
-        ),
-      };
-    }
-    return {
-      multiModelParentId: userMessageId,
-      messages: insertMessageBeforeChildren(
-        state.messages,
-        userMessageId,
-        liveUserMessage(conversationId, userMessageId, content, attachments),
-      ),
-    };
-  });
-}
-
 function assistantPlaceholderFromTarget(
   conversationId: string,
   parentMessageId: string,
@@ -208,6 +178,102 @@ function assistantPlaceholderFromTarget(
     is_active: target.index === 0,
     status,
   };
+}
+
+function stageOptimisticMultiModelTurn(
+  set: ConversationStoreSet,
+  conversationId: string,
+  runId: number,
+  content: string,
+  attachments: AttachmentInput[],
+  models: MultiModelTargetSnapshot['target'][],
+) {
+  const parentMessageId = `temp-user-mm-${runId}`;
+  const userMessage = liveUserMessage(conversationId, parentMessageId, content, attachments);
+  const placeholders = models.map((target, index) => assistantPlaceholderFromTarget(
+    conversationId,
+    parentMessageId,
+    { index, target, state: 'queued' },
+    `temp-assistant-mm-${runId}-${index}`,
+  ));
+  set((state) => ({
+    messages: [...state.messages, userMessage, ...placeholders],
+    streamActivityByMessageId: {
+      ...state.streamActivityByMessageId,
+      ...Object.fromEntries(placeholders.map((message) => [
+        message.id,
+        createStreamActivity(message.provider_id, message.model_id),
+      ])),
+    },
+    streaming: true,
+    streamingConversationId: conversationId,
+    streamingMessageId: placeholders[0]?.id ?? null,
+    activeStreamId: null,
+    multiModelParentId: parentMessageId,
+    pendingCompanionModels: [...models],
+    multiModelDoneMessageIds: [],
+    error: null,
+  }));
+  return { parentMessageId, placeholderIds: placeholders.map((message) => message.id) };
+}
+
+function removeOptimisticMultiModelTurn(
+  set: ConversationStoreSet,
+  parentMessageId: string,
+  placeholderIds: string[],
+) {
+  set((state) => ({
+    messages: state.messages.filter((message) => (
+      message.id !== parentMessageId && message.parent_message_id !== parentMessageId
+    )),
+    streamActivityByMessageId: removeStreamActivities(
+      state.streamActivityByMessageId,
+      placeholderIds,
+    ),
+    streaming: false,
+    streamingConversationId: null,
+    streamingMessageId: null,
+    activeStreamId: null,
+    pendingCompanionModels: [],
+    multiModelParentId: null,
+    multiModelDoneMessageIds: [],
+  }));
+}
+
+function resolveOptimisticMultiModelParent(
+  set: ConversationStoreSet,
+  optimisticParentId: string,
+  persistedParentId: string,
+  conversationId: string,
+  content: string,
+  attachments: AttachmentInput[],
+) {
+  set((state) => {
+    const hasOptimisticUser = state.messages.some((message) => message.id === optimisticParentId);
+    let messages = state.messages.filter((message) => (
+      message.id !== persistedParentId || message.id === optimisticParentId
+    ));
+    if (hasOptimisticUser) {
+      messages = messages.map((message) => {
+        if (message.id === optimisticParentId) {
+          return {
+            ...liveUserMessage(conversationId, persistedParentId, content, attachments),
+            created_at: message.created_at,
+          };
+        }
+        return message.parent_message_id === optimisticParentId
+          ? { ...message, parent_message_id: persistedParentId }
+          : message;
+      });
+    } else {
+      messages = insertMessageBeforeChildren(
+        messages,
+        persistedParentId,
+        liveUserMessage(conversationId, persistedParentId, content, attachments),
+      );
+    }
+    return { messages, multiModelParentId: persistedParentId };
+  });
 }
 
 function applyMultiModelEnvelope(
@@ -364,6 +430,31 @@ function applyMultiModelEnvelope(
     runtime.multiModelDoneResolve = null;
     resolve();
   }
+}
+
+function requestMultiModelStop(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  backendRunId: string,
+): Promise<void> {
+  if (pendingMultiModelStop?.backendRunId === backendRunId) {
+    return pendingMultiModelStop.promise;
+  }
+  const promise = invoke<MultiModelRunEnvelope>('stop_multi_model_run', { runId: backendRunId })
+    .then((envelope) => {
+      applyMultiModelEnvelope(set, get, envelope);
+      notifyConversationChanged(envelope.conversationId, snapshotStreamSyncState(get()));
+    })
+    .catch((error) => {
+      set({ error: String(error) });
+      throw error;
+    })
+    .finally(() => {
+      if (pendingMultiModelStop?.promise === promise) pendingMultiModelStop = null;
+    });
+  pendingMultiModelStop = { backendRunId, promise };
+  void promise.catch(() => undefined);
+  return promise;
 }
 
 function findMessageIncludingVersionResources(
@@ -1390,6 +1481,7 @@ export function createConversationMessageActions(
       searchProviderId = null,
       onAccepted,
     }) => {
+      if (pendingMultiModelStop) await pendingMultiModelStop.promise;
       const conversationId = get().activeConversationId;
       const models = (targetModels && targetModels.length > 0) ? targetModels : get().multiModelTargets;
       if (!conversationId || models.length === 0) return;
@@ -1398,13 +1490,21 @@ export function createConversationMessageActions(
         historyMode ?? get().multiModelContinuationMode,
       );
       const runId = ++runtime.multiModelRunId;
+      multiModelCancelRequestedRunId = null;
 
       runtime.isMultiModelActive = true;
       runtime.multiModelTotalRemaining = models.length;
       runtime.multiModelFirstTarget = { ...models[0] };
       runtime.multiModelHistoryMode = resolvedHistoryMode;
       resetPendingStreamUi();
-      set({ pendingCompanionModels: [...models] });
+      const optimisticTurn = stageOptimisticMultiModelTurn(
+        set,
+        conversationId,
+        runId,
+        content,
+        attachments,
+        models,
+      );
 
       const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
       const kbIds = capabilityIds.enabledKnowledgeBaseIds;
@@ -1461,13 +1561,25 @@ export function createConversationMessageActions(
           runtime.multiModelHistoryMode = 'selected';
           runtime.userManuallySelectedVersion = false;
           runtime.multiModelStreamIds.clear();
-          set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
+          removeOptimisticMultiModelTurn(
+            set,
+            optimisticTurn.parentMessageId,
+            optimisticTurn.placeholderIds,
+          );
+          if (multiModelCancelRequestedRunId === runId) multiModelCancelRequestedRunId = null;
         }
         throw error;
       }
       const parentMessageId = envelope.activeRun?.parentMessageId;
       if (parentMessageId) {
-        upsertLiveUserMessage(set, conversationId, parentMessageId, finalContent, attachments);
+        resolveOptimisticMultiModelParent(
+          set,
+          optimisticTurn.parentMessageId,
+          parentMessageId,
+          conversationId,
+          finalContent,
+          attachments,
+        );
       }
       applyMultiModelEnvelope(set, get, envelope);
       const sentUserMessage = parentMessageId
@@ -1510,6 +1622,9 @@ export function createConversationMessageActions(
         }
         runtime.multiModelDoneResolve = resolve;
       });
+      if (multiModelCancelRequestedRunId === runId && envelope.activeRun) {
+        await requestMultiModelStop(set, get, envelope.activeRun.runId);
+      }
       await allDone;
 
       const clearFinalizedRunState = () => set((s) => s.multiModelParentId === lastUserMsg.id
@@ -1523,13 +1638,27 @@ export function createConversationMessageActions(
       // All done — cleanup
       const firstMessageId = runtime.multiModelFirstMessageId;
       const userManuallySelectedVersion = runtime.userManuallySelectedVersion;
+      const wasCancelled = multiModelCancelRequestedRunId === runId;
       runtime.isMultiModelActive = false;
       runtime.multiModelFirstTarget = null;
       runtime.multiModelFirstMessageId = null;
       runtime.multiModelHistoryMode = 'selected';
       runtime.userManuallySelectedVersion = false;
       runtime.multiModelStreamIds.clear();
+      if (multiModelCancelRequestedRunId === runId) multiModelCancelRequestedRunId = null;
       set({ pendingCompanionModels: [], multiModelDoneMessageIds: [] });
+      if (wasCancelled) {
+        set((state) => ({
+          messages: state.messages.filter((message) => !(
+            message.parent_message_id === lastUserMsg.id
+            && message.role === 'assistant'
+            && isTemporaryMessageId(message.id)
+            && message.content.length === 0
+          )),
+        }));
+        clearFinalizedRunState();
+        return;
+      }
       const abortSupersededFinalization = () => {
         if (runtime.multiModelRunId === runId && !get().streaming) return false;
         clearFinalizedRunState();
@@ -2350,13 +2479,30 @@ export function createConversationMessageActions(
     applyRemoteConversationSync: async (payload) => {
       if (payload.originWindow === getCurrentWindowLabel()) return;
       if (!payload.conversationId) return;
+      if (payload.multiModelTargets) {
+        const nextTargets = [...payload.multiModelTargets];
+        set((state) => ({
+          multiModelTargets: state.activeConversationId === payload.conversationId
+            ? nextTargets
+            : state.multiModelTargets,
+          conversations: state.conversations.map((conversation) => (
+            conversation.id === payload.conversationId
+              ? { ...conversation, multi_model_targets: nextTargets }
+              : conversation
+          )),
+          archivedConversations: state.archivedConversations.map((conversation) => (
+            conversation.id === payload.conversationId
+              ? { ...conversation, multi_model_targets: nextTargets }
+              : conversation
+          )),
+        }));
+      }
       const remoteStream = payload.stream;
       if (remoteStream) {
         set((state) => ({
           observedStream: remoteStream.streaming
             ? { conversationId: payload.conversationId, ...remoteStream }
             : state.observedStream?.conversationId === payload.conversationId
-              && state.observedStream.streamId === remoteStream.streamId
               ? null
               : state.observedStream,
         }));
@@ -2368,6 +2514,7 @@ export function createConversationMessageActions(
           );
         }
       }
+      if (payload.kind === 'conversation-meta' && !remoteStream) return;
       invalidateConversationMessageCache(payload.conversationId);
       if (get().activeConversationId !== payload.conversationId) {
         runtime.pendingConversationRefresh.add(payload.conversationId);
@@ -2382,7 +2529,7 @@ export function createConversationMessageActions(
     },
     cancelCurrentStream: (options) => {
       const initialState = get();
-      const cancellingMultiModel = runtime.isMultiModelActive;
+      const ownsMultiModelRun = runtime.isMultiModelActive;
       const observedStream = initialState.observedStream?.streaming
         && initialState.observedStream.conversationId === initialState.activeConversationId
         ? initialState.observedStream
@@ -2395,6 +2542,10 @@ export function createConversationMessageActions(
         ? initialState.conversations.find((item) => item.id === conversationId)
           ?? initialState.archivedConversations.find((item) => item.id === conversationId)
         : null;
+      const activeMultiModelRun = initialState.multiModelRun?.conversationId === conversationId
+        ? initialState.multiModelRun
+        : null;
+      const cancellingMultiModel = ownsMultiModelRun || Boolean(activeMultiModelRun);
       if (
         conversationId
         && streamId
@@ -2424,31 +2575,47 @@ export function createConversationMessageActions(
       resetPendingStreamUi();
       runtime.streamBuffer = null;
       // Clean up multi-model state on cancel
-      if (runtime.isMultiModelActive) {
-        runtime.multiModelRunId++;
-        runtime.isMultiModelActive = false;
-        runtime.multiModelTotalRemaining = 0;
-        runtime.multiModelFirstTarget = null;
-        runtime.multiModelFirstMessageId = null;
-        runtime.multiModelHistoryMode = 'selected';
-        runtime.userManuallySelectedVersion = false;
-        runtime.multiModelStreamIds.clear();
-        if (runtime.multiModelDoneResolve) {
-          const r = runtime.multiModelDoneResolve;
-          runtime.multiModelDoneResolve = null;
-          r();
+      if (cancellingMultiModel) {
+        if (ownsMultiModelRun) multiModelCancelRequestedRunId = runtime.multiModelRunId;
+        if (isTauri() && !options?.skipBackend) {
+          set((state) => ({
+            multiModelRun: state.multiModelRun
+              ? { ...state.multiModelRun, phase: 'stopping' }
+              : state.multiModelRun,
+          }));
+          if (activeMultiModelRun) {
+            void requestMultiModelStop(set, get, activeMultiModelRun.runId);
+          }
+          return;
         }
-        set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
+        if (ownsMultiModelRun) {
+          runtime.multiModelRunId++;
+          runtime.isMultiModelActive = false;
+          runtime.multiModelTotalRemaining = 0;
+          runtime.multiModelFirstTarget = null;
+          runtime.multiModelFirstMessageId = null;
+          runtime.multiModelHistoryMode = 'selected';
+          runtime.userManuallySelectedVersion = false;
+          runtime.multiModelStreamIds.clear();
+          if (runtime.multiModelDoneResolve) {
+            const r = runtime.multiModelDoneResolve;
+            runtime.multiModelDoneResolve = null;
+            r();
+          }
+        }
+        set({
+          multiModelRun: null,
+          pendingCompanionModels: [],
+          multiModelParentId: null,
+          multiModelDoneMessageIds: [],
+        });
       }
       // Tell the backend to cancel the stream — fire and forget
       if (conversationId && isTauri() && !options?.skipBackend) {
-        const run = get().multiModelRun;
-        if (cancellingMultiModel && run) {
-          invoke('stop_multi_model_run', { runId: run.runId }).catch(() => {});
-        } else {
+        if (!cancellingMultiModel) {
           invoke('cancel_stream', {
             conversationId,
-            streamId: cancellingMultiModel ? null : streamId,
+            streamId,
           }).catch((error) => {
             const cancellationError = String(error);
             set((state) => {

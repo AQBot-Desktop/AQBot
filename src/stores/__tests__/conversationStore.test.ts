@@ -2037,6 +2037,34 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().messages.map((message) => message.id)).toEqual(['msg-2']);
   });
 
+  it('broadcasts a message sync after clearing the active conversation', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'clear_conversation_messages') return Promise.resolve();
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const [{ useConversationStore }, { listenConversationSync }] = await Promise.all([
+      import('../conversationStore'),
+      import('@/lib/conversationSync'),
+    ]);
+    const events: Array<{ conversationId: string; kind: string }> = [];
+    const unlisten = await listenConversationSync((payload) => {
+      events.push(payload);
+    });
+    useConversationStore.setState({
+      conversations: [makeConversation('conv-a')] as never[],
+      activeConversationId: 'conv-a',
+      messages: [makeMessage(1, 'conv-a')],
+    });
+
+    await useConversationStore.getState().clearAllMessages();
+    await flushPromises();
+    unlisten();
+
+    expect(events).toEqual([
+      expect.objectContaining({ conversationId: 'conv-a', kind: 'messages-changed' }),
+    ]);
+  });
+
   it('does not append a context marker into a conversation selected during the request', async () => {
     const markerRequest = deferred<Message>();
     invokeMock.mockImplementation((command: string) => {
@@ -2362,6 +2390,38 @@ describe('conversationStore pagination', () => {
         search_enabled: true,
       },
     });
+  });
+
+  it('broadcasts the selected multi-model order to other windows', async () => {
+    const selectedModels = [
+      { providerId: 'provider-b', modelId: 'model-b' },
+      { providerId: 'provider-a', modelId: 'model-a' },
+    ];
+    invokeMock.mockResolvedValue(makeConversation('conv-1', {
+      multi_model_targets: selectedModels,
+    }));
+    const [{ useConversationStore }, { listenConversationSync }] = await Promise.all([
+      import('../conversationStore'),
+      import('@/lib/conversationSync'),
+    ]);
+    const received: unknown[] = [];
+    const unlisten = await listenConversationSync((payload) => {
+      received.push(payload);
+    });
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+    });
+
+    useConversationStore.getState().setMultiModelTargets(selectedModels);
+    await flushPromises();
+
+    expect(received).toContainEqual(expect.objectContaining({
+      conversationId: 'conv-1',
+      kind: 'conversation-meta',
+      multiModelTargets: selectedModels,
+    }));
+    unlisten();
   });
 
   it('inherits current capability preferences for newly created conversations by default', async () => {

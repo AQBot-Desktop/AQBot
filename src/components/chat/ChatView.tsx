@@ -1075,11 +1075,8 @@ export function ChatView() {
     if (pendingCompanionModels.length > 0) {
       return buildLaneColumns(pendingCompanionModels);
     }
-    const primary = activeConversation
-      ? [{ providerId: activeConversation.provider_id, modelId: activeConversation.model_id }]
-      : [];
-    return buildLaneColumns([...primary, ...multiModelTargets]);
-  }, [activeConversation, multiModelTargets, pendingCompanionModels]);
+    return buildLaneColumns(multiModelTargets);
+  }, [multiModelTargets, pendingCompanionModels]);
   const useLaneWorkspace = shouldUseLaneWorkspace(chatChrome.kind, laneColumns);
   const assistantByParentId = useMemo(() => {
     const map = new Map<string, Message>();

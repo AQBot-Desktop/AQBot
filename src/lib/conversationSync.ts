@@ -24,6 +24,7 @@ export interface ConversationSyncPayload {
   conversationId: string;
   kind: ConversationSyncKind;
   stream?: ConversationStreamSyncState;
+  multiModelTargets?: MultiModelTarget[];
 }
 
 type ConversationSyncHandler = (payload: ConversationSyncPayload) => void;

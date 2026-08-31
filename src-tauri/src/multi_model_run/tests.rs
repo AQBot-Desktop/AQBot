@@ -282,7 +282,15 @@ async fn stop_during_wait_prevents_next_target() {
     })
     .await;
     let run_id = envelope.active_run.unwrap().run_id;
-    manager.stop_run(&control, &run_id).await.unwrap();
+    let stopped = manager.stop_run(&control, &run_id).await.unwrap();
+    assert!(stopped.active_run.is_none());
+    assert!(manager
+        .start(
+            control.clone(),
+            sample_input(MultiModelExecutionMode::Sequential, 60),
+        )
+        .await
+        .is_ok());
     wait_until(|| async {
         envelopes
             .lock()

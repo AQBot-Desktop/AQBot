@@ -1,6 +1,6 @@
 import { invoke } from '@/lib/invoke';
 import { applyRemovedConversationIds } from '@/lib/conversationTabsActions';
-import { notifyConversationChanged } from '@/lib/conversationSync';
+import { emitConversationSync, notifyConversationChanged } from '@/lib/conversationSync';
 import {
   clearLegacyMultiModelPreferenceKeys,
   getCompanionModelsStorageKey,
@@ -424,6 +424,13 @@ export function createConversationManagementActions(
       const conversationId = get().activeConversationId;
       set({ multiModelTargets: nextTargets });
       if (conversationId) {
+        void emitConversationSync({
+          conversationId,
+          kind: 'conversation-meta',
+          multiModelTargets: nextTargets,
+        }).catch((error) => {
+          console.error('[conversation-sync] Failed to synchronize multi-model order', error);
+        });
         void persistConversationPreferences(
           set,
           conversationId,
@@ -507,6 +514,7 @@ export function createConversationManagementActions(
           loadingOlder: false,
           loadingNewer: false,
         });
+        notifyConversationChanged(conversationId);
       } catch (e) {
         console.error('Failed to clear messages:', e);
       }

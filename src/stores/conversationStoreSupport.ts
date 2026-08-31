@@ -1464,6 +1464,7 @@ export interface ConversationState {
     conversationId: string;
     kind?: string;
     stream?: ConversationStreamSyncState;
+    multiModelTargets?: MultiModelTarget[];
   }) => Promise<void>;
   switchMessageVersion: (conversationId: string, parentMessageId: string, messageId: string) => Promise<void>;
   listMessageVersions: (conversationId: string, parentMessageId: string) => Promise<Message[]>;

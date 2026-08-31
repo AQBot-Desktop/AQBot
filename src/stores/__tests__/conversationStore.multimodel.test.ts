@@ -910,6 +910,210 @@ describe('conversationStore multi-model messages', () => {
     await pending;
   });
 
+  it('shows optimistic loading placeholders before the backend accepts the run', async () => {
+    tauriAvailable = true;
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    const startRun = deferred<any>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'start_multi_model_run') return startRun.promise;
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 0, activeRun: null });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'show progress immediately',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+        { providerId: 'provider-c', modelId: 'model-c' },
+      ],
+    });
+    await flushPromises();
+
+    const state = useConversationStore.getState();
+    const optimisticUser = state.messages.find((message) => message.role === 'user');
+    const placeholders = state.messages.filter((message) => message.role === 'assistant');
+    expect(optimisticUser).toMatchObject({
+      content: 'show progress immediately',
+      status: 'complete',
+    });
+    expect(placeholders.map((message) => message.model_id)).toEqual([
+      'model-a',
+      'model-b',
+      'model-c',
+    ]);
+    expect(placeholders.every((message) => (
+      message.parent_message_id === optimisticUser?.id
+      && message.status === 'partial'
+      && message.content === ''
+    ))).toBe(true);
+    expect(state).toMatchObject({
+      streaming: true,
+      streamingConversationId: conversation.id,
+      streamingMessageId: placeholders[0]?.id,
+      multiModelParentId: optimisticUser?.id,
+    });
+
+    startRun.reject(new Error('start failed'));
+    await expect(pending).rejects.toThrow('start failed');
+    expect(useConversationStore.getState()).toMatchObject({
+      messages: [],
+      streaming: false,
+      streamingMessageId: null,
+      multiModelParentId: null,
+    });
+  });
+
+  it('stops a run cancelled before the backend returns its run id', async () => {
+    tauriAvailable = true;
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    const startRun = deferred<any>();
+    const stopRun = deferred<any>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'start_multi_model_run') return startRun.promise;
+      if (command === 'get_multi_model_run_snapshot') {
+        return Promise.resolve({ conversationId: conversation.id, revision: 0, activeRun: null });
+      }
+      if (command === 'stop_multi_model_run') return stopRun.promise;
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      messages: [],
+    });
+
+    const pending = useConversationStore.getState().sendMultiModelMessage({
+      content: 'cancel during startup',
+      targetModels: [
+        { providerId: 'provider-a', modelId: 'model-a' },
+        { providerId: 'provider-b', modelId: 'model-b' },
+      ],
+    });
+    await flushPromises();
+    useConversationStore.getState().cancelCurrentStream();
+
+    expect(useConversationStore.getState().streaming).toBe(true);
+
+    startRun.resolve({
+      conversationId: conversation.id,
+      revision: 1,
+      activeRun: {
+        runId: 'run-starting',
+        conversationId: conversation.id,
+        parentMessageId: 'user-persisted',
+        mode: 'parallel',
+        intervalSeconds: 3,
+        phase: 'starting',
+        nextStartAt: null,
+        targets: [
+          {
+            index: 0,
+            target: { providerId: 'provider-a', modelId: 'model-a' },
+            state: 'queued',
+          },
+          {
+            index: 1,
+            target: { providerId: 'provider-b', modelId: 'model-b' },
+            state: 'queued',
+          },
+        ],
+      },
+    });
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('stop_multi_model_run', { runId: 'run-starting' });
+    expect(useConversationStore.getState().streaming).toBe(true);
+
+    stopRun.resolve({ conversationId: conversation.id, revision: 2, activeRun: null });
+    await pending;
+
+    expect(useConversationStore.getState()).toMatchObject({
+      streaming: false,
+      streamingMessageId: null,
+      multiModelRun: null,
+      pendingCompanionModels: [],
+      multiModelParentId: null,
+    });
+  });
+
+  it('stops a multi-model run owned by another window', async () => {
+    tauriAvailable = true;
+    const conversation = {
+      ...makeConversation('conv-1'),
+      multi_model_display_mode_override: null,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'stop_multi_model_run') {
+        return Promise.resolve({
+          conversationId: conversation.id,
+          revision: 2,
+          activeRun: null,
+        });
+      }
+      if (command === 'cancel_stream') return Promise.resolve(undefined);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const { useConversationStore } = await import('../conversationStore');
+    useConversationStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      streaming: true,
+      streamingConversationId: conversation.id,
+      streamingMessageId: 'assistant-a',
+      activeStreamId: 'stream-a',
+      multiModelRunRevision: 1,
+      multiModelRun: {
+        runId: 'run-owned-by-popout',
+        conversationId: conversation.id,
+        parentMessageId: 'user-1',
+        mode: 'parallel',
+        intervalSeconds: 3,
+        phase: 'running',
+        nextStartAt: null,
+        targets: [
+          {
+            index: 0,
+            target: { providerId: 'provider-a', modelId: 'model-a' },
+            state: 'streaming',
+            streamId: 'stream-a',
+            messageId: 'assistant-a',
+          },
+        ],
+      },
+      pendingCompanionModels: [{ providerId: 'provider-a', modelId: 'model-a' }],
+    });
+
+    useConversationStore.getState().cancelCurrentStream();
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith('stop_multi_model_run', {
+      runId: 'run-owned-by-popout',
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('cancel_stream', expect.anything());
+    expect(useConversationStore.getState()).toMatchObject({
+      streaming: false,
+      multiModelRun: null,
+      pendingCompanionModels: [],
+    });
+  });
+
   it('shows the user turn and a first-model placeholder while later sequential models are still queued', async () => {
     tauriAvailable = true;
     const conversation = {
@@ -1323,6 +1527,7 @@ describe('conversationStore multi-model messages', () => {
     const nextSendMessage = deferred<typeof nextUser>();
     const restore = deferred<ReturnType<typeof makeConversation>>();
     let sendCount = 0;
+    let multiModelRunCount = 0;
     invokeMock.mockImplementation((command: string, args: Record<string, unknown>) => {
       if (command === 'update_conversation') {
         const input = args.input as Record<string, unknown>;
@@ -1340,11 +1545,12 @@ describe('conversationStore multi-model messages', () => {
       if (command === 'list_messages_page') return Promise.resolve(makePage([firstUser], false));
       if (command === 'cancel_stream') return Promise.resolve(undefined);
       if (command === 'start_multi_model_run') {
+        multiModelRunCount++;
         return Promise.resolve({
           conversationId: 'conv-1',
-          revision: 1,
+          revision: multiModelRunCount * 2 - 1,
           activeRun: {
-            runId: 'run-1',
+            runId: `run-${multiModelRunCount}`,
             conversationId: 'conv-1',
             parentMessageId: 'user-1',
             mode: 'parallel',
@@ -1359,7 +1565,11 @@ describe('conversationStore multi-model messages', () => {
         return Promise.resolve({ conversationId: 'conv-1', revision: 0, activeRun: null });
       }
       if (command === 'stop_multi_model_run' || command === 'skip_multi_model_target') {
-        return Promise.resolve({ conversationId: 'conv-1', revision: 2, activeRun: null });
+        return Promise.resolve({
+          conversationId: 'conv-1',
+          revision: multiModelRunCount * 2,
+          activeRun: null,
+        });
       }
       throw new Error(`unexpected command: ${command}`);
     });

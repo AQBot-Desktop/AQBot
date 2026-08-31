@@ -79,7 +79,7 @@ describe('conversationStore cross-window sync', () => {
     });
   });
 
-  it('clears the observed stream when the other window finishes', async () => {
+  it('clears the observed stream when the other window finishes without a stream id', async () => {
     invokeMock.mockResolvedValue({
       messages: [],
       has_older: false,
@@ -105,7 +105,7 @@ describe('conversationStore cross-window sync', () => {
       kind: 'messages-changed',
       stream: {
         streaming: false,
-        streamId: 'stream-a',
+        streamId: null,
         streamingMessageId: null,
         multiModelParentId: null,
         pendingCompanionModels: [],
@@ -114,6 +114,37 @@ describe('conversationStore cross-window sync', () => {
     });
 
     expect(useConversationStore.getState().observedStream).toBeNull();
+  });
+
+  it('applies the model order selected in another window', async () => {
+    invokeMock.mockResolvedValue({
+      messages: [],
+      has_older: false,
+      oldest_message_id: null,
+      total_active_count: 0,
+    });
+    const [{ useConversationStore }, { setCurrentWindowLabel }] = await Promise.all([
+      import('../conversationStore'),
+      import('@/lib/windowKind'),
+    ]);
+    const selectedModels = [
+      { providerId: 'provider-b', modelId: 'model-b' },
+      { providerId: 'provider-a', modelId: 'model-a' },
+    ];
+    setCurrentWindowLabel('conversation-popout:conv-1');
+    try {
+      await useConversationStore.getState().applyRemoteConversationSync({
+        originWindow: 'main',
+        conversationId: 'conv-1',
+        kind: 'conversation-meta',
+        multiModelTargets: selectedModels,
+      });
+
+      expect(useConversationStore.getState().multiModelTargets).toEqual(selectedModels);
+      expect(invokeMock).not.toHaveBeenCalled();
+    } finally {
+      setCurrentWindowLabel('main');
+    }
   });
 
   it('ignores sync events that originated in this window', async () => {
