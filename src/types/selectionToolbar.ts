@@ -9,6 +9,7 @@ export type SelectionToolbarBuiltinAiKey = 'translate' | 'explain' | 'polish' | 
 export type SelectionToolbarBuiltinActionKey = 'copy' | 'search';
 export type SelectionToolbarTriggerMode = 'selection' | 'shortcut';
 export type SelectionToolbarDisplayMode = 'full' | 'compact';
+export type SelectionToolbarPlacement = 'above' | 'below';
 export type SelectionToolbarOverflowDirection = 'above' | 'below';
 
 export const SELECTION_TOOLBAR_DEFAULT_SHORTCUT = 'CmdOrCtrl+Shift+E';
@@ -77,6 +78,10 @@ export interface SelectionToolbarSettings {
   theme_follow: boolean;
   /** Full labels or a compact icon-only toolbar. */
   display_mode: SelectionToolbarDisplayMode;
+  /** Preferred toolbar position relative to the selected text. */
+  placement: SelectionToolbarPlacement;
+  /** Keep a newly opened result window visible until explicitly dismissed. */
+  result_pinned_by_default: boolean;
   /** Automatic selection or an explicit global shortcut. */
   trigger_mode: SelectionToolbarTriggerMode;
   /** Global accelerator used when `trigger_mode` is `shortcut`. */
@@ -138,6 +143,8 @@ export function createDefaultSelectionToolbarSettings(): SelectionToolbarSetting
     enabled: false,
     theme_follow: false,
     display_mode: 'full',
+    placement: 'below',
+    result_pinned_by_default: false,
     trigger_mode: 'selection',
     trigger_shortcut: SELECTION_TOOLBAR_DEFAULT_SHORTCUT,
     translate_target_language: null,
@@ -218,15 +225,31 @@ export interface SelectionToolbarSessionView {
   theme: 'light' | 'dark';
   language: string;
   display_mode: SelectionToolbarDisplayMode;
+  resolved_placement: SelectionToolbarPlacement;
+  pinned: boolean;
   /** Configured translate target language; null follows `language`. */
   translate_target_language?: string | null;
 }
+
+export type SelectionToolbarToolRunMode = 'new_tool' | 'follow_up' | 'regenerate';
+export type SelectionToolbarTerminalRunStatus = 'completed' | 'stopped' | 'error';
 
 export interface SelectionToolbarRunView {
   request_id: string;
   selection_id: string;
   tool_id: string;
+  mode: SelectionToolbarToolRunMode;
+  user_input: string | null;
   status: 'started' | 'streaming' | 'completed' | 'stopped' | 'error';
+  output: string;
+  error: string | null;
+}
+
+export interface SelectionToolbarHistoryItem {
+  request_id: string;
+  mode: SelectionToolbarToolRunMode;
+  user_input: string | null;
+  status: SelectionToolbarTerminalRunStatus;
   output: string;
   error: string | null;
 }
@@ -235,10 +258,18 @@ export interface SelectionToolbarSnapshot {
   runtime: SelectionToolbarRuntimeStatus;
   session: SelectionToolbarSessionView | null;
   run: SelectionToolbarRunView | null;
+  history: SelectionToolbarHistoryItem[];
 }
 
 export type SelectionToolbarRunEvent =
-  | { kind: 'started'; request_id: string; selection_id: string; tool_id: string }
+  | {
+      kind: 'started';
+      request_id: string;
+      selection_id: string;
+      tool_id: string;
+      mode: SelectionToolbarToolRunMode;
+      user_input: string | null;
+    }
   | { kind: 'delta'; request_id: string; selection_id: string; delta: string }
   | { kind: 'completed'; request_id: string; selection_id: string; output?: string | null }
   | { kind: 'stopped'; request_id: string; selection_id: string; output?: string | null }

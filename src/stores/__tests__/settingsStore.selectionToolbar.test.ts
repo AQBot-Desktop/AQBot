@@ -22,6 +22,8 @@ describe('selection toolbar settings', () => {
       enabled: false,
       theme_follow: false,
       display_mode: 'full',
+      placement: 'below',
+      result_pinned_by_default: false,
       trigger_mode: 'selection',
       trigger_shortcut: 'CmdOrCtrl+Shift+E',
     });
@@ -59,6 +61,10 @@ describe('selection toolbar settings', () => {
       useSettingsStore.getState().settings.selection_toolbar.tools.map((tool) =>
         tool.kind === 'custom_ai' ? tool.id : tool.builtin_key),
     ).toEqual(['translate', 'explain', 'copy', 'search']);
+    expect(useSettingsStore.getState().settings.selection_toolbar).toMatchObject({
+      placement: 'below',
+      result_pinned_by_default: false,
+    });
   });
 
   it('rolls back an optimistic toolbar update when persistence fails', async () => {

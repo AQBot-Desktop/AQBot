@@ -1,4 +1,6 @@
-use aqbot_core::types::SelectionToolbarDisplayMode;
+use aqbot_core::types::{
+    ChatContent, ChatMessage, ChatRequest, SelectionToolbarDisplayMode, SelectionToolbarPlacement,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -150,6 +152,10 @@ pub struct SessionView {
     /// Configured translate target language; `None` follows `language`.
     #[serde(default)]
     pub translate_target_language: Option<String>,
+    #[serde(default)]
+    pub resolved_placement: SelectionToolbarPlacement,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,12 +168,40 @@ pub enum ToolRunStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolRunMode {
+    NewTool,
+    FollowUp,
+    Regenerate,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolRunView {
     pub request_id: String,
     pub selection_id: String,
     pub tool_id: String,
+    pub mode: ToolRunMode,
+    pub user_input: Option<String>,
     pub status: ToolRunStatus,
+    pub output: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolRunHistoryStatus {
+    Completed,
+    Stopped,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolRunHistoryView {
+    pub request_id: String,
+    pub mode: ToolRunMode,
+    pub user_input: Option<String>,
+    pub status: ToolRunHistoryStatus,
     pub output: String,
     pub error: Option<String>,
 }
@@ -177,6 +211,8 @@ pub struct RuntimeSnapshot {
     pub runtime: RuntimeStatus,
     pub session: Option<SessionView>,
     pub run: Option<ToolRunView>,
+    #[serde(default)]
+    pub history: Vec<ToolRunHistoryView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,6 +222,8 @@ pub enum ToolRunEvent {
         request_id: String,
         selection_id: String,
         tool_id: String,
+        mode: ToolRunMode,
+        user_input: Option<String>,
     },
     Delta {
         request_id: String,
@@ -213,6 +251,24 @@ pub enum ToolRunEvent {
     },
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ToolExecutionConfig {
+    pub provider_id: String,
+    /// Request template with stable model and effective parameters. Runtime
+    /// supplies the per-turn transcript messages before execution.
+    pub request: ChatRequest,
+}
+
+pub(crate) struct PreparedToolRun {
+    pub request_id: String,
+    pub selection_id: String,
+    pub tool_id: String,
+    pub cancel: Arc<AtomicBool>,
+    pub config: ToolExecutionConfig,
+    pub mode: ToolRunMode,
+    pub user_input: Option<String>,
+}
+
 struct ActiveSelection {
     view: SessionView,
     observation: SelectionObservation,
@@ -221,12 +277,27 @@ struct ActiveSelection {
 struct ActiveRun {
     view: ToolRunView,
     cancel: Arc<AtomicBool>,
+    replace_history_index: Option<usize>,
+}
+
+struct TranscriptTurn {
+    view: ToolRunHistoryView,
+    context_output: Option<String>,
+}
+
+struct ActiveTranscript {
+    selection_id: String,
+    tool_id: String,
+    config: ToolExecutionConfig,
+    hidden_prompt: String,
+    turns: Vec<TranscriptTurn>,
 }
 
 pub struct RuntimeStore {
     runtime: RuntimeStatus,
     selection: Option<ActiveSelection>,
     run: Option<ActiveRun>,
+    transcript: Option<ActiveTranscript>,
 }
 
 impl RuntimeStore {
@@ -235,6 +306,7 @@ impl RuntimeStore {
             runtime: RuntimeStatus::disabled(platform),
             selection: None,
             run: None,
+            transcript: None,
         }
     }
 
@@ -254,9 +326,12 @@ impl RuntimeStore {
         language: &str,
         display_mode: SelectionToolbarDisplayMode,
         translate_target_language: Option<&str>,
+        resolved_placement: SelectionToolbarPlacement,
+        pinned: bool,
     ) -> String {
         self.cancel_active_run();
         self.run = None;
+        self.transcript = None;
         let selection_id = Uuid::new_v4().to_string();
         self.selection = Some(ActiveSelection {
             view: SessionView {
@@ -266,6 +341,8 @@ impl RuntimeStore {
                 language: language.into(),
                 display_mode,
                 translate_target_language: translate_target_language.map(str::to_string),
+                resolved_placement,
+                pinned,
             },
             observation,
         });
@@ -302,6 +379,29 @@ impl RuntimeStore {
         true
     }
 
+    pub fn set_resolved_placement(
+        &mut self,
+        selection_id: &str,
+        placement: SelectionToolbarPlacement,
+    ) -> Option<SessionView> {
+        let selection = self
+            .selection
+            .as_mut()
+            .filter(|selection| selection.view.selection_id == selection_id)?;
+        selection.view.resolved_placement = placement;
+        Some(selection.view.clone())
+    }
+
+    pub fn set_pinned(&mut self, selection_id: &str, pinned: bool) -> Result<SessionView, String> {
+        let selection = self
+            .selection
+            .as_mut()
+            .filter(|selection| selection.view.selection_id == selection_id)
+            .ok_or_else(|| "The selection toolbar session is no longer active".to_string())?;
+        selection.view.pinned = pinned;
+        Ok(selection.view.clone())
+    }
+
     pub fn refresh_session(
         &mut self,
         tools: Vec<ToolbarToolView>,
@@ -320,32 +420,67 @@ impl RuntimeStore {
         }
     }
 
-    pub fn begin_run(
+    pub(crate) fn begin_new_tool_run(
         &mut self,
         selection_id: &str,
         tool_id: &str,
-    ) -> Result<(String, Arc<AtomicBool>), String> {
-        let active_selection_id = self
-            .selection
-            .as_ref()
-            .filter(|selection| selection.view.selection_id == selection_id)
-            .map(|selection| selection.view.selection_id.clone())
-            .ok_or_else(|| "Selection is no longer active".to_string())?;
+        config: ToolExecutionConfig,
+        hidden_prompt: String,
+    ) -> Result<PreparedToolRun, String> {
+        self.require_selection(selection_id)?;
         self.cancel_active_run();
-        let request_id = Uuid::new_v4().to_string();
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.run = Some(ActiveRun {
-            view: ToolRunView {
-                request_id: request_id.clone(),
-                selection_id: active_selection_id,
-                tool_id: tool_id.into(),
-                status: ToolRunStatus::Started,
-                output: String::new(),
-                error: None,
-            },
-            cancel: cancel.clone(),
+        self.transcript = Some(ActiveTranscript {
+            selection_id: selection_id.into(),
+            tool_id: tool_id.into(),
+            config,
+            hidden_prompt,
+            turns: Vec::new(),
         });
-        Ok((request_id, cancel))
+        self.prepare_run(ToolRunMode::NewTool, None, None)
+    }
+
+    pub(crate) fn begin_follow_up_run(
+        &mut self,
+        selection_id: &str,
+        text: String,
+    ) -> Result<PreparedToolRun, String> {
+        self.require_selection(selection_id)?;
+        self.require_idle_run()?;
+        let transcript = self.require_transcript(selection_id)?;
+        let latest = transcript.turns.last().filter(|turn| {
+            matches!(
+                turn.view.status,
+                ToolRunHistoryStatus::Completed | ToolRunHistoryStatus::Stopped
+            ) && turn.context_output.is_some()
+        });
+        if latest.is_none() {
+            return Err("There is no completed selection toolbar answer to follow up".into());
+        }
+        self.prepare_run(ToolRunMode::FollowUp, Some(text), None)
+    }
+
+    pub(crate) fn begin_regenerate_run(
+        &mut self,
+        selection_id: &str,
+        request_id: &str,
+    ) -> Result<PreparedToolRun, String> {
+        self.require_selection(selection_id)?;
+        self.require_idle_run()?;
+        let transcript = self.require_transcript(selection_id)?;
+        let last_index = transcript
+            .turns
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| "There is no selection toolbar answer to regenerate".to_string())?;
+        let turn = &transcript.turns[last_index];
+        if turn.view.request_id != request_id {
+            return Err("Only the latest selection toolbar answer can be regenerated".into());
+        }
+        self.prepare_run(
+            ToolRunMode::Regenerate,
+            turn.view.user_input.clone(),
+            Some(last_index),
+        )
     }
 
     pub fn append_delta(&mut self, request_id: &str, delta: &str) -> bool {
@@ -381,8 +516,15 @@ impl RuntimeStore {
         else {
             return false;
         };
+        if !matches!(
+            run.view.status,
+            ToolRunStatus::Started | ToolRunStatus::Streaming
+        ) {
+            return false;
+        }
         run.cancel.store(true, Ordering::Relaxed);
         run.view.status = ToolRunStatus::Stopped;
+        self.record_terminal_run(request_id);
         true
     }
 
@@ -408,11 +550,32 @@ impl RuntimeStore {
         else {
             return false;
         };
-        run.view.output = output;
+        run.view.output = output.clone();
+        if let Some(turn) = self.transcript.as_mut().and_then(|transcript| {
+            transcript
+                .turns
+                .iter_mut()
+                .find(|turn| turn.view.request_id == request_id)
+        }) {
+            turn.view.output = output.clone();
+            if turn.view.status != ToolRunHistoryStatus::Error {
+                turn.context_output = non_blank_context_output(&output);
+            }
+        }
         true
     }
 
     pub fn snapshot(&self) -> RuntimeSnapshot {
+        let current_request_id = self.run.as_ref().map(|run| run.view.request_id.as_str());
+        let regenerating_index = self.run.as_ref().and_then(|run| {
+            (run.view.mode == ToolRunMode::Regenerate
+                && matches!(
+                    run.view.status,
+                    ToolRunStatus::Started | ToolRunStatus::Streaming
+                ))
+            .then_some(run.replace_history_index)
+            .flatten()
+        });
         RuntimeSnapshot {
             runtime: self.runtime.clone(),
             session: self
@@ -420,6 +583,22 @@ impl RuntimeStore {
                 .as_ref()
                 .map(|selection| selection.view.clone()),
             run: self.run.as_ref().map(|run| run.view.clone()),
+            history: self
+                .transcript
+                .as_ref()
+                .map(|transcript| {
+                    transcript
+                        .turns
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, turn)| {
+                            Some(*index) != regenerating_index
+                                && Some(turn.view.request_id.as_str()) != current_request_id
+                        })
+                        .map(|(_, turn)| turn.view.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -427,6 +606,7 @@ impl RuntimeStore {
         self.cancel_active_run();
         self.selection = None;
         self.run = None;
+        self.transcript = None;
     }
 
     fn cancel_active_run(&mut self) {
@@ -453,8 +633,177 @@ impl RuntimeStore {
         }
         run.view.status = status;
         run.view.error = error;
+        self.record_terminal_run(request_id);
         true
     }
+
+    fn prepare_run(
+        &mut self,
+        mode: ToolRunMode,
+        user_input: Option<String>,
+        replace_history_index: Option<usize>,
+    ) -> Result<PreparedToolRun, String> {
+        let transcript = self
+            .transcript
+            .as_ref()
+            .ok_or_else(|| "There is no active selection toolbar conversation".to_string())?;
+        let mut config = transcript.config.clone();
+        config.request.messages =
+            transcript_messages(transcript, replace_history_index, &user_input);
+        let request_id = Uuid::new_v4().to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.run = Some(ActiveRun {
+            view: ToolRunView {
+                request_id: request_id.clone(),
+                selection_id: transcript.selection_id.clone(),
+                tool_id: transcript.tool_id.clone(),
+                mode,
+                user_input: user_input.clone(),
+                status: ToolRunStatus::Started,
+                output: String::new(),
+                error: None,
+            },
+            cancel: cancel.clone(),
+            replace_history_index,
+        });
+        Ok(PreparedToolRun {
+            request_id,
+            selection_id: transcript.selection_id.clone(),
+            tool_id: transcript.tool_id.clone(),
+            cancel,
+            config,
+            mode,
+            user_input,
+        })
+    }
+
+    fn require_selection(&self, selection_id: &str) -> Result<(), String> {
+        self.selection
+            .as_ref()
+            .filter(|selection| selection.view.selection_id == selection_id)
+            .map(|_| ())
+            .ok_or_else(|| "Selection is no longer active".to_string())
+    }
+
+    fn require_transcript(&self, selection_id: &str) -> Result<&ActiveTranscript, String> {
+        self.transcript
+            .as_ref()
+            .filter(|transcript| transcript.selection_id == selection_id)
+            .ok_or_else(|| "There is no active selection toolbar conversation".to_string())
+    }
+
+    fn require_idle_run(&self) -> Result<(), String> {
+        if self.run.as_ref().is_some_and(|run| {
+            matches!(
+                run.view.status,
+                ToolRunStatus::Started | ToolRunStatus::Streaming
+            )
+        }) {
+            return Err("Selection toolbar generation is still running".into());
+        }
+        Ok(())
+    }
+
+    fn record_terminal_run(&mut self, request_id: &str) {
+        let Some(run) = self
+            .run
+            .as_ref()
+            .filter(|run| run.view.request_id == request_id)
+        else {
+            return;
+        };
+        let (status, context_output) = match run.view.status {
+            ToolRunStatus::Completed => (
+                ToolRunHistoryStatus::Completed,
+                non_blank_context_output(&run.view.output),
+            ),
+            ToolRunStatus::Stopped => (
+                ToolRunHistoryStatus::Stopped,
+                non_blank_context_output(&run.view.output),
+            ),
+            ToolRunStatus::Error => (ToolRunHistoryStatus::Error, None),
+            _ => return,
+        };
+        let turn = TranscriptTurn {
+            view: ToolRunHistoryView {
+                request_id: run.view.request_id.clone(),
+                mode: run.view.mode,
+                user_input: run.view.user_input.clone(),
+                status,
+                output: run.view.output.clone(),
+                error: run.view.error.clone(),
+            },
+            context_output,
+        };
+        let Some(transcript) = self.transcript.as_mut() else {
+            return;
+        };
+        if let Some(index) = run.replace_history_index {
+            if let Some(existing) = transcript.turns.get_mut(index) {
+                *existing = turn;
+                return;
+            }
+        }
+        if let Some(existing) = transcript
+            .turns
+            .iter_mut()
+            .find(|existing| existing.view.request_id == request_id)
+        {
+            *existing = turn;
+            return;
+        }
+        transcript.turns.push(turn);
+    }
+}
+
+fn transcript_messages(
+    transcript: &ActiveTranscript,
+    before_history_index: Option<usize>,
+    user_input: &Option<String>,
+) -> Vec<ChatMessage> {
+    let end = before_history_index.unwrap_or(transcript.turns.len());
+    let mut messages = vec![text_message("user", transcript.hidden_prompt.clone())];
+    for turn in transcript.turns.iter().take(end) {
+        let Some(output) = &turn.context_output else {
+            continue;
+        };
+        if let Some(input) = &turn.view.user_input {
+            messages.push(text_message("user", input.clone()));
+        }
+        messages.push(text_message("assistant", output.clone()));
+    }
+    if let Some(input) = user_input {
+        messages.push(text_message("user", input.clone()));
+    }
+    messages
+}
+
+fn text_message(role: &str, text: String) -> ChatMessage {
+    ChatMessage {
+        role: role.into(),
+        content: ChatContent::Text(text),
+        reasoning_content: None,
+        tool_calls: None,
+        tool_call_id: None,
+    }
+}
+
+fn non_blank_context_output(output: &str) -> Option<String> {
+    let stripped = crate::commands::conversations::strip_think_tags(output);
+    let answer = if let Some(start) = valid_open_think_start(&stripped) {
+        &stripped[..start]
+    } else {
+        &stripped
+    }
+    .trim();
+    (!answer.is_empty()).then(|| answer.to_string())
+}
+
+fn valid_open_think_start(output: &str) -> Option<usize> {
+    output.match_indices("<think").find_map(|(start, _)| {
+        let after_tag = &output[start + 6..];
+        (after_tag.starts_with('>') || after_tag.starts_with(' ')).then_some(start)
+    })
 }
 
 #[cfg(test)]
@@ -478,6 +827,45 @@ mod tests {
         }
     }
 
+    fn execution_config() -> ToolExecutionConfig {
+        ToolExecutionConfig {
+            provider_id: "provider-stable".into(),
+            request: ChatRequest {
+                model: "model-stable".into(),
+                messages: Vec::new(),
+                stream: true,
+                temperature: Some(0.3),
+                top_p: Some(0.8),
+                max_tokens: Some(2048),
+                tools: None,
+                thinking_budget: None,
+                thinking_level: Some("medium".into()),
+                reasoning_profile: None,
+                use_max_completion_tokens: Some(true),
+                thinking_param_style: None,
+                extra_body: None,
+            },
+        }
+    }
+
+    fn begin_new(store: &mut RuntimeStore, selection_id: &str) -> PreparedToolRun {
+        store
+            .begin_new_tool_run(
+                selection_id,
+                "summarize",
+                execution_config(),
+                "hidden prompt with selected text".into(),
+            )
+            .unwrap()
+    }
+
+    fn message_text(message: &ChatMessage) -> &str {
+        match &message.content {
+            ChatContent::Text(text) => text,
+            ChatContent::Multipart(_) => panic!("expected text message"),
+        }
+    }
+
     #[test]
     fn public_snapshot_never_contains_selected_text() {
         let mut store = RuntimeStore::new(SelectionPlatform::Macos);
@@ -488,8 +876,18 @@ mod tests {
             "zh-CN",
             SelectionToolbarDisplayMode::Compact,
             None,
+            SelectionToolbarPlacement::Below,
+            false,
         );
 
+        let prepared = store
+            .begin_new_tool_run(
+                &selection_id,
+                "summarize",
+                execution_config(),
+                "private selected text inside rendered prompt".into(),
+            )
+            .unwrap();
         let snapshot = store.snapshot();
         assert_eq!(
             snapshot
@@ -501,6 +899,8 @@ mod tests {
         let json = serde_json::to_string(&snapshot).unwrap();
         assert!(json.contains(&selection_id));
         assert!(!json.contains("private selected text"));
+        assert_eq!(snapshot.run.unwrap().user_input, None);
+        assert_eq!(prepared.config.request.messages.len(), 1);
         assert_eq!(
             store.selection_text(&selection_id),
             Some("private selected text")
@@ -522,10 +922,14 @@ mod tests {
             "en-US",
             SelectionToolbarDisplayMode::Full,
             None,
+            SelectionToolbarPlacement::Below,
+            false,
         );
-        let (request_id, _) = store.begin_run(&selection_id, "summarize").unwrap();
+        let prepared = begin_new(&mut store, &selection_id);
+        let request_id = prepared.request_id;
         assert!(store.append_delta(&request_id, "**partial**"));
         assert!(store.stop_run(&request_id));
+        assert!(!store.stop_run(&request_id));
         assert!(!store.append_delta(&request_id, "late"));
         assert!(!store.append_delta("stale-request", "ignored"));
 
@@ -533,6 +937,14 @@ mod tests {
         assert_eq!(run.tool_id, "summarize");
         assert_eq!(run.status, ToolRunStatus::Stopped);
         assert_eq!(run.output, "**partial**");
+        assert!(store.snapshot().history.is_empty());
+        let _ = store
+            .begin_follow_up_run(&selection_id, "continue".into())
+            .unwrap();
+        let history = store.snapshot().history;
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, ToolRunHistoryStatus::Stopped);
+        assert_eq!(history[0].error, None);
     }
 
     #[test]
@@ -545,8 +957,10 @@ mod tests {
             "en-US",
             SelectionToolbarDisplayMode::Full,
             None,
+            SelectionToolbarPlacement::Below,
+            false,
         );
-        let (_, cancel) = store.begin_run(&first, "summarize").unwrap();
+        let cancel = begin_new(&mut store, &first).cancel;
         let second = store.accept_selection(
             selected("second"),
             vec![],
@@ -554,11 +968,14 @@ mod tests {
             "en-US",
             SelectionToolbarDisplayMode::Full,
             None,
+            SelectionToolbarPlacement::Below,
+            false,
         );
 
         assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
         assert_ne!(first, second);
         assert!(store.snapshot().run.is_none());
+        assert!(store.snapshot().history.is_empty());
     }
 
     #[test]
@@ -576,8 +993,12 @@ mod tests {
             "en-US",
             SelectionToolbarDisplayMode::Full,
             None,
+            SelectionToolbarPlacement::Below,
+            false,
         );
-        let (request_id, cancel) = store.begin_run(&selection_id, "summarize").unwrap();
+        let prepared = begin_new(&mut store, &selection_id);
+        let request_id = prepared.request_id;
+        let cancel = prepared.cancel;
         assert!(store.append_delta(&request_id, "partial"));
         let before = store.snapshot();
 
@@ -601,6 +1022,204 @@ mod tests {
             Some(&reanchored)
         );
         assert!(!cancel.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn follow_up_reuses_stable_execution_config_and_clean_context() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("private selection"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = begin_new(&mut store, &selection_id);
+        assert!(store.append_delta(
+            &first.request_id,
+            "<think totalMs=\"8\">private reasoning</think>\n\nfirst answer"
+        ));
+        assert!(store.complete_run(&first.request_id));
+
+        let follow_up = store
+            .begin_follow_up_run(&selection_id, "Why?".into())
+            .unwrap();
+
+        assert_eq!(follow_up.mode, ToolRunMode::FollowUp);
+        assert_eq!(follow_up.user_input.as_deref(), Some("Why?"));
+        assert_eq!(follow_up.config.provider_id, "provider-stable");
+        assert_eq!(follow_up.config.request.model, "model-stable");
+        assert_eq!(follow_up.config.request.temperature, Some(0.3));
+        assert_eq!(follow_up.config.request.max_tokens, Some(2048));
+        let messages = &follow_up.config.request.messages;
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(
+            message_text(&messages[0]),
+            "hidden prompt with selected text"
+        );
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(message_text(&messages[1]), "first answer");
+        assert_eq!(messages[2].role, "user");
+        assert_eq!(message_text(&messages[2]), "Why?");
+        assert!(messages
+            .iter()
+            .all(|message| !message_text(message).contains("private reasoning")));
+
+        let json = serde_json::to_string(&store.snapshot()).unwrap();
+        assert!(!json.contains("hidden prompt with selected text"));
+        assert!(!json.contains("private selection"));
+    }
+
+    #[test]
+    fn regenerate_replaces_the_latest_turn_and_reuses_its_user_input() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("text"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = begin_new(&mut store, &selection_id);
+        assert!(store.append_delta(&first.request_id, "first answer"));
+        assert!(store.complete_run(&first.request_id));
+        let first_snapshot = store.snapshot();
+        assert!(first_snapshot.history.is_empty());
+        assert_eq!(
+            first_snapshot
+                .run
+                .as_ref()
+                .map(|run| run.request_id.as_str()),
+            Some(first.request_id.as_str())
+        );
+        let follow_up = store
+            .begin_follow_up_run(&selection_id, "More detail".into())
+            .unwrap();
+        assert!(store.append_delta(&follow_up.request_id, "old detail"));
+        assert!(store.complete_run(&follow_up.request_id));
+
+        let regenerated = store
+            .begin_regenerate_run(&selection_id, &follow_up.request_id)
+            .unwrap();
+        assert_eq!(regenerated.mode, ToolRunMode::Regenerate);
+        assert_eq!(regenerated.user_input.as_deref(), Some("More detail"));
+        let messages = &regenerated.config.request.messages;
+        assert_eq!(messages.len(), 3);
+        assert_eq!(message_text(&messages[1]), "first answer");
+        assert_eq!(message_text(&messages[2]), "More detail");
+        assert!(messages
+            .iter()
+            .all(|message| message_text(message) != "old detail"));
+        let regenerating_snapshot = store.snapshot();
+        assert_eq!(regenerating_snapshot.history.len(), 1);
+        assert_eq!(
+            regenerating_snapshot.history[0].request_id,
+            first.request_id
+        );
+
+        assert!(store.append_delta(&regenerated.request_id, "new detail"));
+        assert!(store.complete_run(&regenerated.request_id));
+        let completed_snapshot = store.snapshot();
+        assert_eq!(completed_snapshot.history.len(), 1);
+        assert_eq!(
+            completed_snapshot
+                .run
+                .as_ref()
+                .map(|run| run.request_id.as_str()),
+            Some(regenerated.request_id.as_str())
+        );
+        let _ = store
+            .begin_follow_up_run(&selection_id, "next question".into())
+            .unwrap();
+        let history = store.snapshot().history;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1].request_id, regenerated.request_id);
+        assert_eq!(history[1].mode, ToolRunMode::Regenerate);
+        assert_eq!(history[1].status, ToolRunHistoryStatus::Completed);
+        assert_eq!(history[1].user_input.as_deref(), Some("More detail"));
+        assert_eq!(history[1].output, "new detail");
+    }
+
+    #[test]
+    fn failed_turn_is_recorded_but_not_added_to_provider_context() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("text"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = begin_new(&mut store, &selection_id);
+        assert!(store.append_delta(&first.request_id, "first answer"));
+        assert!(store.complete_run(&first.request_id));
+        let failed = store
+            .begin_follow_up_run(&selection_id, "failed question".into())
+            .unwrap();
+        assert!(store.fail_run(&failed.request_id, "network error".into()));
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.history.len(), 1);
+        let transcript = store.transcript.as_ref().unwrap();
+        assert_eq!(transcript.turns[1].view.status, ToolRunHistoryStatus::Error);
+        assert_eq!(
+            transcript.turns[1].view.error.as_deref(),
+            Some("network error")
+        );
+        assert!(store
+            .begin_follow_up_run(&selection_id, "must not skip the error".into())
+            .is_err());
+        let retry = store
+            .begin_regenerate_run(&selection_id, &failed.request_id)
+            .unwrap();
+        assert_eq!(store.snapshot().history.len(), 1);
+        assert_eq!(retry.config.request.messages.len(), 3);
+        assert_eq!(
+            message_text(&retry.config.request.messages[2]),
+            "failed question"
+        );
+        assert!(retry
+            .config
+            .request
+            .messages
+            .iter()
+            .all(|message| !message_text(message).contains("network error")));
+    }
+
+    #[test]
+    fn follow_up_requires_the_latest_turn_to_have_a_non_empty_answer() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("text"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = begin_new(&mut store, &selection_id);
+        assert!(store.append_delta(&first.request_id, "first answer"));
+        assert!(store.complete_run(&first.request_id));
+        let empty = store
+            .begin_follow_up_run(&selection_id, "unanswered".into())
+            .unwrap();
+        assert!(store.stop_run(&empty.request_id));
+
+        assert!(store
+            .begin_follow_up_run(&selection_id, "must not skip empty turn".into())
+            .is_err());
     }
 
     #[test]

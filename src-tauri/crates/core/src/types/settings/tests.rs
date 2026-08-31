@@ -3,7 +3,8 @@ use super::{
     render_selection_toolbar_search_url, AppSettings, ContextStrategy,
     ModelCatalogSourcePreference, MultiModelExecutionMode, SelectionToolbarAiConfig,
     SelectionToolbarAppEntry, SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey,
-    SelectionToolbarDisplayMode, SelectionToolbarSettings, SelectionToolbarTool,
+    SelectionToolbarDisplayMode, SelectionToolbarPlacement, SelectionToolbarSettings,
+    SelectionToolbarTool,
     SelectionToolbarTriggerMode, SettingsSidebarDensity, TrayIconStyle, DEFAULT_EXPLAIN_PROMPT,
     DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
     DEFAULT_SELECTION_TOOLBAR_SHORTCUT, DEFAULT_TRANSLATE_PROMPT,
@@ -142,6 +143,11 @@ fn selection_toolbar_defaults_are_backward_compatible_and_valid() {
         settings.selection_toolbar.display_mode,
         SelectionToolbarDisplayMode::Full
     );
+    assert_eq!(
+        settings.selection_toolbar.placement,
+        SelectionToolbarPlacement::Below
+    );
+    assert!(!settings.selection_toolbar.result_pinned_by_default);
     assert_eq!(
         settings.selection_toolbar.trigger_mode,
         SelectionToolbarTriggerMode::Selection
@@ -436,6 +442,31 @@ fn selection_toolbar_display_mode_roundtrips_and_rejects_unknown_values() {
         "display_mode": "icons_and_labels"
     }));
     assert!(invalid.is_err(), "unknown display modes must be rejected");
+}
+
+#[test]
+fn selection_toolbar_placement_and_pin_default_are_backward_compatible() {
+    let legacy: SelectionToolbarSettings = serde_json::from_value(json!({}))
+        .expect("missing placement and pin preference should deserialize");
+    assert_eq!(legacy.placement, SelectionToolbarPlacement::Below);
+    assert!(!legacy.result_pinned_by_default);
+
+    let configured: SelectionToolbarSettings = serde_json::from_value(json!({
+        "placement": "above",
+        "result_pinned_by_default": true
+    }))
+    .expect("placement and pin preference should deserialize");
+    assert_eq!(configured.placement, SelectionToolbarPlacement::Above);
+    assert!(configured.result_pinned_by_default);
+
+    let serialized = serde_json::to_value(configured).expect("settings should serialize");
+    assert_eq!(serialized["placement"], json!("above"));
+    assert_eq!(serialized["result_pinned_by_default"], json!(true));
+
+    let invalid = serde_json::from_value::<SelectionToolbarSettings>(json!({
+        "placement": "automatic"
+    }));
+    assert!(invalid.is_err(), "unknown placements must be rejected");
 }
 
 #[test]

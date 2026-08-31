@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke, listen, type UnlistenFn } from '@/lib/invoke';
 import type {
+  SelectionToolbarHistoryItem,
   SelectionToolbarRunEvent,
   SelectionToolbarRunView,
   SelectionToolbarRuntimeStatus,
@@ -44,6 +45,7 @@ export interface SelectionToolbarTranslateOptions {
 interface SelectionToolbarState {
   runtime: SelectionToolbarRuntimeStatus;
   session: SelectionToolbarSessionView | null;
+  history: SelectionToolbarHistoryItem[];
   run: SelectionToolbarRunView | null;
   surface: 'toolbar' | 'overflow' | 'result';
   overflowDirection: SelectionToolbarOverflowDirection;
@@ -60,9 +62,12 @@ interface SelectionToolbarState {
     options?: SelectionToolbarTranslateOptions,
   ) => Promise<void>;
   setTranslateLanguages: (source: string, target: string) => Promise<void>;
+  followUp: (text: string) => Promise<boolean>;
   stop: () => Promise<void>;
   copyResult: () => Promise<void>;
   regenerate: () => Promise<void>;
+  setPinned: (pinned: boolean) => Promise<void>;
+  dragEnded: () => Promise<void>;
   close: (reason: string) => Promise<void>;
   toggleOverflow: (overflowHeight?: number) => Promise<void>;
   dispose: () => void;
@@ -72,24 +77,66 @@ function isTranslateTool(tool: SelectionToolbarToolView): boolean {
   return tool.kind === 'ai' && tool.builtin_key === 'translate';
 }
 
+function historyItemFromRun(run: SelectionToolbarRunView | null): SelectionToolbarHistoryItem | null {
+  if (!run || run.status === 'started' || run.status === 'streaming') return null;
+  return {
+    request_id: run.request_id,
+    mode: run.mode,
+    user_input: run.user_input,
+    status: run.status,
+    output: run.output,
+    error: run.error,
+  };
+}
+
+function historyBeforeCurrent(
+  history: SelectionToolbarHistoryItem[],
+  run: SelectionToolbarRunView | null,
+): SelectionToolbarHistoryItem[] {
+  if (!run) return history;
+  const currentIndex = history.findIndex((item) => item.request_id === run.request_id);
+  if (currentIndex >= 0) {
+    return history.filter((_, index) => index !== currentIndex);
+  }
+  return history;
+}
+
+function startRun(
+  state: SelectionToolbarState,
+  event: Extract<SelectionToolbarRunEvent, { kind: 'started' }>,
+): Partial<SelectionToolbarState> {
+  let history = event.mode === 'new_tool' ? [] : state.history;
+  if (event.mode === 'follow_up') {
+    const previous = historyItemFromRun(state.run);
+    if (previous && !history.some((item) => item.request_id === previous.request_id)) {
+      history = [...history, previous];
+    }
+  }
+  return {
+    history,
+    run: {
+      request_id: event.request_id,
+      selection_id: event.selection_id,
+      tool_id: event.tool_id,
+      mode: event.mode,
+      user_input: event.user_input,
+      status: 'started',
+      output: '',
+      error: null,
+    },
+    surface: 'result',
+    copied: false,
+    error: null,
+  };
+}
+
 function applyRunEvent(
   state: SelectionToolbarState,
   event: SelectionToolbarRunEvent,
 ): Partial<SelectionToolbarState> {
   if (state.session?.selection_id !== event.selection_id) return {};
   if (event.kind === 'started') {
-    return {
-      run: {
-        request_id: event.request_id,
-        selection_id: event.selection_id,
-        tool_id: event.tool_id,
-        status: 'started',
-        output: '',
-        error: null,
-      },
-      surface: 'result',
-      error: null,
-    };
+    return startRun(state, event);
   }
   if (!state.run || state.run.request_id !== event.request_id) return {};
   if (event.kind === 'delta') {
@@ -120,6 +167,7 @@ function applyRunEvent(
 export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get) => ({
   runtime: EMPTY_RUNTIME,
   session: null,
+  history: [],
   run: null,
   surface: 'toolbar',
   overflowDirection: 'below',
@@ -142,6 +190,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
               ? { session: payload, busy: false }
               : {
                   session: payload,
+                  history: [],
                   run: null,
                   surface: 'toolbar',
                   overflowDirection: 'below',
@@ -158,6 +207,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
           cancelCopyCloseTimer();
           set({
             session: null,
+            history: [],
             run: null,
             surface: 'toolbar',
             overflowDirection: 'below',
@@ -179,6 +229,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
         set({
           runtime: snapshot.runtime,
           session: snapshot.session,
+          history: historyBeforeCurrent(snapshot.history ?? [], snapshot.run),
           run: snapshot.run,
           surface: snapshot.run ? 'result' : 'toolbar',
           overflowDirection: 'below',
@@ -261,17 +312,14 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
           : null,
       });
       if (!get().run || get().run?.request_id !== requestId) {
-        set({
-          run: {
-            request_id: requestId,
-            selection_id: session.selection_id,
-            tool_id: tool.id,
-            status: 'started',
-            output: '',
-            error: null,
-          },
-          surface: 'result',
-        });
+        set((state) => startRun(state, {
+          kind: 'started',
+          request_id: requestId,
+          selection_id: session.selection_id,
+          tool_id: tool.id,
+          mode: 'new_tool',
+          user_input: null,
+        }));
       }
       set({ busy: false });
     } catch (error) {
@@ -281,11 +329,14 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
           request_id: `frontend-error-${Date.now()}`,
           selection_id: session.selection_id,
           tool_id: tool.id,
+          mode: 'new_tool',
+          user_input: null,
           status: 'error',
           output: '',
           error: message,
         },
         surface: 'result',
+        history: [],
         error: message,
         busy: false,
       });
@@ -318,6 +369,37 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     await get().executeTool(tool, { sourceLanguage: source, targetLanguage: target });
   },
 
+  followUp: async (text) => {
+    const question = text.trim();
+    const { busy, run, session } = get();
+    if (!question || !session || !run || busy) return false;
+    const canFollowUp = (run.status === 'completed' || run.status === 'stopped')
+      && run.output.trim().length > 0;
+    if (!canFollowUp) return false;
+    set({ busy: true, error: null });
+    try {
+      const requestId = await invoke<string>('selection_toolbar_follow_up', {
+        selectionId: session.selection_id,
+        text: question,
+      });
+      if (!get().run || get().run?.request_id !== requestId) {
+        set((state) => startRun(state, {
+          kind: 'started',
+          request_id: requestId,
+          selection_id: session.selection_id,
+          tool_id: run.tool_id,
+          mode: 'follow_up',
+          user_input: question,
+        }));
+      }
+      set({ busy: false });
+      return true;
+    } catch (error) {
+      set({ error: String(error), busy: false });
+      return false;
+    }
+  },
+
   stop: async () => {
     const run = get().run;
     if (!run) return;
@@ -336,9 +418,52 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     const { run, session, busy } = get();
     if (!run || !session || busy) return;
     if (run.status === 'started' || run.status === 'streaming') return;
-    const tool = session.tools.find((candidate) => candidate.id === run.tool_id);
-    if (!tool) return;
-    await get().executeTool(tool);
+    set({ busy: true, error: null });
+    try {
+      const requestId = await invoke<string>('selection_toolbar_regenerate', {
+        selectionId: session.selection_id,
+        requestId: run.request_id,
+      });
+      if (!get().run || get().run?.request_id !== requestId) {
+        set((state) => startRun(state, {
+          kind: 'started',
+          request_id: requestId,
+          selection_id: session.selection_id,
+          tool_id: run.tool_id,
+          mode: 'regenerate',
+          user_input: run.user_input,
+        }));
+      }
+      set({ busy: false });
+    } catch (error) {
+      set({ error: String(error), busy: false });
+    }
+  },
+
+  setPinned: async (pinned) => {
+    const session = get().session;
+    if (!session || session.pinned === pinned) return;
+    try {
+      const effectivePinned = await invoke<boolean>('selection_toolbar_set_pinned', {
+        selectionId: session.selection_id,
+        pinned,
+      });
+      set((state) => state.session?.selection_id === session.selection_id
+        ? { session: { ...state.session, pinned: effectivePinned }, error: null }
+        : {});
+    } catch (error) {
+      set({ error: String(error) });
+    }
+  },
+
+  dragEnded: async () => {
+    const session = get().session;
+    if (!session) return;
+    try {
+      await invoke('selection_toolbar_drag_ended', { selectionId: session.selection_id });
+    } catch (error) {
+      set({ error: String(error) });
+    }
   },
 
   close: async (reason) => {
@@ -346,6 +471,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     await invoke('selection_toolbar_close', { reason });
     set({
       session: null,
+      history: [],
       run: null,
       surface: 'toolbar',
       overflowDirection: 'below',

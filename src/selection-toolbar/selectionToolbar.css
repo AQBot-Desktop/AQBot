@@ -48,6 +48,10 @@ html[data-theme="dark"] .selection-toolbar__result {
   width: 400px;
 }
 
+.selection-toolbar__result-stack[data-placement='above'] {
+  flex-direction: column-reverse;
+}
+
 /* ── Result panel ───────────────────────────────────────────────────── */
 
 .selection-toolbar__result {
@@ -77,13 +81,22 @@ html[data-theme="dark"] .selection-toolbar__result {
 }
 
 .selection-toolbar__result-actions {
+  flex: 0 0 auto;
   gap: 2px;
 }
 
 .selection-toolbar__result-title {
+  cursor: grab;
+  flex: 1 1 auto;
   font-size: 14px;
   font-weight: 600;
+  height: 100%;
   min-width: 0;
+  user-select: none;
+}
+
+html[data-dragging='true'] .selection-toolbar__result-title {
+  cursor: grabbing;
 }
 
 .selection-toolbar__result-title > span {
@@ -108,10 +121,41 @@ html[data-theme="dark"] .selection-toolbar__result {
 
 .selection-toolbar__result-content {
   box-sizing: border-box;
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
   min-height: 0;
   overflow: auto;
   padding: 12px 14px;
+}
+
+.selection-toolbar__turn {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.selection-toolbar__user-turn {
+  align-self: flex-end;
+  background: rgba(22, 119, 255, 0.12);
+  border-radius: 10px 10px 2px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 82%;
+  overflow-wrap: anywhere;
+  padding: 6px 9px;
+  white-space: pre-wrap;
+}
+
+html[data-theme="dark"] .selection-toolbar__user-turn {
+  background: rgba(64, 150, 255, 0.2);
+}
+
+.selection-toolbar__assistant-turn {
+  min-width: 0;
 }
 
 .selection-toolbar__result-content .aqbot-chat-markdown {
@@ -127,6 +171,34 @@ html[data-theme="dark"] .selection-toolbar__result {
 .selection-toolbar__error {
   color: #ff4d4f;
   white-space: pre-wrap;
+}
+
+.selection-toolbar__composer {
+  border-top: 1px solid rgba(127, 127, 127, 0.16);
+  flex: 0 0 auto;
+  padding: 5px 7px;
+}
+
+.selection-toolbar__composer-row {
+  align-items: flex-end;
+  display: flex;
+  gap: 4px;
+}
+
+.selection-toolbar__composer .ant-input {
+  font-size: 13px;
+  line-height: 20px;
+  padding: 1px 4px;
+  resize: none;
+}
+
+.selection-toolbar__composer-error {
+  color: #ff4d4f;
+  font-size: 12px;
+  overflow: hidden;
+  padding: 0 4px 3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Chat defines this inside ChatView's inline styles; the toolbar window

@@ -588,6 +588,10 @@ const DEFAULT_SETTINGS = {
   release_webview_on_tray: false,
   multi_model_execution_mode: 'parallel',
   multi_model_sequential_interval_seconds: 3,
+  selection_toolbar: {
+    placement: 'below',
+    result_pinned_by_default: false,
+  },
   send_on_enter: true,
   stream_response: true,
   model_catalog_source: 'builtin',
@@ -743,14 +747,18 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         },
         session: null,
         run: null,
+        history: [],
       } as T;
     case 'selection_toolbar_frontend_ready':
     case 'selection_toolbar_set_translate_target':
     case 'selection_toolbar_stop_generation':
     case 'selection_toolbar_copy_selection':
     case 'selection_toolbar_copy_result':
+    case 'selection_toolbar_drag_ended':
     case 'selection_toolbar_close':
       return undefined as T;
+    case 'selection_toolbar_set_pinned':
+      return Boolean(args?.pinned) as T;
     case 'selection_toolbar_set_surface':
       return (args?.surface === 'overflow' ? 'below' : null) as T;
     case 'selection_toolbar_prepare_overflow':
@@ -759,6 +767,8 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'selection_toolbar_request_permission':
     case 'selection_toolbar_trigger':
     case 'selection_toolbar_execute_tool':
+    case 'selection_toolbar_follow_up':
+    case 'selection_toolbar_regenerate':
       throw new Error('Selection toolbar is unavailable in browser preview mode.');
 
     // ── Providers ─────────────────────────────────────────────────────

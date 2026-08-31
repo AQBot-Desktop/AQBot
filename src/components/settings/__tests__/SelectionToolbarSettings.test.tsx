@@ -78,6 +78,8 @@ const mocks = vi.hoisted(() => {
       enabled: false,
       theme_follow: false,
       display_mode: 'full' as const,
+      placement: 'below' as const,
+      result_pinned_by_default: false,
       trigger_mode: 'selection' as const,
       trigger_shortcut: 'CmdOrCtrl+Shift+E',
       translate_target_language: null as string | null,
@@ -143,6 +145,8 @@ beforeEach(() => {
     enabled: false,
     theme_follow: false,
     display_mode: 'full',
+    placement: 'below',
+    result_pinned_by_default: false,
     trigger_mode: 'selection',
     trigger_shortcut: 'CmdOrCtrl+Shift+E',
     translate_target_language: null,
@@ -269,6 +273,30 @@ describe('SelectionToolbarSettings', () => {
 
     await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
       selection_toolbar: expect.objectContaining({ display_mode: 'compact' }),
+    }));
+  });
+
+  it('persists placement above the selected text', async () => {
+    const user = userEvent.setup();
+    render(<SelectionToolbarSettings />);
+
+    await user.click(screen.getByText('settings.selectionToolbar.placementAbove'));
+
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
+      selection_toolbar: expect.objectContaining({ placement: 'above' }),
+    }));
+  });
+
+  it('persists the default result pin preference', async () => {
+    const user = userEvent.setup();
+    render(<SelectionToolbarSettings />);
+
+    await user.click(screen.getByRole('switch', {
+      name: 'settings.selectionToolbar.resultPinnedByDefault',
+    }));
+
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
+      selection_toolbar: expect.objectContaining({ result_pinned_by_default: true }),
     }));
   });
 

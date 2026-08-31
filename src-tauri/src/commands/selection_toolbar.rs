@@ -164,6 +164,68 @@ pub async fn selection_toolbar_execute_tool(
     result
 }
 
+#[tauri::command]
+pub async fn selection_toolbar_follow_up(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection_id: String,
+    text: String,
+) -> Result<String, String> {
+    state.selection_toolbar.lock_interaction();
+    let result =
+        crate::selection_toolbar::follow_up_ai_tool(&app, state.inner(), &selection_id, &text)
+            .await;
+    if result.is_err() {
+        state.selection_toolbar.unlock_interaction();
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_regenerate(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection_id: String,
+    request_id: String,
+) -> Result<String, String> {
+    state.selection_toolbar.lock_interaction();
+    let result = crate::selection_toolbar::regenerate_ai_tool(
+        &app,
+        state.inner(),
+        &selection_id,
+        &request_id,
+    )
+    .await;
+    if result.is_err() {
+        state.selection_toolbar.unlock_interaction();
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_set_pinned(
+    state: State<'_, AppState>,
+    selection_id: String,
+    pinned: bool,
+) -> Result<bool, String> {
+    state
+        .selection_toolbar
+        .set_pinned(&selection_id, pinned)
+        .await
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_drag_ended(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection_id: String,
+) -> Result<(), String> {
+    state
+        .selection_toolbar
+        .drag_ended(&app, &selection_id)
+        .await
+}
+
 /// Persist the translate panel's target language (`None` follows the app
 /// language again). Saved through the full settings pipeline so validation
 /// and toolbar reconciliation behave exactly like the settings page.

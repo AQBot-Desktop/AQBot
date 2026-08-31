@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { Button, ConfigProvider, Select, Spin, theme as antdTheme } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, Input, Select, Spin, theme as antdTheme } from 'antd';
 import {
   ArrowLeftRight,
   Check,
   Copy,
+  Pin,
+  PinOff,
   RotateCcw,
+  SendHorizontal,
   Square,
   X,
 } from 'lucide-react';
@@ -12,7 +15,11 @@ import NodeRenderer, { enableD2, setCustomComponents } from 'markstream-react';
 import { registerHighlight } from 'stream-markdown';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
-import type { SelectionToolbarToolView } from '@/types';
+import type {
+  SelectionToolbarHistoryItem,
+  SelectionToolbarRunView,
+  SelectionToolbarToolView,
+} from '@/types';
 import { useSelectionToolbarStore } from '@/stores/selectionToolbarStore';
 import { useSettingsStore } from '@/stores';
 import { quoteCssFontFamily } from '@/lib/cssFontFamily';
@@ -48,7 +55,7 @@ function labelFor(tool: SelectionToolbarToolView, t: (key: string) => string) {
   return t(`settings.selectionToolbar.tools.${tool.builtin_key}`);
 }
 
-function beginWindowDrag() {
+function beginWindowDrag(onDragEnded: () => Promise<void>) {
   const root = document.documentElement;
   root.dataset.dragging = 'true';
   const clear = () => {
@@ -65,8 +72,17 @@ function beginWindowDrag() {
   window.addEventListener('mouseenter', clear);
   window.addEventListener('blur', clear);
   void import('@tauri-apps/api/webviewWindow')
-    .then(({ getCurrentWebviewWindow }) => getCurrentWebviewWindow().startDragging())
-    .catch(clear);
+    .then(async ({ getCurrentWebviewWindow }) => {
+      try {
+        await getCurrentWebviewWindow().startDragging();
+      } finally {
+        await onDragEnded();
+      }
+    })
+    .catch((error) => {
+      console.error('Selection toolbar window drag failed:', error);
+    })
+    .finally(clear);
 }
 
 function toolbarItems(
@@ -97,6 +113,7 @@ function ToolbarSurface({
   const busy = useSelectionToolbarStore((state) => state.busy);
   const activeToolId = useSelectionToolbarStore((state) => state.run?.tool_id);
   const executeTool = useSelectionToolbarStore((state) => state.executeTool);
+  const dragEnded = useSelectionToolbarStore((state) => state.dragEnded);
   const toggleOverflow = useSelectionToolbarStore((state) => state.toggleOverflow);
   if (!session) return null;
   return (
@@ -111,7 +128,7 @@ function ToolbarSurface({
       items={toolbarItems(session.tools, activeToolId, t)}
       moreLabel={t('settings.selectionToolbar.more')}
       onVisibleCountChange={onVisibleCountChange}
-      onDragPointerDown={beginWindowDrag}
+      onDragPointerDown={() => beginWindowDrag(dragEnded)}
       onMorePointerDown={(overflowCount) => void toggleOverflow(
         selectionToolbarOverflowSurfaceHeight(overflowCount),
       )}
@@ -292,16 +309,59 @@ function TranslateBar() {
 /// scrolls away from it; scrolling back to the bottom re-engages following.
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 24;
 
+type ResultTurn = SelectionToolbarHistoryItem | SelectionToolbarRunView;
+
+function ResultTurnContent({
+  isCurrent,
+  isDark,
+  turn,
+}: {
+  isCurrent: boolean;
+  isDark: boolean;
+  turn: ResultTurn;
+}) {
+  const { t } = useTranslation();
+  const streaming = isCurrent && (turn.status === 'started' || turn.status === 'streaming');
+  return (
+    <article className="selection-toolbar__turn">
+      {turn.user_input && (
+        <div className="selection-toolbar__user-turn">{turn.user_input}</div>
+      )}
+      <div className="selection-toolbar__assistant-turn">
+        {turn.output && (
+          <ResultMarkdown
+            isDark={isDark}
+            output={turn.output}
+            streaming={streaming}
+          />
+        )}
+        {!turn.output && !turn.error && streaming && (
+          <div className="selection-toolbar__waiting">{t('chat.thinkingInProgress')}</div>
+        )}
+        {turn.error && <div className="selection-toolbar__error">{turn.error}</div>}
+      </div>
+    </article>
+  );
+}
+
 function ResultSurface() {
   const { t } = useTranslation();
   const session = useSelectionToolbarStore((state) => state.session);
+  const history = useSelectionToolbarStore((state) => state.history);
   const run = useSelectionToolbarStore((state) => state.run);
   const copied = useSelectionToolbarStore((state) => state.copied);
+  const busy = useSelectionToolbarStore((state) => state.busy);
+  const error = useSelectionToolbarStore((state) => state.error);
+  const followUp = useSelectionToolbarStore((state) => state.followUp);
   const stop = useSelectionToolbarStore((state) => state.stop);
   const copyResult = useSelectionToolbarStore((state) => state.copyResult);
   const regenerate = useSelectionToolbarStore((state) => state.regenerate);
+  const setPinned = useSelectionToolbarStore((state) => state.setPinned);
+  const dragEnded = useSelectionToolbarStore((state) => state.dragEnded);
   const close = useSelectionToolbarStore((state) => state.close);
+  const [draft, setDraft] = useState('');
   const contentRef = useRef<HTMLElement | null>(null);
+  const composingRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const requestId = run?.request_id;
 
@@ -313,25 +373,61 @@ function ResultSurface() {
     const element = contentRef.current;
     if (!element || !stickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [requestId, run?.output]);
+  }, [history.length, requestId, run?.output]);
 
   if (!run) return null;
   const streaming = run.status === 'started' || run.status === 'streaming';
+  const followUpAvailable = (run.status === 'completed' || run.status === 'stopped')
+    && run.output.trim().length > 0;
+  const sendDisabled = !followUpAvailable || busy || draft.trim().length === 0;
   const tool = session?.tools.find((candidate) => candidate.id === run.tool_id);
   const title = tool
     ? t('settings.selectionToolbar.aiFeatureTitle', { feature: labelFor(tool, t) })
     : t('settings.selectionToolbar.result');
+  const pinLabel = t(
+    session?.pinned
+      ? 'settings.selectionToolbar.unpinResult'
+      : 'settings.selectionToolbar.pinResult',
+  );
+  const submitFollowUp = () => {
+    const text = draft.trim();
+    if (!text || sendDisabled) return;
+    void followUp(text).then((sent) => {
+      if (!sent) return;
+      setDraft((current) => current.trim() === text ? '' : current);
+    });
+  };
 
   return (
-    <div className="selection-toolbar__result-stack">
+    <div
+      className="selection-toolbar__result-stack"
+      data-placement={session?.resolved_placement ?? 'below'}
+    >
       <ToolbarSurface />
       <section className="selection-toolbar__result">
         <header className="selection-toolbar__result-header">
-          <div className="selection-toolbar__result-title">
+          <div
+            className="selection-toolbar__result-title"
+            title={t('settings.selectionToolbar.drag')}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              beginWindowDrag(dragEnded);
+            }}
+          >
             {streaming && <Spin size="small" />}
             <span>{title}</span>
           </div>
           <div className="selection-toolbar__result-actions">
+            <Button
+              aria-label={pinLabel}
+              aria-pressed={session?.pinned ?? false}
+              icon={session?.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+              size="small"
+              title={pinLabel}
+              type="text"
+              onClick={() => void setPinned(!(session?.pinned ?? false))}
+            />
             {run.output && (
               <Button
                 aria-label={t('common.copy')}
@@ -343,7 +439,7 @@ function ResultSurface() {
             )}
             <Button
               aria-label={t('chat.regenerate')}
-              disabled={streaming}
+              disabled={streaming || busy}
               icon={<RotateCcw size={14} />}
               size="small"
               title={t('chat.regenerate')}
@@ -383,18 +479,63 @@ function ResultSurface() {
                 < AUTO_SCROLL_BOTTOM_THRESHOLD;
           }}
         >
-          {run.error ? (
-            <div className="selection-toolbar__error">{run.error}</div>
-          ) : run.output ? (
-            <ResultMarkdown
+          {history.map((turn) => (
+            <ResultTurnContent
+              isCurrent={false}
               isDark={session?.theme === 'dark'}
-              output={run.output}
-              streaming={streaming}
+              key={turn.request_id}
+              turn={turn}
             />
-          ) : (
-            <div className="selection-toolbar__waiting">{t('chat.thinkingInProgress')}</div>
-          )}
+          ))}
+          <ResultTurnContent
+            isCurrent
+            isDark={session?.theme === 'dark'}
+            turn={run}
+          />
         </main>
+        <div className="selection-toolbar__composer">
+          {error && error !== run.error && (
+            <div className="selection-toolbar__composer-error" role="alert">{error}</div>
+          )}
+          <div className="selection-toolbar__composer-row">
+            <Input.TextArea
+              aria-label={t('settings.selectionToolbar.followUpPlaceholder')}
+              autoSize={{ minRows: 1, maxRows: 3 }}
+              disabled={!followUpAvailable || busy}
+              placeholder={t('settings.selectionToolbar.followUpPlaceholder')}
+              value={draft}
+              variant="borderless"
+              onChange={(event) => setDraft(event.target.value)}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+              }}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onKeyDown={(event) => {
+                const nativeEvent = event.nativeEvent;
+                if (
+                  event.key !== 'Enter'
+                  || event.shiftKey
+                  || composingRef.current
+                  || nativeEvent.isComposing
+                  || nativeEvent.keyCode === 229
+                ) return;
+                event.preventDefault();
+                submitFollowUp();
+              }}
+            />
+            <Button
+              aria-label={t('settings.selectionToolbar.followUpSend')}
+              disabled={sendDisabled}
+              icon={<SendHorizontal size={15} />}
+              size="small"
+              title={t('settings.selectionToolbar.followUpSend')}
+              type="primary"
+              onClick={submitFollowUp}
+            />
+          </div>
+        </div>
       </section>
     </div>
   );

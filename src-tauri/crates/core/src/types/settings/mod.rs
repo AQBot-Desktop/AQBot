@@ -191,6 +191,14 @@ pub enum SelectionToolbarDisplayMode {
     Compact,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionToolbarPlacement {
+    Above,
+    #[default]
+    Below,
+}
+
 /// A single app entry in the selection-toolbar allow/block list.
 ///
 /// `id` is the stable key matched against `SelectionObservation.source_app`
@@ -209,6 +217,12 @@ pub struct SelectionToolbarSettings {
     /// Whether tool labels are displayed beside their icons.
     #[serde(default)]
     pub display_mode: SelectionToolbarDisplayMode,
+    /// Preferred toolbar position relative to the selected text.
+    #[serde(default)]
+    pub placement: SelectionToolbarPlacement,
+    /// Whether a newly opened result window stays visible by default.
+    #[serde(default)]
+    pub result_pinned_by_default: bool,
     /// Whether selecting text shows the toolbar immediately or waits for a
     /// configured global shortcut.
     #[serde(default)]
@@ -443,6 +457,8 @@ impl Default for SelectionToolbarSettings {
             enabled: false,
             theme_follow: false,
             display_mode: SelectionToolbarDisplayMode::Full,
+            placement: SelectionToolbarPlacement::Below,
+            result_pinned_by_default: false,
             trigger_mode: SelectionToolbarTriggerMode::Selection,
             trigger_shortcut: DEFAULT_SELECTION_TOOLBAR_SHORTCUT.into(),
             translate_target_language: None,

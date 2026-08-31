@@ -44,6 +44,8 @@ describe('selection toolbar store', () => {
         request_id: 'request-1',
         selection_id: 'selection-1',
         tool_id: 'summarize',
+        mode: 'new_tool',
+        user_input: null,
       },
     });
     listeners.get('selection-toolbar://run')?.({
@@ -63,7 +65,144 @@ describe('selection toolbar store', () => {
       },
     });
     expect(useSelectionToolbarStore.getState().session?.selection_id).toBe('selection-2');
+    expect(useSelectionToolbarStore.getState().history).toEqual([]);
     expect(useSelectionToolbarStore.getState().run).toBeNull();
+  });
+
+  it('restores history and archives the current turn when a follow-up starts', async () => {
+    invokeMock.mockResolvedValue({
+      runtime: {
+        state: 'running',
+        platform: 'macos',
+        permission: 'granted',
+        last_error: null,
+        global_dismissal_supported: true,
+      },
+      session: {
+        selection_id: 'selection-1',
+        tools: [],
+        theme: 'light',
+        language: 'en-US',
+        display_mode: 'full',
+        resolved_placement: 'below',
+        pinned: false,
+      },
+      history: [
+        {
+          request_id: 'request-1',
+          mode: 'new_tool',
+          user_input: null,
+          status: 'completed',
+          output: 'first answer',
+          error: null,
+        },
+        {
+          request_id: 'request-2',
+          mode: 'follow_up',
+          user_input: 'first question',
+          status: 'completed',
+          output: 'second answer',
+          error: null,
+        },
+      ],
+      run: {
+        request_id: 'request-2',
+        selection_id: 'selection-1',
+        tool_id: 'summarize',
+        mode: 'follow_up',
+        user_input: 'first question',
+        status: 'completed',
+        output: 'second answer',
+        error: null,
+      },
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+
+    expect(useSelectionToolbarStore.getState().history).toHaveLength(1);
+    listeners.get('selection-toolbar://run')?.({
+      payload: {
+        kind: 'started',
+        request_id: 'request-3',
+        selection_id: 'selection-1',
+        tool_id: 'summarize',
+        mode: 'follow_up',
+        user_input: 'second question',
+      },
+    });
+
+    expect(useSelectionToolbarStore.getState().history).toEqual([
+      expect.objectContaining({ request_id: 'request-1', output: 'first answer' }),
+      expect.objectContaining({ request_id: 'request-2', output: 'second answer' }),
+    ]);
+    expect(useSelectionToolbarStore.getState().run).toMatchObject({
+      request_id: 'request-3',
+      mode: 'follow_up',
+      user_input: 'second question',
+      status: 'started',
+    });
+
+    listeners.get('selection-toolbar://run')?.({
+      payload: {
+        kind: 'started',
+        request_id: 'request-4',
+        selection_id: 'selection-1',
+        tool_id: 'explain',
+        mode: 'new_tool',
+        user_input: null,
+      },
+    });
+    expect(useSelectionToolbarStore.getState().history).toEqual([]);
+  });
+
+  it('hides the replaced latest turn when restoring an in-flight regeneration', async () => {
+    invokeMock.mockResolvedValue({
+      runtime: {
+        state: 'running',
+        platform: 'macos',
+        permission: 'granted',
+        last_error: null,
+        global_dismissal_supported: true,
+      },
+      session: {
+        selection_id: 'selection-1',
+        tools: [],
+        theme: 'light',
+        language: 'en-US',
+        display_mode: 'full',
+        resolved_placement: 'below',
+        pinned: false,
+      },
+      // The backend omits the turn being replaced while regeneration is active.
+      history: [{
+        request_id: 'request-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'first answer',
+        error: null,
+      }],
+      run: {
+        request_id: 'request-3',
+        selection_id: 'selection-1',
+        tool_id: 'summarize',
+        mode: 'regenerate',
+        user_input: 'Why?',
+        status: 'streaming',
+        output: 'new',
+        error: null,
+      },
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+
+    expect(useSelectionToolbarStore.getState().history).toEqual([
+      expect.objectContaining({ request_id: 'request-1' }),
+    ]);
+    expect(useSelectionToolbarStore.getState().run).toMatchObject({
+      request_id: 'request-3',
+      output: 'new',
+    });
   });
 
   it('refreshes the active session without discarding an in-flight run', async () => {
@@ -392,6 +531,265 @@ describe('selection toolbar store', () => {
       reason: 'close_button',
     });
     expect(useSelectionToolbarStore.getState().session).toBeNull();
+  });
+
+  it('routes follow-up, regenerate, pin, and drag-ended through their dedicated commands', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'selection_toolbar_get_snapshot') {
+        return {
+          runtime: {
+            state: 'running',
+            platform: 'macos',
+            permission: 'granted',
+            last_error: null,
+            global_dismissal_supported: true,
+          },
+          session: {
+            selection_id: 'selection-1',
+            tools: [],
+            theme: 'light',
+            language: 'en-US',
+            display_mode: 'full',
+            resolved_placement: 'below',
+            pinned: false,
+          },
+          history: [],
+          run: {
+            request_id: 'request-1',
+            selection_id: 'selection-1',
+            tool_id: 'summarize',
+            mode: 'new_tool',
+            user_input: null,
+            status: 'completed',
+            output: 'answer',
+            error: null,
+          },
+        };
+      }
+      if (command === 'selection_toolbar_follow_up') return 'request-2';
+      if (command === 'selection_toolbar_regenerate') return 'request-3';
+      if (command === 'selection_toolbar_set_pinned') return false;
+      return undefined;
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+
+    await useSelectionToolbarStore.getState().followUp('  Why?  ');
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_follow_up', {
+      selectionId: 'selection-1',
+      text: 'Why?',
+    });
+    expect(useSelectionToolbarStore.getState().history).toEqual([
+      expect.objectContaining({ request_id: 'request-1', output: 'answer' }),
+    ]);
+    expect(useSelectionToolbarStore.getState().run).toMatchObject({
+      request_id: 'request-2',
+      mode: 'follow_up',
+      user_input: 'Why?',
+    });
+
+    listeners.get('selection-toolbar://run')?.({
+      payload: {
+        kind: 'completed',
+        request_id: 'request-2',
+        selection_id: 'selection-1',
+        output: 'because',
+      },
+    });
+    await useSelectionToolbarStore.getState().copyResult();
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_copy_result', {
+      requestId: 'request-2',
+    });
+    await useSelectionToolbarStore.getState().regenerate();
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_regenerate', {
+      selectionId: 'selection-1',
+      requestId: 'request-2',
+    });
+    expect(useSelectionToolbarStore.getState()).toMatchObject({
+      history: [expect.objectContaining({ request_id: 'request-1' })],
+      run: expect.objectContaining({
+        request_id: 'request-3',
+        mode: 'regenerate',
+        user_input: 'Why?',
+      }),
+    });
+
+    await useSelectionToolbarStore.getState().setPinned(true);
+    await useSelectionToolbarStore.getState().dragEnded();
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_set_pinned', {
+      selectionId: 'selection-1',
+      pinned: true,
+    });
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_drag_ended', {
+      selectionId: 'selection-1',
+    });
+    // The backend is authoritative if platform/runtime policy changes the request.
+    expect(useSelectionToolbarStore.getState().session?.pinned).toBe(false);
+  });
+
+  it('keeps the current answer available when a follow-up command fails', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'selection_toolbar_get_snapshot') {
+        return {
+          runtime: {
+            state: 'running',
+            platform: 'macos',
+            permission: 'granted',
+            last_error: null,
+            global_dismissal_supported: true,
+          },
+          session: {
+            selection_id: 'selection-1',
+            tools: [],
+            theme: 'light',
+            language: 'en-US',
+            display_mode: 'full',
+            resolved_placement: 'below',
+            pinned: false,
+          },
+          history: [{
+            request_id: 'request-1',
+            mode: 'new_tool',
+            user_input: null,
+            status: 'completed',
+            output: 'answer',
+            error: null,
+          }],
+          run: {
+            request_id: 'request-1',
+            selection_id: 'selection-1',
+            tool_id: 'summarize',
+            mode: 'new_tool',
+            user_input: null,
+            status: 'completed',
+            output: 'answer',
+            error: null,
+          },
+        };
+      }
+      if (command === 'selection_toolbar_follow_up') {
+        throw new Error('context limit');
+      }
+      return undefined;
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+
+    const sent = await useSelectionToolbarStore.getState().followUp('Why?');
+
+    expect(sent).toBe(false);
+    expect(useSelectionToolbarStore.getState()).toMatchObject({
+      history: [],
+      run: expect.objectContaining({ request_id: 'request-1', output: 'answer' }),
+      busy: false,
+      error: 'Error: context limit',
+    });
+  });
+
+  it('allows a follow-up after stopping a run with partial output', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'selection_toolbar_get_snapshot') {
+        return {
+          runtime: {
+            state: 'running',
+            platform: 'macos',
+            permission: 'granted',
+            last_error: null,
+            global_dismissal_supported: true,
+          },
+          session: {
+            selection_id: 'selection-1',
+            tools: [],
+            theme: 'light',
+            language: 'en-US',
+            display_mode: 'full',
+            resolved_placement: 'below',
+            pinned: false,
+          },
+          history: [],
+          run: {
+            request_id: 'request-1',
+            selection_id: 'selection-1',
+            tool_id: 'summarize',
+            mode: 'new_tool',
+            user_input: null,
+            status: 'streaming',
+            output: 'partial',
+            error: null,
+          },
+        };
+      }
+      if (command === 'selection_toolbar_follow_up') return 'request-2';
+      return undefined;
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+    listeners.get('selection-toolbar://run')?.({
+      payload: {
+        kind: 'stopped',
+        request_id: 'request-1',
+        selection_id: 'selection-1',
+        output: 'partial',
+      },
+    });
+
+    const sent = await useSelectionToolbarStore.getState().followUp('Continue');
+
+    expect(sent).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_follow_up', {
+      selectionId: 'selection-1',
+      text: 'Continue',
+    });
+    expect(useSelectionToolbarStore.getState().history).toEqual([
+      expect.objectContaining({ request_id: 'request-1', status: 'stopped' }),
+    ]);
+  });
+
+  it('rejects follow-up for error turns and stopped turns without output', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'selection_toolbar_get_snapshot') {
+        return {
+          runtime: {
+            state: 'running',
+            platform: 'macos',
+            permission: 'granted',
+            last_error: null,
+            global_dismissal_supported: true,
+          },
+          session: {
+            selection_id: 'selection-1',
+            tools: [],
+            theme: 'light',
+            language: 'en-US',
+            display_mode: 'full',
+            resolved_placement: 'below',
+            pinned: false,
+          },
+          history: [],
+          run: {
+            request_id: 'request-1',
+            selection_id: 'selection-1',
+            tool_id: 'summarize',
+            mode: 'new_tool',
+            user_input: null,
+            status: 'error',
+            output: 'partial',
+            error: 'provider failed',
+          },
+        };
+      }
+      return undefined;
+    });
+    const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
+    await useSelectionToolbarStore.getState().initialize();
+    invokeMock.mockClear();
+
+    expect(await useSelectionToolbarStore.getState().followUp('Why?')).toBe(false);
+    useSelectionToolbarStore.setState((state) => ({
+      run: state.run ? { ...state.run, status: 'stopped', output: '   ', error: null } : null,
+    }));
+    expect(await useSelectionToolbarStore.getState().followUp('Continue')).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it('opens overflow with its measured height and keeps the backend direction', async () => {

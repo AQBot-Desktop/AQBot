@@ -5,8 +5,8 @@ use aqbot_core::{
     crypto::decrypt_key,
     repo::{conversation as conversation_repo, provider, settings as settings_repo},
     types::{
-        AppSettings, ChatContent, ChatMessage, ChatRequest, ModelParamOverrides, ModelType,
-        ProviderProxyConfig, ProviderType, SelectionToolbarAiConfig,
+        AppSettings, ChatRequest, ModelParamOverrides, ModelType, ProviderProxyConfig,
+        ProviderType, SelectionToolbarAiConfig,
     },
 };
 use aqbot_providers::{
@@ -107,30 +107,6 @@ pub async fn execute_tool(
     if model.model_type != ModelType::Chat {
         return Err(format!("Model {} does not support Chat", model.name));
     }
-    let key = provider::get_active_key(&state.sea_db, &provider_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let api_key =
-        decrypt_key(&key.key_encrypted, &state.master_key).map_err(|error| error.to_string())?;
-    let custom_headers = provider
-        .custom_headers
-        .as_deref()
-        .map(serde_json::from_str)
-        .transpose()
-        .map_err(|error| format!("Invalid provider custom headers: {error}"))?;
-    let context = ProviderRequestContext {
-        api_key,
-        key_id: key.id,
-        provider_id: provider.id.clone(),
-        base_url: Some(resolve_base_url_for_type(
-            &provider.api_host,
-            &provider.provider_type,
-        )),
-        api_path: provider.api_path.clone(),
-        aws_region: provider.aws_region.clone(),
-        proxy_config: ProviderProxyConfig::resolve(&provider.proxy_config, &settings),
-        custom_headers,
-    };
     let params = resolve_effective_params(
         &ai,
         &settings,
@@ -139,13 +115,7 @@ pub async fn execute_tool(
     );
     let request = ChatRequest {
         model: model_id,
-        messages: vec![ChatMessage {
-            role: "user".into(),
-            content: ChatContent::Text(prompt),
-            reasoning_content: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }],
+        messages: Vec::new(),
         stream: true,
         temperature: params.temperature,
         top_p: params.top_p,
@@ -158,20 +128,57 @@ pub async fn execute_tool(
         thinking_param_style: params.thinking_param_style,
         extra_body: params.extra_body,
     };
-    let registry_key = provider_registry_key(&provider.provider_type);
-    if ProviderRegistry::create_default()
-        .get(registry_key)
-        .is_none()
-    {
-        return Err(format!(
-            "Provider type {registry_key} does not support Chat"
-        ));
-    }
-
-    let (request_id, cancel) = state
+    let prepared = state
         .selection_toolbar
-        .begin_run(selection_id, tool_id)
+        .begin_new_tool_run(
+            selection_id,
+            tool_id,
+            super::ToolExecutionConfig {
+                provider_id,
+                request,
+            },
+            prompt,
+        )
         .await?;
+    launch_run(app, state, prepared).await
+}
+
+pub async fn follow_up(
+    app: &AppHandle,
+    state: &AppState,
+    selection_id: &str,
+    text: &str,
+) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Follow-up text cannot be empty".into());
+    }
+    let prepared = state
+        .selection_toolbar
+        .begin_follow_up_run(selection_id, text.to_string())
+        .await?;
+    launch_run(app, state, prepared).await
+}
+
+pub async fn regenerate(
+    app: &AppHandle,
+    state: &AppState,
+    selection_id: &str,
+    request_id: &str,
+) -> Result<String, String> {
+    let prepared = state
+        .selection_toolbar
+        .begin_regenerate_run(selection_id, request_id)
+        .await?;
+    launch_run(app, state, prepared).await
+}
+
+async fn launch_run(
+    app: &AppHandle,
+    state: &AppState,
+    prepared: super::PreparedToolRun,
+) -> Result<String, String> {
+    let request_id = prepared.request_id.clone();
     if let Err(error) = state
         .selection_toolbar
         .set_surface(app, SurfaceSize::Result, None)
@@ -187,22 +194,40 @@ pub async fn execute_tool(
         app,
         ToolRunEvent::Started {
             request_id: request_id.clone(),
-            selection_id: selection_id.into(),
-            tool_id: tool_id.into(),
+            selection_id: prepared.selection_id.clone(),
+            tool_id: prepared.tool_id.clone(),
+            mode: prepared.mode,
+            user_input: prepared.user_input.clone(),
         },
     );
+    let selection_id = prepared.selection_id.clone();
     tracing::info!(
-        selection_id,
+        %selection_id,
         request_id,
-        selected_text_len = selection.len(),
+        mode = ?prepared.mode,
         "Selection toolbar generation started"
     );
+
+    let (context, registry_key) = match resolve_run_transport(state, &prepared.config).await {
+        Ok(transport) => transport,
+        Err(error) => {
+            publish_error(
+                app,
+                &state.selection_toolbar,
+                &request_id,
+                &selection_id,
+                error,
+            )
+            .await;
+            return Ok(request_id);
+        }
+    };
 
     let app = app.clone();
     let runtime = state.selection_toolbar.clone();
     let request_id_for_task = request_id.clone();
-    let selection_id = selection_id.to_string();
-    let registry_key = registry_key.to_string();
+    let request = prepared.config.request;
+    let cancel = prepared.cancel;
     tauri::async_runtime::spawn(async move {
         let registry = ProviderRegistry::create_default();
         let Some(adapter) = registry.get(&registry_key) else {
@@ -308,6 +333,64 @@ pub async fn execute_tool(
         }
     });
     Ok(request_id)
+}
+
+async fn resolve_run_transport(
+    state: &AppState,
+    config: &super::ToolExecutionConfig,
+) -> Result<(ProviderRequestContext, String), String> {
+    let settings = settings_repo::get_settings(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    let provider = provider::get_provider(&state.sea_db, &config.provider_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !provider.enabled {
+        return Err(format!("Provider {} is disabled", provider.name));
+    }
+    let model = provider::get_model(&state.sea_db, &config.provider_id, &config.request.model)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !model.enabled {
+        return Err(format!("Model {} is disabled", model.name));
+    }
+    if model.model_type != ModelType::Chat {
+        return Err(format!("Model {} does not support Chat", model.name));
+    }
+    let registry_key = provider_registry_key(&provider.provider_type).to_string();
+    if ProviderRegistry::create_default()
+        .get(&registry_key)
+        .is_none()
+    {
+        return Err(format!(
+            "Provider type {registry_key} does not support Chat"
+        ));
+    }
+    let key = provider::get_active_key(&state.sea_db, &config.provider_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let api_key =
+        decrypt_key(&key.key_encrypted, &state.master_key).map_err(|error| error.to_string())?;
+    let custom_headers = provider
+        .custom_headers
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| format!("Invalid provider custom headers: {error}"))?;
+    let context = ProviderRequestContext {
+        api_key,
+        key_id: key.id,
+        provider_id: provider.id,
+        base_url: Some(resolve_base_url_for_type(
+            &provider.api_host,
+            &provider.provider_type,
+        )),
+        api_path: provider.api_path,
+        aws_region: provider.aws_region,
+        proxy_config: ProviderProxyConfig::resolve(&provider.proxy_config, &settings),
+        custom_headers,
+    };
+    Ok((context, registry_key))
 }
 
 /// Merges provider thinking deltas into the content stream as

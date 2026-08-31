@@ -288,6 +288,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
                   ?? DEFAULT_SETTINGS.selection_toolbar.app_filter,
                 app_filter_mode: fetched.selection_toolbar?.app_filter_mode
                   ?? DEFAULT_SETTINGS.selection_toolbar.app_filter_mode,
+                placement: fetched.selection_toolbar?.placement
+                  ?? DEFAULT_SETTINGS.selection_toolbar.placement,
+                result_pinned_by_default: fetched.selection_toolbar?.result_pinned_by_default
+                  ?? DEFAULT_SETTINGS.selection_toolbar.result_pinned_by_default,
               },
             },
             loading: false,

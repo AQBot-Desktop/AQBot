@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SelectionToolbarApp } from '../SelectionToolbarApp';
 
@@ -7,7 +7,11 @@ const {
   copyResult,
   regenerate,
   stop,
+  followUp,
+  setPinned,
+  dragEnded,
   setTranslateLanguages,
+  startDragging,
   nodeRendererProps,
   storeState,
 } = vi.hoisted(() => ({
@@ -15,7 +19,11 @@ const {
   copyResult: vi.fn(async () => {}),
   regenerate: vi.fn(async () => {}),
   stop: vi.fn(async () => {}),
+  followUp: vi.fn(async () => true),
+  setPinned: vi.fn(async () => {}),
+  dragEnded: vi.fn(async () => {}),
   setTranslateLanguages: vi.fn(async () => {}),
+  startDragging: vi.fn(async () => {}),
   nodeRendererProps: vi.fn(),
   storeState: {} as Record<string, unknown>,
 }));
@@ -31,6 +39,10 @@ const tools = Array.from({ length: 7 }, (_, index) => ({
 vi.mock('@/stores/selectionToolbarStore', () => ({
   useSelectionToolbarStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector(storeState),
+}));
+
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: () => ({ startDragging }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -102,7 +114,10 @@ describe('SelectionToolbarApp', () => {
         theme: 'light',
         language: 'en-US',
         display_mode: 'full',
+        resolved_placement: 'below',
+        pinned: false,
       },
+      history: [],
       run: null,
       surface: 'toolbar',
       overflowDirection: 'below',
@@ -113,9 +128,12 @@ describe('SelectionToolbarApp', () => {
       translateTarget: null,
       initialize: vi.fn(async () => {}),
       executeTool,
+      followUp,
       stop,
       copyResult,
       regenerate,
+      setPinned,
+      dragEnded,
       setTranslateLanguages,
       close: vi.fn(async () => {}),
       toggleOverflow: vi.fn(async () => {}),
@@ -224,6 +242,270 @@ describe('SelectionToolbarApp', () => {
     );
   });
 
+  it('renders completed history before the current turn and keeps user input as plain text', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      history: [{
+        request_id: 'request-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'Initial answer',
+        error: null,
+      }],
+      run: {
+        request_id: 'request-2',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'follow_up',
+        user_input: '<strong>Follow-up question</strong>',
+        status: 'completed',
+        output: 'Follow-up answer',
+        error: null,
+      },
+    });
+
+    const { container } = render(<SelectionToolbarApp />);
+
+    expect(screen.getAllByTestId('markdown-output').map((node) => node.textContent)).toEqual([
+      'Initial answer',
+      'Follow-up answer',
+    ]);
+    const userTurn = screen.getByText('<strong>Follow-up question</strong>');
+    expect(userTurn).toHaveClass('selection-toolbar__user-turn');
+    expect(userTurn.querySelector('strong')).toBeNull();
+    expect(container.querySelectorAll('.selection-toolbar__turn')).toHaveLength(2);
+  });
+
+  it('sends on Enter while preserving Shift+Enter and IME composition', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'done',
+        error: null,
+      },
+    });
+    render(<SelectionToolbarApp />);
+    const composer = screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.followUpPlaceholder',
+    });
+    const sendButton = screen.getByRole('button', {
+      name: 'settings.selectionToolbar.followUpSend',
+    });
+
+    expect(sendButton).toBeDisabled();
+    fireEvent.change(composer, { target: { value: '   ' } });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.change(composer, { target: { value: '  next question  ' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(followUp).toHaveBeenCalledWith('next question');
+
+    fireEvent.change(composer, { target: { value: 'line one' } });
+    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: true });
+    expect(followUp).toHaveBeenCalledTimes(1);
+
+    fireEvent.compositionStart(composer);
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true, keyCode: 229 });
+    fireEvent.compositionEnd(composer);
+    fireEvent.keyDown(composer, { key: 'Process', keyCode: 229 });
+    expect(followUp).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(composer, { target: { value: 'send with button' } });
+    fireEvent.click(sendButton);
+    expect(followUp).toHaveBeenLastCalledWith('send with button');
+  });
+
+  it('keeps the follow-up draft when the command is rejected', async () => {
+    followUp.mockResolvedValueOnce(false);
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'done',
+        error: null,
+      },
+    });
+    render(<SelectionToolbarApp />);
+    const composer = screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.followUpPlaceholder',
+    });
+    fireEvent.change(composer, { target: { value: 'retry this question' } });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'settings.selectionToolbar.followUpSend',
+    }));
+
+    await waitFor(() => {
+      expect(composer).toHaveValue('retry this question');
+    });
+  });
+
+  it('enables follow-up controls after a stopped answer with partial output', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'stopped',
+        output: 'partial answer',
+        error: null,
+      },
+    });
+    render(<SelectionToolbarApp />);
+    const composer = screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.followUpPlaceholder',
+    });
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: 'Continue' } });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'settings.selectionToolbar.followUpSend',
+    }));
+    expect(followUp).toHaveBeenCalledWith('Continue');
+  });
+
+  it('disables follow-up controls for error turns and empty stopped turns', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'error',
+        output: 'partial',
+        error: 'provider failed',
+      },
+    });
+    const { rerender } = render(<SelectionToolbarApp />);
+    const composer = screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.followUpPlaceholder',
+    });
+    expect(composer).toBeDisabled();
+
+    Object.assign(storeState, {
+      run: {
+        ...(storeState.run as Record<string, unknown>),
+        status: 'stopped',
+        output: '   ',
+        error: null,
+      },
+    });
+    rerender(<SelectionToolbarApp />);
+    expect(composer).toBeDisabled();
+  });
+
+  it('toggles pin state through the result header', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'done',
+        error: null,
+      },
+    });
+
+    const { container, rerender } = render(<SelectionToolbarApp />);
+    expect(container.querySelector('.lucide-pin')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'settings.selectionToolbar.pinResult',
+    }));
+    expect(setPinned).toHaveBeenCalledWith(true);
+
+    Object.assign(storeState, {
+      session: { ...(storeState.session as Record<string, unknown>), pinned: true },
+    });
+    rerender(<SelectionToolbarApp />);
+    expect(container.querySelector('.lucide-pin-off')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'settings.selectionToolbar.unpinResult',
+    }));
+    expect(setPinned).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reverses the result stack above the selection and reports title drags', async () => {
+    Object.assign(storeState, {
+      session: {
+        ...(storeState.session as Record<string, unknown>),
+        resolved_placement: 'above',
+      },
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'done',
+        error: null,
+      },
+    });
+
+    const { container } = render(<SelectionToolbarApp />);
+    expect(container.querySelector('.selection-toolbar__result-stack'))
+      .toHaveAttribute('data-placement', 'above');
+
+    const title = container.querySelector('.selection-toolbar__result-title');
+    expect(title).not.toBeNull();
+    fireEvent.pointerDown(title!, { button: 0 });
+    await waitFor(() => {
+      expect(startDragging).toHaveBeenCalledTimes(1);
+      expect(dragEnded).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('reports drag end even when native dragging fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    startDragging.mockRejectedValueOnce(new Error('native drag failed'));
+    Object.assign(storeState, {
+      surface: 'result',
+      run: {
+        request_id: 'request',
+        selection_id: 'selection',
+        tool_id: 'tool-1',
+        mode: 'new_tool',
+        user_input: null,
+        status: 'completed',
+        output: 'done',
+        error: null,
+      },
+    });
+    const { container } = render(<SelectionToolbarApp />);
+
+    fireEvent.pointerDown(container.querySelector('.selection-toolbar__result-title')!, {
+      button: 0,
+    });
+
+    await waitFor(() => {
+      expect(dragEnded).toHaveBeenCalledTimes(1);
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      'Selection toolbar window drag failed:',
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
   it('marks exactly the running tool as selected', () => {
     Object.assign(storeState, {
       surface: 'result',
@@ -270,6 +552,12 @@ describe('SelectionToolbarApp', () => {
     fireEvent.click(stopButton);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'chat.regenerate' })).toBeDisabled();
+    expect(screen.getByRole('textbox', {
+      name: 'settings.selectionToolbar.followUpPlaceholder',
+    })).toBeDisabled();
+    expect(screen.getByRole('button', {
+      name: 'settings.selectionToolbar.followUpSend',
+    })).toBeDisabled();
   });
 
   it('regenerates from the header once the run has finished and hides the stop footer', () => {

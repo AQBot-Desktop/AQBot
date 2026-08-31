@@ -1,3 +1,4 @@
+use aqbot_core::types::SelectionToolbarPlacement;
 use tauri::{
     AppHandle, Manager, Monitor, Position, Size, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -8,8 +9,9 @@ use tauri::{PhysicalPosition, PhysicalSize};
 
 use super::{
     clamp_surface_position_with_toolbar_width, place_overflow_from_toolbar,
-    place_surface_scaled_with_toolbar_width, OverflowPlacement, ScreenPoint, ScreenRect,
-    SelectionAnchorKind, SurfaceSize, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
+    place_result_from_toolbar, place_surface_scaled_with_toolbar_width, OverflowPlacement,
+    ScreenPoint, ScreenRect, SelectionAnchorKind, SurfacePlacement, SurfaceSize, TOOLBAR_HEIGHT,
+    TOOLBAR_WIDTH,
 };
 
 pub const SELECTION_TOOLBAR_WINDOW_LABEL: &str = "selection-toolbar";
@@ -63,7 +65,8 @@ pub fn show_surface(
     anchor_kind: SelectionAnchorKind,
     surface: SurfaceSize,
     toolbar_width: f64,
-) -> Result<ScreenPoint, String> {
+    preferred_placement: SelectionToolbarPlacement,
+) -> Result<SurfacePlacement, String> {
     let window = ensure_window(app)?;
     let center_x = anchor.x + anchor.width / 2.0;
     let center_y = anchor.y + anchor.height / 2.0;
@@ -76,16 +79,57 @@ pub fn show_surface(
     )?;
     let monitor_rect = work_area(&monitor);
     let scale_factor = coordinate_scale_factor(&monitor);
-    let position = place_surface_scaled_with_toolbar_width(
+    let placement = place_surface_scaled_with_toolbar_width(
         anchor,
         anchor_kind,
         monitor_rect,
         surface,
         scale_factor,
         toolbar_width,
+        preferred_placement,
     );
-    set_window_surface(app, &window, position, surface, scale_factor, toolbar_width)?;
-    Ok(position)
+    set_window_surface(
+        app,
+        &window,
+        placement.window_position,
+        surface,
+        scale_factor,
+        toolbar_width,
+    )?;
+    Ok(placement)
+}
+
+pub fn show_result_at_toolbar(
+    app: &AppHandle,
+    toolbar_position: ScreenPoint,
+    toolbar_width: f64,
+    preferred_placement: SelectionToolbarPlacement,
+) -> Result<SurfacePlacement, String> {
+    let window = ensure_window(app)?;
+    let monitor = monitor_for_point(
+        app,
+        ScreenPoint {
+            x: toolbar_position.x + toolbar_width / 2.0,
+            y: toolbar_position.y + TOOLBAR_HEIGHT / 2.0,
+        },
+    )?;
+    let scale_factor = coordinate_scale_factor(&monitor);
+    let placement = place_result_from_toolbar(
+        toolbar_position,
+        toolbar_width,
+        preferred_placement,
+        work_area(&monitor),
+        scale_factor,
+    );
+    set_window_surface(
+        app,
+        &window,
+        placement.window_position,
+        SurfaceSize::Result,
+        scale_factor,
+        toolbar_width,
+    )?;
+    Ok(placement)
 }
 
 pub fn show_surface_at_position(
@@ -194,6 +238,8 @@ fn set_window_frame(
     height: f64,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
+    super::macos_panel::set_result_interactive(matches!(_surface, SurfaceSize::Result));
+    #[cfg(target_os = "macos")]
     window
         .set_size(Size::Logical(LogicalSize::new(width, height)))
         .map_err(|error| error.to_string())?;
@@ -241,6 +287,21 @@ pub fn focus_surface(app: &AppHandle) -> Result<(), String> {
             .get_webview_window(SELECTION_TOOLBAR_WINDOW_LABEL)
             .ok_or_else(|| "Selection toolbar window is not available".to_string())?;
         window.set_focus().map_err(|error| error.to_string())
+    }
+}
+
+/// Release keyboard focus after a pinned result receives an outside click.
+/// Other platforms transfer focus through the native click itself.
+pub fn release_surface_focus(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return super::macos_panel::resign_key_window(app);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
     }
 }
 
@@ -325,6 +386,7 @@ fn coordinate_rect(rect: ScreenRect, _scale_factor: f64) -> ScreenRect {
 pub fn hide(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        super::macos_panel::set_result_interactive(false);
         return super::macos_panel::hide_panel(app);
     }
     #[cfg(not(target_os = "macos"))]

@@ -66,6 +66,7 @@ import {
   type SelectionToolbarAppFilterMode,
   type SelectionToolbarDisplayMode,
   type SelectionToolbarInstalledApp,
+  type SelectionToolbarPlacement,
   type SelectionToolbarPermissionSettingsOutcome,
   type SelectionToolbarRuntimeStatus,
   type SelectionToolbarSearchPresetId,
@@ -769,6 +770,8 @@ export function SelectionToolbarSettings() {
   const appFilter: SelectionToolbarAppEntry[] = settings.app_filter ?? [];
   const pickerPlatform: AppPickerPlatform = runtime?.platform ?? 'unsupported';
   const displayMode: SelectionToolbarDisplayMode = settings.display_mode ?? 'full';
+  const placement: SelectionToolbarPlacement = settings.placement ?? 'below';
+  const resultPinnedByDefault = settings.result_pinned_by_default ?? false;
   const triggerMode: SelectionToolbarTriggerMode = settings.trigger_mode ?? 'selection';
   const triggerShortcut = settings.trigger_shortcut ?? SELECTION_TOOLBAR_DEFAULT_SHORTCUT;
   const shortcutAccelerator = toTauriAccelerator(triggerShortcut);
@@ -1215,6 +1218,50 @@ export function SelectionToolbarSettings() {
             onChange={(display_mode) => persist({
               ...settings,
               display_mode: display_mode as SelectionToolbarDisplayMode,
+            })}
+          />
+        </div>
+        <Divider style={{ margin: 0 }} />
+        <div style={{ alignItems: 'center', display: 'flex', gap: 12, justifyContent: 'space-between', padding: '12px 0' }}>
+          <div style={{ minWidth: 0 }}>
+            <div>{t('settings.selectionToolbar.placement')}</div>
+            <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+              {t('settings.selectionToolbar.placementHint')}
+            </div>
+          </div>
+          <Segmented
+            aria-label={t('settings.selectionToolbar.placement')}
+            options={[
+              {
+                value: 'above',
+                label: t('settings.selectionToolbar.placementAbove'),
+              },
+              {
+                value: 'below',
+                label: t('settings.selectionToolbar.placementBelow'),
+              },
+            ]}
+            value={placement}
+            onChange={(nextPlacement) => persist({
+              ...settings,
+              placement: nextPlacement as SelectionToolbarPlacement,
+            })}
+          />
+        </div>
+        <Divider style={{ margin: 0 }} />
+        <div style={{ alignItems: 'center', display: 'flex', gap: 12, justifyContent: 'space-between', padding: '12px 0 4px' }}>
+          <div style={{ minWidth: 0 }}>
+            <div>{t('settings.selectionToolbar.resultPinnedByDefault')}</div>
+            <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+              {t('settings.selectionToolbar.resultPinnedByDefaultHint')}
+            </div>
+          </div>
+          <Switch
+            aria-label={t('settings.selectionToolbar.resultPinnedByDefault')}
+            checked={resultPinnedByDefault}
+            onChange={(result_pinned_by_default) => persist({
+              ...settings,
+              result_pinned_by_default,
             })}
           />
         </div>

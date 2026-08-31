@@ -9,7 +9,10 @@
 //! **All AppKit / NSPanel mutations must run on the main thread.** Calling
 //! `to_panel` from a tokio worker traps with "Must only be used from the main thread".
 
-use std::sync::{mpsc, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, OnceLock,
+};
 
 use tauri::{AppHandle, Manager};
 use tauri_nspanel::{
@@ -43,6 +46,11 @@ tauri_panel! {
 }
 
 static PANEL_CONFIGURED: OnceLock<()> = OnceLock::new();
+static RESULT_INTERACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_result_interactive(interactive: bool) {
+    RESULT_INTERACTIVE.store(interactive, Ordering::Relaxed);
+}
 
 /// Convert the selection-toolbar webview into a nonactivating floating panel once.
 /// Safe to call from any thread — work is marshalled to the main thread.
@@ -101,6 +109,10 @@ fn ensure_panel_on_main(app: &AppHandle) -> Result<(), String> {
         });
         let exit_handle = app.clone();
         handler.on_mouse_exited(move |_event| {
+            if RESULT_INTERACTIVE.load(Ordering::Relaxed) {
+                tracing::debug!("selection toolbar result mouse exited → keep_key");
+                return;
+            }
             if let Err(error) = resign_key_window(&exit_handle) {
                 tracing::error!(%error, "Could not resign selection toolbar panel key");
             } else {
@@ -165,7 +177,7 @@ pub fn make_key_window(app: &AppHandle) -> Result<(), String> {
     })
 }
 
-fn resign_key_window(app: &AppHandle) -> Result<(), String> {
+pub fn resign_key_window(app: &AppHandle) -> Result<(), String> {
     run_on_main_blocking(app, |handle| {
         let panel = handle
             .get_webview_panel(SELECTION_TOOLBAR_WINDOW_LABEL)
