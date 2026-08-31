@@ -1801,18 +1801,6 @@ export function ChatView() {
         );
       };
 
-      if (versionIsStreaming) {
-        return (
-          <StreamingAssistantContent
-            messageId={versionMessage.id}
-            baseContent={versionMessage.content}
-            isStreaming={versionIsStreaming}
-          >
-            {(liveContent) => renderVersionNode(buildVersionContent(liveContent))}
-          </StreamingAssistantContent>
-        );
-      }
-
       return renderVersionNode(buildVersionContent(versionMessage.content));
     };
 
@@ -2001,7 +1989,7 @@ export function ChatView() {
           );
         };
 
-        if (isStreaming && msg?.id) {
+        if (isStreaming && msg?.id && !isNonTabsMultiModel) {
           return wrapShareSelectableContent(msg.id, (
             <StreamingAssistantContent
               messageId={msg.id}

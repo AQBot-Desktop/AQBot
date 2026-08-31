@@ -55,7 +55,6 @@ let _streamPrefix = '';
 // final AI response is loaded from the backend.
 const _pendingConversationRefresh = new Set<string>();
 const STREAM_UI_FLUSH_INTERVAL_MS = 32;
-const STREAM_FIRST_UI_FLUSH_DELAY_MS = 0;
 const AGENT_STREAM_UI_FLUSH_INTERVAL_MS = 16;
 const ACTIVE_STREAM_EXISTS_ERROR_FRAGMENT = '当前会话已有回复正在生成';
 export interface PendingUiChunk {
@@ -65,7 +64,7 @@ export interface PendingUiChunk {
   modelId?: string;
   providerId?: string;
 }
-let _pendingUiChunk: PendingUiChunk | null = null;
+const _pendingUiChunks = new Map<string, PendingUiChunk>();
 let _streamUiFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const _liveStreamContentByMessageId = new Map<string, string>();
 const _liveStreamListenersByMessageId = new Map<string, Set<() => void>>();
@@ -1023,7 +1022,8 @@ function collectActiveStreamingMessageIds(
     state.streamingMessageId,
     _streamBuffer?.messageId,
     _streamBuffer?.resolvedId,
-    _pendingUiChunk?.messageId,
+    ..._pendingUiChunks.keys(),
+    ..._liveStreamContentByMessageId.keys(),
   ].filter((messageId): messageId is string => (
     typeof messageId === 'string' && messageId.length > 0 && !isTemporaryMessageId(messageId)
   ));
@@ -1620,6 +1620,25 @@ export interface SendMultiModelMessageInput {
   onAccepted?: () => void;
 }
 
+function resetPendingStreamUi() {
+  if (_streamUiFlushTimer !== null) {
+    clearTimeout(_streamUiFlushTimer);
+    _streamUiFlushTimer = null;
+  }
+  _pendingUiChunks.clear();
+}
+
+function scheduleStreamUiFlush(set: ConversationStoreSet, get: () => ConversationState) {
+  if (_streamUiFlushTimer !== null || _pendingUiChunks.size === 0) return;
+  _streamUiFlushTimer = setTimeout(() => {
+    _streamUiFlushTimer = null;
+    const oldestId = _pendingUiChunks.keys().next().value;
+    if (oldestId) {
+      flushPendingStreamChunk(set, get, oldestId);
+    }
+  }, STREAM_UI_FLUSH_INTERVAL_MS);
+}
+
 function appendStreamChunk(
   set: ConversationStoreSet,
   get: () => ConversationState,
@@ -1648,47 +1667,67 @@ function appendStreamChunk(
     return;
   }
 
-  if (_pendingUiChunk && (
-    _pendingUiChunk.conversationId !== conversationId
-    || _pendingUiChunk.messageId !== messageId
-  )) {
-    flushPendingStreamChunk(set, get);
+  const incoming = content ?? '';
+  const existing = _pendingUiChunks.get(messageId);
+  if (existing) {
+    existing.content += incoming;
+    scheduleStreamUiFlush(set, get);
+    return;
   }
 
-  if (!_pendingUiChunk) {
-    _pendingUiChunk = {
-      messageId,
-      conversationId,
-      content: '',
-      modelId,
-      providerId,
-    };
-  }
+  _pendingUiChunks.set(messageId, {
+    messageId,
+    conversationId,
+    content: incoming,
+    modelId,
+    providerId,
+  });
 
-  _pendingUiChunk.content += content ?? '';
-
-  if (_streamUiFlushTimer === null) {
-    const hasVisibleLiveContent = Boolean(getLiveStreamContent(messageId));
-    const delay = hasVisibleLiveContent ? STREAM_UI_FLUSH_INTERVAL_MS : STREAM_FIRST_UI_FLUSH_DELAY_MS;
-    _streamUiFlushTimer = setTimeout(() => {
-      flushPendingStreamChunk(set, get);
-    }, delay);
+  if (incoming && getLiveStreamContent(messageId) === undefined) {
+    flushPendingStreamChunk(set, get, messageId);
+    return;
   }
+  scheduleStreamUiFlush(set, get);
 }
 
 function flushPendingStreamChunk(
   set: ConversationStoreSet,
   get: () => ConversationState,
+  messageId?: string,
 ) {
-  if (_streamUiFlushTimer !== null) {
-    clearTimeout(_streamUiFlushTimer);
-    _streamUiFlushTimer = null;
+  if (messageId === undefined) {
+    if (_streamUiFlushTimer !== null) {
+      clearTimeout(_streamUiFlushTimer);
+      _streamUiFlushTimer = null;
+    }
+    const pending = [..._pendingUiChunks.values()];
+    _pendingUiChunks.clear();
+    for (const item of pending) {
+      applyPendingUiChunk(set, get, item);
+    }
+    return;
   }
 
-  const pending = _pendingUiChunk;
-  _pendingUiChunk = null;
-  if (!pending) return;
+  const pending = _pendingUiChunks.get(messageId);
+  if (pending) {
+    _pendingUiChunks.delete(messageId);
+    applyPendingUiChunk(set, get, pending);
+  }
+  if (_pendingUiChunks.size === 0) {
+    if (_streamUiFlushTimer !== null) {
+      clearTimeout(_streamUiFlushTimer);
+      _streamUiFlushTimer = null;
+    }
+    return;
+  }
+  scheduleStreamUiFlush(set, get);
+}
 
+function applyPendingUiChunk(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  pending: PendingUiChunk,
+) {
   const { messageId, content, conversationId, modelId: chunkModelId, providerId: chunkProviderId } = pending;
   if (get().activeConversationId !== conversationId) {
     return;
@@ -1856,7 +1895,7 @@ export interface ConversationRuntime {
   streamBuffer: StreamBuffer | null;
   streamPrefix: string;
   pendingConversationRefresh: Set<string>;
-  pendingUiChunk: PendingUiChunk | null;
+  pendingUiChunks: Map<string, PendingUiChunk>;
   streamUiFlushTimer: ReturnType<typeof setTimeout> | null;
   activeMessageLoadSeq: number;
   agentStreamSeq: number;
@@ -1894,8 +1933,7 @@ export const conversationRuntime: ConversationRuntime = {
   get streamPrefix() { return _streamPrefix; },
   set streamPrefix(value) { _streamPrefix = value; },
   pendingConversationRefresh: _pendingConversationRefresh,
-  get pendingUiChunk() { return _pendingUiChunk; },
-  set pendingUiChunk(value) { _pendingUiChunk = value; },
+  get pendingUiChunks() { return _pendingUiChunks; },
   get streamUiFlushTimer() { return _streamUiFlushTimer; },
   set streamUiFlushTimer(value) { _streamUiFlushTimer = value; },
   get activeMessageLoadSeq() { return _activeMessageLoadSeq; },
@@ -1947,6 +1985,7 @@ export {
   emptyConversationPreferenceUpdate,
   findResolvedVersionForPendingSelection,
   flushPendingStreamChunk,
+  resetPendingStreamUi,
   getActiveMessageEdges,
   getEffectiveMcpServerIds,
   getEffectiveThinkingBudget,

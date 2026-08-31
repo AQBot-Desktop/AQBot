@@ -51,6 +51,7 @@ import {
   createStreamId,
   findResolvedVersionForPendingSelection,
   flushPendingStreamChunk,
+  resetPendingStreamUi,
   getActiveMessageEdges,
   getEffectiveMcpServerIds,
   getEffectiveThinkingBudget,
@@ -494,11 +495,7 @@ export function createConversationMessageActions(
       if (!runtime.isMultiModelActive) {
         bindWaitingChatQueueToStream(set, conversationId, streamId);
       }
-      runtime.pendingUiChunk = null;
-      if (runtime.streamUiFlushTimer !== null) {
-        clearTimeout(runtime.streamUiFlushTimer);
-        runtime.streamUiFlushTimer = null;
-      }
+      resetPendingStreamUi();
 
       try {
         await get().startStreamListening();
@@ -703,7 +700,7 @@ export function createConversationMessageActions(
           error: errMsg,
         }));
         if (staleBackendStream) {
-          runtime.pendingUiChunk = null;
+          resetPendingStreamUi();
           runtime.streamBuffer = null;
           runtime.streamPrefix = '';
           if (isTauri()) {
@@ -811,7 +808,7 @@ export function createConversationMessageActions(
       let cancelActiveRun: (() => void) | null = null;
       let cleanedUp = false;
 
-      // ── Agent stream buffering (same pattern as Q&A runtime.pendingUiChunk) ──
+      // ── Agent stream buffering (same pattern as Q&A pending stream UI) ──
       let _agentPendingText = '';
       let _agentPendingThinking = '';
       let _agentFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1180,11 +1177,7 @@ export function createConversationMessageActions(
       if (!runtime.isMultiModelActive) {
         bindWaitingChatQueueToStream(set, conversationId, streamId);
       }
-      runtime.pendingUiChunk = null;
-      if (runtime.streamUiFlushTimer !== null) {
-        clearTimeout(runtime.streamUiFlushTimer);
-        runtime.streamUiFlushTimer = null;
-      }
+      resetPendingStreamUi();
 
       try {
         await get().startStreamListening();
@@ -1321,11 +1314,7 @@ export function createConversationMessageActions(
       if (!appendAsCompanion && !runtime.isMultiModelActive) {
         bindWaitingChatQueueToStream(set, conversationId, streamId);
       }
-      runtime.pendingUiChunk = null;
-      if (runtime.streamUiFlushTimer !== null) {
-        clearTimeout(runtime.streamUiFlushTimer);
-        runtime.streamUiFlushTimer = null;
-      }
+      resetPendingStreamUi();
 
       try {
         await get().startStreamListening();
@@ -1414,6 +1403,7 @@ export function createConversationMessageActions(
       runtime.multiModelTotalRemaining = models.length;
       runtime.multiModelFirstTarget = { ...models[0] };
       runtime.multiModelHistoryMode = resolvedHistoryMode;
+      resetPendingStreamUi();
       set({ pendingCompanionModels: [...models] });
 
       const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
@@ -1964,7 +1954,7 @@ export function createConversationMessageActions(
             if (chunk.content) {
               appendStreamChunk(set, get, message_id, chunk.content, conversation_id, evt_model_id, evt_provider_id);
             }
-            flushPendingStreamChunk(set, get);
+            flushPendingStreamChunk(set, get, message_id);
             // Clear thinking state — this iteration is done
             if (get().thinkingActiveMessageIds.has(message_id)) {
               set((s) => {
@@ -1979,7 +1969,7 @@ export function createConversationMessageActions(
           // Unified multi-model handler: applies to ALL models (first + companions)
           if (runtime.isMultiModelActive) {
             runtime.multiModelTotalRemaining--;
-            flushPendingStreamChunk(set, get);
+            flushPendingStreamChunk(set, get, message_id);
             materializeLiveStreamContent(set, [message_id, get().streamingMessageId]);
             runtime.streamBuffer = null;
 
@@ -2033,7 +2023,7 @@ export function createConversationMessageActions(
           }
 
           const placeholderMessageId = get().streamingMessageId;
-          flushPendingStreamChunk(set, get);
+          flushPendingStreamChunk(set, get, message_id);
           materializeLiveStreamContent(set, [placeholderMessageId, get().streamingMessageId, message_id]);
           const flushedMessageId = get().streamingMessageId ?? message_id;
           // Only preserve real backend IDs — temp placeholders (temp-assistant-*)
@@ -2164,7 +2154,7 @@ export function createConversationMessageActions(
           return;
         }
 
-        flushPendingStreamChunk(set, get);
+        flushPendingStreamChunk(set, get, message_id);
         materializeLiveStreamContent(set, [message_id, get().streamingMessageId]);
         runtime.streamBuffer = null; // Clear buffer on error
 
@@ -2426,11 +2416,12 @@ export function createConversationMessageActions(
       }
       flushPendingStreamChunk(set, get);
       materializeLiveStreamContent(set, [
+        ...collectActiveStreamingMessageIds(get()),
         get().streamingMessageId,
         runtime.streamBuffer?.messageId,
         runtime.streamBuffer?.resolvedId,
       ]);
-      runtime.pendingUiChunk = null;
+      resetPendingStreamUi();
       runtime.streamBuffer = null;
       // Clean up multi-model state on cancel
       if (runtime.isMultiModelActive) {
@@ -2448,10 +2439,6 @@ export function createConversationMessageActions(
           r();
         }
         set({ pendingCompanionModels: [], multiModelParentId: null, multiModelDoneMessageIds: [] });
-      }
-      if (runtime.streamUiFlushTimer !== null) {
-        clearTimeout(runtime.streamUiFlushTimer);
-        runtime.streamUiFlushTimer = null;
       }
       // Tell the backend to cancel the stream — fire and forget
       if (conversationId && isTauri() && !options?.skipBackend) {

@@ -1,5 +1,7 @@
 import { App } from 'antd';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type React from 'react';
 import type { Message, MultiModelDisplayMode } from '@/types';
@@ -318,5 +320,12 @@ describe('ChatView issue #155 layout inheritance', () => {
       expect(screen.getByTestId('layout-user-1')).toHaveAttribute('data-mode', 'side-by-side');
       expect(screen.getByTestId('layout-user-2')).toHaveAttribute('data-mode', 'tabs');
     });
+  });
+
+  it('does not wrap non-tab multi-model cards in an extra live-stream subscriber', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ChatView.tsx'), 'utf8');
+    expect(source).toContain('if (isStreaming && msg?.id && !isNonTabsMultiModel)');
+    expect(source.match(/<StreamingAssistantContent/g)).toHaveLength(1);
+    expect(source).not.toContain('baseContent={versionMessage.content}');
   });
 });

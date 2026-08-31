@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import type React from 'react';
 import type { Message } from '@/types';
 import { ChatChromeContext } from '@/lib/chatChrome';
+import * as stores from '@/stores';
 import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
 import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
@@ -285,6 +286,36 @@ describe('MultiModelDisplay', () => {
     });
 
     expect(screen.getByText('streamed token')).toBeInTheDocument();
+  });
+
+  it('subscribes once per streaming card in side-by-side and stacked layouts', () => {
+    const modelA = makeMessage({ id: 'assistant-a', model_id: 'model-a', content: 'alpha', status: 'partial' });
+    const modelB = makeMessage({
+      id: 'assistant-b',
+      model_id: 'model-b',
+      content: '',
+      is_active: false,
+      status: 'partial',
+      version_index: 1,
+    });
+    useConversationStore.setState({
+      messages: [modelA, modelB],
+      streaming: true,
+      streamingConversationId: 'conv-1',
+      streamingMessageId: null,
+    });
+
+    for (const mode of ['side-by-side', 'stacked'] as const) {
+      const spy = vi.spyOn(stores, 'subscribeLiveStreamContent');
+      const view = render(renderDisplay([modelA, modelB], modelA.id, mode));
+      const subscribed = spy.mock.calls
+        .map(([messageId]) => messageId)
+        .filter((messageId) => messageId === 'assistant-a' || messageId === 'assistant-b');
+      expect(subscribed.filter((messageId) => messageId === 'assistant-a')).toHaveLength(1);
+      expect(subscribed.filter((messageId) => messageId === 'assistant-b')).toHaveLength(1);
+      spy.mockRestore();
+      view.unmount();
+    }
   });
 
   it('updates an inactive streaming card from live stream content without replacing store messages', () => {
