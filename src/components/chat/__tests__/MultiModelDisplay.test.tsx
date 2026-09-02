@@ -7,7 +7,7 @@ import type React from 'react';
 import type { Message } from '@/types';
 import { ChatChromeContext } from '@/lib/chatChrome';
 import * as stores from '@/stores';
-import { clearLiveStreamContent, setLiveStreamContent, useConversationStore } from '@/stores';
+import { clearLiveStreamContent, setLiveStreamContent, useConversationStore, useSettingsStore } from '@/stores';
 import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
 const openConversationPopout = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -138,6 +138,12 @@ describe('MultiModelDisplay', () => {
     });
     clearLiveStreamContent('assistant-a');
     clearLiveStreamContent('assistant-b');
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        multi_model_side_by_side_width_mode: 'scroll',
+      },
+    });
   });
 
   it('exposes the layout switcher as keyboard-operable pressed buttons', () => {
@@ -610,6 +616,29 @@ describe('MultiModelDisplay', () => {
     expect(card.style.width).toBe('');
     expect(card).toHaveStyle({ flex: '0 0 auto', minWidth: '420px' });
     expect(card.closest('.aqbot-multi-model-track')).not.toBeNull();
+  });
+
+  it('lets fit mode share the workspace instead of keeping a two-column width', () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        multi_model_side_by_side_width_mode: 'fit',
+      },
+    });
+    const versions = ['a', 'b', 'c'].map((id, index) => makeMessage({
+      id: `assistant-${id}`,
+      model_id: `model-${id}`,
+      content: id,
+      is_active: index === 0,
+      version_index: index,
+    }));
+
+    render(renderDisplay(versions));
+
+    const card = screen.getByTestId('multi-model-card-assistant-a');
+    expect(card).toHaveClass('aqbot-multi-model-card-fit');
+    expect(card).toHaveStyle({ flex: '1 1 0', minWidth: '0px', width: 'auto' });
+    expect(card.closest('.aqbot-multi-model-track')).toBeNull();
   });
 
   it('switches the displayed same-model version locally without setting context', () => {

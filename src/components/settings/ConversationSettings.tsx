@@ -16,6 +16,7 @@ import {
   type ChatMessageAreaStyle,
   type MultiModelDisplayMode,
   type MultiModelExecutionMode,
+  type MultiModelSideBySideWidthMode,
 } from '@/types';
 import {
   COMPRESSION_KEEP_LAST_N_MAX,
@@ -31,6 +32,7 @@ import {
   normalizeMultiModelExecutionMode,
   normalizeMultiModelSequentialInterval,
 } from '@/lib/multiModelExecution';
+import { normalizeMultiModelSideBySideWidthMode } from '@/lib/multiModelColumnLayout';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
 
@@ -458,6 +460,54 @@ export function ConversationSettings() {
               { label: t('settings.multiModelDisplayModeTabs'), value: 'tabs' },
               { label: t('settings.multiModelDisplayModeSideBySide'), value: 'side-by-side' },
               { label: t('settings.multiModelDisplayModeStacked'), value: 'stacked' },
+            ]}
+          />
+        </div>
+        <Divider style={{ margin: '8px 0' }} />
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.multiModelSideBySideWidth')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t(
+                normalizeMultiModelSideBySideWidthMode(settings.multi_model_side_by_side_width_mode) === 'fit'
+                  ? 'settings.multiModelSideBySideWidthFitDesc'
+                  : 'settings.multiModelSideBySideWidthScrollDesc',
+              )}
+            </div>
+          </div>
+          <SettingsSelect
+            ariaLabel={t('settings.multiModelSideBySideWidth')}
+            value={normalizeMultiModelSideBySideWidthMode(settings.multi_model_side_by_side_width_mode)}
+            onChange={(val) => saveSettings({
+              multi_model_side_by_side_width_mode: val as MultiModelSideBySideWidthMode,
+            })}
+            options={[
+              { label: t('settings.multiModelSideBySideWidthFit'), value: 'fit' },
+              { label: t('settings.multiModelSideBySideWidthScroll'), value: 'scroll' },
+            ]}
+          />
+        </div>
+        <Divider style={{ margin: '8px 0' }} />
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.multiModelPopoutSideBySideWidth')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t(
+                normalizeMultiModelSideBySideWidthMode(settings.multi_model_popout_side_by_side_width_mode) === 'fit'
+                  ? 'settings.multiModelPopoutSideBySideWidthFitDesc'
+                  : 'settings.multiModelPopoutSideBySideWidthScrollDesc',
+              )}
+            </div>
+          </div>
+          <SettingsSelect
+            ariaLabel={t('settings.multiModelPopoutSideBySideWidth')}
+            value={normalizeMultiModelSideBySideWidthMode(settings.multi_model_popout_side_by_side_width_mode)}
+            onChange={(val) => saveSettings({
+              multi_model_popout_side_by_side_width_mode: val as MultiModelSideBySideWidthMode,
+            })}
+            options={[
+              { label: t('settings.multiModelSideBySideWidthFit'), value: 'fit' },
+              { label: t('settings.multiModelSideBySideWidthScroll'), value: 'scroll' },
             ]}
           />
         </div>

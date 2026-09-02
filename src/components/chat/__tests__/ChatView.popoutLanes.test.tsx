@@ -236,6 +236,7 @@ describe('ChatView independent-window model columns', () => {
     expect(screen.getByTestId('shared-input-area')).toBeInTheDocument();
     expect(screen.queryByTestId('layout-user-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('layout-switcher')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('multi-model-model-tags')).not.toBeInTheDocument();
     expect(screen.queryByTestId('multi-model-content-user-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('chat-minimap')).not.toBeInTheDocument();
   });

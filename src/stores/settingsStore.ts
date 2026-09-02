@@ -137,6 +137,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   multi_model_display_mode: 'tabs',
   multi_model_execution_mode: 'parallel',
   multi_model_sequential_interval_seconds: DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS,
+  multi_model_side_by_side_width_mode: 'scroll',
+  multi_model_popout_side_by_side_width_mode: 'scroll',
   render_user_markdown: false,
   agent_workspace_root: null,
   agent_workspace_name_strategy: DEFAULT_AGENT_WORKSPACE_NAME_STRATEGY,

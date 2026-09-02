@@ -47,6 +47,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatDuration, formatSpeed, formatTokenCount } from '../gateway/tokenFormat';
 import { ModelSelector } from './ModelSelector';
+import { useChatChrome } from '@/lib/chatChrome';
+import { shouldHideSharedMultiModelChrome } from '@/lib/multiModelLanes';
 import { LayoutSwitcher } from './MultiModelDisplay';
 import { SaveToMemoryPopover } from './SaveToMemoryPopover';
 
@@ -145,6 +147,7 @@ function ModelTags({
 }) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
+  const chatChrome = useChatChrome();
   const switchMessageVersion = useConversationStore((s) => s.switchMessageVersion);
   const pendingCompanionModels = useConversationStore(selectUiPendingCompanionModels);
   const multiModelParentId = useConversationStore(selectUiMultiModelParentId);
@@ -188,6 +191,7 @@ function ModelTags({
     return ids;
   }, [isMultiModelTarget, pendingCompanionModels, modelGroups, multiModelDoneMessageIds]);
 
+  if (shouldHideSharedMultiModelChrome(chatChrome.kind)) return null;
   if (modelGroups.size <= 1 && pendingModels.length === 0) return null;
 
   const currentModelKey = getMessageVersionGroupKey(msg);
@@ -211,7 +215,10 @@ function ModelTags({
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+    <div
+      data-testid="multi-model-model-tags"
+      style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
+    >
       {orderedModelKeys.map((modelKey) => {
         const firstVersion = modelGroups.get(modelKey)?.[0];
         if (!firstVersion) {
@@ -380,6 +387,7 @@ export function AssistantFooter({
   const { token } = theme.useToken();
   const { t } = useTranslation();
   const { message: messageApi } = App.useApp();
+  const hideSharedMultiModelChrome = shouldHideSharedMultiModelChrome(useChatChrome().kind);
   const regenerateMessage = useConversationStore((s) => s.regenerateMessage);
   const regenerateWithModel = useConversationStore((s) => s.regenerateWithModel);
   const deleteMessageGroup = useConversationStore((s) => s.deleteMessageGroup);
@@ -630,6 +638,7 @@ export function AssistantFooter({
         />
       </div>
       )}
+      {!hideSharedMultiModelChrome && (
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
         {hasMultiModels && displayMode && onDisplayModeChange && msg.parent_message_id && (
           <LayoutSwitcher
@@ -640,6 +649,7 @@ export function AssistantFooter({
         )}
         <ModelTags msg={msg} conversationId={conversationId} allVersions={mergedVersions} getModelDisplayInfo={getModelDisplayInfo} />
       </div>
+      )}
       <Modal
         open={branchModalOpen}
         title={t('chat.branchConversation')}

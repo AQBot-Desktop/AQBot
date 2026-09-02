@@ -572,6 +572,14 @@ pub enum MultiModelExecutionMode {
     Sequential,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MultiModelSideBySideWidthMode {
+    Fit,
+    #[default]
+    Scroll,
+}
+
 pub const DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS: u32 = 3;
 pub const MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS: u32 = 300;
 
@@ -755,6 +763,10 @@ pub struct AppSettings {
     pub multi_model_execution_mode: MultiModelExecutionMode,
     /// Delay in seconds after a sequential target settles before starting the next.
     pub multi_model_sequential_interval_seconds: u32,
+    /// Main-window side-by-side column width: fit all columns, or keep a readable width and scroll.
+    pub multi_model_side_by_side_width_mode: MultiModelSideBySideWidthMode,
+    /// Independent-window side-by-side column width: fit all columns, or keep a readable width and scroll.
+    pub multi_model_popout_side_by_side_width_mode: MultiModelSideBySideWidthMode,
     /// Render user messages as Markdown (like AI messages). Default: false.
     pub render_user_markdown: bool,
     /// Agent default workspace root. None uses ~/.aqbot/workspace.
@@ -913,6 +925,8 @@ impl Default for AppSettings {
             multi_model_display_mode: "tabs".to_string(),
             multi_model_execution_mode: MultiModelExecutionMode::Parallel,
             multi_model_sequential_interval_seconds: DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS,
+            multi_model_side_by_side_width_mode: MultiModelSideBySideWidthMode::Scroll,
+            multi_model_popout_side_by_side_width_mode: MultiModelSideBySideWidthMode::Scroll,
             render_user_markdown: false,
             agent_workspace_root: None,
             agent_workspace_name_strategy: "uuid".to_string(),

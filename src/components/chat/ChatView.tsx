@@ -1697,7 +1697,7 @@ export function ChatView() {
       return {
         placement: 'start' as const,
         ...getBubbleVariant(false),
-        avatar: renderConvIconForChat(32, column.modelId),
+        avatar: undefined,
         contentRender: () => (
           <Typography.Text type="secondary">{t('chat.multiModel.lanePlaceholder')}</Typography.Text>
         ),
@@ -1804,7 +1804,7 @@ export function ChatView() {
     return {
       placement: 'start' as const,
       ...getBubbleVariant(false),
-      avatar: isNonTabsMultiModel ? undefined : renderConvIconForChat(32, msg?.model_id),
+      avatar: isNonTabsMultiModel || column ? undefined : renderConvIconForChat(32, msg?.model_id),
       loading: bubbleLoading,
       styles: getShareSelectBubbleStyles(msg?.id),
       contentRender: (content: string) => {
@@ -2215,7 +2215,7 @@ export function ChatView() {
   }), [aiRole, contextClearRole, contextCompressedRole, contextCompressingRole, userRole]);
 
   const makeLaneRoles = useCallback((column: LaneColumn): RoleType => ({
-    user: userRole,
+    user: (bubbleData) => ({ ...userRole(bubbleData), avatar: undefined }),
     ai: (bubbleData) => renderAiRole(bubbleData, column),
     'context-clear': contextClearRole,
     'context-compressed': contextCompressedRole,
@@ -2224,7 +2224,7 @@ export function ChatView() {
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 min-w-0">
       {/* Bubble style overrides */}
       <style>{`
         @keyframes aqbot-think-spin {
@@ -2462,7 +2462,7 @@ export function ChatView() {
       <div
         ref={messageAreaRef}
         data-message-area
-        className={`flex-1 min-h-0 overflow-hidden relative bubble-${bubbleStyle || 'modern'}${userMessageAreaClass}${aiMessageAreaClass}`}
+        className={`flex-1 min-h-0 min-w-0 overflow-hidden relative bubble-${bubbleStyle || 'modern'}${userMessageAreaClass}${aiMessageAreaClass}`}
         style={messageAreaStyle}
       >
         {messages.length === 0 ? (
@@ -2499,6 +2499,8 @@ export function ChatView() {
               <div
                 style={{
                   height: '100%',
+                  width: '100%',
+                  minWidth: 0,
                   visibility: showingPreviousConversationWindow ? 'hidden' : undefined,
                 }}
               >
@@ -2513,7 +2515,9 @@ export function ChatView() {
                       role={makeLaneRoles(column)}
                       style={{
                         height: '100%',
-                        padding: '16px 16px',
+                        padding: settings.multi_model_popout_side_by_side_width_mode === 'fit'
+                          ? '8px'
+                          : '10px 8px',
                         overflowX: 'hidden',
                       }}
                     />

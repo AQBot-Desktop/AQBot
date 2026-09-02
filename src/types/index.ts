@@ -351,6 +351,7 @@ export type ContextStrategy = 'smart_summary' | 'raw_truncate' | 'raw_strict';
 export type MultiModelDisplayMode = 'tabs' | 'side-by-side' | 'stacked';
 export type MultiModelContinuationMode = 'selected' | 'per_model';
 export type MultiModelExecutionMode = 'parallel' | 'sequential';
+export type MultiModelSideBySideWidthMode = 'fit' | 'scroll';
 export const DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS = 3;
 export const MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS = 300;
 
@@ -925,6 +926,10 @@ export interface AppSettings {
   multi_model_execution_mode?: MultiModelExecutionMode;
   /** Delay in seconds after a sequential target settles before starting the next. Default: 3. */
   multi_model_sequential_interval_seconds?: number;
+  /** Main-window side-by-side width: fit all columns, or keep a readable width and scroll. */
+  multi_model_side_by_side_width_mode?: MultiModelSideBySideWidthMode;
+  /** Independent-window side-by-side width: fit all columns, or keep a readable width and scroll. */
+  multi_model_popout_side_by_side_width_mode?: MultiModelSideBySideWidthMode;
   /** Render user messages as Markdown (like AI messages). Default: false */
   render_user_markdown?: boolean;
   /** Agent default workspace root. Null uses ~/.aqbot/workspace. */

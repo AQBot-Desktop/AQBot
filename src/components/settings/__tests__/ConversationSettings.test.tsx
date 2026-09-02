@@ -94,6 +94,14 @@ vi.mock('react-i18next', () => ({
         'settings.multiModelDisplayModeTabs': '标签切换',
         'settings.multiModelDisplayModeSideBySide': '并排对比',
         'settings.multiModelDisplayModeStacked': '上下堆叠',
+        'settings.multiModelSideBySideWidth': '主窗口并排宽度',
+        'settings.multiModelPopoutSideBySideWidth': '独立窗口并排宽度',
+        'settings.multiModelSideBySideWidthFit': '自适应宽度',
+        'settings.multiModelSideBySideWidthScroll': '固定宽度',
+        'settings.multiModelSideBySideWidthFitDesc': '所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。',
+        'settings.multiModelSideBySideWidthScrollDesc': '每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。',
+        'settings.multiModelPopoutSideBySideWidthFitDesc': '所有模型均分独立窗口宽度，全部同时可见。',
+        'settings.multiModelPopoutSideBySideWidthScrollDesc': '每列保持可读宽度，超出后可横向滚动或用左右按钮切换。',
         'settings.multiModelExecutionMode': '多模型执行方式',
         'settings.multiModelExecutionModeDesc': '控制同一轮多个模型是同时回答，还是按会话中保存的顺序逐个回答。',
         'settings.multiModelExecutionModeParallel': '并行',
@@ -297,6 +305,8 @@ describe('ConversationSettings', () => {
       multi_model_display_mode: 'tabs',
       multi_model_execution_mode: 'parallel',
       multi_model_sequential_interval_seconds: 3,
+      multi_model_side_by_side_width_mode: 'scroll',
+      multi_model_popout_side_by_side_width_mode: 'scroll',
       render_user_markdown: false,
       inherit_conversation_preferences_on_create: true,
       document_attachment_reading_enabled: false,
@@ -723,5 +733,35 @@ describe('ConversationSettings', () => {
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       multi_model_sequential_interval_seconds: 0,
     });
+  });
+
+  it('saves independent side-by-side width modes and shows the selected description', () => {
+    render(<ConversationSettings />);
+
+    expect(screen.getByText('每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。')).toBeInTheDocument();
+    expect(screen.getByText('每列保持可读宽度，超出后可横向滚动或用左右按钮切换。')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('主窗口并排宽度'), { target: { value: 'fit' } });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      multi_model_side_by_side_width_mode: 'fit',
+    });
+
+    fireEvent.change(screen.getByLabelText('独立窗口并排宽度'), { target: { value: 'fit' } });
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      multi_model_popout_side_by_side_width_mode: 'fit',
+    });
+  });
+
+  it('updates the side-by-side width description after switching to fit', () => {
+    settings = {
+      ...settings,
+      multi_model_side_by_side_width_mode: 'fit',
+      multi_model_popout_side_by_side_width_mode: 'fit',
+    };
+    render(<ConversationSettings />);
+
+    expect(screen.getByText('所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。')).toBeInTheDocument();
+    expect(screen.getByText('所有模型均分独立窗口宽度，全部同时可见。')).toBeInTheDocument();
+    expect(screen.queryByText('每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。')).not.toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type React from 'react';
 import type { Message } from '@/types';
+import { ChatChromeContext } from '@/lib/chatChrome';
 import { useConversationStore } from '@/stores';
 import { AssistantFooter } from '../ChatAssistantFooter';
 
@@ -198,5 +199,46 @@ describe('AssistantFooter memory action', () => {
       .find((icon) => icon.getAttribute('data-model') === 'model-2');
     fireEvent.click(companionIcon!.parentElement!);
     expect(switchMessageVersion).toHaveBeenCalledWith('conversation-1', 'user-1', 'assistant-2');
+  });
+
+  it('hides model tags in the independent window', () => {
+    const message = makeMessage();
+    const companion = {
+      ...message,
+      id: 'assistant-2',
+      provider_id: 'provider-2',
+      model_id: 'model-2',
+      is_active: false,
+      version_index: 1,
+    };
+    useConversationStore.setState({
+      messages: [message, companion],
+      pendingCompanionModels: [
+        { providerId: 'provider-1', modelId: 'model-1' },
+        { providerId: 'provider-2', modelId: 'model-2' },
+      ],
+      multiModelParentId: 'user-1',
+      multiModelDoneMessageIds: [],
+    });
+
+    render(
+      <ChatChromeContext.Provider value={{ kind: 'popout' }}>
+        <App>
+          <AssistantFooter
+            assistantCopyText="answer"
+            conversationId="conversation-1"
+            displayMode="tabs"
+            getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? '', providerName: 'Provider' })}
+            msg={message}
+            onDisplayModeChange={vi.fn()}
+            onEditMessage={vi.fn()}
+            versions={[message, companion]}
+          />
+        </App>
+      </ChatChromeContext.Provider>,
+    );
+
+    expect(screen.queryByTestId('multi-model-model-tags')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId('model-icon')).toHaveLength(0);
   });
 });

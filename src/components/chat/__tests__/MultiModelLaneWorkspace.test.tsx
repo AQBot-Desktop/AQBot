@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useSettingsStore } from '@/stores';
 import { MultiModelLaneWorkspace } from '../MultiModelLaneWorkspace';
 
 vi.mock('react-i18next', () => ({
@@ -10,7 +11,52 @@ vi.mock('@lobehub/icons', () => ({
   ModelIcon: ({ model }: { model: string }) => <span data-testid="lane-model-icon">{model}</span>,
 }));
 
+vi.mock('overlayscrollbars', () => ({
+  OverlayScrollbars: vi.fn((el: HTMLElement) => ({
+    destroy: vi.fn(),
+    elements: () => ({ viewport: el }),
+  })),
+}));
+
+const threeColumns = [
+  { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
+  { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
+  { key: 'provider-c:model-c', providerId: 'provider-c', modelId: 'model-c', historical: false },
+] as const;
+
+function renderWorkspace(
+  columns: Array<{ key: string; providerId: string; modelId: string; historical: boolean }> = [...threeColumns],
+) {
+  return render(
+    <MultiModelLaneWorkspace
+      columns={columns}
+      getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
+      renderConversation={(column) => <div>{column.modelId}</div>}
+    />,
+  );
+}
+
+function overflowHost(host: HTMLElement) {
+  Object.defineProperty(host, 'scrollWidth', { configurable: true, get: () => 1800 });
+  Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => 800 });
+  Object.defineProperty(host, 'scrollLeft', { configurable: true, writable: true, value: 0 });
+  host.scrollBy = vi.fn();
+  act(() => {
+    host.dispatchEvent(new Event('scroll'));
+  });
+  return host;
+}
+
 describe('MultiModelLaneWorkspace', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        multi_model_popout_side_by_side_width_mode: 'scroll',
+      },
+    });
+  });
+
   it('renders a full conversation pane for each model column', () => {
     render(
       <MultiModelLaneWorkspace
@@ -54,6 +100,36 @@ describe('MultiModelLaneWorkspace', () => {
     expect(column).toHaveClass('aqbot-multi-model-card');
     expect(column).toHaveStyle({ flex: '0 0 auto', minWidth: '420px' });
     expect(column.closest('.aqbot-multi-model-lane-scroll')).not.toBeNull();
+    expect(column.closest('.aqbot-multi-model-lane-track')).not.toBeNull();
+    expect(column.closest('.aqbot-multi-model-lane-track')).toHaveStyle({ gap: '0px' });
+  });
+
+  it('lets fit mode share the independent window without prev/next controls', () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        multi_model_popout_side_by_side_width_mode: 'fit',
+      },
+    });
+    renderWorkspace();
+
+    const column = screen.getByTestId('multi-model-lane-column-provider-a:model-a');
+    expect(column).toHaveClass('aqbot-multi-model-card-fit');
+    expect(column).toHaveStyle({ flex: '1 1 0', minWidth: '0px', width: 'auto' });
+    expect(column.closest('.aqbot-multi-model-lane-track')).toHaveStyle({ gap: '0px' });
+    expect(screen.queryByTestId('multi-model-lane-prev')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('multi-model-lane-next')).not.toBeInTheDocument();
+  });
+
+  it('scrolls one column at a time with prev/next controls when extra columns overflow', () => {
+    renderWorkspace();
+    const host = overflowHost(document.querySelector('.aqbot-multi-model-lane-scroll') as HTMLElement);
+
+    expect(screen.getByTestId('multi-model-lane-prev')).toBeDisabled();
+    expect(screen.getByTestId('multi-model-lane-next')).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('multi-model-lane-next'));
+    expect(host.scrollBy).toHaveBeenCalledWith({ left: 420, behavior: 'smooth' });
   });
 
   it('can expand one column and stop a streaming column', () => {

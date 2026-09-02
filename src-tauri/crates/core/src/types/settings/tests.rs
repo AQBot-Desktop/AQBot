@@ -1,7 +1,8 @@
 use super::{
     is_valid_selection_toolbar_icon, is_valid_selection_toolbar_search_url,
     render_selection_toolbar_search_url, AppSettings, ContextStrategy,
-    ModelCatalogSourcePreference, MultiModelExecutionMode, SelectionToolbarAiConfig,
+    ModelCatalogSourcePreference, MultiModelExecutionMode, MultiModelSideBySideWidthMode,
+    SelectionToolbarAiConfig,
     SelectionToolbarAppEntry, SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey,
     SelectionToolbarDisplayMode, SelectionToolbarPlacement, SelectionToolbarSettings,
     SelectionToolbarTool,
@@ -655,6 +656,54 @@ fn multi_model_execution_mode_roundtrips_snake_case() {
         MultiModelExecutionMode::Sequential
     );
     assert_eq!(restored.multi_model_sequential_interval_seconds, 0);
+}
+
+#[test]
+fn multi_model_side_by_side_width_defaults_to_scroll_and_roundtrips() {
+    let settings = AppSettings::default();
+    assert_eq!(
+        settings.multi_model_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Scroll
+    );
+    assert_eq!(
+        settings.multi_model_popout_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Scroll
+    );
+
+    let legacy: AppSettings =
+        serde_json::from_value(json!({})).expect("missing width modes should deserialize");
+    assert_eq!(
+        legacy.multi_model_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Scroll
+    );
+    assert_eq!(
+        legacy.multi_model_popout_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Scroll
+    );
+
+    let mut settings = AppSettings::default();
+    settings.multi_model_side_by_side_width_mode = MultiModelSideBySideWidthMode::Fit;
+    settings.multi_model_popout_side_by_side_width_mode = MultiModelSideBySideWidthMode::Fit;
+    let serialized = serde_json::to_value(&settings).expect("settings should serialize");
+    assert_eq!(
+        serialized["multi_model_side_by_side_width_mode"],
+        json!("fit")
+    );
+    assert_eq!(
+        serialized["multi_model_popout_side_by_side_width_mode"],
+        json!("fit")
+    );
+
+    let restored: AppSettings =
+        serde_json::from_value(serialized).expect("settings should roundtrip");
+    assert_eq!(
+        restored.multi_model_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Fit
+    );
+    assert_eq!(
+        restored.multi_model_popout_side_by_side_width_mode,
+        MultiModelSideBySideWidthMode::Fit
+    );
 }
 
 #[test]

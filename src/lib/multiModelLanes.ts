@@ -36,10 +36,16 @@ export function shouldUseLaneWorkspace(
   return chromeKind === 'popout' && columns.length >= 2;
 }
 
-export function shouldHideMultiModelLayoutSwitcher(
+export function shouldHideSharedMultiModelChrome(
   chromeKind: 'main' | 'popout',
 ): boolean {
   return chromeKind === 'popout';
+}
+
+export function shouldHideMultiModelLayoutSwitcher(
+  chromeKind: 'main' | 'popout',
+): boolean {
+  return shouldHideSharedMultiModelChrome(chromeKind);
 }
 
 export function filterVersionsForLane(

@@ -193,5 +193,3 @@ pub async fn test_proxy(
         Err(_) => Ok(serde_json::json!({ "ok": false, "error": "Connection timed out (5s)" })),
     }
 }
-
-

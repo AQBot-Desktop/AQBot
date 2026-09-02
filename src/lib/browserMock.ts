@@ -588,6 +588,8 @@ const DEFAULT_SETTINGS = {
   release_webview_on_tray: false,
   multi_model_execution_mode: 'parallel',
   multi_model_sequential_interval_seconds: 3,
+  multi_model_side_by_side_width_mode: 'scroll',
+  multi_model_popout_side_by_side_width_mode: 'scroll',
   selection_toolbar: {
     placement: 'below',
     result_pinned_by_default: false,

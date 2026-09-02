@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@/types';
-import { buildLaneColumns, filterVersionsForLane, selectLaneAnswer, shouldHideMultiModelLayoutSwitcher, shouldUseLaneWorkspace } from '../multiModelLanes';
+import { buildLaneColumns, filterVersionsForLane, selectLaneAnswer, shouldHideMultiModelLayoutSwitcher, shouldHideSharedMultiModelChrome, shouldUseLaneWorkspace } from '../multiModelLanes';
 
 function makeMessage(overrides: Partial<Message>): Message {
   return {
@@ -50,6 +50,11 @@ describe('multi-model lane helpers', () => {
   it('hides the multi-model layout switcher in the independent window', () => {
     expect(shouldHideMultiModelLayoutSwitcher('popout')).toBe(true);
     expect(shouldHideMultiModelLayoutSwitcher('main')).toBe(false);
+  });
+
+  it('hides shared model-tag chrome in the independent window', () => {
+    expect(shouldHideSharedMultiModelChrome('popout')).toBe(true);
+    expect(shouldHideSharedMultiModelChrome('main')).toBe(false);
   });
 
   it('keeps only the current lane versions for a column footer', () => {

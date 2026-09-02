@@ -13,13 +13,20 @@ import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/c
 import { openConversationPopout } from '@/lib/conversationPopout';
 import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import { shouldHideMultiModelLayoutSwitcher } from '@/lib/multiModelLanes';
-import { MULTI_MODEL_COLUMN_GAP_PX, sideBySideColumnLayout } from '@/lib/multiModelColumnLayout';
+import {
+  MULTI_MODEL_COLUMN_GAP_PX,
+  normalizeMultiModelSideBySideWidthMode,
+  sideBySideColumnLayout,
+  sideBySideTrackStyle,
+} from '@/lib/multiModelColumnLayout';
 import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
   useConversationStore,
+  useSettingsStore,
 } from '@/stores';
 import { ModelSelector } from './ModelSelector';
+import { OverflowIconToolbar } from './OverflowIconToolbar';
 import { SaveToMemoryPopover } from './SaveToMemoryPopover';
 
 function useLiveStreamContent(messageId: string | null | undefined, enabled: boolean): string | undefined {
@@ -205,6 +212,10 @@ function MultiModelDisplayInner({
     [activeMessageId, displayVersionIdsByModelKey, renderVersions],
   );
   const isDisplayStreaming = storeStreaming && streamingConversationId === conversationId;
+  const widthMode = normalizeMultiModelSideBySideWidthMode(
+    useSettingsStore((state) => state.settings.multi_model_side_by_side_width_mode),
+  );
+  const enableSideBySideScroll = mode === 'side-by-side' && widthMode === 'scroll';
 
   // For side-by-side mode, force the .ant-bubble ancestor to take full width
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -241,7 +252,7 @@ function MultiModelDisplayInner({
 
   // Initialize OverlayScrollbars for persistent horizontal scrollbar
   useEffect(() => {
-    if (mode !== 'side-by-side') return;
+    if (!enableSideBySideScroll) return;
     const el = scrollRef.current;
     if (!el) return;
 
@@ -255,7 +266,7 @@ function MultiModelDisplayInner({
     });
 
     return () => inst.destroy();
-  }, [mode]);
+  }, [enableSideBySideScroll]);
 
   if (displayVersions.length <= 1) {
     const msg = displayVersions[0];
@@ -273,8 +284,8 @@ function MultiModelDisplayInner({
   const containerStyle: React.CSSProperties =
     mode === 'side-by-side'
       ? {
-          overflowX: 'auto',
-          paddingBottom: 8,
+          overflowX: enableSideBySideScroll ? 'auto' : 'hidden',
+          paddingBottom: enableSideBySideScroll ? 8 : 0,
           width: '100%',
           boxSizing: 'border-box',
         }
@@ -284,7 +295,7 @@ function MultiModelDisplayInner({
           gap: MULTI_MODEL_COLUMN_GAP_PX,
         };
   const columnLayout = mode === 'side-by-side'
-    ? sideBySideColumnLayout(displayVersions.length)
+    ? sideBySideColumnLayout(displayVersions.length, widthMode)
     : { className: undefined, style: {} as React.CSSProperties };
 
   const cardStyle: React.CSSProperties = {
@@ -299,8 +310,10 @@ function MultiModelDisplayInner({
   return (
     <div ref={scrollRef} style={containerStyle} className={mode === 'side-by-side' ? 'aqbot-multi-model-scroll' : undefined}>
       <div
-        className={mode === 'side-by-side' ? 'aqbot-multi-model-track' : undefined}
-        style={mode === 'side-by-side' ? undefined : { display: 'flex', flexDirection: 'column', gap: MULTI_MODEL_COLUMN_GAP_PX }}
+        className={mode === 'side-by-side' && enableSideBySideScroll ? 'aqbot-multi-model-track' : undefined}
+        style={mode === 'side-by-side'
+          ? sideBySideTrackStyle(widthMode)
+          : { display: 'flex', flexDirection: 'column', gap: MULTI_MODEL_COLUMN_GAP_PX }}
       >
       {displayVersions.map((vMsg) => {
         const isActive = vMsg.id === activeMessageId;
@@ -525,53 +538,22 @@ function MultiModelCardActions({
     onDisplayVersionChange?.(parentMessageId, modelKey, next.id);
   };
 
-  return (
-    <div
-      className="multi-model-card-footer-actions"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
-        padding: '6px 10px',
-        borderTop: `1px solid ${token.colorBorderSecondary}`,
-        backgroundColor: token.colorBgContainer,
-        flexShrink: 0,
-      }}
-    >
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 58 }}>
-        {sameModelVersions.length > 1 && (
-          <>
-            <Button
-              type="text"
-              size="small"
-              icon={<ChevronLeft size={14} />}
-              disabled={!canUseVersionPagination || currentVersionIndex <= 0}
-              data-testid={`multi-model-version-prev-${message.id}`}
-              onClick={() => switchDisplayedVersion(currentVersionIndex - 1)}
-              style={{ minWidth: 20, padding: '0 2px' }}
-            />
-            <Typography.Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
-              {Math.max(currentVersionIndex, 0) + 1}/{sameModelVersions.length}
-            </Typography.Text>
-            <Button
-              type="text"
-              size="small"
-              icon={<ChevronRight size={14} />}
-              disabled={!canUseVersionPagination || currentVersionIndex >= sameModelVersions.length - 1}
-              data-testid={`multi-model-version-next-${message.id}`}
-              onClick={() => switchDisplayedVersion(currentVersionIndex + 1)}
-              style={{ minWidth: 20, padding: '0 2px' }}
-            />
-          </>
-        )}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+  const actionItems = [
+    {
+      key: 'copy',
+      overflowLabel: t('chat.copy'),
+      node: (
         <CopyButton
           text={() => stripAqbotTags(message.content ?? '')}
           size={13}
           timeout={3000}
         />
+      ),
+    },
+    {
+      key: 'regenerate',
+      overflowLabel: t('chat.regenerate'),
+      node: (
         <Tooltip title={t('chat.regenerate')}>
           <Button
             type="text"
@@ -582,6 +564,12 @@ function MultiModelCardActions({
             onClick={() => onRegenerateVersion?.(message)}
           />
         </Tooltip>
+      ),
+    },
+    {
+      key: 'edit',
+      overflowLabel: t('chat.editMessage'),
+      node: (
         <Tooltip title={t('chat.editMessage')}>
           <Button
             type="text"
@@ -592,6 +580,12 @@ function MultiModelCardActions({
             onClick={() => onEditVersion?.(message)}
           />
         </Tooltip>
+      ),
+    },
+    {
+      key: 'switch-model',
+      overflowLabel: t('chat.switchModel'),
+      node: (
         <ModelSelector
           onSelect={(providerId, modelId) => onSwitchModelVersion?.(message, providerId, modelId)}
           overrideCurrentModel={currentModelOverride}
@@ -606,6 +600,12 @@ function MultiModelCardActions({
             />
           </Tooltip>
         </ModelSelector>
+      ),
+    },
+    {
+      key: 'branch',
+      overflowLabel: t('chat.branchConversation'),
+      node: (
         <Dropdown
           disabled={actionsDisabled || !onBranchVersion}
           menu={{
@@ -635,6 +635,12 @@ function MultiModelCardActions({
             />
           </Tooltip>
         </Dropdown>
+      ),
+    },
+    {
+      key: 'memory',
+      overflowLabel: t('chat.memory.save'),
+      node: (
         <SaveToMemoryPopover content={memoryContent} disabled={memoryActionDisabled}>
           <Tooltip title={t('chat.memory.save')}>
             <Button
@@ -647,24 +653,73 @@ function MultiModelCardActions({
             />
           </Tooltip>
         </SaveToMemoryPopover>
-        {onDeleteVersion && displayVersions.length > 1 && (
-          <Popconfirm
-            title={t('chat.deleteConfirm')}
-            onConfirm={() => onDeleteVersion(message.id)}
-            okText={t('common.confirm')}
-            cancelText={t('common.cancel')}
-          >
-            <Button
-              type="text"
-              size="small"
-              danger
-              disabled={actionsDisabled}
-              icon={<Trash2 size={13} />}
-              data-testid={`multi-model-delete-${message.id}`}
-            />
-          </Popconfirm>
-        )}
-      </div>
+      ),
+    },
+    ...(onDeleteVersion && displayVersions.length > 1
+      ? [{
+          key: 'delete',
+          overflowLabel: t('chat.delete'),
+          node: (
+            <Popconfirm
+              title={t('chat.deleteConfirm')}
+              onConfirm={() => onDeleteVersion(message.id)}
+              okText={t('common.confirm')}
+              cancelText={t('common.cancel')}
+            >
+              <Button
+                type="text"
+                size="small"
+                danger
+                disabled={actionsDisabled}
+                icon={<Trash2 size={13} />}
+                data-testid={`multi-model-delete-${message.id}`}
+              />
+            </Popconfirm>
+          ),
+        }]
+      : []),
+  ];
+
+  return (
+    <div
+      className="multi-model-card-footer-actions"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '6px 10px',
+        borderTop: `1px solid ${token.colorBorderSecondary}`,
+        backgroundColor: token.colorBgContainer,
+        flexShrink: 0,
+        minWidth: 0,
+      }}
+    >
+      {sameModelVersions.length > 1 ? (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          <Button
+            type="text"
+            size="small"
+            icon={<ChevronLeft size={14} />}
+            disabled={!canUseVersionPagination || currentVersionIndex <= 0}
+            data-testid={`multi-model-version-prev-${message.id}`}
+            onClick={() => switchDisplayedVersion(currentVersionIndex - 1)}
+            style={{ minWidth: 20, padding: '0 2px' }}
+          />
+          <Typography.Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
+            {Math.max(currentVersionIndex, 0) + 1}/{sameModelVersions.length}
+          </Typography.Text>
+          <Button
+            type="text"
+            size="small"
+            icon={<ChevronRight size={14} />}
+            disabled={!canUseVersionPagination || currentVersionIndex >= sameModelVersions.length - 1}
+            data-testid={`multi-model-version-next-${message.id}`}
+            onClick={() => switchDisplayedVersion(currentVersionIndex + 1)}
+            style={{ minWidth: 20, padding: '0 2px' }}
+          />
+        </div>
+      ) : null}
+      <OverflowIconToolbar moreLabel={t('chat.multiModel.moreActions')} items={actionItems} />
     </div>
   );
 }

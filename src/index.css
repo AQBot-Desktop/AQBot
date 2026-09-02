@@ -865,3 +865,20 @@ html[data-theme="dark"] .katex-display {
   min-width: 420px;
   width: max(420px, calc((100cqw - 12px) / 2));
 }
+.aqbot-multi-model-card-fit {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
+.aqbot-multi-model-lane-scroll .ant-bubble {
+  padding-inline: 0;
+}
+.aqbot-multi-model-lane-scroll .ant-bubble-content-wrapper {
+  min-width: 0;
+}
+.aqbot-multi-model-card-fit .ant-bubble-start .ant-bubble-content-wrapper,
+.aqbot-multi-model-card-fit .ant-bubble-start .ant-bubble-body {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}

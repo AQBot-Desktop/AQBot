@@ -41,7 +41,7 @@ export function ConversationPopoutInner({ conversationId }: { conversationId: st
   return (
     <div
       data-testid="conversation-popout"
-      className="flex h-full min-h-0 flex-col"
+      className="flex h-full min-h-0 min-w-0 flex-col"
       style={{ backgroundColor: token.colorBgElevated }}
     >
       {conversationTitle || conversationId ? (
