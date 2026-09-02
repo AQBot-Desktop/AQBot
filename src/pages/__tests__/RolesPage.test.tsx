@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   createConversation: vi.fn(),
   setActiveConversation: vi.fn(),
   setActivePage: vi.fn(),
+  ensureSkillsLoaded: vi.fn(),
+  toggleSkill: vi.fn(),
 }));
 
 const roles: Role[] = [
@@ -71,6 +73,17 @@ const storeState = vi.hoisted(() => ({
   roles: [] as Role[],
   marketplaceRoles: [] as MarketplaceRole[],
   activeConversationId: 'conv-1' as string | null,
+  conversations: [
+    { id: 'conv-1', provider_id: 'provider-1', model_id: 'model-1', system_prompt: null as string | null, mode: undefined as 'chat' | 'agent' | 'role' | undefined },
+  ],
+  archivedConversations: [] as Array<{
+    id: string;
+    provider_id: string;
+    model_id: string;
+    system_prompt: string | null;
+    mode: 'chat' | 'agent' | 'role' | undefined;
+  }>,
+  skills: [] as Array<{ name: string; enabled: boolean }>,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -118,6 +131,9 @@ vi.mock('react-i18next', () => ({
         'roles.validation.systemPromptRequired': '请输入系统提示词',
         'roles.validation.openingQuestionContentRequired': '请填写开场问题正文',
         'roles.saveSuccess': '角色已保存',
+        'roles.applyFailed': '应用角色失败',
+        'roles.conversationMissing': '当前会话不存在，无法应用角色',
+        'roles.applied': '已应用到当前会话',
         'roles.edit': '编辑',
         'roles.delete': '删除',
         'roles.deleteConfirm': '删除角色？',
@@ -169,7 +185,8 @@ vi.mock('@/stores', () => ({
   useConversationStore: (selector?: (state: any) => unknown) => {
     const state = {
     activeConversationId: storeState.activeConversationId,
-    conversations: [{ id: 'conv-1', provider_id: 'provider-1', model_id: 'model-1', system_prompt: null }],
+    conversations: storeState.conversations,
+    archivedConversations: storeState.archivedConversations,
     updateConversation: mocks.updateConversation,
     createConversation: mocks.createConversation,
     setActiveConversation: mocks.setActiveConversation,
@@ -211,26 +228,34 @@ vi.mock('@/stores', () => ({
   useSkillStore: Object.assign(
     (selector?: (state: any) => unknown) => {
       const state = {
-        skills: [],
-        ensureSkillsLoaded: vi.fn().mockResolvedValue(undefined),
-        toggleSkill: vi.fn().mockResolvedValue(undefined),
+        skills: storeState.skills,
+        ensureSkillsLoaded: mocks.ensureSkillsLoaded,
+        toggleSkill: mocks.toggleSkill,
       };
       return selector ? selector(state) : state;
     },
     {
-      getState: () => ({ skills: [] }),
+      getState: () => ({ skills: storeState.skills }),
     },
   ),
 }));
 
 describe('RolesPage', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     localStorage.clear();
     mocks.createConversation.mockResolvedValue({ id: 'conv-2' });
+    mocks.ensureSkillsLoaded.mockResolvedValue(undefined);
+    mocks.toggleSkill.mockResolvedValue(undefined);
     storeState.roles = roles;
     storeState.marketplaceRoles = marketplaceRoles;
     storeState.activeConversationId = 'conv-1';
+    storeState.conversations = [
+      { id: 'conv-1', provider_id: 'provider-1', model_id: 'model-1', system_prompt: null, mode: undefined },
+    ];
+    storeState.archivedConversations = [];
+    storeState.skills = [];
   });
 
   it('creates a new role conversation from the main use button', async () => {
@@ -279,6 +304,115 @@ describe('RolesPage', () => {
     expect(localStorage.getItem('aqbot_conv_icon_conv-1')).toBe(JSON.stringify({ type: 'emoji', value: '🌐' }));
     expect(mocks.setActiveConversation).not.toHaveBeenCalled();
     expect(mocks.setActivePage).toHaveBeenCalledWith('chat');
+  });
+
+  it('keeps Agent mode when applying a role to the active Agent conversation', async () => {
+    const user = userEvent.setup();
+    storeState.conversations[0].mode = 'agent';
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
+      system_prompt: '你是中文翻译助手',
+      temperature: 0.2,
+      top_p: 0.8,
+      mode: 'agent',
+    });
+    expect(localStorage.getItem('aqbot_conv_role_conv-1')).toBe('role-1');
+  });
+
+  it('keeps Agent mode when applying a role to an archived Agent conversation', async () => {
+    const user = userEvent.setup();
+    storeState.conversations = [];
+    storeState.archivedConversations = [
+      { id: 'conv-1', provider_id: 'provider-1', model_id: 'model-1', system_prompt: null, mode: 'agent' },
+    ];
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
+      system_prompt: '你是中文翻译助手',
+      temperature: 0.2,
+      top_p: 0.8,
+      mode: 'agent',
+    });
+  });
+
+  it('does not update the conversation when role binding storage fails', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    await waitFor(() => {
+      expect(screen.getByText('应用角色失败')).toBeInTheDocument();
+    });
+    expect(mocks.updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a role when the active conversation is missing from both lists', async () => {
+    const user = userEvent.setup();
+    storeState.conversations = [];
+    storeState.archivedConversations = [];
+    storeState.activeConversationId = 'conv-missing';
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    const applyItem = screen.getByRole('menuitem', { name: /应用到当前会话/ });
+    expect(applyItem).toHaveAttribute('aria-disabled', 'true');
+    await user.click(applyItem);
+
+    expect(mocks.updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('rolls back role metadata when updating the conversation fails', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('aqbot_conv_role_conv-1', 'old-role');
+    localStorage.setItem('aqbot_conv_icon_conv-1', JSON.stringify({ type: 'emoji', value: '🤖' }));
+    mocks.updateConversation.mockRejectedValueOnce(new Error('backend down'));
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    await waitFor(() => {
+      expect(screen.getByText('backend down')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('aqbot_conv_role_conv-1')).toBe('old-role');
+    expect(localStorage.getItem('aqbot_conv_icon_conv-1')).toBe(JSON.stringify({ type: 'emoji', value: '🤖' }));
+    expect(mocks.setActivePage).not.toHaveBeenCalled();
+  });
+
+  it('enables role skills globally when applying to an Agent conversation', async () => {
+    const user = userEvent.setup();
+    storeState.conversations[0].mode = 'agent';
+    storeState.roles = [{ ...roles[0], enabled_skill_names: ['demo-skill'] }];
+    storeState.skills = [{ name: 'demo-skill', enabled: false }];
+
+    render(<RolesPage />);
+
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    await waitFor(() => {
+      expect(mocks.toggleSkill).toHaveBeenCalledWith('demo-skill', true);
+    });
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', expect.objectContaining({
+      mode: 'agent',
+    }));
   });
 
   it('opens marketplace on first visit when no local roles exist', async () => {

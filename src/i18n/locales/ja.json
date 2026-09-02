@@ -404,7 +404,8 @@
       "title": "役割を切り替える",
       "apply": "申し込む",
       "new": "新しい",
-      "manage": "ロールの管理 →"
+      "manage": "ロールの管理 →",
+      "bindingReadFailed": "ロールの割り当てを読み取れなかったため、モードは変更されませんでした"
     },
     "skill": {
       "title": "スキル",
@@ -2331,9 +2332,11 @@
     "addOpeningQuestion": "質問を追加",
     "addTag": "タグを追加",
     "applied": "現在のチャットに適用しました",
+    "applyFailed": "ロールの適用に失敗しました",
     "applyToCurrent": "現在のチャットに適用",
     "avatar": "アバター",
     "avatarPlaceholder": "アバター（絵文字または URL）",
+    "conversationMissing": "現在の会話が存在しないため、ロールを適用できません",
     "create": "新しいロール",
     "delete": "削除",
     "deleteConfirm": "このロールを削除しますか？",

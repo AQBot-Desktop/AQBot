@@ -1,26 +1,84 @@
 import { CONV_ICON_KEY } from '@/lib/convIcon';
-import { saveRoleIntro } from '@/lib/roleIntro';
-import type { Role, UpdateConversationInput } from '@/types';
+import { ROLE_INTRO_KEY, saveRoleIntro } from '@/lib/roleIntro';
+import type { Conversation, Role, UpdateConversationInput } from '@/types';
 
 export const CONV_ROLE_ID_KEY = (conversationId: string) => `aqbot_conv_role_${conversationId}`;
 
+export class ConversationRoleStorageError extends Error {
+  constructor(message = 'Failed to access conversation role binding') {
+    super(message);
+    this.name = 'ConversationRoleStorageError';
+  }
+}
+
 export function getConversationRoleId(conversationId: string): string | null {
+  return readLocalStorageItem(CONV_ROLE_ID_KEY(conversationId));
+}
+
+function readLocalStorageItem(key: string): string | null {
   try {
-    return localStorage.getItem(CONV_ROLE_ID_KEY(conversationId));
+    return localStorage.getItem(key);
   } catch {
-    return null;
+    throw new ConversationRoleStorageError('Failed to read conversation role binding');
+  }
+}
+
+function writeLocalStorageItem(key: string, value: string | null) {
+  try {
+    if (value === null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    throw new ConversationRoleStorageError('Failed to save conversation role binding');
   }
 }
 
 export function setConversationRoleId(conversationId: string, roleId: string | null) {
+  writeLocalStorageItem(CONV_ROLE_ID_KEY(conversationId), roleId);
+}
+
+interface ConversationRoleMetadataSnapshot {
+  roleId: string | null;
+  iconRaw: string | null;
+  introRaw: string | null;
+}
+
+function captureConversationRoleMetadata(conversationId: string): ConversationRoleMetadataSnapshot {
+  return {
+    roleId: readLocalStorageItem(CONV_ROLE_ID_KEY(conversationId)),
+    iconRaw: readLocalStorageItem(CONV_ICON_KEY(conversationId)),
+    introRaw: readLocalStorageItem(ROLE_INTRO_KEY(conversationId)),
+  };
+}
+
+function restoreConversationRoleMetadata(
+  conversationId: string,
+  snapshot: ConversationRoleMetadataSnapshot,
+) {
+  writeLocalStorageItem(CONV_ROLE_ID_KEY(conversationId), snapshot.roleId);
+  writeLocalStorageItem(CONV_ICON_KEY(conversationId), snapshot.iconRaw);
+  writeLocalStorageItem(ROLE_INTRO_KEY(conversationId), snapshot.introRaw);
+}
+
+/** Write role metadata, then persist. Restore the previous snapshot if persist fails. */
+export async function applyRoleWithRollback(
+  conversationId: string,
+  role: Role,
+  persist: () => Promise<void>,
+): Promise<void> {
+  const snapshot = captureConversationRoleMetadata(conversationId);
   try {
-    if (roleId) {
-      localStorage.setItem(CONV_ROLE_ID_KEY(conversationId), roleId);
-    } else {
-      localStorage.removeItem(CONV_ROLE_ID_KEY(conversationId));
+    syncConversationRoleMetadata(conversationId, role);
+    await persist();
+  } catch (error) {
+    try {
+      restoreConversationRoleMetadata(conversationId, snapshot);
+    } catch (restoreError) {
+      console.error('[applyRole] failed to roll back conversation role metadata', restoreError);
     }
-  } catch {
-    // ignore storage failures
+    throw error;
   }
 }
 
@@ -36,6 +94,7 @@ function getRoleAvatar(role: Pick<Role, 'avatar' | 'avatar_type' | 'avatar_value
 
 /** Persist avatar icon + opening intro for a conversation after a role is applied. */
 export function syncConversationRoleMetadata(conversationId: string, role: Role) {
+  setConversationRoleId(conversationId, role.id);
   const avatar = getRoleAvatar(role);
   try {
     if (avatar.type && avatar.value) {
@@ -50,7 +109,6 @@ export function syncConversationRoleMetadata(conversationId: string, role: Role)
     // ignore
   }
   saveRoleIntro(conversationId, role);
-  setConversationRoleId(conversationId, role.id);
 }
 
 export interface BuildApplyRoleUpdateOptions {
@@ -58,6 +116,16 @@ export interface BuildApplyRoleUpdateOptions {
   applyMcp?: boolean;
   /** When true (default), the caller should enable listed skills globally. */
   applySkills?: boolean;
+  /** Current conversation mode. Agent execution is preserved so role skills can run. */
+  currentMode?: Conversation['mode'];
+}
+
+export function resolveChatModeForConversation(conversationId: string): 'chat' | 'role' {
+  return getConversationRoleId(conversationId) ? 'role' : 'chat';
+}
+
+function resolveModeWhenApplyingRole(currentMode?: Conversation['mode']): NonNullable<Conversation['mode']> {
+  return currentMode === 'agent' ? 'agent' : 'role';
 }
 
 /**
@@ -74,7 +142,7 @@ export function buildApplyRoleUpdate(
     system_prompt: role.system_prompt,
     temperature: role.temperature,
     top_p: role.top_p,
-    mode: 'role',
+    mode: resolveModeWhenApplyingRole(options.currentMode),
   };
 
   const mcpIds = role.enabled_mcp_server_ids ?? [];

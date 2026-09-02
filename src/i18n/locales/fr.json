@@ -404,7 +404,8 @@
       "title": "Changer de rôle",
       "apply": "Appliquer",
       "new": "Nouveau",
-      "manage": "Gérer les rôles →"
+      "manage": "Gérer les rôles →",
+      "bindingReadFailed": "Impossible de lire l’association de rôle, le mode n’a pas été modifié"
     },
     "skill": {
       "title": "Compétences",
@@ -2331,9 +2332,11 @@
     "addOpeningQuestion": "Ajouter une question",
     "addTag": "Ajouter une étiquette",
     "applied": "Appliqué au chat actuel",
+    "applyFailed": "Échec de l’application du rôle",
     "applyToCurrent": "Appliquer au chat actuel",
     "avatar": "Avatar",
     "avatarPlaceholder": "Avatar (emoji ou URL)",
+    "conversationMissing": "La conversation actuelle est indisponible, le rôle n’a pas été appliqué",
     "create": "Nouveau rôle",
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer ce rôle ?",

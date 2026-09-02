@@ -404,7 +404,8 @@
       "title": "역할 전환",
       "apply": "적용하다",
       "new": "새로운",
-      "manage": "역할 관리 →"
+      "manage": "역할 관리 →",
+      "bindingReadFailed": "역할 바인딩을 읽지 못해 모드를 변경하지 않았습니다"
     },
     "skill": {
       "title": "기술",
@@ -2331,9 +2332,11 @@
     "addOpeningQuestion": "질문 추가",
     "addTag": "태그 추가",
     "applied": "현재 채팅에 적용됨",
+    "applyFailed": "역할 적용에 실패했습니다",
     "applyToCurrent": "현재 채팅에 적용",
     "avatar": "아바타",
     "avatarPlaceholder": "아바타(이모지 또는 URL)",
+    "conversationMissing": "현재 대화가 없어 역할을 적용하지 않았습니다",
     "create": "새 역할",
     "delete": "삭제",
     "deleteConfirm": "이 역할을 삭제할까요?",

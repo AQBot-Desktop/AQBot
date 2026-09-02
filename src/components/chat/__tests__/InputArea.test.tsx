@@ -61,7 +61,7 @@ const conversationState = {
       title: 'Test',
       provider_id: 'provider-1',
       model_id: 'model-1',
-      mode: 'chat' as 'chat' | 'agent',
+      mode: 'chat' as 'chat' | 'agent' | 'role',
     },
   ],
   archivedConversations: [] as any[],
@@ -299,6 +299,7 @@ vi.mock('../ModelSelector', () => ({
 
 describe('InputArea', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     localStorage.clear();
     providerState.providers.splice(2);
@@ -2193,5 +2194,76 @@ describe('InputArea', () => {
     await user.click(screen.getByRole('button', { name: 'common.permissionDefault' }));
     await user.click(await screen.findByText('common.permissionFullAccess'));
     expect(await screen.findByText('agent.permissionFullAccessChatWarning')).toBeInTheDocument();
+  });
+
+  it('restores role mode when leaving Agent if a role is bound', async () => {
+    conversationState.conversations[0].mode = 'agent';
+    localStorage.setItem('aqbot_conv_role_conv-1', 'role-1');
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    window.dispatchEvent(new Event('aqbot:toggle-mode'));
+
+    await waitFor(() => {
+      expect(updateConversation).toHaveBeenCalledWith('conv-1', { mode: 'role' });
+    });
+  });
+
+  it('returns to chat mode when leaving Agent without a bound role', async () => {
+    conversationState.conversations[0].mode = 'agent';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    window.dispatchEvent(new Event('aqbot:toggle-mode'));
+
+    await waitFor(() => {
+      expect(updateConversation).toHaveBeenCalledWith('conv-1', { mode: 'chat' });
+    });
+  });
+
+  it('enters Agent from role mode via the mode shortcut', async () => {
+    conversationState.conversations[0].mode = 'role';
+    localStorage.setItem('aqbot_conv_role_conv-1', 'role-1');
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    window.dispatchEvent(new Event('aqbot:toggle-mode'));
+
+    await waitFor(() => {
+      expect(updateConversation).toHaveBeenCalledWith('conv-1', { mode: 'agent' });
+    });
+  });
+
+  it('does not leave Agent when the role binding cannot be read', async () => {
+    conversationState.conversations[0].mode = 'agent';
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => {
+      if (String(key).includes('aqbot_conv_role_')) throw new Error('denied');
+      return null;
+    });
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    window.dispatchEvent(new Event('aqbot:toggle-mode'));
+
+    await waitFor(() => {
+      expect(screen.getByText('chat.role.bindingReadFailed')).toBeInTheDocument();
+    });
+    expect(updateConversation).not.toHaveBeenCalled();
   });
 });

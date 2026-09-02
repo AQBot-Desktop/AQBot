@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { buildApplyRoleUpdate, roleSkillNames } from '../applyRole';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  CONV_ROLE_ID_KEY,
+  ConversationRoleStorageError,
+  applyRoleWithRollback,
+  buildApplyRoleUpdate,
+  getConversationRoleId,
+  resolveChatModeForConversation,
+  roleSkillNames,
+  setConversationRoleId,
+  syncConversationRoleMetadata,
+} from '../applyRole';
 import type { Role } from '@/types';
 
 function makeRole(overrides: Partial<Role> = {}): Role {
@@ -37,6 +47,20 @@ describe('buildApplyRoleUpdate', () => {
     });
   });
 
+  it('keeps agent mode so role skills can run', () => {
+    const update = buildApplyRoleUpdate(makeRole(), { currentMode: 'agent' });
+    expect(update.mode).toBe('agent');
+    expect(update.system_prompt).toBe('You are helpful');
+  });
+
+  it('promotes chat conversations to role mode', () => {
+    expect(buildApplyRoleUpdate(makeRole(), { currentMode: 'chat' }).mode).toBe('role');
+  });
+
+  it('keeps role mode when the conversation is already a role', () => {
+    expect(buildApplyRoleUpdate(makeRole(), { currentMode: 'role' }).mode).toBe('role');
+  });
+
   it('writes mcp ids only when the role list is non-empty', () => {
     const empty = buildApplyRoleUpdate(makeRole({ enabled_mcp_server_ids: [] }));
     expect(empty.enabled_mcp_server_ids).toBeUndefined();
@@ -61,5 +85,87 @@ describe('roleSkillNames', () => {
     expect(roleSkillNames(makeRole({
       enabled_skill_names: ['  a  ', '', 'b'],
     }))).toEqual(['a', 'b']);
+  });
+});
+
+describe('resolveChatModeForConversation', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('restores role mode when a role is bound', () => {
+    localStorage.setItem(CONV_ROLE_ID_KEY('conv-1'), 'role-1');
+    expect(resolveChatModeForConversation('conv-1')).toBe('role');
+  });
+
+  it('uses chat mode when no role is bound', () => {
+    expect(resolveChatModeForConversation('conv-1')).toBe('chat');
+  });
+
+  it('throws when the role binding cannot be read', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    expect(() => getConversationRoleId('conv-1')).toThrow(ConversationRoleStorageError);
+    expect(() => resolveChatModeForConversation('conv-1')).toThrow(ConversationRoleStorageError);
+  });
+
+  it('throws when the role binding cannot be saved', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    expect(() => setConversationRoleId('conv-1', 'role-1')).toThrow(ConversationRoleStorageError);
+  });
+
+  it('aborts metadata sync before writing other keys when the binding cannot be saved', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key: string) => {
+      if (String(key).includes('aqbot_conv_role_')) throw new Error('denied');
+    });
+    expect(() => syncConversationRoleMetadata('conv-1', makeRole())).toThrow(ConversationRoleStorageError);
+    expect(localStorage.getItem('aqbot_conv_icon_conv-1')).toBeNull();
+  });
+});
+
+describe('applyRoleWithRollback', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('keeps new metadata after persist succeeds', async () => {
+    await applyRoleWithRollback('conv-1', makeRole(), async () => {});
+    expect(localStorage.getItem(CONV_ROLE_ID_KEY('conv-1'))).toBe('role-1');
+  });
+
+  it('restores the previous binding when persist fails', async () => {
+    localStorage.setItem(CONV_ROLE_ID_KEY('conv-1'), 'old-role');
+    localStorage.setItem('aqbot_conv_icon_conv-1', JSON.stringify({ type: 'emoji', value: '🤖' }));
+
+    await expect(applyRoleWithRollback(
+      'conv-1',
+      makeRole({
+        id: 'role-2',
+        avatar: '🌐',
+        avatar_type: 'emoji',
+        avatar_value: '🌐',
+      }),
+      async () => {
+        throw new Error('backend down');
+      },
+    )).rejects.toThrow('backend down');
+
+    expect(localStorage.getItem(CONV_ROLE_ID_KEY('conv-1'))).toBe('old-role');
+    expect(localStorage.getItem('aqbot_conv_icon_conv-1')).toBe(JSON.stringify({ type: 'emoji', value: '🤖' }));
+  });
+
+  it('clears a newly written binding when persist fails and none existed', async () => {
+    await expect(applyRoleWithRollback('conv-1', makeRole(), async () => {
+      throw new Error('backend down');
+    })).rejects.toThrow('backend down');
+
+    expect(localStorage.getItem(CONV_ROLE_ID_KEY('conv-1'))).toBeNull();
   });
 });

@@ -404,7 +404,8 @@
       "title": "Cambiar rol",
       "apply": "Aplicar",
       "new": "Nuevo",
-      "manage": "Administrar roles →"
+      "manage": "Administrar roles →",
+      "bindingReadFailed": "No se pudo leer la vinculación del rol, así que no se cambió el modo"
     },
     "skill": {
       "title": "Habilidades",
@@ -2331,9 +2332,11 @@
     "addOpeningQuestion": "Añadir pregunta",
     "addTag": "Añadir etiqueta",
     "applied": "Aplicado al chat actual",
+    "applyFailed": "No se pudo aplicar el rol",
     "applyToCurrent": "Aplicar al chat actual",
     "avatar": "Avatar",
     "avatarPlaceholder": "Avatar (emoji o URL)",
+    "conversationMissing": "La conversación actual no está disponible, así que no se aplicó el rol",
     "create": "Nuevo rol",
     "delete": "Eliminar",
     "deleteConfirm": "¿Eliminar este rol?",

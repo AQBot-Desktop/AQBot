@@ -404,7 +404,8 @@
       "title": "切換角色",
       "apply": "應用",
       "new": "新建",
-      "manage": "管理角色 →"
+      "manage": "管理角色 →",
+      "bindingReadFailed": "讀取角色綁定失敗，無法切換模式"
     },
     "skill": {
       "title": "技能",
@@ -2343,6 +2344,8 @@
     "install": "安裝",
     "installed": "已安裝",
     "applied": "已套用到目前會話",
+    "applyFailed": "套用角色失敗",
+    "conversationMissing": "目前會話不存在，無法套用角色",
     "installSuccess": "角色已安裝",
     "installFailed": "安裝角色失敗",
     "saveSuccess": "角色已儲存",

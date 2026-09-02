@@ -41,6 +41,7 @@ import {
   type RealtimeConfig,
 } from '@/types';
 import { invoke } from '@/lib/invoke';
+import { ConversationRoleStorageError, resolveChatModeForConversation } from '@/lib/applyRole';
 import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 import { RoleSwitcherPopover } from './toolbar/RoleSwitcherPopover';
 import { SkillPickerPopover } from './toolbar/SkillPickerPopover';
@@ -1221,7 +1222,20 @@ export function InputArea() {
   const handleModeSwitch = useCallback(async (mode: 'chat' | 'agent') => {
     if (!activeConversation) return;
 
-    await updateConversation(activeConversation.id, { mode });
+    let nextMode: 'chat' | 'role' | 'agent';
+    try {
+      nextMode = mode === 'agent'
+        ? 'agent'
+        : resolveChatModeForConversation(activeConversation.id);
+    } catch (e) {
+      messageApi.error(
+        e instanceof ConversationRoleStorageError
+          ? t('chat.role.bindingReadFailed')
+          : String(e),
+      );
+      return;
+    }
+    await updateConversation(activeConversation.id, { mode: nextMode });
 
     if (mode === 'agent') {
       // Clear multi-model companion models — not applicable in agent mode
@@ -1248,7 +1262,7 @@ export function InputArea() {
         console.warn('Failed to init agent session:', e);
       }
     }
-  }, [activeConversation, updateConversation, companionModels, setMultiModelTargets]);
+  }, [activeConversation, updateConversation, companionModels, setMultiModelTargets, messageApi, t]);
 
   const handleSend = useCallback(async () => {
     if (loading || submitInFlightRef.current) return;
@@ -1641,7 +1655,7 @@ export function InputArea() {
   // Listen for mode toggle shortcut
   React.useEffect(() => {
     const onToggleMode = () => {
-      const nextMode = currentMode === 'chat' ? 'agent' : 'chat';
+      const nextMode = currentMode === 'agent' ? 'chat' : 'agent';
       handleModeSwitch(nextMode);
     };
     window.addEventListener('aqbot:toggle-mode', onToggleMode);

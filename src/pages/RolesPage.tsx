@@ -35,7 +35,7 @@ import { IconEditor } from '@/components/shared/IconEditor';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
 import { OpeningQuestionsEditor } from '@/components/roles/OpeningQuestionsEditor';
-import { buildApplyRoleUpdate, roleSkillNames, syncConversationRoleMetadata } from '@/lib/applyRole';
+import { applyRoleWithRollback, buildApplyRoleUpdate, roleSkillNames } from '@/lib/applyRole';
 import {
   normalizeOpeningQuestions,
   parseOpeningQuestionList,
@@ -258,6 +258,7 @@ export function RolesPage() {
     installRole,
   } = useRoleStore();
   const conversations = useConversationStore((s) => s.conversations);
+  const archivedConversations = useConversationStore((s) => s.archivedConversations);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const updateConversation = useConversationStore((s) => s.updateConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
@@ -283,6 +284,8 @@ export function RolesPage() {
   const [installingRef, setInstallingRef] = useState<string | null>(null);
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const tagInputRef = useRef<InputRef>(null);
+  const activeConversation = conversations.find((item) => item.id === activeConversationId)
+    ?? archivedConversations.find((item) => item.id === activeConversationId);
 
   useEffect(() => {
     void Promise.resolve(ensureRolesLoaded()).finally(() => setRolesLoaded(true));
@@ -341,13 +344,23 @@ export function RolesPage() {
   }, [ensureSkillsLoaded, toggleSkill]);
 
   const applyToCurrentConversation = useCallback(async (role: Role) => {
-    if (!activeConversationId) return;
-    await updateConversation(activeConversationId, buildApplyRoleUpdate(role));
-    await ensureRoleSkillsEnabled(role);
-    syncConversationRoleMetadata(activeConversationId, role);
-    setActivePage('chat');
-    messageApi.success(t('roles.applied'));
-  }, [activeConversationId, ensureRoleSkillsEnabled, messageApi, setActivePage, t, updateConversation]);
+    if (!activeConversation) {
+      messageApi.error(t('roles.conversationMissing'));
+      return;
+    }
+    try {
+      await applyRoleWithRollback(activeConversation.id, role, async () => {
+        await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
+          currentMode: activeConversation.mode,
+        }));
+      });
+      await ensureRoleSkillsEnabled(role);
+      setActivePage('chat');
+      messageApi.success(t('roles.applied'));
+    } catch (e) {
+      messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
+    }
+  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, setActivePage, t, updateConversation]);
 
   const createConversationWithRole = useCallback(async (role: Role) => {
     const selection = pickModel();
@@ -356,11 +369,16 @@ export function RolesPage() {
       return;
     }
     const conversation = await createConversation(role.name, selection.model.model_id, selection.provider.id);
-    await updateConversation(conversation.id, buildApplyRoleUpdate(role));
-    await ensureRoleSkillsEnabled(role);
-    syncConversationRoleMetadata(conversation.id, role);
-    setActiveConversation(conversation.id);
-    setActivePage('chat');
+    try {
+      await applyRoleWithRollback(conversation.id, role, async () => {
+        await updateConversation(conversation.id, buildApplyRoleUpdate(role));
+      });
+      await ensureRoleSkillsEnabled(role);
+      setActiveConversation(conversation.id);
+      setActivePage('chat');
+    } catch (e) {
+      messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
+    }
   }, [createConversation, ensureRoleSkillsEnabled, messageApi, pickModel, setActiveConversation, setActivePage, t, updateConversation]);
 
   const useRole = useCallback((role: Role) => {
@@ -373,13 +391,13 @@ export function RolesPage() {
         key: 'current',
         label: t('roles.applyToCurrent'),
         icon: <Wand2 size={14} />,
-        disabled: !activeConversationId,
+        disabled: !activeConversation,
       },
     ],
     onClick: () => {
       void applyToCurrentConversation(role);
     },
-  }), [activeConversationId, applyToCurrentConversation, t]);
+  }), [activeConversation, applyToCurrentConversation, t]);
 
   const openCreate = useCallback(() => {
     setEditingRole(null);

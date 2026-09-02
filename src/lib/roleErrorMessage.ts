@@ -20,6 +20,9 @@ const ROLE_VALIDATION_KEYS: Record<string, string> = {
  * Maps English validation strings from the Rust layer to i18n keys.
  */
 export function getRoleErrorMessage(error: unknown, t: TFunction): string {
+  if (error instanceof Error && error.name === 'ConversationRoleStorageError') {
+    return t('roles.applyFailed');
+  }
   const raw = getErrorMessage(error).trim();
   if (!raw) return t('roles.saveFailed');
 

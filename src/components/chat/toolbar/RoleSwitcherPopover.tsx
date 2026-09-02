@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Avatar, Button, Empty, Input, Popover, Space, Tooltip, theme } from 'antd';
+import { App, Avatar, Button, Empty, Input, Popover, Space, Tooltip, theme } from 'antd';
 import { Search, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -11,10 +11,10 @@ import {
 } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
 import {
+  applyRoleWithRollback,
   buildApplyRoleUpdate,
   getConversationRoleId,
   roleSkillNames,
-  syncConversationRoleMetadata,
 } from '@/lib/applyRole';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import type { Role } from '@/types';
@@ -63,13 +63,16 @@ function RoleListAvatar({ role }: { role: Role }) {
 export function RoleSwitcherPopover() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const { message: messageApi } = App.useApp();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [bindingEpoch, setBindingEpoch] = useState(0);
 
   const roles = useRoleStore((s) => s.roles);
   const ensureRolesLoaded = useRoleStore((s) => s.ensureRolesLoaded);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const conversations = useConversationStore((s) => s.conversations);
+  const archivedConversations = useConversationStore((s) => s.archivedConversations);
   const updateConversation = useConversationStore((s) => s.updateConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const setActiveConversation = useConversationStore((s) => s.setActiveConversation);
@@ -79,14 +82,33 @@ export function RoleSwitcherPopover() {
   const ensureSkillsLoaded = useSkillStore((s) => s.ensureSkillsLoaded);
   const toggleSkill = useSkillStore((s) => s.toggleSkill);
 
-  const activeRoleId = activeConversationId
-    ? getConversationRoleId(activeConversationId)
-    : null;
-  const isRoleMode = conversations.find((c) => c.id === activeConversationId)?.mode === 'role';
+  const activeConversation = conversations.find((c) => c.id === activeConversationId)
+    ?? archivedConversations.find((c) => c.id === activeConversationId);
+  const roleBinding = useMemo(() => {
+    if (!activeConversationId) return { roleId: null as string | null, error: null as unknown };
+    try {
+      return { roleId: getConversationRoleId(activeConversationId), error: null };
+    } catch (error) {
+      return { roleId: null, error };
+    }
+  }, [activeConversation, activeConversationId, bindingEpoch]);
+  const activeRoleId = roleBinding.roleId;
+  const isRoleApplied = Boolean(activeRoleId);
 
   useEffect(() => {
-    if (open) void ensureRolesLoaded();
+    if (!open) return;
+    void ensureRolesLoaded();
+    setBindingEpoch((n) => n + 1);
   }, [ensureRolesLoaded, open]);
+
+  useEffect(() => {
+    if (!roleBinding.error) return;
+    console.error('[RoleSwitcherPopover] failed to read conversation role binding', roleBinding.error);
+    messageApi.error({
+      key: 'chat.role.bindingReadFailed',
+      content: t('chat.role.bindingReadFailed'),
+    });
+  }, [messageApi, roleBinding.error, t]);
 
   const filteredRoles = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -131,12 +153,24 @@ export function RoleSwitcherPopover() {
   }, [ensureSkillsLoaded, toggleSkill]);
 
   const applyToCurrent = useCallback(async (role: Role) => {
-    if (!activeConversationId) return;
-    await updateConversation(activeConversationId, buildApplyRoleUpdate(role));
-    await ensureRoleSkillsEnabled(role);
-    syncConversationRoleMetadata(activeConversationId, role);
-    setOpen(false);
-  }, [activeConversationId, ensureRoleSkillsEnabled, updateConversation]);
+    if (!activeConversation) {
+      messageApi.error(t('roles.conversationMissing'));
+      return;
+    }
+    try {
+      await applyRoleWithRollback(activeConversation.id, role, async () => {
+        await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
+          currentMode: activeConversation.mode,
+        }));
+      });
+      await ensureRoleSkillsEnabled(role);
+      setBindingEpoch((n) => n + 1);
+      setOpen(false);
+    } catch (error) {
+      console.error('[RoleSwitcherPopover] failed to apply role', error);
+      messageApi.error(t('roles.applyFailed'));
+    }
+  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, t, updateConversation]);
 
   const createWithRole = useCallback(async (role: Role) => {
     const selection = pickModel();
@@ -146,16 +180,24 @@ export function RoleSwitcherPopover() {
       selection.model.model_id,
       selection.provider.id,
     );
-    await updateConversation(conversation.id, buildApplyRoleUpdate(role));
-    await ensureRoleSkillsEnabled(role);
-    syncConversationRoleMetadata(conversation.id, role);
-    setActiveConversation(conversation.id);
-    setOpen(false);
+    try {
+      await applyRoleWithRollback(conversation.id, role, async () => {
+        await updateConversation(conversation.id, buildApplyRoleUpdate(role));
+      });
+      await ensureRoleSkillsEnabled(role);
+      setActiveConversation(conversation.id);
+      setOpen(false);
+    } catch (error) {
+      console.error('[RoleSwitcherPopover] failed to apply role to new conversation', error);
+      messageApi.error(t('roles.applyFailed'));
+    }
   }, [
     createConversation,
     ensureRoleSkillsEnabled,
+    messageApi,
     pickModel,
     setActiveConversation,
+    t,
     updateConversation,
   ]);
 
@@ -179,10 +221,11 @@ export function RoleSwitcherPopover() {
           />
         ) : (
           filteredRoles.map((role) => {
-            const active = isRoleMode && activeRoleId === role.id;
+            const active = isRoleApplied && activeRoleId === role.id;
             return (
               <div
                 key={role.id}
+                data-active={active ? 'true' : 'false'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -208,7 +251,7 @@ export function RoleSwitcherPopover() {
                   <Button
                     type="text"
                     size="small"
-                    disabled={!activeConversationId}
+                    disabled={!activeConversation}
                     onClick={() => void applyToCurrent(role)}
                     title={t('roles.applyToCurrent')}
                   >
@@ -259,7 +302,7 @@ export function RoleSwitcherPopover() {
           size="small"
           aria-label={t('chat.role.title')}
           icon={<UserRound size={14} />}
-          style={isRoleMode && activeRoleId ? { color: token.colorPrimary } : undefined}
+          style={isRoleApplied ? { color: token.colorPrimary } : undefined}
         />
       </Tooltip>
     </Popover>

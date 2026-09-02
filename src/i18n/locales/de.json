@@ -404,7 +404,8 @@
       "title": "Rolle wechseln",
       "apply": "Bewerben",
       "new": "Neu",
-      "manage": "Rollen verwalten →"
+      "manage": "Rollen verwalten →",
+      "bindingReadFailed": "Die Rollenbindung konnte nicht gelesen werden, der Modus wurde nicht geändert"
     },
     "skill": {
       "title": "Fähigkeiten",
@@ -2331,9 +2332,11 @@
     "addOpeningQuestion": "Frage hinzufügen",
     "addTag": "Tag hinzufügen",
     "applied": "Auf aktuellen Chat angewendet",
+    "applyFailed": "Rolle konnte nicht angewendet werden",
     "applyToCurrent": "Auf aktuellen Chat anwenden",
     "avatar": "Avatar",
     "avatarPlaceholder": "Avatar (Emoji oder URL)",
+    "conversationMissing": "Die aktuelle Unterhaltung ist nicht verfügbar, die Rolle wurde nicht angewendet",
     "create": "Neue Rolle",
     "delete": "Löschen",
     "deleteConfirm": "Diese Rolle löschen?",

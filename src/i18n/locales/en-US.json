@@ -421,7 +421,8 @@
       "title": "Switch role",
       "apply": "Apply",
       "new": "New",
-      "manage": "Manage roles →"
+      "manage": "Manage roles →",
+      "bindingReadFailed": "Could not read the role binding, so the mode was not changed"
     },
     "skill": {
       "title": "Skills",
@@ -2160,6 +2161,8 @@
     "install": "Install",
     "installed": "Installed",
     "applied": "Applied to current chat",
+    "applyFailed": "Failed to apply role",
+    "conversationMissing": "The current conversation is unavailable, so the role was not applied",
     "installSuccess": "Role installed",
     "searchPlaceholder": "Search roles",
     "empty": "No roles",
