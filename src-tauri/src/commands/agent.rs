@@ -6,8 +6,9 @@ use aqbot_agent::security::check_path_safety;
 use aqbot_core::inline_media::{InlineDataStreamCapture, InlineDataStreamFilter};
 use aqbot_core::repo::{agent_session, conversation, message, provider, tool_execution};
 use aqbot_core::types::{
-    AgentSession, AppSettings, Attachment, AttachmentInput, MessageRole, ProviderProxyConfig,
-    ProviderType,
+    resolve_agent_allowed_tools, should_inject_skills_summary, AgentSession, AppSettings,
+    Attachment, AttachmentInput, MessageRole, ProviderProxyConfig, ProviderType,
+    AGENT_HIDDEN_SDK_TOOLS,
 };
 use aqbot_providers::{resolve_base_url_for_type, ProviderAdapter, ProviderRequestContext};
 use open_agent_sdk::{
@@ -28,7 +29,6 @@ static RUNNING_AGENTS: LazyLock<Mutex<HashMap<String, String>>> =
 
 const DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT: &str = "YYYY-MM-DD-HH-mm-ss";
 const MAX_AGENT_WORKSPACE_NAME_LEN: usize = 80;
-const AGENT_HIDDEN_SDK_TOOLS: &[&str] = &["ListMcpResources", "ReadMcpResource"];
 
 /// RAII guard that removes a conversation ID from RUNNING_AGENTS on drop.
 /// Ensures cleanup even if the spawned task panics.
@@ -778,8 +778,15 @@ pub async fn agent_query(
         &enabled_mcp_server_ids,
     )
     .await?;
+    let mcp_aliases: Vec<String> = mcp_tools
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect();
     let mcp_display_names = Arc::new(mcp_display_names);
     let is_first_message = pre_conv.message_count <= 1;
+    let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .map_err(|e| format!("Failed to load application settings: {e}"))?;
     let attachment_inputs = attachments.unwrap_or_default();
     let persisted_attachments =
         super::conversations::persist_attachments(&state, &conversation_id, &attachment_inputs)
@@ -874,9 +881,6 @@ pub async fn agent_query(
     let model_param_overrides = resolved_model.and_then(|model| model.param_overrides);
 
     // 6. Build ProviderRequestContext
-    let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
-        .await
-        .unwrap_or_default();
     let file_store = aqbot_core::file_store::FileStore::new();
     let agent_prompt = build_agent_prompt_with_attachments(
         &file_store,
@@ -1092,13 +1096,18 @@ pub async fn agent_query(
         registry.register(skill);
     }
     registry.set_disabled(disabled);
-    let skills_summary = {
+    let skills_summary = if should_inject_skills_summary(
+        global_settings.agent_allowed_tools_enabled,
+        &global_settings.agent_allowed_tools,
+    ) {
         let summary = registry.generate_context_summary();
         if summary.is_empty() {
             None
         } else {
             Some(summary)
         }
+    } else {
+        None
     };
     let skill_registry = Arc::new(tokio::sync::RwLock::new(registry));
     let skill_tool: Arc<dyn open_agent_sdk::types::Tool> = Arc::new(
@@ -1165,6 +1174,11 @@ pub async fn agent_query(
         ask_fn: Some(ask_fn),
         can_use_tool: Some(can_use_tool),
         custom_tools,
+        allowed_tools: resolve_agent_allowed_tools(
+            global_settings.agent_allowed_tools_enabled,
+            &global_settings.agent_allowed_tools,
+            &mcp_aliases,
+        ),
         disallowed_tools: Some(
             AGENT_HIDDEN_SDK_TOOLS
                 .iter()

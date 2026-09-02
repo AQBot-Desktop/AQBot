@@ -33,6 +33,7 @@ import {
   normalizeMultiModelSequentialInterval,
 } from '@/lib/multiModelExecution';
 import { normalizeMultiModelSideBySideWidthMode } from '@/lib/multiModelColumnLayout';
+import { AgentAllowedToolsSettings } from './AgentAllowedToolsSettings';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
 
@@ -647,6 +648,7 @@ export function ConversationSettings() {
         <div style={{ fontSize: 12, color: token.colorTextDescription, marginTop: 2 }}>
           {t('settings.agentBashPathDesc')}
         </div>
+        <AgentAllowedToolsSettings rowStyle={rowStyle} />
         <Divider style={{ margin: '4px 0' }} />
         <div className="flex items-center justify-between" style={rowStyle}>
           <span>{t('settings.agentWorkspaceNameStrategy')}</span>

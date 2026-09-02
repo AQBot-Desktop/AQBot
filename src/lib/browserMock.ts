@@ -4,6 +4,8 @@
  * Provides CRUD operations for providers, conversations, apps, settings, and gateway.
  */
 
+import { defaultAgentAllowedTools } from '@/lib/agentAllowedTools';
+
 function genId(): string {
   return crypto.randomUUID();
 }
@@ -637,6 +639,8 @@ const DEFAULT_SETTINGS = {
   agent_workspace_root: null,
   agent_workspace_name_strategy: 'uuid',
   agent_workspace_datetime_format: 'YYYY-MM-DD-HH-mm-ss',
+  agent_allowed_tools_enabled: false,
+  agent_allowed_tools: defaultAgentAllowedTools(),
   s3_bucket: null,
   s3_region: 'us-east-1',
   s3_endpoint: null,

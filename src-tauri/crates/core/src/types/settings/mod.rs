@@ -777,6 +777,11 @@ pub struct AppSettings {
     pub agent_workspace_datetime_format: Option<String>,
     /// Agent bash/sh executable path. None uses PATH auto-detection.
     pub agent_bash_path: Option<String>,
+    /// When false, the conversation Agent keeps the historical full tool registry.
+    pub agent_allowed_tools_enabled: bool,
+    /// Selected built-in tools and Skill. Ignored while the whitelist is off.
+    #[serde(default = "super::default_agent_allowed_tools")]
+    pub agent_allowed_tools: Vec<String>,
     /// Cross-application text-selection toolbar.
     pub selection_toolbar: SelectionToolbarSettings,
     /// Title bar action icon visibility. Missing keys default to visible.
@@ -932,6 +937,8 @@ impl Default for AppSettings {
             agent_workspace_name_strategy: "uuid".to_string(),
             agent_workspace_datetime_format: Some("YYYY-MM-DD-HH-mm-ss".to_string()),
             agent_bash_path: None,
+            agent_allowed_tools_enabled: false,
+            agent_allowed_tools: super::default_agent_allowed_tools(),
             selection_toolbar: SelectionToolbarSettings::default(),
             titlebar_icon_visibility: std::collections::HashMap::new(),
         }

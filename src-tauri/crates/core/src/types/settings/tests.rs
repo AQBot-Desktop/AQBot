@@ -2,11 +2,10 @@ use super::{
     is_valid_selection_toolbar_icon, is_valid_selection_toolbar_search_url,
     render_selection_toolbar_search_url, AppSettings, ContextStrategy,
     ModelCatalogSourcePreference, MultiModelExecutionMode, MultiModelSideBySideWidthMode,
-    SelectionToolbarAiConfig,
-    SelectionToolbarAppEntry, SelectionToolbarAppFilterMode, SelectionToolbarBuiltinAiKey,
-    SelectionToolbarDisplayMode, SelectionToolbarPlacement, SelectionToolbarSettings,
-    SelectionToolbarTool,
-    SelectionToolbarTriggerMode, SettingsSidebarDensity, TrayIconStyle, DEFAULT_EXPLAIN_PROMPT,
+    SelectionToolbarAiConfig, SelectionToolbarAppEntry, SelectionToolbarAppFilterMode,
+    SelectionToolbarBuiltinAiKey, SelectionToolbarDisplayMode, SelectionToolbarPlacement,
+    SelectionToolbarSettings, SelectionToolbarTool, SelectionToolbarTriggerMode,
+    SettingsSidebarDensity, TrayIconStyle, DEFAULT_EXPLAIN_PROMPT,
     DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
     DEFAULT_SELECTION_TOOLBAR_SHORTCUT, DEFAULT_TRANSLATE_PROMPT,
 };
@@ -646,8 +645,14 @@ fn multi_model_execution_mode_roundtrips_snake_case() {
     settings.multi_model_sequential_interval_seconds = 0;
 
     let serialized = serde_json::to_value(&settings).expect("settings should serialize");
-    assert_eq!(serialized["multi_model_execution_mode"], json!("sequential"));
-    assert_eq!(serialized["multi_model_sequential_interval_seconds"], json!(0));
+    assert_eq!(
+        serialized["multi_model_execution_mode"],
+        json!("sequential")
+    );
+    assert_eq!(
+        serialized["multi_model_sequential_interval_seconds"],
+        json!(0)
+    );
 
     let restored: AppSettings =
         serde_json::from_value(serialized).expect("settings should roundtrip");
@@ -931,4 +936,62 @@ fn agent_workspace_settings_default_and_roundtrip() {
         serde_json::from_value(json!({})).expect("settings should default missing fields");
     assert_eq!(settings.agent_workspace_root, None);
     assert_eq!(settings.agent_workspace_name_strategy, "uuid");
+}
+
+#[test]
+fn agent_allowed_tools_default_to_disabled_full_catalog() {
+    let settings = AppSettings::default();
+    assert!(!settings.agent_allowed_tools_enabled);
+    assert_eq!(
+        settings.agent_allowed_tools,
+        crate::types::default_agent_allowed_tools()
+    );
+
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert!(!settings.agent_allowed_tools_enabled);
+    assert_eq!(
+        settings.agent_allowed_tools,
+        crate::types::default_agent_allowed_tools()
+    );
+}
+
+#[test]
+fn agent_allowed_tools_roundtrip_empty_partial_and_toggle() {
+    let empty: AppSettings = serde_json::from_value(json!({
+        "agent_allowed_tools_enabled": true,
+        "agent_allowed_tools": []
+    }))
+    .expect("empty allowlist should deserialize");
+    assert!(empty.agent_allowed_tools_enabled);
+    assert!(empty.agent_allowed_tools.is_empty());
+
+    let value = serde_json::to_value(&empty).expect("empty allowlist should serialize");
+    let roundtrip: AppSettings =
+        serde_json::from_value(value).expect("empty allowlist should roundtrip");
+    assert!(roundtrip.agent_allowed_tools_enabled);
+    assert!(roundtrip.agent_allowed_tools.is_empty());
+
+    let partial: AppSettings = serde_json::from_value(json!({
+        "agent_allowed_tools_enabled": true,
+        "agent_allowed_tools": ["Read", "Glob", "Grep", "StaleTool"]
+    }))
+    .expect("partial allowlist should deserialize");
+    assert_eq!(
+        partial.agent_allowed_tools,
+        vec![
+            "Read".to_string(),
+            "Glob".to_string(),
+            "Grep".to_string(),
+            "StaleTool".to_string()
+        ]
+    );
+
+    let disabled: AppSettings = serde_json::from_value(json!({
+        "agent_allowed_tools_enabled": false,
+        "agent_allowed_tools": ["Bash"]
+    }))
+    .expect("disabled allowlist should keep the saved selection");
+    assert!(!disabled.agent_allowed_tools_enabled);
+    assert_eq!(disabled.agent_allowed_tools, vec!["Bash".to_string()]);
 }

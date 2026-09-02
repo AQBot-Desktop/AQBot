@@ -940,6 +940,10 @@ export interface AppSettings {
   agent_workspace_datetime_format?: string | null;
   /** Agent bash/sh executable path. Null uses PATH auto-detection. */
   agent_bash_path?: string | null;
+  /** When false, the conversation Agent keeps the historical full tool registry. */
+  agent_allowed_tools_enabled?: boolean;
+  /** Selected built-in tools and Skill. Ignored while the whitelist is off. */
+  agent_allowed_tools?: string[];
   /** Cross-application text-selection toolbar. */
   selection_toolbar: SelectionToolbarSettings;
   /**

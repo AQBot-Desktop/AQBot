@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { defaultAgentAllowedTools } from '@/lib/agentAllowedTools';
 import { invoke } from '@/lib/invoke';
 import {
   DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT,
@@ -144,6 +145,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   agent_workspace_name_strategy: DEFAULT_AGENT_WORKSPACE_NAME_STRATEGY,
   agent_workspace_datetime_format: DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT,
   agent_bash_path: null,
+  agent_allowed_tools_enabled: false,
+  agent_allowed_tools: defaultAgentAllowedTools(),
   selection_toolbar: createDefaultSelectionToolbarSettings(),
   titlebar_icon_visibility: {},
   // WebDAV sync settings — must be present so stale saves never omit them

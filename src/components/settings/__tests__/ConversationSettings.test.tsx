@@ -12,7 +12,7 @@ let settings: Partial<AppSettings> = {};
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => {
+    t: (key: string, options?: string | { name?: string; value?: string; count?: number; total?: number }) => {
       const labels: Record<string, string> = {
         'settings.additionalFeatures': '附加功能',
         'settings.chatFontFamily': '对话字体',
@@ -108,8 +108,31 @@ vi.mock('react-i18next', () => ({
         'settings.multiModelExecutionModeSequential': '顺序',
         'settings.multiModelSequentialInterval': '模型间隔（秒）',
         'settings.multiModelSequentialIntervalDesc': '从上一个模型回答结束或中断后开始计时。0 表示结束后立即开始下一个。',
+        'settings.agentAllowedToolsDesc': '限制对话 Agent 可使用的内置工具与 Skill。',
+        'settings.agentAllowedToolsEnable': '启用工具白名单',
+        'settings.agentAllowedToolsEnableDesc': '开启后仅勾选工具对模型可见。',
+        'settings.agentAllowedToolsConfigure': '详细设定',
+        'settings.agentAllowedToolsModalTitle': '内置工具',
+        'settings.agentAllowedToolsSelectAll': '全选',
+        'settings.agentAllowedToolsClear': '清空',
+        'settings.agentAllowedToolsMcpNote': '会话 MCP 仍由对话中的 MCP 选择器管理。',
+        'settings.agentAllowedToolsPermissionNote': '完全访问不能恢复未勾选的工具。',
+        'settings.agentAllowedToolsEmptyHint': '未勾选任何内置工具时变为纯对话。',
+        'settings.agentAllowedToolsGroupFile': '文件',
+        'settings.agentAllowedToolsGroupExec': '执行与开发',
+        'settings.agentAllowedToolsGroupWeb': '网络',
+        'settings.agentAllowedToolsGroupInteractive': '交互与技能',
+        'settings.agentAllowedToolsGroupTask': '任务',
+        'settings.agentAllowedToolsGroupCollab': '协作与计划',
+        'settings.agentAllowedToolsGroupAutomation': '自动化与配置',
       };
-      return labels[key] ?? fallback ?? key;
+      if (key === 'settings.agentAllowedToolToggle' && typeof options === 'object') {
+        return `允许 ${options?.name ?? ''}`;
+      }
+      if (key === 'settings.agentAllowedToolsSelectedCount' && typeof options === 'object') {
+        return `已选 ${options?.count ?? 0}/${options?.total ?? 0}`;
+      }
+      return labels[key] ?? (typeof options === 'string' ? options : undefined) ?? key;
     },
   }),
 }));
@@ -154,16 +177,24 @@ vi.mock('antd', () => {
     Input,
     Switch: ({
       checked,
+      disabled,
       onChange,
+      'aria-label': ariaLabel,
     }: {
       checked?: boolean;
+      disabled?: boolean;
       onChange?: (checked: boolean) => void;
+      'aria-label'?: string;
     }) => (
       <button
         aria-checked={checked}
+        aria-label={ariaLabel}
+        disabled={disabled}
         role="switch"
         type="button"
-        onClick={() => onChange?.(!checked)}
+        onClick={() => {
+          if (!disabled) onChange?.(!checked);
+        }}
       />
     ),
     ColorPicker: ({
@@ -211,6 +242,21 @@ vi.mock('antd', () => {
         value={value ?? ''}
         onChange={(event) => onChange?.(event.target.value === '' ? null : Number(event.target.value))}
       />
+    ),
+    Modal: ({
+      open,
+      title,
+      children,
+    }: {
+      open?: boolean;
+      title?: React.ReactNode;
+      children?: React.ReactNode;
+    }) => (
+      open ? (
+        <div aria-label={typeof title === 'string' ? title : undefined} role="dialog">
+          {children}
+        </div>
+      ) : null
     ),
     Card: ({ children }: { children?: React.ReactNode }) => <section>{children}</section>,
     Button: ({

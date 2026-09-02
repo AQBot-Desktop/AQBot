@@ -1,3 +1,4 @@
+mod agent_allowed_tools;
 mod backup;
 mod backup_inputs;
 mod chat;
@@ -25,6 +26,7 @@ mod voice;
 mod workspace;
 mod workspace_inputs;
 
+pub use agent_allowed_tools::*;
 pub use backup::*;
 pub use backup_inputs::*;
 pub use chat::*;
