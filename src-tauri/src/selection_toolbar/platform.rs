@@ -1,5 +1,7 @@
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-use tokio::sync::mpsc::UnboundedSender;
+use aqbot_core::types::SelectionToolbarSettings;
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use super::{PermissionState, RuntimeError, ScreenPoint, SelectionObservation};
 
@@ -98,6 +100,7 @@ pub use linux::{open_permission_settings, permission_state, request_permission, 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn start_monitor(
     _sender: UnboundedSender<PlatformEvent>,
+    _settings: watch::Receiver<SelectionToolbarSettings>,
 ) -> Result<PlatformMonitorHandle, PlatformStartError> {
     Err(PlatformStartError {
         permission: PermissionState::Unknown,

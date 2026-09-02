@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -46,14 +46,20 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, NSString};
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender},
-    oneshot,
+    oneshot, watch,
 };
+
+use aqbot_core::types::SelectionToolbarSettings;
 
 use super::{DismissReason, PlatformEvent, PlatformMonitorHandle, PlatformStartError};
 use crate::selection_toolbar::{
     is_actionable_selection_text, PermissionSettingsOutcome, PermissionState, RuntimeError,
     ScreenPoint, ScreenRect, SelectionAnchorKind, SelectionObservation,
 };
+
+#[path = "macos_clipboard_policy.rs"]
+mod clipboard_policy;
+use clipboard_policy::{run_clipboard_fallback_policy, GesturePoint, SelectionGestureTracker};
 
 const MAX_SELECTION_ANCESTORS: usize = 16;
 /// Chromium/WebKit publish the AX selection asynchronously after mouse-up — often
@@ -127,16 +133,23 @@ struct LogicalPoint {
     y: f64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SelectionProbeRequest {
+    point: LogicalPoint,
+    attempt: usize,
+    source_pid: Option<i32>,
+    clipboard_fallback_eligible: bool,
+}
+
 #[derive(Debug)]
 enum MacSignal {
     ApplicationActivated(WorkspaceApplication),
     ApplicationDismissed(i32),
-    SelectionProbeRequested(LogicalPoint),
-    SelectionProbeReady {
+    SelectionProbeRequested {
         point: LogicalPoint,
-        attempt: usize,
-        source_pid: Option<i32>,
+        clipboard_fallback_eligible: bool,
     },
+    SelectionProbeReady(SelectionProbeRequest),
 }
 
 #[derive(Debug, Default)]
@@ -180,6 +193,7 @@ impl MonitorLifecycle {
 
 pub fn start_monitor(
     sender: UnboundedSender<PlatformEvent>,
+    settings: watch::Receiver<SelectionToolbarSettings>,
 ) -> Result<PlatformMonitorHandle, PlatformStartError> {
     if !is_process_trusted() {
         return Err(PlatformStartError {
@@ -216,6 +230,7 @@ pub fn start_monitor(
                         stop_rx,
                         ready_tx,
                         ax_overlay,
+                        settings,
                     ));
                     Ok(())
                 });
@@ -285,6 +300,7 @@ fn start_global_dismiss_listener(
             let event_sender = sender;
             let event_tap_ref = Arc::new(AtomicUsize::new(0));
             let callback_event_tap_ref = Arc::clone(&event_tap_ref);
+            let callback_gesture = Arc::new(Mutex::new(SelectionGestureTracker::default()));
             let event_tap = match CGEventTap::new(
                 CGEventTapLocation::Session,
                 CGEventTapPlacement::HeadInsertEventTap,
@@ -293,11 +309,13 @@ fn start_global_dismiss_listener(
                     CGEventType::KeyDown,
                     CGEventType::LeftMouseDown,
                     CGEventType::LeftMouseUp,
+                    CGEventType::LeftMouseDragged,
                     CGEventType::RightMouseDown,
                     CGEventType::OtherMouseDown,
                 ],
                 move |_, event_type, event| {
                     if let Some(reason) = event_tap_disable_reason(event_type) {
+                        reset_selection_gesture(&callback_gesture);
                         let tap_ref = callback_event_tap_ref.load(Ordering::Acquire);
                         if tap_ref == 0 {
                             tracing::error!(
@@ -320,24 +338,38 @@ fn start_global_dismiss_listener(
                     // While a screenshot/launcher overlay is frontmost, its
                     // clicks and Esc belong to the overlay — not to us.
                     if overlay_active.load(Ordering::Relaxed) {
+                        reset_selection_gesture(&callback_gesture);
                         return CallbackResult::Keep;
                     }
                     if matches!(event_type, CGEventType::KeyDown)
                         && event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) == 53
                     {
                         let _ = event_sender.send(PlatformEvent::Dismiss(DismissReason::Escape));
+                    } else if matches!(event_type, CGEventType::LeftMouseDragged) {
+                        let _ = update_selection_gesture(&callback_gesture, event_type, event);
                     } else if matches!(event_type, CGEventType::LeftMouseUp) {
                         let location = event.location();
-                        let _ = mac_sender.send(MacSignal::SelectionProbeRequested(LogicalPoint {
-                            x: location.x,
-                            y: location.y,
-                        }));
+                        let clipboard_fallback_eligible =
+                            update_selection_gesture(&callback_gesture, event_type, event)
+                                .unwrap_or(false);
+                        let _ = mac_sender.send(MacSignal::SelectionProbeRequested {
+                            point: LogicalPoint {
+                                x: location.x,
+                                y: location.y,
+                            },
+                            clipboard_fallback_eligible,
+                        });
+                    } else if matches!(event_type, CGEventType::LeftMouseDown) {
+                        let _ = update_selection_gesture(&callback_gesture, event_type, event);
+                        let location = event.location();
+                        let _ = event_sender.send(PlatformEvent::GlobalPointerDown(
+                            screen_point_from_cg(location),
+                        ));
                     } else if matches!(
                         event_type,
-                        CGEventType::LeftMouseDown
-                            | CGEventType::RightMouseDown
-                            | CGEventType::OtherMouseDown
+                        CGEventType::RightMouseDown | CGEventType::OtherMouseDown
                     ) {
+                        let _ = update_selection_gesture(&callback_gesture, event_type, event);
                         let location = event.location();
                         let _ = event_sender.send(PlatformEvent::GlobalPointerDown(
                             screen_point_from_cg(location),
@@ -389,6 +421,44 @@ fn event_tap_disable_reason(event_type: CGEventType) -> Option<&'static str> {
     match event_type {
         CGEventType::TapDisabledByTimeout => Some("timeout"),
         CGEventType::TapDisabledByUserInput => Some("user_input"),
+        _ => None,
+    }
+}
+
+fn reset_selection_gesture(tracker: &Mutex<SelectionGestureTracker>) {
+    if let Ok(mut tracker) = tracker.lock() {
+        tracker.reset();
+    }
+}
+
+fn update_selection_gesture(
+    tracker: &Mutex<SelectionGestureTracker>,
+    event_type: CGEventType,
+    event: &CGEvent,
+) -> Option<bool> {
+    let Ok(mut tracker) = tracker.lock() else {
+        return Some(false);
+    };
+    let control_click = event.get_flags().contains(CGEventFlags::CGEventFlagControl);
+    let event_number = event.get_integer_value_field(EventField::MOUSE_EVENT_NUMBER);
+    let click_state = event.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE);
+    let point = GesturePoint::new(event.location().x, event.location().y);
+    match event_type {
+        CGEventType::LeftMouseDown => {
+            tracker.on_left_mouse_down(event_number, point, control_click);
+            None
+        }
+        CGEventType::LeftMouseDragged => {
+            tracker.on_left_mouse_dragged(point);
+            None
+        }
+        CGEventType::LeftMouseUp => {
+            Some(tracker.on_left_mouse_up(event_number, click_state, control_click))
+        }
+        CGEventType::RightMouseDown | CGEventType::OtherMouseDown => {
+            tracker.on_other_mouse_down();
+            None
+        }
         _ => None,
     }
 }
@@ -561,6 +631,7 @@ async fn run_monitor(
     mut stop_rx: oneshot::Receiver<()>,
     ready: mpsc::SyncSender<Result<(), PlatformStartError>>,
     overlay_active: Arc<AtomicBool>,
+    settings_rx: watch::Receiver<SelectionToolbarSettings>,
 ) {
     let system = match SystemWideElement::new() {
         Some(system) => system,
@@ -607,6 +678,7 @@ async fn run_monitor(
                     &mac_sender,
                     &mut lifecycle,
                     &mut active,
+                    &settings_rx,
                 );
             }
             event = wait_notification(active.as_ref().and_then(|value| value.subscriptions.focused_element.as_ref())) => {
@@ -655,6 +727,7 @@ async fn run_monitor(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_mac_signal(
     signal: MacSignal,
     system: &SystemWideElement,
@@ -663,6 +736,7 @@ fn handle_mac_signal(
     mac_sender: &UnboundedSender<MacSignal>,
     lifecycle: &mut MonitorLifecycle,
     active: &mut Option<ActiveApplication>,
+    settings_rx: &watch::Receiver<SelectionToolbarSettings>,
 ) {
     match signal {
         MacSignal::ApplicationActivated(application) => {
@@ -691,54 +765,60 @@ fn handle_mac_signal(
                 let _ = sender.send(PlatformEvent::Dismiss(DismissReason::AppChanged));
             }
         }
-        MacSignal::SelectionProbeRequested(point) => {
+        MacSignal::SelectionProbeRequested {
+            point,
+            clipboard_fallback_eligible,
+        } => {
             let source_pid = active.as_ref().map(|active| active.info.pid);
             tracing::debug!(
                 pid = source_pid,
                 point_x = point.x,
                 point_y = point.y,
+                clipboard_fallback_eligible,
                 "Scheduling macOS mouse selection probe"
             );
-            schedule_selection_probe(mac_sender, point, 0, source_pid);
-        }
-        MacSignal::SelectionProbeReady {
-            point,
-            attempt,
-            source_pid,
-        } => {
-            let active_pid = active.as_ref().map(|active| active.info.pid);
-            if !probe_source_matches_active_app(source_pid, active_pid) {
-                tracing::debug!(
+            schedule_selection_probe(
+                mac_sender,
+                SelectionProbeRequest {
+                    point,
+                    attempt: 0,
                     source_pid,
+                    clipboard_fallback_eligible,
+                },
+            );
+        }
+        MacSignal::SelectionProbeReady(request) => {
+            let active_pid = active.as_ref().map(|active| active.info.pid);
+            if !probe_source_matches_active_app(request.source_pid, active_pid) {
+                tracing::debug!(
+                    source_pid = request.source_pid,
                     active_pid,
                     "Ignoring stale macOS selection probe after application switch"
                 );
                 return;
             }
             probe_selection(
-                system, active, lifecycle, own_pid, point, attempt, source_pid, sender, mac_sender,
+                system,
+                active,
+                lifecycle,
+                own_pid,
+                request,
+                sender,
+                mac_sender,
+                settings_rx,
             );
         }
     }
 }
 
-fn schedule_selection_probe(
-    sender: &UnboundedSender<MacSignal>,
-    point: LogicalPoint,
-    attempt: usize,
-    source_pid: Option<i32>,
-) {
-    let Some(delay_ms) = SELECTION_PROBE_DELAYS_MS.get(attempt).copied() else {
+fn schedule_selection_probe(sender: &UnboundedSender<MacSignal>, request: SelectionProbeRequest) {
+    let Some(delay_ms) = SELECTION_PROBE_DELAYS_MS.get(request.attempt).copied() else {
         return;
     };
     let delayed_sender = sender.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        let _ = delayed_sender.send(MacSignal::SelectionProbeReady {
-            point,
-            attempt,
-            source_pid,
-        });
+        let _ = delayed_sender.send(MacSignal::SelectionProbeReady(request));
     });
 }
 
@@ -953,13 +1033,12 @@ fn probe_selection(
     active: &mut Option<ActiveApplication>,
     lifecycle: &mut MonitorLifecycle,
     own_pid: i32,
-    point: LogicalPoint,
-    attempt: usize,
-    source_pid: Option<i32>,
+    request: SelectionProbeRequest,
     sender: &UnboundedSender<PlatformEvent>,
     mac_sender: &UnboundedSender<MacSignal>,
+    settings_rx: &watch::Receiver<SelectionToolbarSettings>,
 ) {
-    match system.element_at_position(point.x as f32, point.y as f32) {
+    match system.element_at_position(request.point.x as f32, request.point.y as f32) {
         Ok(Some(element)) => {
             let hit_pid = element.pid().ok();
             match selection_probe_action(
@@ -1022,8 +1101,8 @@ fn probe_selection(
                 .ok()
                 .flatten();
             let pointer = ScreenPoint {
-                x: point.x,
-                y: point.y,
+                x: request.point.x,
+                y: request.point.y,
             };
             let found = emit_selection_from_candidates_with_pointer(
                 active,
@@ -1038,25 +1117,31 @@ fn probe_selection(
             if found {
                 return;
             }
-            let try_clipboard = probe_source_allows_clipboard(source_pid, active.info.pid)
-                && should_try_macos_clipboard_fallback(attempt, &active.info.source_app);
-            if try_clipboard && try_clipboard_selection_fallback(active, pointer, sender) {
+            if try_gated_clipboard_fallback(active, pointer, sender, &request, settings_rx) {
                 return;
             }
-            if is_last_probe_attempt(attempt) {
+            if is_last_probe_attempt(request.attempt) {
                 tracing::debug!(
                     pid = active.info.pid,
-                    clipboard_attempted = try_clipboard,
+                    clipboard_fallback_eligible = request.clipboard_fallback_eligible,
                     "macOS selection probe exhausted the allowed fallbacks"
                 );
                 let _ = sender.send(PlatformEvent::Clear);
             } else {
                 tracing::debug!(
                     pid = active.info.pid,
-                    attempt,
+                    attempt = request.attempt,
                     "macOS selection probe found no selection yet; retrying"
                 );
-                schedule_selection_probe(mac_sender, point, attempt + 1, Some(active.info.pid));
+                schedule_selection_probe(
+                    mac_sender,
+                    SelectionProbeRequest {
+                        point: request.point,
+                        attempt: request.attempt + 1,
+                        source_pid: Some(active.info.pid),
+                        clipboard_fallback_eligible: request.clipboard_fallback_eligible,
+                    },
+                );
             }
         }
         Ok(None) => {
@@ -1064,53 +1149,72 @@ fn probe_selection(
             // path remains restricted to a known weak-AX source on its first attempt.
             tracing::debug!(
                 pid = active.as_ref().map(|value| value.info.pid),
-                attempt,
+                attempt = request.attempt,
                 "macOS selection probe hit-test returned no element"
             );
-            finish_probe_without_hit(active, point, attempt, source_pid, sender, mac_sender);
+            finish_probe_without_hit(active, request, sender, mac_sender, settings_rx);
         }
         Err(error) => {
             tracing::debug!(
                 pid = active.as_ref().map(|value| value.info.pid),
-                attempt,
+                attempt = request.attempt,
                 %error,
                 "Could not hit-test the macOS selection endpoint"
             );
-            finish_probe_without_hit(active, point, attempt, source_pid, sender, mac_sender);
+            finish_probe_without_hit(active, request, sender, mac_sender, settings_rx);
         }
     }
 }
 
 fn finish_probe_without_hit(
     active: &Option<ActiveApplication>,
-    point: LogicalPoint,
-    attempt: usize,
-    source_pid: Option<i32>,
+    request: SelectionProbeRequest,
     sender: &UnboundedSender<PlatformEvent>,
     mac_sender: &UnboundedSender<MacSignal>,
+    settings_rx: &watch::Receiver<SelectionToolbarSettings>,
 ) {
     let pointer = ScreenPoint {
-        x: point.x,
-        y: point.y,
+        x: request.point.x,
+        y: request.point.y,
     };
     if let Some(active) = active.as_ref() {
-        let escalate_clipboard = probe_source_allows_clipboard(source_pid, active.info.pid)
-            && should_try_macos_clipboard_fallback(attempt, &active.info.source_app);
-        if escalate_clipboard && try_clipboard_selection_fallback(active, pointer, sender) {
+        if try_gated_clipboard_fallback(active, pointer, sender, &request, settings_rx) {
             return;
         }
     }
-    if is_last_probe_attempt(attempt) {
+    if is_last_probe_attempt(request.attempt) {
         // Do not Clear: empty hit-tests often mean chrome/toolbar clicks, not
         // a real deselect. AX notifications still clear real deselections.
         return;
     }
     schedule_selection_probe(
         mac_sender,
-        point,
-        attempt + 1,
-        active.as_ref().map(|active| active.info.pid),
+        SelectionProbeRequest {
+            point: request.point,
+            attempt: request.attempt + 1,
+            source_pid: active.as_ref().map(|active| active.info.pid),
+            clipboard_fallback_eligible: request.clipboard_fallback_eligible,
+        },
     );
+}
+
+fn try_gated_clipboard_fallback(
+    active: &ActiveApplication,
+    pointer: ScreenPoint,
+    sender: &UnboundedSender<PlatformEvent>,
+    request: &SelectionProbeRequest,
+    settings_rx: &watch::Receiver<SelectionToolbarSettings>,
+) -> bool {
+    let settings = settings_rx.borrow().clone();
+    run_clipboard_fallback_policy(
+        request.attempt,
+        &active.info.source_app,
+        request.source_pid,
+        active.info.pid,
+        request.clipboard_fallback_eligible,
+        &settings,
+        || try_clipboard_selection_fallback(active, pointer, sender),
+    )
 }
 
 fn is_weak_ax_source_app(source_app: &str) -> bool {
@@ -2327,7 +2431,15 @@ mod macos_tests {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let point = super::LogicalPoint { x: 320.0, y: 180.0 };
 
-        super::schedule_selection_probe(&sender, point, 0, None);
+        super::schedule_selection_probe(
+            &sender,
+            super::SelectionProbeRequest {
+                point,
+                attempt: 0,
+                source_pid: None,
+                clipboard_fallback_eligible: true,
+            },
+        );
 
         let signal = tokio::time::timeout(
             Duration::from_millis(super::SELECTION_PROBE_DELAYS_MS[0] + 100),
@@ -2337,15 +2449,44 @@ mod macos_tests {
         .expect("selection probe should settle")
         .expect("selection probe channel should stay open");
         match signal {
-            super::MacSignal::SelectionProbeReady {
-                point: actual,
-                attempt,
-                source_pid,
-            } => {
-                assert_eq!(actual.x, point.x);
-                assert_eq!(actual.y, point.y);
-                assert_eq!(attempt, 0);
-                assert_eq!(source_pid, None);
+            super::MacSignal::SelectionProbeReady(request) => {
+                assert_eq!(request.point.x, point.x);
+                assert_eq!(request.point.y, point.y);
+                assert_eq!(request.attempt, 0);
+                assert_eq!(request.source_pid, None);
+                assert!(request.clipboard_fallback_eligible);
+            }
+            other => panic!("unexpected macOS signal: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_retries_preserve_clipboard_fallback_eligibility() {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let point = super::LogicalPoint { x: 10.0, y: 20.0 };
+
+        super::schedule_selection_probe(
+            &sender,
+            super::SelectionProbeRequest {
+                point,
+                attempt: 1,
+                source_pid: Some(42),
+                clipboard_fallback_eligible: true,
+            },
+        );
+
+        let signal = tokio::time::timeout(
+            Duration::from_millis(super::SELECTION_PROBE_DELAYS_MS[1] + 100),
+            receiver.recv(),
+        )
+        .await
+        .expect("selection probe retry should settle")
+        .expect("selection probe channel should stay open");
+        match signal {
+            super::MacSignal::SelectionProbeReady(request) => {
+                assert_eq!(request.attempt, 1);
+                assert_eq!(request.source_pid, Some(42));
+                assert!(request.clipboard_fallback_eligible);
             }
             other => panic!("unexpected macOS signal: {other:?}"),
         }
@@ -2362,9 +2503,12 @@ mod macos_tests {
 
         super::schedule_selection_probe(
             &sender,
-            point,
-            super::SELECTION_PROBE_DELAYS_MS.len(),
-            None,
+            super::SelectionProbeRequest {
+                point,
+                attempt: super::SELECTION_PROBE_DELAYS_MS.len(),
+                source_pid: None,
+                clipboard_fallback_eligible: true,
+            },
         );
         drop(sender);
         assert!(receiver.recv().await.is_none());

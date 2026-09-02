@@ -1,5 +1,6 @@
 use std::thread;
 
+use aqbot_core::types::SelectionToolbarSettings;
 use atspi::{
     events::{
         focus::FocusEvent,
@@ -12,7 +13,7 @@ use atspi::{
     ObjectRefOwned, WindowEvents,
 };
 use futures::StreamExt;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{mpsc::UnboundedSender, oneshot, watch};
 
 use super::{DismissReason, PlatformEvent, PlatformMonitorHandle, PlatformStartError};
 use crate::selection_toolbar::{
@@ -22,6 +23,7 @@ use crate::selection_toolbar::{
 
 pub fn start_monitor(
     sender: UnboundedSender<PlatformEvent>,
+    _settings: watch::Receiver<SelectionToolbarSettings>,
 ) -> Result<PlatformMonitorHandle, PlatformStartError> {
     let (stop_sender, stop_receiver) = oneshot::channel();
     let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(1);

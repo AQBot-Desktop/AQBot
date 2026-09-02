@@ -6,11 +6,11 @@ use std::time::Instant;
 
 use aqbot_core::types::{
     AppSettings, SelectionToolbarBuiltinActionKey, SelectionToolbarBuiltinAiKey,
-    SelectionToolbarDisplayMode, SelectionToolbarPlacement, SelectionToolbarTool,
-    SelectionToolbarTriggerMode,
+    SelectionToolbarDisplayMode, SelectionToolbarPlacement, SelectionToolbarSettings,
+    SelectionToolbarTool, SelectionToolbarTriggerMode,
 };
 use tauri::{AppHandle, Emitter, Manager, Theme};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 use super::{
     compact_toolbar_width, normalize_permission_status,
@@ -60,6 +60,9 @@ pub struct SelectionToolbarRuntime {
     frontend_ready: AtomicBool,
     /// Session emitted before the frontend was ready.
     pending_session: Mutex<Option<SessionView>>,
+    /// Latest validated toolbar settings, consumed by the platform monitor
+    /// before any clipboard fallback side effects.
+    settings_tx: watch::Sender<SelectionToolbarSettings>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +104,7 @@ fn live_reanchor_allowed(surface: SurfaceSize, interaction_locked: bool, dragged
 
 impl SelectionToolbarRuntime {
     pub fn new() -> Self {
+        let (settings_tx, _) = watch::channel(SelectionToolbarSettings::default());
         Self {
             store: Mutex::new(RuntimeStore::new(SelectionPlatform::current())),
             monitor: Mutex::new(None),
@@ -121,6 +125,7 @@ impl SelectionToolbarRuntime {
             pending_selection: Mutex::new(None),
             frontend_ready: AtomicBool::new(false),
             pending_session: Mutex::new(None),
+            settings_tx,
         }
     }
 
@@ -138,6 +143,8 @@ impl SelectionToolbarRuntime {
             self.set_error("invalid_settings", message).await;
             return;
         }
+        self.settings_tx
+            .send_replace(settings.selection_toolbar.clone());
         if !settings.selection_toolbar.enabled {
             self.stop(app).await;
             return;
@@ -165,7 +172,7 @@ impl SelectionToolbarRuntime {
         }
 
         let sender = self.ensure_event_loop(app).await;
-        match platform::start_monitor(sender) {
+        match platform::start_monitor(sender, self.settings_tx.subscribe()) {
             Ok(handle) => {
                 *self.monitor.lock().await = Some(handle);
                 self.set_runtime_state(RuntimeState::Running, platform::permission_state(), None)

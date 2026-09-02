@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use tokio::sync::mpsc::UnboundedSender;
+use aqbot_core::types::SelectionToolbarSettings;
+use tokio::sync::{mpsc::UnboundedSender, watch};
 use uiautomation::{
     events::{
         CustomEventHandlerFn, CustomFocusChangedEventHandlerFn, UIEventHandler, UIEventType,
@@ -65,6 +66,7 @@ thread_local! {
 
 pub fn start_monitor(
     sender: UnboundedSender<PlatformEvent>,
+    _settings: watch::Receiver<SelectionToolbarSettings>,
 ) -> Result<PlatformMonitorHandle, PlatformStartError> {
     let (stop_sender, stop_receiver) = std::sync::mpsc::channel();
     let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(1);
