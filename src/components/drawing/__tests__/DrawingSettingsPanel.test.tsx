@@ -378,9 +378,13 @@ describe('DrawingSettingsPanel', () => {
       />,
     );
 
-    expect(
-      screen.getByText('gpt-image-2 是已退役的预览模型。兼容代理仍可继续请求。'),
-    ).toBeDefined();
+    const body = screen.getByText('gpt-image-2 是已退役的预览模型。兼容代理仍可继续请求。');
+    const alert = body.closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.querySelector('.ant-alert-icon')).toBeNull();
+    expect(alert?.querySelector('.ant-alert-title')).toBeNull();
+    expect(alert?.querySelector('.ant-alert-message')).toBeNull();
+    expect(body).toHaveStyle({ fontSize: '13px' });
     expect(screen.getByText(/截止日期：2026-01-15/)).toBeDefined();
     expect(screen.getByText(/建议模型：gemini-3.1-flash-image/)).toBeDefined();
     expect(screen.getByText('模型')).toBeDefined();

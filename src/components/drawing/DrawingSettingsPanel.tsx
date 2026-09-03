@@ -273,20 +273,39 @@ export function DrawingSettingsPanel({
             )}
           />
         )}
-        {blockWarnings.map((warning) => (
-          <Alert
-            key={warning.code}
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            title={getDrawingWarningTitle(
-              warning,
-              selectedTarget?.model_id ?? settings.modelId,
-              translateWarning,
-            )}
-            description={getDrawingWarningDescription(warning, translateWarning)}
-          />
-        ))}
+        {blockWarnings.map((warning) => {
+          const body = getDrawingWarningTitle(
+            warning,
+            selectedTarget?.model_id ?? settings.modelId,
+            translateWarning,
+          );
+          const meta = getDrawingWarningDescription(warning, translateWarning);
+          return (
+            <Alert
+              key={warning.code}
+              type="warning"
+              style={{ marginBottom: 12, padding: 12, borderRadius: 8 }}
+              description={(
+                <div>
+                  <div
+                    className="w-full break-words [overflow-wrap:anywhere]"
+                    style={{ fontSize: 13, lineHeight: '20px' }}
+                  >
+                    {body}
+                  </div>
+                  {meta && (
+                    <div
+                      className="w-full break-words [overflow-wrap:anywhere]"
+                      style={{ fontSize: 13, lineHeight: '20px', marginTop: 4 }}
+                    >
+                      {meta}
+                    </div>
+                  )}
+                </div>
+              )}
+            />
+          );
+        })}
         {visibleBasicFields.map(renderField)}
         <DrawingDynamicParameters
           parameters={dynamicFields}
