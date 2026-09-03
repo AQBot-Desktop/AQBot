@@ -1767,6 +1767,24 @@
       "uninstall": "Uninstall",
       "uninstallConfirm": "Uninstall the on-device retrieval engine files? You will need to download them again for local retrieval.",
       "installedShort": "Installed, ready for on-device retrieval."
+    },
+    "customTrayIcon": {
+      "title": "Custom tray icon",
+      "hint": "Static PNG, JPEG or WebP, up to 5 MiB and 4096 pixels per side",
+      "preview": "Tray icon preview",
+      "choose": "Choose image",
+      "apply": "Apply",
+      "reset": "Restore default",
+      "originalColors": "Custom images keep their original colors; restore the default to use built-in styles",
+      "deferred": "Saved; applies when the system tray is enabled",
+      "applied": "Tray icon applied",
+      "sizeError": "Choose a non-empty image no larger than 5 MiB",
+      "invalid": "Invalid image; choose a static PNG, JPEG or WebP up to 4096 pixels per side",
+      "failed": "Tray icon operation failed; check the logs, then apply again or restore the default",
+      "loadFailed": "The configured tray icon could not be loaded; upload it again or restore the default",
+      "cleanupFailed": "Icon saved, but the old image could not be cleaned up; check the logs",
+      "notificationFailed": "Icon saved, but window synchronization failed; reopen settings",
+      "inUse": "This image is the current tray icon; replace it or restore the default first"
     }
   },
   "backup": {

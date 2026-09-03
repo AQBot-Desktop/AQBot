@@ -1767,6 +1767,24 @@
       "uninstall": "Desinstalar",
       "uninstallConfirm": "¿Desinstalar los archivos del motor de búsqueda local? Tendrás que volver a descargarlos para la búsqueda local.",
       "installedShort": "Instalado, listo para la búsqueda local."
+    },
+    "customTrayIcon": {
+      "title": "Icono de bandeja personalizado",
+      "hint": "PNG, JPEG o WebP estático, hasta 5 MiB y 4096 píxeles por lado",
+      "preview": "Vista previa del icono de bandeja",
+      "choose": "Elegir imagen",
+      "apply": "Aplicar",
+      "reset": "Restaurar predeterminado",
+      "originalColors": "Las imágenes personalizadas conservan sus colores; restaure el icono predeterminado para usar los estilos integrados",
+      "deferred": "Guardado; se aplicará al activar la bandeja del sistema",
+      "applied": "Icono de bandeja aplicado",
+      "sizeError": "Elija una imagen no vacía de hasta 5 MiB",
+      "invalid": "Imagen no válida; elija un PNG, JPEG o WebP estático de hasta 4096 píxeles por lado",
+      "failed": "La operación falló; revise los registros y vuelva a aplicar o restaure el icono predeterminado",
+      "loadFailed": "No se pudo cargar el icono configurado; vuelva a cargarlo o restaure el predeterminado",
+      "cleanupFailed": "Icono guardado, pero no se pudo eliminar la imagen anterior; revise los registros",
+      "notificationFailed": "Icono guardado, pero falló la sincronización de ventanas; vuelva a abrir los ajustes",
+      "inUse": "Esta imagen es el icono de bandeja actual; reemplácela o restaure primero el predeterminado"
     }
   },
   "backup": {

@@ -54,6 +54,7 @@ pub async fn save_settings(
             aqbot_core::types::MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
         ));
     }
+    let mut tray_runtime = crate::tray_icon::runtime().lock().await;
     let observed_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .map_err(|e| e.to_string())?;
@@ -90,11 +91,7 @@ pub async fn save_settings(
 
     let app_state = app.state::<AppState>();
     let mut warnings = Vec::new();
-    let tray_available = match crate::tray::reconcile_tray(
-        &app,
-        &settings,
-        Some(observed_settings.tray_icon_style),
-    ) {
+    let tray_available = match crate::tray_icon::reconcile_locked(&app, &settings, &mut tray_runtime).await {
         Ok(()) => settings.tray_enabled && crate::tray::tray_exists(&app),
         Err(error) => {
             tracing::warn!(error = %error, "Failed to reconcile system tray after settings save");

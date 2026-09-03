@@ -6,6 +6,7 @@ import { LANG_OPTIONS } from '@/lib/constants';
 import type { ModelCatalogSourcePreference, TrayIconStyle } from '@/types';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsSelect } from './SettingsSelect';
+import { TrayIconSettings } from './TrayIconSettings';
 
 function isMacOSPlatform() {
   if (typeof navigator === 'undefined') return false;
@@ -168,7 +169,7 @@ export function GeneralSettings() {
               </div>
               <SettingsSelect
                 value={settings.tray_icon_style ?? 'color'}
-                disabled={!(settings.tray_enabled ?? true)}
+                disabled={!(settings.tray_enabled ?? true) || Boolean(settings.tray_icon_file_id)}
                 onChange={(style) => {
                   void persistSettings({ tray_icon_style: style as TrayIconStyle });
                 }}
@@ -181,6 +182,8 @@ export function GeneralSettings() {
             </div>
           </>
         )}
+        <Divider style={{ margin: '4px 0' }} />
+        <TrayIconSettings monochrome={showTrayIconStyle && settings.tray_icon_style === 'monochrome'} />
         <Divider style={{ margin: '4px 0' }} />
         <div style={rowStyle} className="flex items-center justify-between">
           <span>{t('settings.minimizeToTray')}</span>

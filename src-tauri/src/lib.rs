@@ -75,6 +75,8 @@ mod paths;
 mod selection_toolbar;
 mod startup_diagnostics;
 mod tray;
+mod tray_icon;
+mod tray_icon_image;
 mod window_lifecycle;
 mod window_state;
 
@@ -332,6 +334,9 @@ pub fn run() {
         // settings
         commands::settings::get_settings,
         commands::settings::save_settings,
+        commands::tray_icon::set_custom_tray_icon,
+        commands::tray_icon::reset_tray_icon,
+        commands::tray_icon::get_tray_icon_status,
         commands::settings::get_multi_model_column_layout,
         commands::settings::set_multi_model_side_by_side_width_mode,
         commands::settings::set_multi_model_column_width,
@@ -1123,10 +1128,11 @@ pub fn run() {
 
             // Reconcile system tray once at startup using the persisted appearance.
             let handle = app.handle();
-            let tray_available = match tray::reconcile_tray(handle, &app_settings, None) {
+            let tray_available = match rt.block_on(tray_icon::reconcile(handle, &app_settings)) {
                 Ok(()) => app_settings.tray_enabled && tray::tray_exists(handle),
                 Err(error) => {
                     tracing::warn!("Failed to reconcile system tray at startup: {}", error);
+                    window_lifecycle::restore_main_window(handle);
                     tray::tray_exists(handle)
                 }
             };

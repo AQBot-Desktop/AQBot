@@ -692,6 +692,8 @@ pub struct AppSettings {
     pub tray_enabled: bool,
     /// macOS menu-bar icon appearance. Other platforms always use the color icon.
     pub tray_icon_style: TrayIconStyle,
+    /// Managed image used by the system tray; None keeps the built-in style.
+    pub tray_icon_file_id: Option<String>,
     pub global_shortcuts_enabled: bool,
     pub shortcut_registration_logs_enabled: bool,
     pub shortcut_trigger_toast_enabled: bool,
@@ -878,6 +880,7 @@ impl Default for AppSettings {
             always_on_top: false,
             tray_enabled: true,
             tray_icon_style: TrayIconStyle::Color,
+            tray_icon_file_id: None,
             global_shortcuts_enabled: true,
             shortcut_registration_logs_enabled: false,
             shortcut_trigger_toast_enabled: false,

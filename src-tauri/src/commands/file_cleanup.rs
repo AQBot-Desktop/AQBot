@@ -19,6 +19,9 @@ pub async fn delete_attachment_reference_locked(
 ) -> Result<(), String> {
     let txn = db.begin().await.map_err(|e| e.to_string())?;
     let operation = async {
+        if aqbot_core::repo::tray_icon::file_id(&txn).await?.as_deref() == Some(record_id) {
+            return Err(aqbot_core::error::AQBotError::Validation("tray_icon_in_use".into()));
+        }
         aqbot_core::entity::stored_files::Entity::find_by_id(record_id)
             .one(&txn)
             .await?
@@ -93,6 +96,11 @@ async fn force_delete_stored_file_record_locked(
                 "Stored file {record_id} is still referenced by an ACP message"
             )));
         }
+        if aqbot_core::repo::tray_icon::file_id(&txn).await?.as_deref() == Some(record_id) {
+            return Err(aqbot_core::error::AQBotError::Validation(
+                "tray_icon_in_use".to_string(),
+            ));
+        }
         let file = aqbot_core::entity::stored_files::Entity::find_by_id(record_id)
             .one(&txn)
             .await?
@@ -146,6 +154,25 @@ mod tests {
     use super::*;
     use sea_orm::ActiveModelTrait;
     use sea_orm::Set;
+
+    #[tokio::test]
+    async fn tray_icon_is_protected_from_normal_and_missing_file_deletion() {
+        let db = aqbot_core::db::create_test_pool().await.unwrap().conn;
+        let root = tempfile::tempdir().unwrap();
+        let store = aqbot_core::file_store::FileStore::with_root(root.path().into());
+        let saved = store.save_file(b"icon", "tray.png", "image/png").unwrap();
+        {
+            let _guard = aqbot_core::repo::stored_file::lock_file_references().await;
+            aqbot_core::repo::tray_icon::commit_change(&db, Some(aqbot_core::repo::tray_icon::NewIcon {
+                id: "tray", saved: &saved, name: "tray.png",
+            }), || Ok(())).await.unwrap();
+        }
+        assert!(delete_attachment_reference(&db, &store, "tray").await.unwrap_err().contains("tray_icon_in_use"));
+        store.delete_file(&saved.storage_path).unwrap();
+        assert!(force_delete_stored_file_record(&db, &store, "tray").await.unwrap_err().contains("tray_icon_in_use"));
+        assert_eq!(aqbot_core::repo::tray_icon::file_id(&db).await.unwrap().as_deref(), Some("tray"));
+        assert!(aqbot_core::repo::stored_file::get_stored_file(&db, "tray").await.is_ok());
+    }
 
     #[tokio::test]
     async fn refuses_to_delete_a_file_that_is_still_referenced_by_chat() {

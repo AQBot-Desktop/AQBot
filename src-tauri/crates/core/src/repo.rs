@@ -28,6 +28,7 @@ pub mod search_provider;
 pub mod settings;
 pub mod skill;
 pub mod stored_file;
+pub mod tray_icon;
 pub mod tool_execution;
 pub mod agent_session;
 pub mod acp;

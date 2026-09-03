@@ -1767,6 +1767,24 @@
       "uninstall": "Deinstallieren",
       "uninstallConfirm": "Die Dateien der lokalen Suchmaschine deinstallieren? Für die lokale Suche müssen sie erneut heruntergeladen werden.",
       "installedShort": "Installiert, bereit für die lokale Suche."
+    },
+    "customTrayIcon": {
+      "title": "Eigenes Taskleistensymbol im Infobereich",
+      "hint": "Statisches PNG, JPEG oder WebP, bis zu 5 MiB und 4096 Pixel je Seite",
+      "preview": "Vorschau des Infobereichsymbols",
+      "choose": "Bild auswählen",
+      "apply": "Übernehmen",
+      "reset": "Standard wiederherstellen",
+      "originalColors": "Eigene Bilder behalten ihre Farben; integrierte Stile sind nach dem Wiederherstellen des Standards verfügbar",
+      "deferred": "Gespeichert; wird beim Aktivieren des Infobereichsymbols angewendet",
+      "applied": "Infobereichsymbol übernommen",
+      "sizeError": "Wählen Sie ein nicht leeres Bild mit höchstens 5 MiB",
+      "invalid": "Ungültiges Bild; wählen Sie ein statisches PNG, JPEG oder WebP mit höchstens 4096 Pixeln je Seite",
+      "failed": "Änderung fehlgeschlagen; prüfen Sie die Protokolle und versuchen Sie es erneut oder stellen Sie den Standard wieder her",
+      "loadFailed": "Das konfigurierte Symbol konnte nicht geladen werden; laden Sie es erneut hoch oder stellen Sie den Standard wieder her",
+      "cleanupFailed": "Symbol gespeichert, aber das alte Bild konnte nicht entfernt werden; prüfen Sie die Protokolle",
+      "notificationFailed": "Symbol gespeichert, aber die Fenstersynchronisierung ist fehlgeschlagen; öffnen Sie die Einstellungen erneut",
+      "inUse": "Dieses Bild wird als Infobereichsymbol verwendet; ersetzen Sie es zuerst oder stellen Sie den Standard wieder her"
     }
   },
   "backup": {

@@ -860,6 +860,7 @@ export interface AppSettings {
   tray_enabled?: boolean;
   /** macOS menu-bar icon appearance. Ignored on Windows and Linux. */
   tray_icon_style: TrayIconStyle;
+  tray_icon_file_id: string | null;
   global_shortcuts_enabled?: boolean;
   shortcut_registration_logs_enabled?: boolean;
   shortcut_trigger_toast_enabled?: boolean;

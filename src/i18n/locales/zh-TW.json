@@ -1767,6 +1767,24 @@
       "uninstall": "解除安裝",
       "uninstallConfirm": "確定解除安裝本機檢索引擎檔案？解除後需要重新下載才能使用本機檢索。",
       "installedShort": "已安裝，可用於本機檢索。"
+    },
+    "customTrayIcon": {
+      "title": "自訂系統匣圖示",
+      "hint": "支援靜態 PNG、JPEG、WebP，最大 5 MiB，寬高各不超過 4096 像素",
+      "preview": "系統匣圖示預覽",
+      "choose": "選擇圖片",
+      "apply": "套用",
+      "reset": "還原預設",
+      "originalColors": "自訂圖片依原色顯示，還原預設後可使用內建樣式",
+      "deferred": "已儲存，將在開啟系統匣後生效",
+      "applied": "系統匣圖示已套用",
+      "sizeError": "請選擇非空且不超過 5 MiB 的圖片",
+      "invalid": "圖片無效，請選擇寬高不超過 4096 像素的靜態 PNG、JPEG 或 WebP",
+      "failed": "系統匣圖示操作失敗，請檢查記錄後重新套用或還原預設",
+      "loadFailed": "無法載入已設定的系統匣圖示，請重新上傳或還原預設",
+      "cleanupFailed": "圖示已儲存，但舊圖片清理失敗，請查看記錄",
+      "notificationFailed": "圖示已儲存，但視窗同步失敗，請重新開啟設定",
+      "inUse": "此圖片正用作系統匣圖示，請先替換圖示或還原預設"
     }
   },
   "backup": {

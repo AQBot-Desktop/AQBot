@@ -587,6 +587,7 @@ const DEFAULT_SETTINGS = {
   minimize_to_tray: true,
   tray_enabled: true,
   tray_icon_style: 'color',
+  tray_icon_file_id: null,
   release_webview_on_tray: false,
   multi_model_execution_mode: 'parallel',
   multi_model_sequential_interval_seconds: 3,

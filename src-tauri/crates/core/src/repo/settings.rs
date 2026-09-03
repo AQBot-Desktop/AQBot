@@ -44,6 +44,8 @@ pub async fn save_settings(db: &DatabaseConnection, settings: &AppSettings) -> R
     };
     map.remove(super::multi_model_column_layout::MAIN_WIDTH_MODE_KEY);
     map.remove(super::multi_model_column_layout::POPOUT_WIDTH_MODE_KEY);
+    // Only the transactional tray-image command may change this reference.
+    map.remove(super::tray_icon::FILE_ID_KEY);
 
     db.transaction::<_, _, sea_orm::DbErr>(|txn| {
         Box::pin(async move {

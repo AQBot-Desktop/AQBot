@@ -1767,6 +1767,24 @@
       "uninstall": "Désinstaller",
       "uninstallConfirm": "Désinstaller les fichiers du moteur de recherche local ? Il faudra les retélécharger pour la recherche locale.",
       "installedShort": "Installé, prêt pour la recherche locale."
+    },
+    "customTrayIcon": {
+      "title": "Icône personnalisée de la zone de notification",
+      "hint": "PNG, JPEG ou WebP statique, jusqu’à 5 MiB et 4096 pixels par côté",
+      "preview": "Aperçu de l’icône de notification",
+      "choose": "Choisir une image",
+      "apply": "Appliquer",
+      "reset": "Rétablir l’icône par défaut",
+      "originalColors": "Les images personnalisées conservent leurs couleurs ; rétablissez l’icône par défaut pour utiliser les styles intégrés",
+      "deferred": "Enregistré ; sera appliqué à l’activation de la zone de notification",
+      "applied": "Icône de notification appliquée",
+      "sizeError": "Choisissez une image non vide de 5 MiB maximum",
+      "invalid": "Image invalide ; choisissez un PNG, JPEG ou WebP statique de 4096 pixels maximum par côté",
+      "failed": "Échec de l’opération ; consultez les journaux, puis réessayez ou rétablissez l’icône par défaut",
+      "loadFailed": "Impossible de charger l’icône configurée ; importez-la à nouveau ou rétablissez l’icône par défaut",
+      "cleanupFailed": "Icône enregistrée, mais l’ancienne image n’a pas pu être supprimée ; consultez les journaux",
+      "notificationFailed": "Icône enregistrée, mais la synchronisation des fenêtres a échoué ; rouvrez les paramètres",
+      "inUse": "Cette image sert d’icône de notification ; remplacez-la ou rétablissez d’abord l’icône par défaut"
     }
   },
   "backup": {

@@ -46,7 +46,7 @@ export function FilesContent({ activeCategory }: FilesContentProps) {
       message.success(t('files.batchDeleteSuccess', { count: selectedRowKeys.length }));
       void loadCategory(activeCategory);
     } catch (e) {
-      message.error(String(e));
+      message.error(String(e).includes('tray_icon_in_use') ? t('settings.customTrayIcon.inUse') : String(e));
     }
   }, [selectedRowKeys, activeCategory, loadCategory, cleanupMissingEntry, message, t]);
 
@@ -57,7 +57,7 @@ export function FilesContent({ activeCategory }: FilesContentProps) {
       message.success(t('files.deleteSuccess'));
       void loadCategory(activeCategory);
     } catch (e) {
-      message.error(String(e));
+      message.error(String(e).includes('tray_icon_in_use') ? t('settings.customTrayIcon.inUse') : String(e));
     }
   }, [activeCategory, loadCategory, cleanupMissingEntry, message, t]);
 
@@ -71,7 +71,7 @@ export function FilesContent({ activeCategory }: FilesContentProps) {
         <Alert
           data-testid="files-error-alert"
           type="error"
-          message={error}
+          message={error.includes('tray_icon_in_use') ? t('settings.customTrayIcon.inUse') : error}
           closable
           onClose={clearError}
         />

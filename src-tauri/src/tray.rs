@@ -15,9 +15,10 @@ const TITLE_MAX_CHARS: usize = 40;
 const COLOR_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
 const MONOCHROME_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-monochrome.png");
 
-struct TrayIconAppearance {
-    image: Image<'static>,
-    is_template: bool,
+#[derive(Clone)]
+pub(crate) struct TrayIconAppearance {
+    pub(crate) image: Image<'static>,
+    pub(crate) is_template: bool,
 }
 
 fn resolved_tray_icon_style(requested: TrayIconStyle) -> TrayIconStyle {
@@ -32,7 +33,7 @@ fn resolved_tray_icon_style(requested: TrayIconStyle) -> TrayIconStyle {
     }
 }
 
-fn tray_icon_appearance(
+pub(crate) fn tray_icon_appearance(
     requested: TrayIconStyle,
 ) -> Result<TrayIconAppearance, Box<dyn std::error::Error>> {
     let resolved = resolved_tray_icon_style(requested);
@@ -441,9 +442,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-fn create_tray(app: &AppHandle, settings: &AppSettings) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn create_tray(
+    app: &AppHandle, settings: &AppSettings, appearance: TrayIconAppearance,
+) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu(app, &settings.language, &[], false)?;
-    let appearance = tray_icon_appearance(settings.tray_icon_style)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(appearance.image)
@@ -481,39 +483,14 @@ fn create_tray(app: &AppHandle, settings: &AppSettings) -> Result<(), Box<dyn st
     Ok(())
 }
 
-fn update_tray_icon(
+pub(crate) fn apply_tray_appearance(
     app: &AppHandle,
-    style: TrayIconStyle,
-    rollback_style: TrayIconStyle,
+    appearance: &TrayIconAppearance,
 ) -> Result<(), String> {
-    let appearance = tray_icon_appearance(style).map_err(|error| error.to_string())?;
-    let is_template = appearance.is_template;
-    let tray = app
-        .tray_by_id(TRAY_ID)
+    let tray = app.tray_by_id(TRAY_ID)
         .ok_or_else(|| "system tray does not exist".to_string())?;
-
-    tray.set_icon(Some(appearance.image))
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = tray.set_icon_as_template(is_template) {
-        if is_template {
-            let rollback_result = tray_icon_appearance(rollback_style)
-                .map_err(|rollback_error| rollback_error.to_string())
-                .and_then(|rollback| {
-                    tray.set_icon(Some(rollback.image))
-                        .map_err(|rollback_error| rollback_error.to_string())?;
-                    tray.set_icon_as_template(rollback.is_template)
-                        .map_err(|rollback_error| rollback_error.to_string())
-                });
-            if let Err(rollback_error) = rollback_result {
-                tracing::error!(
-                    error = %rollback_error,
-                    "Failed to restore color tray icon after template update failure"
-                );
-            }
-        }
-        return Err(error.to_string());
-    }
-    Ok(())
+    tray.set_icon(Some(appearance.image.clone())).map_err(|error| error.to_string())?;
+    tray.set_icon_as_template(appearance.is_template).map_err(|error| error.to_string())
 }
 
 /// Load settings + recent conversations and rebuild the tray menu.
@@ -578,35 +555,6 @@ pub fn destroy_tray(app: &AppHandle) {
 
 pub fn tray_exists(app: &AppHandle) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
-}
-
-/// Reconcile tray visibility and appearance from startup or an explicit settings save.
-/// Passing the previous style avoids rewriting an unchanged native icon.
-pub fn reconcile_tray(
-    app: &AppHandle,
-    settings: &AppSettings,
-    previous_icon_style: Option<TrayIconStyle>,
-) -> Result<(), String> {
-    if settings.tray_enabled {
-        if !tray_exists(app) {
-            create_tray(app, settings).map_err(|e| e.to_string())?;
-        } else {
-            if let Some(previous) =
-                previous_icon_style.filter(|previous| *previous != settings.tray_icon_style)
-            {
-                update_tray_icon(app, settings.tray_icon_style, previous)?;
-            }
-            request_tray_menu_sync(app);
-        }
-        Ok(())
-    } else {
-        if tray_exists(app) {
-            destroy_tray(app);
-            crate::window_lifecycle::restore_main_window(app);
-            crate::window_lifecycle::set_app_dock_visibility(app, true);
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

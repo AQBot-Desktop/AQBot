@@ -108,6 +108,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   always_on_top: false,
   tray_enabled: true,
   tray_icon_style: 'color',
+  tray_icon_file_id: null,
   global_shortcuts_enabled: true,
   shortcut_registration_logs_enabled: false,
   shortcut_trigger_toast_enabled: false,
@@ -217,6 +218,7 @@ export interface GlobalShortcutStatus {
 }
 
 interface SettingsState {
+  trayIconRevision: number;
   settings: AppSettings;
   loading: boolean;
   /** Set once after the first successful fetchSettings; guards saveSettings from writing stale data. */
@@ -232,6 +234,7 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
+  trayIconRevision: -1,
   settings: DEFAULT_SETTINGS,
   loading: true,
   _loaded: false,
@@ -354,6 +357,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const merged = {
       ...previous,
       ...partial,
+      tray_icon_file_id: previous.tray_icon_file_id,
       chat_input_actions_scale: normalizeChatInputActionsScale(
         partial.chat_input_actions_scale ?? previous.chat_input_actions_scale,
       ),
@@ -372,6 +376,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const {
         multi_model_side_by_side_width_mode: _mainWidthMode,
         multi_model_popout_side_by_side_width_mode: _popoutWidthMode,
+        tray_icon_file_id: _trayIconFileId,
         ...settingsWithoutLayoutModes
       } = merged;
       const result = await invoke<{ saved?: boolean; warnings?: string[] } | void>('save_settings', {
@@ -380,7 +385,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       return result && typeof result === 'object' ? result.warnings ?? [] : [];
     } catch (e) {
       set((state) => ({
-        settings: previous,
+        settings: { ...previous, tray_icon_file_id: state.settings.tray_icon_file_id },
         error: String(e),
         settingsMeta: {
           ...state.settingsMeta,

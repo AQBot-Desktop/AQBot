@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings } from '@/types';
 import { GeneralSettings } from '../GeneralSettings';
 
+// The uploader has its own IPC and interaction tests; these tests cover the
+// surrounding general settings and built-in tray style controls.
+vi.mock('../TrayIconSettings', () => ({ TrayIconSettings: () => <div data-testid="tray-icon-settings" /> }));
+
 const mocks = vi.hoisted(() => ({
   saveSettings: vi.fn(),
   invoke: vi.fn(),
@@ -278,6 +282,14 @@ describe('GeneralSettings', () => {
     fireEvent.change(select, { target: { value: 'monochrome' } });
 
     expect(mocks.saveSettings).toHaveBeenCalledWith({ tray_icon_style: 'monochrome' });
+  });
+
+  it('disables built-in style selection while a custom tray icon is configured', () => {
+    settings = { ...settings, tray_icon_file_id: 'custom-icon' };
+    render(<GeneralSettings />);
+    expect(screen.getByTestId('tray-icon-settings')).toBeInTheDocument();
+    const select = screen.getAllByRole('combobox').find((element) => element.textContent?.includes('单色'));
+    expect(select).toBeDisabled();
   });
 
   it('hides the tray icon style outside macOS', () => {

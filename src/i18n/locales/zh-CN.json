@@ -1767,6 +1767,24 @@
       "uninstall": "卸载",
       "uninstallConfirm": "确定卸载本机检索引擎文件？卸载后需要重新下载才能使用本地检索。",
       "installedShort": "已安装，可用于本地检索。"
+    },
+    "customTrayIcon": {
+      "title": "自定义托盘图标",
+      "hint": "支持静态 PNG、JPEG、WebP，最大 5 MiB，宽高各不超过 4096 像素",
+      "preview": "托盘图标预览",
+      "choose": "选择图片",
+      "apply": "应用",
+      "reset": "恢复默认",
+      "originalColors": "自定义图片按原色显示，恢复默认后可使用内置样式",
+      "deferred": "已保存，将在开启托盘后生效",
+      "applied": "托盘图标已应用",
+      "sizeError": "请选择非空且不超过 5 MiB 的图片",
+      "invalid": "图片无效，请选择宽高不超过 4096 像素的静态 PNG、JPEG 或 WebP",
+      "failed": "托盘图标操作失败，请检查日志后重新应用或恢复默认",
+      "loadFailed": "无法加载已配置的托盘图标，请重新上传或恢复默认",
+      "cleanupFailed": "图标已保存，但旧图片清理失败，请查看日志",
+      "notificationFailed": "图标已保存，但窗口同步失败，请重新打开设置",
+      "inUse": "此图片正用作托盘图标，请先替换图标或恢复默认"
     }
   },
   "backup": {

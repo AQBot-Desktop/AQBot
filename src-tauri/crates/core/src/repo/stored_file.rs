@@ -165,6 +165,9 @@ where
 
     let message_rows = messages::Entity::find().all(db).await?;
     let mut referenced_ids = HashSet::new();
+    if let Some(id) = super::tray_icon::file_id(db).await? {
+        referenced_ids.insert(id);
+    }
     for message in message_rows {
         referenced_ids.extend(message_stored_file_ids(
             &message.content,
