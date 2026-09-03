@@ -26,6 +26,7 @@ import {
   selectUiStreamingMessageId,
   useAgentStore,
   useConversationStore,
+  useMultiModelColumnLayoutStore,
   useProviderStore,
   useSettingsStore,
 } from '@/stores';
@@ -108,6 +109,8 @@ import { InputArea } from './InputArea';
 import { RoleIntroPanel } from './RoleIntroPanel';
 import { MessageAttachmentPreview } from './MessageAttachmentPreview';
 import { ModelSelector } from './ModelSelector';
+import { MultiModelAnswerFocusLayer } from './MultiModelAnswerFocusLayer';
+import { MultiModelColumnScroll } from './MultiModelColumnScroll';
 import { MultiModelDisplay } from './MultiModelDisplay';
 import { MultiModelLaneWorkspace } from './MultiModelLaneWorkspace';
 import { StreamingStatusIndicator } from './StreamingStatusIndicator';
@@ -117,11 +120,13 @@ import { normalizeAssistantBubbleParentKey, resolveAssistantMessageForBubbleKey 
 import { collectRetainedChatCacheKeys, retainMapKeys, retainSetValues } from './chatRetainedCaches';
 import {
   CHAT_AUTO_SCROLL_BOTTOM_THRESHOLD,
+  CHAT_SCROLL_BOX_SELECTOR,
   CHAT_SCROLL_IS_REVERSED,
   captureMessageScrollAnchor,
   getDistanceToHistoryTop,
   hasMeasuredScrollLayoutChanged,
   hasScrollLayoutMetricsChanged,
+  isReversedScrollBox,
   resolveChatScrollElements,
   restoreMessageScrollAnchor,
   shouldIgnoreScrollDepartureFromBottom,
@@ -240,6 +245,7 @@ export function ChatView() {
   const createConversation = useConversationStore((s) => s.createConversation);
   const providers = useProviderStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
+  const popoutWidthMode = useMultiModelColumnLayoutStore((s) => s.layout.popoutWidthMode);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const bubbleStyle = settings.bubble_style;
   const chatSidebarCollapsed = settings.chat_sidebar_collapsed ?? false;
@@ -437,6 +443,11 @@ export function ChatView() {
   // ── Title editing state ────────────────────────────────────────────
   const [editingTitle, setEditingTitle] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [focusedAssistantMessageId, setFocusedAssistantMessageId] = useState<string | null>(null);
+  const focusScrollAnchorRef = useRef<ReturnType<typeof captureMessageScrollAnchor>>(null);
+  const focusContentRendererRef = useRef<(message: Message, isVersionStreaming: boolean) => React.ReactNode>(
+    () => null,
+  );
   const [stickToBottom, setStickToBottom] = useState(true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageRole, setEditingMessageRole] = useState<'user' | 'assistant' | null>(null);
@@ -493,12 +504,21 @@ export function ChatView() {
     setMermaidPreviewOpen(false);
     setMermaidPreviewSvg(null);
     resetShareSelection();
+    setFocusedAssistantMessageId(null);
   });
 
   // Leave share-select mode when switching conversations
   useEffect(() => {
     exitShareSelectMode();
+    setFocusedAssistantMessageId(null);
   }, [activeConversationId, exitShareSelectMode]);
+
+  useEffect(() => {
+    if (!focusedAssistantMessageId) return;
+    if (!messages.some((message) => message.id === focusedAssistantMessageId)) {
+      setFocusedAssistantMessageId(null);
+    }
+  }, [focusedAssistantMessageId, messages]);
 
   // ── Stats popover state ─────────────────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
@@ -541,6 +561,20 @@ export function ChatView() {
     scrollContentRef.current = scrollContent;
     return { scrollBox, scrollContent };
   }, []);
+
+  const openFocusedAssistant = useCallback((message: Message) => {
+    const { scrollBox } = syncChatScrollRefs();
+    focusScrollAnchorRef.current = scrollBox ? captureMessageScrollAnchor(scrollBox) : null;
+    setFocusedAssistantMessageId(message.id);
+  }, [syncChatScrollRefs]);
+
+  const closeFocusedAssistant = useCallback(() => {
+    setFocusedAssistantMessageId(null);
+    requestAnimationFrame(() => {
+      const { scrollBox } = syncChatScrollRefs();
+      if (scrollBox) restoreMessageScrollAnchor(scrollBox, focusScrollAnchorRef.current);
+    });
+  }, [syncChatScrollRefs]);
 
   const setStickToBottomState = useCallback((nextStickToBottom: boolean) => {
     stickToBottomRef.current = nextStickToBottom;
@@ -840,14 +874,16 @@ export function ChatView() {
   }, [setStickToBottomState]);
 
   const handleLaneBubbleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    const target = event.currentTarget;
+    const eventTarget = event.target instanceof HTMLElement ? event.target : event.currentTarget;
+    const target = eventTarget.closest(CHAT_SCROLL_BOX_SELECTOR) as HTMLElement | null
+      ?? event.currentTarget;
     if (loading || loadingOlder || !hasOlderMessages) return;
     if (target.scrollHeight <= target.clientHeight + 24) return;
     const distanceToHistoryTop = getDistanceToHistoryTop(
       target.scrollHeight,
       target.scrollTop,
       target.clientHeight,
-      CHAT_SCROLL_IS_REVERSED,
+      isReversedScrollBox(target),
     );
     if (distanceToHistoryTop > 24) return;
     void handleLoadOlderMessages();
@@ -1800,6 +1836,7 @@ export function ChatView() {
 
       return renderVersionNode(buildVersionContent(versionMessage.content));
     };
+    focusContentRendererRef.current = renderVersionContent;
 
     return {
       placement: 'start' as const,
@@ -1849,6 +1886,7 @@ export function ChatView() {
                   streamingMessageId={streamingMessageId}
                   multiModelDoneMessageIds={multiModelDoneMessageIds}
                   getModelDisplayInfo={getModelDisplayInfo}
+                  onFocusVersion={openFocusedAssistant}
                   renderContent={renderVersionContent}
                 />
               </>
@@ -2508,19 +2546,21 @@ export function ChatView() {
                   columns={laneColumns}
                   getModelDisplayInfo={getModelDisplayInfo}
                   renderConversation={(column) => (
-                    <Bubble.List
-                      items={finalBubbleItems}
-                      autoScroll
-                      onScroll={handleLaneBubbleScroll}
-                      role={makeLaneRoles(column)}
-                      style={{
-                        height: '100%',
-                        padding: settings.multi_model_popout_side_by_side_width_mode === 'fit'
-                          ? '8px'
-                          : '10px 8px',
-                        overflowX: 'hidden',
-                      }}
-                    />
+                    <MultiModelColumnScroll>
+                      <Bubble.List
+                        items={finalBubbleItems}
+                        autoScroll
+                        onScroll={handleLaneBubbleScroll}
+                        role={makeLaneRoles(column)}
+                        style={{
+                          height: '100%',
+                          padding: popoutWidthMode === 'fit'
+                            ? '8px'
+                            : '10px 8px',
+                          overflowX: 'hidden',
+                        }}
+                      />
+                    </MultiModelColumnScroll>
                   )}
                 />
               </div>
@@ -2620,8 +2660,23 @@ export function ChatView() {
               </div>
             )}
             {!useLaneWorkspace && (
-              <ChatScrollIndicator onUserScrollIntent={markUserScrollIntent} />
+              <ChatScrollIndicator
+                scrollRoot={messageAreaRef}
+                onUserScrollIntent={markUserScrollIntent}
+              />
             )}
+            <MultiModelAnswerFocusLayer
+              open={Boolean(focusedAssistantMessageId)}
+              message={messages.find((message) => message.id === focusedAssistantMessageId) ?? null}
+              isVersionStreaming={Boolean(
+                focusedAssistantMessageId
+                && (focusedAssistantMessageId === streamingMessageId
+                  || messages.find((message) => message.id === focusedAssistantMessageId)?.status === 'partial'),
+              )}
+              getContainer={() => messageAreaRef.current}
+              renderContent={(message, isVersionStreaming) => focusContentRendererRef.current(message, isVersionStreaming)}
+              onClose={closeFocusedAssistant}
+            />
             {!useLaneWorkspace && (
               <MinimapScrollProvider scrollTo={minimapScrollTo} scrollBoxRef={scrollBoxRef}>
                 <ChatMinimap />

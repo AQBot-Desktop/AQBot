@@ -16,7 +16,7 @@ import CommandPalette from '@/components/layout/CommandPalette';
 import { GlobalCopyMenu } from '@/components/layout/GlobalCopyMenu';
 import { CrashRecoveryModal } from '@/components/layout/CrashRecoveryModal';
 import { useCommandPalette } from '@/hooks/useCommandPalette';
-import { useUIStore, useSettingsStore, useConversationStore } from '@/stores';
+import { useUIStore, useSettingsStore, useConversationStore, useMultiModelColumnLayoutStore } from '@/stores';
 import { useAcpStore } from '@/stores/acpStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useConversationTabsCoordinator } from '@/hooks/useConversationTabsCoordinator';
@@ -275,6 +275,11 @@ function AppRoot() {
         await useSettingsStore.getState().fetchSettings();
       } catch (e) {
         console.warn('Failed to fetch settings:', e);
+      }
+      try {
+        await useMultiModelColumnLayoutStore.getState().ensureLoaded();
+      } catch (e) {
+        console.warn('Failed to fetch multi-model column layout:', e);
       }
 
       if (!isTauri()) return;

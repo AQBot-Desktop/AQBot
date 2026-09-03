@@ -332,6 +332,9 @@ pub fn run() {
         // settings
         commands::settings::get_settings,
         commands::settings::save_settings,
+        commands::settings::get_multi_model_column_layout,
+        commands::settings::set_multi_model_side_by_side_width_mode,
+        commands::settings::set_multi_model_column_width,
         // gateway
         commands::gateway::list_gateway_keys,
         commands::gateway::create_gateway_key,

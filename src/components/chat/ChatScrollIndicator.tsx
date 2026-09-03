@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, useCallback, memo, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  memo,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from 'react';
+import { CHAT_SCROLL_BOX_SELECTOR } from './chatScroll';
 
 const SCROLLBAR_HIDE_DELAY = 1200;
 
@@ -18,6 +27,16 @@ interface ScrollMetrics {
 
 interface ChatScrollIndicatorProps {
   onUserScrollIntent?: () => void;
+  /** Scope that contains the Bubble.List scroll box. Defaults to the document. */
+  scrollRoot?: RefObject<ParentNode | null>;
+  /** Keep the thumb visible while the bound list can scroll. */
+  persistWhenScrollable?: boolean;
+}
+
+function resolveIndicatorRoot(
+  scrollRoot?: RefObject<ParentNode | null>,
+): ParentNode {
+  return scrollRoot?.current ?? document;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -49,7 +68,11 @@ function measureThumb(el: HTMLElement): ScrollMetrics | null {
  *
  * The indicator auto-shows on hover/scroll and fades out after inactivity.
  */
-function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorProps) {
+function ChatScrollIndicatorInner({
+  onUserScrollIntent,
+  scrollRoot,
+  persistWhenScrollable = false,
+}: ChatScrollIndicatorProps) {
   const [thumb, setThumb] = useState<ThumbState>({ top: 0, height: 0, opacity: 0, canScroll: false });
   const [dragging, setDragging] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -64,12 +87,12 @@ function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorPro
   }, []);
 
   const scheduleHide = useCallback(() => {
-    if (hoveringRef.current || draggingRef.current) return;
+    if (persistWhenScrollable || hoveringRef.current || draggingRef.current) return;
     clearHideTimer();
     hideTimer.current = setTimeout(() => {
       setThumb((state) => ({ ...state, opacity: 0 }));
     }, SCROLLBAR_HIDE_DELAY);
-  }, [clearHideTimer]);
+  }, [clearHideTimer, persistWhenScrollable]);
 
   const updateThumb = useCallback((visible = hoveringRef.current || draggingRef.current) => {
     const el = elRef.current;
@@ -84,10 +107,10 @@ function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorPro
     setThumb({
       top: metrics.top,
       height: metrics.height,
-      opacity: visible ? 1 : 0,
+      opacity: persistWhenScrollable || visible ? 1 : 0,
       canScroll: true,
     });
-  }, []);
+  }, [persistWhenScrollable]);
 
   const handleScroll = useCallback(() => {
     updateThumb(true);
@@ -150,7 +173,11 @@ function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorPro
 
   useEffect(() => {
     const attach = () => {
-      const el = document.querySelector<HTMLElement>('.ant-bubble-list-scroll-box');
+      const root = resolveIndicatorRoot(scrollRoot);
+      const el = (root instanceof Element || root instanceof Document
+        ? root.querySelector<HTMLElement>(CHAT_SCROLL_BOX_SELECTOR)
+        : null)
+        ?? (root instanceof HTMLElement && root.matches(CHAT_SCROLL_BOX_SELECTOR) ? root : null);
       if (!el || el === elRef.current) return;
       elRef.current?.removeEventListener('scroll', handleScroll);
       elRef.current?.removeEventListener('pointerenter', handlePointerEnter);
@@ -164,7 +191,8 @@ function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorPro
 
     const raf = requestAnimationFrame(attach);
     const observer = new MutationObserver(attach);
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observed = scrollRoot?.current instanceof Node ? scrollRoot.current : document.body;
+    observer.observe(observed, { childList: true, subtree: true });
 
     return () => {
       cancelAnimationFrame(raf);
@@ -174,7 +202,7 @@ function ChatScrollIndicatorInner({ onUserScrollIntent }: ChatScrollIndicatorPro
       elRef.current?.removeEventListener('pointerleave', handlePointerLeave);
       clearTimeout(hideTimer.current);
     };
-  }, [handlePointerEnter, handlePointerLeave, handleScroll]);
+  }, [handlePointerEnter, handlePointerLeave, handleScroll, scrollRoot]);
 
   useEffect(() => {
     if (!dragging) return;

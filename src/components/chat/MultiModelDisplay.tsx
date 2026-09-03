@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { Alert, App, Button, Dropdown, Popconfirm, Spin, Tag, Tooltip, Typography, theme } from 'antd';
-import { AppWindow, ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
+import { AppWindow, ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Maximize2, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { OverlayScrollbars } from 'overlayscrollbars';
@@ -13,9 +13,9 @@ import { getMessageVersionGroupKey, selectDisplayVersionsByModel } from '@/lib/c
 import { openConversationPopout } from '@/lib/conversationPopout';
 import type { MultiModelContinuationMode } from '@/lib/multiModelContinuation';
 import { shouldHideMultiModelLayoutSwitcher } from '@/lib/multiModelLanes';
+import { useMultiModelColumnWidth } from '@/hooks/useMultiModelColumnWidth';
 import {
   MULTI_MODEL_COLUMN_GAP_PX,
-  normalizeMultiModelSideBySideWidthMode,
   sideBySideColumnLayout,
   sideBySideTrackStyle,
 } from '@/lib/multiModelColumnLayout';
@@ -23,8 +23,9 @@ import {
   getLiveStreamContent,
   subscribeLiveStreamContent,
   useConversationStore,
-  useSettingsStore,
 } from '@/stores';
+import { MultiModelColumnResizeHandle } from './MultiModelColumnResizeHandle';
+import { MultiModelColumnWidthControl } from './MultiModelColumnWidthControl';
 import { ModelSelector } from './ModelSelector';
 import { OverflowIconToolbar } from './OverflowIconToolbar';
 import { SaveToMemoryPopover } from './SaveToMemoryPopover';
@@ -44,7 +45,7 @@ function useLiveStreamContent(messageId: string | null | undefined, enabled: boo
   );
 }
 
-function MultiModelVersionContent({
+export function MultiModelVersionContent({
   message,
   isVersionStreaming,
   renderContent,
@@ -99,6 +100,7 @@ export interface MultiModelDisplayProps {
   ) => { modelName: string; providerName: string };
   streamingMessageId?: string | null;
   multiModelDoneMessageIds: string[];
+  onFocusVersion?: (message: Message) => void;
 }
 
 /**
@@ -122,6 +124,7 @@ export const MultiModelDisplay = React.memo(function MultiModelDisplay({
   renderContent,
   getModelDisplayInfo,
   streamingMessageId,
+  onFocusVersion,
 }: MultiModelDisplayProps) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
@@ -150,6 +153,7 @@ export const MultiModelDisplay = React.memo(function MultiModelDisplay({
         renderContent={renderContent}
         getModelDisplayInfo={getModelDisplayInfo}
         streamingMessageId={streamingMessageId}
+        onFocusVersion={onFocusVersion}
         token={token}
         t={t}
       />
@@ -179,6 +183,7 @@ function MultiModelDisplayInner({
   renderContent,
   getModelDisplayInfo,
   streamingMessageId,
+  onFocusVersion,
   token,
   t,
 }: MultiModelDisplayInnerProps) {
@@ -212,10 +217,17 @@ function MultiModelDisplayInner({
     [activeMessageId, displayVersionIdsByModelKey, renderVersions],
   );
   const isDisplayStreaming = storeStreaming && streamingConversationId === conversationId;
-  const widthMode = normalizeMultiModelSideBySideWidthMode(
-    useSettingsStore((state) => state.settings.multi_model_side_by_side_width_mode),
-  );
-  const enableSideBySideScroll = mode === 'side-by-side' && widthMode === 'scroll';
+  const { message } = App.useApp();
+  const {
+    layoutMode,
+    resolvedWidthPx,
+    previewWidth,
+    clearPreview,
+    commitWidth,
+  } = useMultiModelColumnWidth('main');
+  const [containerWidth, setContainerWidth] = useState(0);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const enableSideBySideScroll = mode === 'side-by-side' && layoutMode === 'scroll';
 
   // For side-by-side mode, force the .ant-bubble ancestor to take full width
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -249,6 +261,17 @@ function MultiModelDisplayInner({
       }
     };
   }, [mode]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const update = () => setContainerWidth(el.clientWidth);
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mode, displayVersions.length, layoutMode]);
 
   // Initialize OverlayScrollbars for persistent horizontal scrollbar
   useEffect(() => {
@@ -294,17 +317,17 @@ function MultiModelDisplayInner({
           flexDirection: 'column',
           gap: MULTI_MODEL_COLUMN_GAP_PX,
         };
-  const columnLayout = mode === 'side-by-side'
-    ? sideBySideColumnLayout(displayVersions.length, widthMode)
-    : { className: undefined, style: {} as React.CSSProperties };
-
-  const cardStyle: React.CSSProperties = {
-    ...columnLayout.style,
-    border: `1px solid ${token.colorBorderSecondary}`,
-    borderRadius: token.borderRadiusLG,
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
+  const saveColumnWidth = async (
+    providerId: string | null | undefined,
+    modelId: string | null | undefined,
+    widthPx: number | null,
+  ) => {
+    if (!providerId || !modelId) return;
+    try {
+      await commitWidth(providerId, modelId, widthPx);
+    } catch {
+      message.error(t('chat.multiModel.columnWidthSaveFailed'));
+    }
   };
 
   return (
@@ -312,7 +335,7 @@ function MultiModelDisplayInner({
       <div
         className={mode === 'side-by-side' && enableSideBySideScroll ? 'aqbot-multi-model-track' : undefined}
         style={mode === 'side-by-side'
-          ? sideBySideTrackStyle(widthMode)
+          ? sideBySideTrackStyle(layoutMode)
           : { display: 'flex', flexDirection: 'column', gap: MULTI_MODEL_COLUMN_GAP_PX }}
       >
       {displayVersions.map((vMsg) => {
@@ -324,15 +347,29 @@ function MultiModelDisplayInner({
           vMsg.model_id,
           vMsg.provider_id,
         );
+        const customWidthPx = mode === 'side-by-side'
+          ? resolvedWidthPx(vMsg.provider_id, vMsg.model_id, containerWidth)
+          : undefined;
+        const columnLayout = mode === 'side-by-side'
+          ? sideBySideColumnLayout(displayVersions.length, layoutMode, customWidthPx)
+          : { className: undefined, style: {} as React.CSSProperties };
 
         return (
           <div
             key={vMsg.id}
+            ref={(node) => {
+              cardRefs.current[vMsg.id] = node;
+            }}
             data-testid={`multi-model-card-${vMsg.id}`}
             className={columnLayout.className}
             style={{
-              ...cardStyle,
-              borderColor: isActive ? token.colorPrimary : token.colorBorderSecondary,
+              ...columnLayout.style,
+              border: `1px solid ${isActive ? token.colorPrimary : token.colorBorderSecondary}`,
+              borderRadius: token.borderRadiusLG,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
             }}
           >
             {/* Card header */}
@@ -372,6 +409,28 @@ function MultiModelDisplayInner({
                 )}
               </div>
               <div className="multi-model-card-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                {mode === 'side-by-side' && vMsg.provider_id && vMsg.model_id ? (
+                  <MultiModelColumnWidthControl
+                    currentWidthPx={customWidthPx ?? Math.max(containerWidth / Math.max(displayVersions.length, 1), 320)}
+                    onCommit={(widthPx) => {
+                      void saveColumnWidth(vMsg.provider_id, vMsg.model_id, widthPx);
+                    }}
+                    onReset={() => {
+                      void saveColumnWidth(vMsg.provider_id, vMsg.model_id, null);
+                    }}
+                  />
+                ) : null}
+                {onFocusVersion ? (
+                  <Tooltip title={t('chat.multiModel.focusAnswer')}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={t('chat.multiModel.focusAnswer')}
+                      icon={<Maximize2 size={14} />}
+                      onClick={() => onFocusVersion(vMsg)}
+                    />
+                  </Tooltip>
+                ) : null}
                 <MultiModelContextButton
                   message={vMsg}
                   isActive={isActive}
@@ -400,6 +459,18 @@ function MultiModelDisplayInner({
                 renderContent={renderContent}
               />
             </div>
+            {mode === 'side-by-side' && vMsg.provider_id && vMsg.model_id ? (
+              <MultiModelColumnResizeHandle
+                ariaLabel={t('chat.multiModel.resizeColumn')}
+                columnEl={cardRefs.current[vMsg.id] ?? null}
+                maxWidthPx={containerWidth || 10000}
+                onPreview={(widthPx) => previewWidth(vMsg.provider_id!, vMsg.model_id!, widthPx)}
+                onCommit={(widthPx) => {
+                  void saveColumnWidth(vMsg.provider_id, vMsg.model_id, widthPx);
+                }}
+                onCancel={() => clearPreview(vMsg.provider_id!, vMsg.model_id!)}
+              />
+            ) : null}
             <MultiModelCardActions
               message={vMsg}
               renderVersions={renderVersions}

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MULTI_MODEL_COLUMN_CUSTOM_CLASS,
+  MULTI_MODEL_COLUMN_CUSTOM_MIN_WIDTH_PX,
   MULTI_MODEL_COLUMN_FIT_CLASS,
   MULTI_MODEL_COLUMN_MIN_WIDTH_PX,
+  clampCustomColumnWidthPx,
+  displayCustomColumnWidthPx,
+  multiModelColumnWidthKey,
+  multiModelColumnWidthSettingKey,
+  nextLaneScrollOffset,
   normalizeMultiModelSideBySideWidthMode,
+  parseMultiModelColumnWidthSettingKey,
   sideBySideColumnLayout,
   sideBySideTrackStyle,
 } from '../multiModelColumnLayout';
@@ -69,5 +77,45 @@ describe('sideBySideTrackStyle', () => {
   it('lets independent-window lanes drop the column gap', () => {
     expect(sideBySideTrackStyle('fit', 0).gap).toBe(0);
     expect(sideBySideTrackStyle('scroll', 0).gap).toBe(0);
+  });
+});
+
+describe('per-model column width helpers', () => {
+  it('keys widths by provider and model so same model ids stay isolated', () => {
+    expect(multiModelColumnWidthKey('openai', 'gpt-4.1')).toBe('openai:gpt-4.1');
+    expect(multiModelColumnWidthKey('anthropic', 'gpt-4.1')).toBe('anthropic:gpt-4.1');
+    expect(multiModelColumnWidthSettingKey('openai', 'gpt-4.1'))
+      .toBe('multi_model_column_width:openai:gpt-4.1');
+    expect(parseMultiModelColumnWidthSettingKey('multi_model_column_width:openai:gpt-4.1'))
+      .toEqual({ providerId: 'openai', modelId: 'gpt-4.1' });
+    expect(multiModelColumnWidthKey(null, 'gpt-4.1')).toBeNull();
+  });
+
+  it('clamps custom widths and shrinks display without changing the saved preference', () => {
+    expect(clampCustomColumnWidthPx(480)).toBe(480);
+    expect(clampCustomColumnWidthPx(120)).toBe(MULTI_MODEL_COLUMN_CUSTOM_MIN_WIDTH_PX);
+    expect(displayCustomColumnWidthPx(800, 600)).toBe(600);
+    expect(displayCustomColumnWidthPx(800, 900)).toBe(800);
+  });
+
+  it('uses custom pixel width in scroll mode without the default two-column class', () => {
+    const layout = sideBySideColumnLayout(3, 'scroll', 640);
+    expect(layout.className).toBe(MULTI_MODEL_COLUMN_CUSTOM_CLASS);
+    expect(layout.style.flex).toBe('0 0 640px');
+    expect(layout.style.width).toBe(640);
+    expect(JSON.stringify(layout)).not.toContain(String(MULTI_MODEL_COLUMN_MIN_WIDTH_PX));
+  });
+
+  it('ignores custom width while fit mode is active', () => {
+    const layout = sideBySideColumnLayout(3, 'fit', 640);
+    expect(layout.className).toBe(MULTI_MODEL_COLUMN_FIT_CLASS);
+    expect(layout.style.flex).toBe('1 1 0');
+  });
+
+  it('pages to the next actual column edge instead of the first column width', () => {
+    expect(nextLaneScrollOffset([0, 500, 900], 0, 1)).toBe(500);
+    expect(nextLaneScrollOffset([0, 500, 900], 500, 1)).toBe(900);
+    expect(nextLaneScrollOffset([0, 500, 900], 500, -1)).toBe(0);
+    expect(nextLaneScrollOffset([0, 500, 900], 20, -1)).toBe(0);
   });
 });

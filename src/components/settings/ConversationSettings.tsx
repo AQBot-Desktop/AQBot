@@ -2,7 +2,7 @@ import { Button, ColorPicker, Divider, Input, InputNumber, Switch, Tooltip, them
 import { FolderOpen, Info, RotateCcw } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore } from '@/stores';
+import { useMultiModelColumnLayoutStore, useSettingsStore } from '@/stores';
 import {
   CHAT_INPUT_ACTIONS_SCALE_MAX,
   CHAT_INPUT_ACTIONS_SCALE_MIN,
@@ -123,6 +123,9 @@ export function ConversationSettings() {
   const { t } = useTranslation();
   const settings = useSettingsStore((s) => s.settings);
   const saveSettings = useSettingsStore((s) => s.saveSettings);
+  const mainWidthMode = useMultiModelColumnLayoutStore((s) => s.layout.mainWidthMode);
+  const popoutWidthMode = useMultiModelColumnLayoutStore((s) => s.layout.popoutWidthMode);
+  const setWidthMode = useMultiModelColumnLayoutStore((s) => s.setWidthMode);
   const { token } = theme.useToken();
   const systemFonts = useSystemFonts();
   const rowStyle = { padding: '4px 0' };
@@ -470,7 +473,7 @@ export function ConversationSettings() {
             <div>{t('settings.multiModelSideBySideWidth')}</div>
             <div style={{ fontSize: 12, color: token.colorTextDescription }}>
               {t(
-                normalizeMultiModelSideBySideWidthMode(settings.multi_model_side_by_side_width_mode) === 'fit'
+                normalizeMultiModelSideBySideWidthMode(mainWidthMode) === 'fit'
                   ? 'settings.multiModelSideBySideWidthFitDesc'
                   : 'settings.multiModelSideBySideWidthScrollDesc',
               )}
@@ -478,10 +481,10 @@ export function ConversationSettings() {
           </div>
           <SettingsSelect
             ariaLabel={t('settings.multiModelSideBySideWidth')}
-            value={normalizeMultiModelSideBySideWidthMode(settings.multi_model_side_by_side_width_mode)}
-            onChange={(val) => saveSettings({
-              multi_model_side_by_side_width_mode: val as MultiModelSideBySideWidthMode,
-            })}
+            value={normalizeMultiModelSideBySideWidthMode(mainWidthMode)}
+            onChange={(val) => {
+              void setWidthMode('main', val as MultiModelSideBySideWidthMode);
+            }}
             options={[
               { label: t('settings.multiModelSideBySideWidthFit'), value: 'fit' },
               { label: t('settings.multiModelSideBySideWidthScroll'), value: 'scroll' },
@@ -494,7 +497,7 @@ export function ConversationSettings() {
             <div>{t('settings.multiModelPopoutSideBySideWidth')}</div>
             <div style={{ fontSize: 12, color: token.colorTextDescription }}>
               {t(
-                normalizeMultiModelSideBySideWidthMode(settings.multi_model_popout_side_by_side_width_mode) === 'fit'
+                normalizeMultiModelSideBySideWidthMode(popoutWidthMode) === 'fit'
                   ? 'settings.multiModelPopoutSideBySideWidthFitDesc'
                   : 'settings.multiModelPopoutSideBySideWidthScrollDesc',
               )}
@@ -502,10 +505,10 @@ export function ConversationSettings() {
           </div>
           <SettingsSelect
             ariaLabel={t('settings.multiModelPopoutSideBySideWidth')}
-            value={normalizeMultiModelSideBySideWidthMode(settings.multi_model_popout_side_by_side_width_mode)}
-            onChange={(val) => saveSettings({
-              multi_model_popout_side_by_side_width_mode: val as MultiModelSideBySideWidthMode,
-            })}
+            value={normalizeMultiModelSideBySideWidthMode(popoutWidthMode)}
+            onChange={(val) => {
+              void setWidthMode('popout', val as MultiModelSideBySideWidthMode);
+            }}
             options={[
               { label: t('settings.multiModelSideBySideWidthFit'), value: 'fit' },
               { label: t('settings.multiModelSideBySideWidthScroll'), value: 'scroll' },

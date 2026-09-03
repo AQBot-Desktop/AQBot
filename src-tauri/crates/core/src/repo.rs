@@ -18,6 +18,7 @@ pub mod knowledge;
 pub mod mcp_server;
 pub mod memory;
 pub mod message;
+pub mod multi_model_column_layout;
 pub mod program_policy;
 pub mod provider;
 pub mod provider_import;

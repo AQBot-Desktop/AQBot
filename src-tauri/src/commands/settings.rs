@@ -1,9 +1,15 @@
 use crate::AppState;
+use aqbot_core::repo::multi_model_column_layout::{
+    self, MultiModelColumnLayout, MultiModelColumnLayoutView,
+};
 use aqbot_core::types::*;
 use std::sync::atomic::Ordering;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
+
+pub const MULTI_MODEL_COLUMN_LAYOUT_EVENT: &str = "aqbot:multi-model-column-layout";
 
 fn proxy_settings_changed(before: &AppSettings, after: &AppSettings) -> bool {
     before.proxy_type != after.proxy_type
@@ -125,6 +131,57 @@ pub async fn save_settings(
         saved: true,
         warnings,
     })
+}
+
+fn emit_column_layout(app: &AppHandle, layout: &MultiModelColumnLayout) {
+    if let Err(error) = app.emit(MULTI_MODEL_COLUMN_LAYOUT_EVENT, layout) {
+        tracing::warn!(error = %error, "Failed to emit multi-model column layout");
+    }
+}
+
+#[tauri::command]
+pub async fn get_multi_model_column_layout(
+    state: State<'_, AppState>,
+) -> Result<MultiModelColumnLayout, String> {
+    multi_model_column_layout::get_layout(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_multi_model_side_by_side_width_mode(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    view: MultiModelColumnLayoutView,
+    mode: MultiModelSideBySideWidthMode,
+) -> Result<MultiModelColumnLayout, String> {
+    let layout = multi_model_column_layout::set_width_mode(&state.sea_db, view, mode)
+        .await
+        .map_err(|e| e.to_string())?;
+    emit_column_layout(&app, &layout);
+    Ok(layout)
+}
+
+#[tauri::command]
+pub async fn set_multi_model_column_width(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    view: MultiModelColumnLayoutView,
+    provider_id: String,
+    model_id: String,
+    width_px: Option<i32>,
+) -> Result<MultiModelColumnLayout, String> {
+    let layout = multi_model_column_layout::set_column_width(
+        &state.sea_db,
+        view,
+        &provider_id,
+        &model_id,
+        width_px,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    emit_column_layout(&app, &layout);
+    Ok(layout)
 }
 
 #[cfg(test)]

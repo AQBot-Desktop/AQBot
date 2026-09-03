@@ -6,9 +6,19 @@ import { ConversationSettings } from '../ConversationSettings';
 
 const mocks = vi.hoisted(() => ({
   saveSettings: vi.fn(),
+  setWidthMode: vi.fn(async () => {}),
 }));
 
 let settings: Partial<AppSettings> = {};
+let layout: {
+  mainWidthMode: 'fit' | 'scroll';
+  popoutWidthMode: 'fit' | 'scroll';
+  columnWidths: Record<string, number>;
+} = {
+  mainWidthMode: 'scroll',
+  popoutWidthMode: 'scroll',
+  columnWidths: {},
+};
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -96,12 +106,12 @@ vi.mock('react-i18next', () => ({
         'settings.multiModelDisplayModeStacked': '上下堆叠',
         'settings.multiModelSideBySideWidth': '主窗口并排宽度',
         'settings.multiModelPopoutSideBySideWidth': '独立窗口并排宽度',
-        'settings.multiModelSideBySideWidthFit': '自适应宽度',
-        'settings.multiModelSideBySideWidthScroll': '固定宽度',
-        'settings.multiModelSideBySideWidthFitDesc': '所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。',
-        'settings.multiModelSideBySideWidthScrollDesc': '每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。',
-        'settings.multiModelPopoutSideBySideWidthFitDesc': '所有模型均分独立窗口宽度，全部同时可见。',
-        'settings.multiModelPopoutSideBySideWidthScrollDesc': '每列保持可读宽度，超出后可横向滚动或用左右按钮切换。',
+        'settings.multiModelSideBySideWidthFit': '自适应等分',
+        'settings.multiModelSideBySideWidthScroll': '可调宽度',
+        'settings.multiModelSideBySideWidthFitDesc': '所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。拖动列宽会自动切换到可调宽度。',
+        'settings.multiModelSideBySideWidthScrollDesc': '每列可单独调整宽度并按模型记住，超出部分可横向滚动查看。',
+        'settings.multiModelPopoutSideBySideWidthFitDesc': '所有模型均分独立窗口宽度，全部同时可见。拖动列宽会自动切换到可调宽度。',
+        'settings.multiModelPopoutSideBySideWidthScrollDesc': '每列可单独调整宽度并按模型记住，超出后可横向滚动或用左右按钮切换。',
         'settings.multiModelExecutionMode': '多模型执行方式',
         'settings.multiModelExecutionModeDesc': '控制同一轮多个模型是同时回答，还是按会话中保存的顺序逐个回答。',
         'settings.multiModelExecutionModeParallel': '并行',
@@ -325,6 +335,13 @@ vi.mock('@/stores', () => ({
     settings,
     saveSettings: mocks.saveSettings,
   }),
+  useMultiModelColumnLayoutStore: (selector: (state: {
+    layout: typeof layout;
+    setWidthMode: typeof mocks.setWidthMode;
+  }) => unknown) => selector({
+    layout,
+    setWidthMode: mocks.setWidthMode,
+  }),
 }));
 
 vi.mock('@/lib/invoke', () => ({
@@ -343,6 +360,11 @@ vi.mock('@/hooks/useSystemFontFaces', () => ({
 describe('ConversationSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    layout = {
+      mainWidthMode: 'scroll',
+      popoutWidthMode: 'scroll',
+      columnWidths: {},
+    };
     settings = {
       bubble_style: 'minimal',
       chat_minimap_enabled: false,
@@ -784,30 +806,26 @@ describe('ConversationSettings', () => {
   it('saves independent side-by-side width modes and shows the selected description', () => {
     render(<ConversationSettings />);
 
-    expect(screen.getByText('每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。')).toBeInTheDocument();
-    expect(screen.getByText('每列保持可读宽度，超出后可横向滚动或用左右按钮切换。')).toBeInTheDocument();
+    expect(screen.getByText('每列可单独调整宽度并按模型记住，超出部分可横向滚动查看。')).toBeInTheDocument();
+    expect(screen.getByText('每列可单独调整宽度并按模型记住，超出后可横向滚动或用左右按钮切换。')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('主窗口并排宽度'), { target: { value: 'fit' } });
-    expect(mocks.saveSettings).toHaveBeenCalledWith({
-      multi_model_side_by_side_width_mode: 'fit',
-    });
+    expect(mocks.setWidthMode).toHaveBeenCalledWith('main', 'fit');
 
     fireEvent.change(screen.getByLabelText('独立窗口并排宽度'), { target: { value: 'fit' } });
-    expect(mocks.saveSettings).toHaveBeenCalledWith({
-      multi_model_popout_side_by_side_width_mode: 'fit',
-    });
+    expect(mocks.setWidthMode).toHaveBeenCalledWith('popout', 'fit');
   });
 
   it('updates the side-by-side width description after switching to fit', () => {
-    settings = {
-      ...settings,
-      multi_model_side_by_side_width_mode: 'fit',
-      multi_model_popout_side_by_side_width_mode: 'fit',
+    layout = {
+      ...layout,
+      mainWidthMode: 'fit',
+      popoutWidthMode: 'fit',
     };
     render(<ConversationSettings />);
 
-    expect(screen.getByText('所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。')).toBeInTheDocument();
-    expect(screen.getByText('所有模型均分独立窗口宽度，全部同时可见。')).toBeInTheDocument();
-    expect(screen.queryByText('每列保持可读宽度（约两列一屏），超出部分可横向滚动查看。')).not.toBeInTheDocument();
+    expect(screen.getByText('所有模型均分当前对话区域宽度，模型再多也不出现横向滚动条。拖动列宽会自动切换到可调宽度。')).toBeInTheDocument();
+    expect(screen.getByText('所有模型均分独立窗口宽度，全部同时可见。拖动列宽会自动切换到可调宽度。')).toBeInTheDocument();
+    expect(screen.queryByText('每列可单独调整宽度并按模型记住，超出部分可横向滚动查看。')).not.toBeInTheDocument();
   });
 });

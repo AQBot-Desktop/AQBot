@@ -48,6 +48,12 @@ export function restoreMessageScrollAnchor(
   return true;
 }
 
+export function isReversedScrollBox(el: HTMLElement): boolean {
+  const inline = el.style.flexDirection;
+  if (inline) return inline === 'column-reverse';
+  return getComputedStyle(el).flexDirection === 'column-reverse';
+}
+
 export function resolveChatScrollElements(
   root: ParentNode | null | undefined,
   scrollBoxCandidate?: HTMLElement | null,

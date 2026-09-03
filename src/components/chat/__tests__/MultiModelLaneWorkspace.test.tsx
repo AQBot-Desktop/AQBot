@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSettingsStore } from '@/stores';
+import { App } from 'antd';
+import { emptyMultiModelColumnLayout } from '@/lib/multiModelColumnLayout';
+import { useMultiModelColumnLayoutStore } from '@/stores';
 import { MultiModelLaneWorkspace } from '../MultiModelLaneWorkspace';
 
 vi.mock('react-i18next', () => ({
@@ -28,11 +30,13 @@ function renderWorkspace(
   columns: Array<{ key: string; providerId: string; modelId: string; historical: boolean }> = [...threeColumns],
 ) {
   return render(
-    <MultiModelLaneWorkspace
-      columns={columns}
-      getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
-      renderConversation={(column) => <div>{column.modelId}</div>}
-    />,
+    <App>
+      <MultiModelLaneWorkspace
+        columns={columns}
+        getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
+        renderConversation={(column) => <div>{column.modelId}</div>}
+      />
+    </App>,
   );
 }
 
@@ -49,27 +53,28 @@ function overflowHost(host: HTMLElement) {
 
 describe('MultiModelLaneWorkspace', () => {
   beforeEach(() => {
-    useSettingsStore.setState({
-      settings: {
-        ...useSettingsStore.getState().settings,
-        multi_model_popout_side_by_side_width_mode: 'scroll',
-      },
+    useMultiModelColumnLayoutStore.setState({
+      layout: emptyMultiModelColumnLayout(),
+      loaded: true,
+      error: null,
     });
   });
 
   it('renders a full conversation pane for each model column', () => {
     render(
-      <MultiModelLaneWorkspace
-        columns={[
-          { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
-          { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
-        ]}
-        getModelDisplayInfo={(modelId, providerId) => ({
-          modelName: modelId ?? 'AI',
-          providerName: providerId === 'provider-a' ? 'Provider A' : 'Provider B',
-        })}
-        renderConversation={(column) => <div>{`conversation:${column.modelId}`}</div>}
-      />,
+      <App>
+        <MultiModelLaneWorkspace
+          columns={[
+            { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
+            { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
+          ]}
+          getModelDisplayInfo={(modelId, providerId) => ({
+            modelName: modelId ?? 'AI',
+            providerName: providerId === 'provider-a' ? 'Provider A' : 'Provider B',
+          })}
+          renderConversation={(column) => <div>{`conversation:${column.modelId}`}</div>}
+        />
+      </App>,
     );
 
     expect(screen.getByTestId('multi-model-lane-workspace')).toBeInTheDocument();
@@ -85,15 +90,17 @@ describe('MultiModelLaneWorkspace', () => {
 
   it('sizes extra columns like a two-column workspace instead of 1/n of the window', () => {
     render(
-      <MultiModelLaneWorkspace
-        columns={[
-          { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
-          { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
-          { key: 'provider-c:model-c', providerId: 'provider-c', modelId: 'model-c', historical: false },
-        ]}
-        getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
-        renderConversation={(column) => <div>{column.modelId}</div>}
-      />,
+      <App>
+        <MultiModelLaneWorkspace
+          columns={[
+            { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
+            { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
+            { key: 'provider-c:model-c', providerId: 'provider-c', modelId: 'model-c', historical: false },
+          ]}
+          getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
+          renderConversation={(column) => <div>{column.modelId}</div>}
+        />
+      </App>,
     );
 
     const column = screen.getByTestId('multi-model-lane-column-provider-a:model-a');
@@ -105,11 +112,13 @@ describe('MultiModelLaneWorkspace', () => {
   });
 
   it('lets fit mode share the independent window without prev/next controls', () => {
-    useSettingsStore.setState({
-      settings: {
-        ...useSettingsStore.getState().settings,
-        multi_model_popout_side_by_side_width_mode: 'fit',
+    useMultiModelColumnLayoutStore.setState({
+      layout: {
+        ...emptyMultiModelColumnLayout(),
+        popoutWidthMode: 'fit',
       },
+      loaded: true,
+      error: null,
     });
     renderWorkspace();
 
@@ -124,34 +133,41 @@ describe('MultiModelLaneWorkspace', () => {
   it('scrolls one column at a time with prev/next controls when extra columns overflow', () => {
     renderWorkspace();
     const host = overflowHost(document.querySelector('.aqbot-multi-model-lane-scroll') as HTMLElement);
+    host.scrollTo = vi.fn();
+    const columns = [...document.querySelectorAll<HTMLElement>('[data-testid^="multi-model-lane-column-"]')];
+    Object.defineProperty(columns[0], 'offsetLeft', { configurable: true, value: 0 });
+    Object.defineProperty(columns[1], 'offsetLeft', { configurable: true, value: 500 });
+    Object.defineProperty(columns[2], 'offsetLeft', { configurable: true, value: 900 });
 
     expect(screen.getByTestId('multi-model-lane-prev')).toBeDisabled();
     expect(screen.getByTestId('multi-model-lane-next')).toBeEnabled();
 
     fireEvent.click(screen.getByTestId('multi-model-lane-next'));
-    expect(host.scrollBy).toHaveBeenCalledWith({ left: 420, behavior: 'smooth' });
+    expect(host.scrollTo).toHaveBeenCalledWith({ left: 500, behavior: 'smooth' });
   });
 
   it('can expand one column and stop a streaming column', () => {
     const onStopColumn = vi.fn();
 
     render(
-      <MultiModelLaneWorkspace
-        columns={[
-          { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
-          { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
-        ]}
-        getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
-        renderConversation={(column) => <div>{column.modelId}</div>}
-        streamingColumnKeys={new Set(['provider-a:model-a'])}
-        onStopColumn={onStopColumn}
-      />,
+      <App>
+        <MultiModelLaneWorkspace
+          columns={[
+            { key: 'provider-a:model-a', providerId: 'provider-a', modelId: 'model-a', historical: false },
+            { key: 'provider-b:model-b', providerId: 'provider-b', modelId: 'model-b', historical: false },
+          ]}
+          getModelDisplayInfo={(modelId) => ({ modelName: modelId ?? 'AI', providerName: '' })}
+          renderConversation={(column) => <div>{column.modelId}</div>}
+          streamingColumnKeys={new Set(['provider-a:model-a'])}
+          onStopColumn={onStopColumn}
+        />
+      </App>,
     );
 
     fireEvent.click(screen.getAllByLabelText('chat.multiModel.expandColumn')[0]!);
     expect(screen.getByTestId('multi-model-lane-column-provider-a:model-a')).toBeInTheDocument();
-    expect(screen.queryByTestId('multi-model-lane-column-provider-b:model-b')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('chat.multiModel.collapseColumn')).toBeInTheDocument();
+    expect(screen.getByTestId('multi-model-lane-column-provider-b:model-b')).toHaveStyle({ display: 'none' });
+    expect(screen.getAllByLabelText('chat.multiModel.collapseColumn')).toHaveLength(1);
 
     fireEvent.click(screen.getByLabelText('chat.multiModel.stopColumn'));
     expect(onStopColumn).toHaveBeenCalledWith({

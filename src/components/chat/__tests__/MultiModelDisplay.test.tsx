@@ -7,7 +7,8 @@ import type React from 'react';
 import type { Message } from '@/types';
 import { ChatChromeContext } from '@/lib/chatChrome';
 import * as stores from '@/stores';
-import { clearLiveStreamContent, setLiveStreamContent, useConversationStore, useSettingsStore } from '@/stores';
+import { emptyMultiModelColumnLayout } from '@/lib/multiModelColumnLayout';
+import { clearLiveStreamContent, setLiveStreamContent, useConversationStore, useMultiModelColumnLayoutStore, useSettingsStore } from '@/stores';
 import { LayoutSwitcher, MultiModelDisplay } from '../MultiModelDisplay';
 
 const openConversationPopout = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -143,6 +144,11 @@ describe('MultiModelDisplay', () => {
         ...useSettingsStore.getState().settings,
         multi_model_side_by_side_width_mode: 'scroll',
       },
+    });
+    useMultiModelColumnLayoutStore.setState({
+      layout: emptyMultiModelColumnLayout(),
+      loaded: true,
+      error: null,
     });
   });
 
@@ -619,11 +625,13 @@ describe('MultiModelDisplay', () => {
   });
 
   it('lets fit mode share the workspace instead of keeping a two-column width', () => {
-    useSettingsStore.setState({
-      settings: {
-        ...useSettingsStore.getState().settings,
-        multi_model_side_by_side_width_mode: 'fit',
+    useMultiModelColumnLayoutStore.setState({
+      layout: {
+        ...emptyMultiModelColumnLayout(),
+        mainWidthMode: 'fit',
       },
+      loaded: true,
+      error: null,
     });
     const versions = ['a', 'b', 'c'].map((id, index) => makeMessage({
       id: `assistant-${id}`,
@@ -639,6 +647,27 @@ describe('MultiModelDisplay', () => {
     expect(card).toHaveClass('aqbot-multi-model-card-fit');
     expect(card).toHaveStyle({ flex: '1 1 0', minWidth: '0px', width: 'auto' });
     expect(card.closest('.aqbot-multi-model-track')).toBeNull();
+  });
+
+  it('focuses the current answer card without changing the shared context', () => {
+    const onFocusVersion = vi.fn();
+    const onSetContextVersion = vi.fn();
+    const versions = ['a', 'b'].map((id, index) => makeMessage({
+      id: `assistant-${id}`,
+      model_id: `model-${id}`,
+      content: id,
+      is_active: index === 0,
+      version_index: index,
+    }));
+
+    render(renderDisplay(versions, versions[0]!.id, 'side-by-side', {
+      onFocusVersion,
+      onSetContextVersion,
+    }));
+
+    fireEvent.click(screen.getAllByLabelText('chat.multiModel.focusAnswer')[0]!);
+    expect(onFocusVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'assistant-a' }));
+    expect(onSetContextVersion).not.toHaveBeenCalled();
   });
 
   it('switches the displayed same-model version locally without setting context', () => {

@@ -144,6 +144,17 @@ vi.mock('@/stores', () => ({
       getState: () => settingsState,
     },
   ),
+  useMultiModelColumnLayoutStore: Object.assign(
+    (selector: (state: { layout: { popoutWidthMode: string }; ensureLoaded: () => Promise<void> }) => unknown) => selector({
+      layout: { popoutWidthMode: 'scroll' },
+      ensureLoaded: vi.fn().mockResolvedValue(undefined),
+    }),
+    {
+      getState: () => ({
+        ensureLoaded: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+  ),
 }));
 
 vi.mock('@/hooks/useKeyboardShortcuts', () => ({

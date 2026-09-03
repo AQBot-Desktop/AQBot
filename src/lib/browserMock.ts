@@ -713,11 +713,71 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'get_settings':
       return getStore('settings', DEFAULT_SETTINGS) as T;
     case 'save_settings': {
-      const settings = (args as any)?.settings;
+      const settings = (args as any)?.settings ?? {};
       const current = getStore('settings', DEFAULT_SETTINGS);
-      const merged = { ...current, ...settings };
+      const {
+        multi_model_side_by_side_width_mode: _mainWidthMode,
+        multi_model_popout_side_by_side_width_mode: _popoutWidthMode,
+        ...rest
+      } = settings;
+      const merged = {
+        ...current,
+        ...rest,
+        multi_model_side_by_side_width_mode: current.multi_model_side_by_side_width_mode,
+        multi_model_popout_side_by_side_width_mode: current.multi_model_popout_side_by_side_width_mode,
+      };
       setStore('settings', merged);
       return { saved: true, warnings: [] } as T;
+    }
+    case 'get_multi_model_column_layout':
+      return getStore('multi_model_column_layout', {
+        mainWidthMode: 'scroll',
+        popoutWidthMode: 'scroll',
+        columnWidths: {},
+      }) as T;
+    case 'set_multi_model_side_by_side_width_mode': {
+      const current = getStore('multi_model_column_layout', {
+        mainWidthMode: 'scroll',
+        popoutWidthMode: 'scroll',
+        columnWidths: {},
+      });
+      const view = (args as any)?.view;
+      const mode = (args as any)?.mode === 'fit' ? 'fit' : 'scroll';
+      const next = {
+        ...current,
+        ...(view === 'popout' ? { popoutWidthMode: mode } : { mainWidthMode: mode }),
+      };
+      setStore('multi_model_column_layout', next);
+      return next as T;
+    }
+    case 'set_multi_model_column_width': {
+      const current = getStore('multi_model_column_layout', {
+        mainWidthMode: 'scroll',
+        popoutWidthMode: 'scroll',
+        columnWidths: {},
+      });
+      const view = (args as any)?.view;
+      const providerId = String((args as any)?.providerId ?? '');
+      const modelId = String((args as any)?.modelId ?? '');
+      const widthPx = (args as any)?.widthPx as number | null | undefined;
+      const key = `${providerId}:${modelId}`;
+      const columnWidths: Record<string, number> = { ...(current.columnWidths ?? {}) };
+      if (widthPx == null) {
+        delete columnWidths[key];
+      } else {
+        columnWidths[key] = widthPx;
+      }
+      const next = {
+        ...current,
+        columnWidths,
+        ...(widthPx == null
+          ? {}
+          : view === 'popout'
+            ? { popoutWidthMode: 'scroll' }
+            : { mainWidthMode: 'scroll' }),
+      };
+      setStore('multi_model_column_layout', next);
+      return next as T;
     }
     case 'list_system_fonts':
       return [] as T;

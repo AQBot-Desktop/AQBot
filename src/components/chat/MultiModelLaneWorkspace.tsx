@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Tooltip, Typography, theme } from 'antd';
+import { App, Button, Tooltip, Typography, theme } from 'antd';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Square } from 'lucide-react';
 import { ModelIcon } from '@lobehub/icons';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import { useTranslation } from 'react-i18next';
+import { useMultiModelColumnWidth } from '@/hooks/useMultiModelColumnWidth';
 import type { LaneColumn } from '@/lib/multiModelLanes';
 import {
-  MULTI_MODEL_COLUMN_MIN_WIDTH_PX,
-  normalizeMultiModelSideBySideWidthMode,
+  nextLaneScrollOffset,
   sideBySideColumnLayout,
   sideBySideTrackStyle,
 } from '@/lib/multiModelColumnLayout';
-import { useSettingsStore } from '@/stores';
+import { MultiModelColumnResizeHandle } from './MultiModelColumnResizeHandle';
+import { MultiModelColumnWidthControl } from './MultiModelColumnWidthControl';
 
 export interface MultiModelLaneWorkspaceProps {
   columns: LaneColumn[];
@@ -33,23 +34,34 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
 }: MultiModelLaneWorkspaceProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const widthMode = normalizeMultiModelSideBySideWidthMode(
-    useSettingsStore((state) => state.settings.multi_model_popout_side_by_side_width_mode),
-  );
+  const { message } = App.useApp();
+  const {
+    layoutMode,
+    resolvedWidthPx,
+    previewWidth,
+    clearPreview,
+    commitWidth,
+  } = useMultiModelColumnWidth('popout');
   const [maximizedKey, setMaximizedKey] = useState<string | null>(null);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLElement | null>(null);
+  const columnRefs = useRef<Record<string, HTMLElement | null>>({});
   const headerIds = useMemo(
     () => columns.map((_, index) => `multi-model-lane-${index}`),
     [columns],
   );
-  const visibleColumns = maximizedKey
-    ? columns.filter((column) => column.key === maximizedKey)
-    : columns;
-  const enableScroll = widthMode === 'scroll' && visibleColumns.length > 1;
+  const visibleColumnCount = maximizedKey ? 1 : columns.length;
+  const enableScroll = layoutMode === 'scroll' && !maximizedKey && columns.length > 1;
+
+  useEffect(() => {
+    if (maximizedKey && !columns.some((column) => column.key === maximizedKey)) {
+      setMaximizedKey(null);
+    }
+  }, [columns, maximizedKey]);
 
   const syncPager = useCallback((viewport: HTMLElement | null) => {
     if (!viewport) {
@@ -95,14 +107,38 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
       observer.disconnect();
       inst.destroy();
     };
-  }, [enableScroll, syncPager, visibleColumns.length]);
+  }, [enableScroll, syncPager, columns.length, layoutMode, maximizedKey]);
+
+  useEffect(() => {
+    const host = scrollRef.current;
+    if (!host) return undefined;
+    const update = () => setContainerWidth(host.clientWidth);
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [columns.length, layoutMode, maximizedKey]);
 
   const scrollByColumn = (direction: -1 | 1) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const column = viewport.querySelector<HTMLElement>('[data-testid^="multi-model-lane-column-"]');
-    const amount = column?.getBoundingClientRect().width || MULTI_MODEL_COLUMN_MIN_WIDTH_PX;
-    viewport.scrollBy({ left: direction * amount, behavior: 'smooth' });
+    const visible = [...viewport.querySelectorAll<HTMLElement>('[data-testid^="multi-model-lane-column-"]')]
+      .filter((column) => column.style.display !== 'none');
+    const nextLeft = nextLaneScrollOffset(
+      visible.map((column) => column.offsetLeft),
+      viewport.scrollLeft,
+      direction,
+    );
+    viewport.scrollTo({ left: nextLeft, behavior: 'smooth' });
+  };
+
+  const saveColumnWidth = async (providerId: string, modelId: string, widthPx: number | null) => {
+    try {
+      await commitWidth(providerId, modelId, widthPx);
+    } catch {
+      message.error(t('chat.multiModel.columnWidthSaveFailed'));
+    }
   };
 
   return (
@@ -133,28 +169,38 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
         <div
           className="aqbot-multi-model-lane-track"
           style={{
-            ...sideBySideTrackStyle(widthMode, 0),
+            ...sideBySideTrackStyle(layoutMode, 0),
             height: '100%',
           }}
         >
-        {visibleColumns.map((column, index) => {
+        {columns.map((column, index) => {
           const { modelName, providerName } = getModelDisplayInfo(column.modelId, column.providerId);
           const headerId = headerIds[index] ?? `multi-model-lane-${column.key}`;
           const columnStreaming = streamingColumnKeys?.has(column.key) ?? false;
-          const columnLayout = sideBySideColumnLayout(visibleColumns.length, widthMode);
+          const hidden = Boolean(maximizedKey && column.key !== maximizedKey);
+          const customWidthPx = resolvedWidthPx(column.providerId, column.modelId, containerWidth);
+          const columnLayout = sideBySideColumnLayout(
+            visibleColumnCount,
+            maximizedKey === column.key ? 'fit' : layoutMode,
+            maximizedKey ? undefined : customWidthPx,
+          );
           return (
             <section
               key={column.key}
+              ref={(node) => {
+                columnRefs.current[column.key] = node;
+              }}
               aria-labelledby={headerId}
               data-testid={`multi-model-lane-column-${column.key}`}
               className={columnLayout.className}
               style={{
                 ...columnLayout.style,
-                display: 'flex',
+                display: hidden ? 'none' : 'flex',
                 flexDirection: 'column',
                 height: '100%',
                 minHeight: 0,
-                borderRight: index < visibleColumns.length - 1
+                position: 'relative',
+                borderRight: !hidden && index < columns.length - 1
                   ? `1px solid ${token.colorBorderSecondary}`
                   : undefined,
                 background: token.colorBgContainer,
@@ -201,12 +247,21 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
                     {t('chat.multiModel.historicalLane')}
                   </Typography.Text>
                 ) : null}
-                <Tooltip title={maximizedKey ? t('chat.multiModel.collapseColumn') : t('chat.multiModel.expandColumn')}>
+                <MultiModelColumnWidthControl
+                  currentWidthPx={customWidthPx ?? Math.max(containerWidth / Math.max(visibleColumnCount, 1), 320)}
+                  onCommit={(widthPx) => {
+                    void saveColumnWidth(column.providerId, column.modelId, widthPx);
+                  }}
+                  onReset={() => {
+                    void saveColumnWidth(column.providerId, column.modelId, null);
+                  }}
+                />
+                <Tooltip title={maximizedKey === column.key ? t('chat.multiModel.collapseColumn') : t('chat.multiModel.expandColumn')}>
                   <Button
                     type="text"
                     size="small"
-                    aria-label={maximizedKey ? t('chat.multiModel.collapseColumn') : t('chat.multiModel.expandColumn')}
-                    icon={maximizedKey ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    aria-label={maximizedKey === column.key ? t('chat.multiModel.collapseColumn') : t('chat.multiModel.expandColumn')}
+                    icon={maximizedKey === column.key ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                     onClick={() => setMaximizedKey((current) => (current === column.key ? null : column.key))}
                   />
                 </Tooltip>
@@ -223,8 +278,20 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
                   </Tooltip>
                 )}
               </div>
-              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
                 {renderConversation(column)}
+                {!maximizedKey ? (
+                  <MultiModelColumnResizeHandle
+                    ariaLabel={t('chat.multiModel.resizeColumn')}
+                    columnEl={columnRefs.current[column.key] ?? null}
+                    maxWidthPx={containerWidth || 10000}
+                    onPreview={(widthPx) => previewWidth(column.providerId, column.modelId, widthPx)}
+                    onCommit={(widthPx) => {
+                      void saveColumnWidth(column.providerId, column.modelId, widthPx);
+                    }}
+                    onCancel={() => clearPreview(column.providerId, column.modelId)}
+                  />
+                ) : null}
               </div>
             </section>
           );

@@ -3,6 +3,7 @@ import {
   CHAT_AUTO_SCROLL_BOTTOM_THRESHOLD,
   CHAT_SCROLL_IS_REVERSED,
   captureMessageScrollAnchor,
+  isReversedScrollBox,
   getDistanceToHistoryTop,
   getScrollTopAfterPrepend,
   hasMeasuredScrollLayoutChanged,
@@ -18,6 +19,14 @@ import {
 describe('chat scroll helpers', () => {
   it('exposes the chat bubble list as a normal scroll container when Bubble.List autoScroll is disabled', () => {
     expect(CHAT_SCROLL_IS_REVERSED).toBe(false);
+  });
+
+  it('detects reversed bubble lists from the live flex direction', () => {
+    const el = document.createElement('div');
+    el.style.flexDirection = 'column-reverse';
+    expect(isReversedScrollBox(el)).toBe(true);
+    el.style.flexDirection = 'column';
+    expect(isReversedScrollBox(el)).toBe(false);
   });
 
   it('uses the app scroll mode to show the bottom button when the user leaves the latest message area', () => {

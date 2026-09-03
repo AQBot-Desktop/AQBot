@@ -369,8 +369,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       },
     }));
     try {
+      const {
+        multi_model_side_by_side_width_mode: _mainWidthMode,
+        multi_model_popout_side_by_side_width_mode: _popoutWidthMode,
+        ...settingsWithoutLayoutModes
+      } = merged;
       const result = await invoke<{ saved?: boolean; warnings?: string[] } | void>('save_settings', {
-        settings: merged,
+        settings: settingsWithoutLayoutModes,
       });
       return result && typeof result === 'object' ? result.warnings ?? [] : [];
     } catch (e) {

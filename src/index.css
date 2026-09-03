@@ -870,6 +870,9 @@ html[data-theme="dark"] .katex-display {
   min-width: 0;
   width: auto;
 }
+.aqbot-multi-model-card-custom {
+  flex: 0 0 auto;
+}
 .aqbot-multi-model-lane-scroll .ant-bubble {
   padding-inline: 0;
 }

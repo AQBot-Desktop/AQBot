@@ -14,6 +14,7 @@ import { useMcpStore } from './mcpStore';
 import { useProviderStore } from './providerStore';
 import { useRoleStore } from './roleStore';
 import { useSearchStore } from './searchStore';
+import { useMultiModelColumnLayoutStore } from './multiModelColumnLayoutStore';
 import { useSettingsStore } from './settingsStore';
 import { useSkillStore } from './skillStore';
 
@@ -48,6 +49,7 @@ export function invalidateApplicationResources(reason: ResourceInvalidationReaso
   useMcpStore.getState().invalidateServers(reason);
   useSearchStore.getState().invalidateProviders(reason);
   useSettingsStore.getState().invalidateSettings(reason);
+  useMultiModelColumnLayoutStore.getState().invalidate();
   useRoleStore.getState().invalidateRoles(reason);
   useSkillStore.getState().invalidateSkills(reason);
 }

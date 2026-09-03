@@ -37,11 +37,13 @@ pub async fn save_settings(db: &DatabaseConnection, settings: &AppSettings) -> R
     let value = serde_json::to_value(settings).map_err(|error| {
         AQBotError::Validation(format!("Failed to serialize application settings: {error}"))
     })?;
-    let serde_json::Value::Object(map) = value else {
+    let serde_json::Value::Object(mut map) = value else {
         return Err(AQBotError::Validation(
             "Application settings must serialize to an object".to_string(),
         ));
     };
+    map.remove(super::multi_model_column_layout::MAIN_WIDTH_MODE_KEY);
+    map.remove(super::multi_model_column_layout::POPOUT_WIDTH_MODE_KEY);
 
     db.transaction::<_, _, sea_orm::DbErr>(|txn| {
         Box::pin(async move {
