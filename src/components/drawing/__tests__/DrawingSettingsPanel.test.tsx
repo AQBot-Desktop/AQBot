@@ -19,6 +19,8 @@ vi.mock('react-i18next', () => ({
       fallbackOrOptions?: string | Record<string, unknown>,
     ) => {
       const labels: Record<string, string> = {
+        'drawing.provider': 'Provider',
+        'drawing.model': '模型',
         'drawing.aspectRatio': '宽高比',
         'drawing.resolution': '分辨率',
         'drawing.batchCount': '批量张数',
@@ -92,6 +94,34 @@ const providersFixture: ProviderConfig[] = [{
   created_at: 0,
   updated_at: 0,
 }];
+
+function imageModel(
+  providerId: string,
+  modelId: string,
+  name = modelId,
+): ProviderConfig['models'][number] {
+  return {
+    ...providersFixture[0].models[0],
+    provider_id: providerId,
+    model_id: modelId,
+    name,
+  };
+}
+
+function targetFixture(
+  providerId: string,
+  modelId: string,
+  name = modelId,
+  providerName = 'OpenAI Responses',
+): DrawingTarget {
+  return {
+    ...xaiTarget,
+    provider_id: providerId,
+    provider_name: providerName,
+    model_id: modelId,
+    model_name: name,
+  };
+}
 
 const xaiTarget: DrawingTarget = {
   provider_id: 'provider-1',
@@ -531,6 +561,95 @@ describe('DrawingSettingsPanel', () => {
 
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
       size: 'auto',
+    }));
+  });
+
+  it('keeps an openai_responses provider when switching to another model on the same provider', async () => {
+    const onChange = vi.fn();
+    const provider: ProviderConfig = {
+      ...providersFixture[0],
+      id: 'responses-1',
+      name: 'OpenAI Responses',
+      provider_type: 'openai_responses',
+      models: [
+        imageModel('responses-1', 'gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'),
+        imageModel('responses-1', 'gpt-image-2'),
+      ],
+    };
+
+    render(
+      <DrawingSettingsPanel
+        settings={{
+          ...settingsFixture,
+          providerId: 'responses-1',
+          modelId: 'gemini-3.1-flash-image',
+        }}
+        providers={[provider]}
+        targets={[
+          targetFixture('responses-1', 'gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'),
+          targetFixture('responses-1', 'gpt-image-2'),
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    const modelItem = screen.getByText('模型').closest('.ant-form-item');
+    fireEvent.mouseDown(within(modelItem as HTMLElement).getByRole('combobox'));
+    await userEvent.click(await screen.findByText('gpt-image-2', {
+      selector: '.ant-select-item-option-content',
+    }));
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      providerId: 'responses-1',
+      modelId: 'gpt-image-2',
+    }));
+  });
+
+  it('does not switch to another provider that also offers the selected model', async () => {
+    const onChange = vi.fn();
+    const responsesProvider: ProviderConfig = {
+      ...providersFixture[0],
+      id: 'responses-1',
+      name: 'OpenAI Responses',
+      provider_type: 'openai_responses',
+      models: [
+        imageModel('responses-1', 'gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'),
+        imageModel('responses-1', 'gpt-image-2'),
+      ],
+    };
+    const openaiProvider: ProviderConfig = {
+      ...providersFixture[0],
+      id: 'openai-1',
+      name: 'OpenAI',
+      models: [imageModel('openai-1', 'gpt-image-2')],
+    };
+
+    render(
+      <DrawingSettingsPanel
+        settings={{
+          ...settingsFixture,
+          providerId: 'responses-1',
+          modelId: 'gemini-3.1-flash-image',
+        }}
+        providers={[responsesProvider, openaiProvider]}
+        targets={[
+          targetFixture('responses-1', 'gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'),
+          targetFixture('responses-1', 'gpt-image-2'),
+          targetFixture('openai-1', 'gpt-image-2', 'gpt-image-2', 'OpenAI'),
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    const modelItem = screen.getByText('模型').closest('.ant-form-item');
+    fireEvent.mouseDown(within(modelItem as HTMLElement).getByRole('combobox'));
+    await userEvent.click(await screen.findByText('gpt-image-2', {
+      selector: '.ant-select-item-option-content',
+    }));
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      providerId: 'responses-1',
+      modelId: 'gpt-image-2',
     }));
   });
 });

@@ -26,7 +26,6 @@ export interface DrawingParamRenderContext {
   modelOptions: DrawingParamOption[];
   providerOptions: DrawingParamOption[];
   t: DrawingTranslate;
-  getProvidersForModel: (modelId: DrawingModelId) => ProviderConfig[];
 }
 
 export type DrawingParamOptionSource =

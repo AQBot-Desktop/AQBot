@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import {
   getDrawingParamConfig,
   getDrawingModelOptions,
-  getDrawingProvidersForModel,
   normalizeDrawingSettingsByConfig,
 } from '@/lib/drawingModels';
 import {
@@ -98,7 +97,6 @@ export function DrawingSettingsPanel({
     modelOptions: paramModelOptions,
     providerOptions: paramProviderOptions,
     t: translateOption,
-    getProvidersForModel: (modelId) => getDrawingProvidersForModel(providers, modelId),
   };
 
   const visibleBasicFields = basicFields.filter((field) =>

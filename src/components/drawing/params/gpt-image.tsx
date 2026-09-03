@@ -144,14 +144,6 @@ const basicFields: DrawingParamField[] = [
     type: 'modelSelect',
     labelKey: 'drawing.model',
     fallbackLabel: '模型',
-    normalizeOnChange: (value, context) => {
-      const modelId = value as DrawingModelId;
-      const nextProviders = context.getProvidersForModel(modelId);
-      const providerId = nextProviders.some((provider) => provider.id === context.settings.providerId)
-        ? context.settings.providerId
-        : nextProviders[0]?.id ?? '';
-      return { modelId, providerId };
-    },
   },
   {
     id: 'size',

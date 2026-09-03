@@ -63,7 +63,6 @@ function renderContext(settings: DrawingSettings): DrawingParamRenderContext {
     modelOptions: [],
     providerOptions: [],
     t: (_key, fallback) => fallback,
-    getProvidersForModel: () => [],
   };
 }
 
@@ -168,6 +167,54 @@ describe('drawing model/provider filtering', () => {
     expect(
       getDrawingProvidersForModel(providers, 'grok-imagine-image' as never).map((item) => item.id),
     ).toEqual(['custom-xai']);
+  });
+
+  it('includes openai_responses providers that expose an enabled Image model', () => {
+    const providers: ProviderConfig[] = [
+      providerFixture({
+        id: 'responses-1',
+        name: 'OpenAI Responses',
+        provider_type: 'openai_responses',
+        models: [
+          {
+            provider_id: 'responses-1',
+            model_id: 'gemini-3.1-flash-image',
+            name: 'Gemini 3.1 Flash Image',
+            group_name: 'gemini',
+            model_type: 'Image',
+            capabilities: [],
+            context_window: null,
+            enabled: true,
+            param_overrides: null,
+          },
+        ],
+      }),
+    ];
+
+    expect(getDrawingModelOptions(providers).map((item) => item.value)).toContain(
+      'gemini-3.1-flash-image',
+    );
+    expect(
+      getDrawingProvidersForModel(providers, 'gemini-3.1-flash-image').map((item) => item.id),
+    ).toEqual(['responses-1']);
+  });
+
+  it('does not rewrite the current provider when the model field changes', () => {
+    const config = getDrawingParamConfig('gpt-image-2');
+    const modelField = config.groups
+      .find((group) => group.id === 'basic')
+      ?.fields.find((field) => field.id === 'model');
+    const settings = settingsFixture({
+      providerId: 'responses-1',
+      modelId: 'gemini-3.1-flash-image',
+    });
+    const context = renderContext(settings);
+    const next = modelField?.normalizeOnChange
+      ? modelField.normalizeOnChange('gpt-image-2', context)
+      : { modelId: 'gpt-image-2' };
+
+    expect(next).toEqual({ modelId: 'gpt-image-2' });
+    expect(next.providerId).toBeUndefined();
   });
 
   it('returns localized drawing parameter options', () => {

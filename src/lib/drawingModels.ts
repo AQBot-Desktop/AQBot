@@ -34,19 +34,6 @@ export interface DrawingModelOption {
 type DrawingTranslate = (key: string, fallback: string) => string;
 const DRAWING_PARAM_CONFIGS: DrawingParamConfig[] = [GPT_IMAGE_PARAM_CONFIG];
 
-const IMAGE_PROVIDER_TYPES = new Set<ProviderConfig['provider_type']>([
-  'openai',
-  'custom',
-  'xai',
-  'glm',
-  'siliconflow',
-  'gemini',
-]);
-
-function isImageProviderCompatible(provider: ProviderConfig): boolean {
-  return IMAGE_PROVIDER_TYPES.has(provider.provider_type);
-}
-
 function hasEnabledImageModel(provider: ProviderConfig, modelId: DrawingModelId): boolean {
   return provider.models.some((model) =>
     model.enabled
@@ -61,7 +48,7 @@ export function getDrawingModelOptions(providers: ProviderConfig[] = []): Drawin
   );
 
   for (const provider of providers) {
-    if (!provider.enabled || !isImageProviderCompatible(provider)) continue;
+    if (!provider.enabled) continue;
     for (const model of provider.models) {
       if (!model.enabled || model.model_type !== 'Image') continue;
       options.set(model.model_id, {
@@ -84,9 +71,7 @@ export function getDrawingProvidersForModel(
   modelId: DrawingModelId,
 ): ProviderConfig[] {
   return providers.filter((provider) =>
-    provider.enabled
-    && isImageProviderCompatible(provider)
-    && hasEnabledImageModel(provider, modelId),
+    provider.enabled && hasEnabledImageModel(provider, modelId),
   );
 }
 
