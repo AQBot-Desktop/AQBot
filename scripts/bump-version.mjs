@@ -76,6 +76,11 @@ for (const { rel, filepath, json, old } of currentVersions) {
 
 console.log(`\n版本检查完成: ${version}`);
 
+execFileSync('node', [resolve(__dirname, 'verify-submodule-commits.mjs')], {
+  cwd: root,
+  stdio: 'inherit',
+});
+
 if (changed) {
   git(['add', ...files]);
 

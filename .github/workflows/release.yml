@@ -34,6 +34,11 @@ jobs:
           fi
           echo "✅ Version $TAG is consistent"
 
+      - name: Verify submodule commits exist on remotes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-submodule-commits.mjs
+
   # ── Generate release notes via git-cliff ─────────────
   draft-release-notes:
     name: Generate Release Notes
