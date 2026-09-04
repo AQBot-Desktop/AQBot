@@ -13,6 +13,8 @@ import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '@/stores';
 import type { Skill, MarketplaceSkill } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
+import { SkillAvailabilityPanel, skillInspectTagFor } from '@/components/skills/SkillAvailabilityPanel';
+
 
 const INSTALL_TARGETS = [
   { key: 'aqbot', label: '~/.aqbot/skills/', desc: 'AQBot' },
@@ -145,6 +147,7 @@ function SkillCard({
   onUninstall,
   onOpenDir,
   t,
+  inspectTag,
 }: {
   skill: Skill;
   onToggle: (name: string, enabled: boolean) => void;
@@ -152,6 +155,7 @@ function SkillCard({
   onUninstall: (name: string, sourcePath: string) => void;
   onOpenDir: (path: string) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
+  inspectTag?: React.ReactNode;
 }) {
   return (
     <Card
@@ -176,6 +180,7 @@ function SkillCard({
             {skill.version && (
               <Text type="secondary" style={{ fontSize: 12 }}>v{skill.version}</Text>
             )}
+            {inspectTag}
           </div>
           <Paragraph
             type="secondary"
@@ -323,9 +328,10 @@ export function SkillsPage() {
   const [messageApi, contextHolder] = message.useMessage();
   const {
     skills, marketplaceSkills, loading, marketplaceLoading, selectedSkill,
+    inspectReport, inspectLoading,
     ensureSkillsLoaded, loadSkills, getSkill, toggleSkill, installSkill, uninstallSkill,
     uninstallSkillGroup,
-    openSkillDir, searchMarketplace, clearSelectedSkill,
+    openSkillDir, searchMarketplace, inspectSkills, clearSelectedSkill,
   } = useSkillStore();
 
   const [installUrl, setInstallUrl] = useState('');
@@ -426,6 +432,14 @@ export function SkillsPage() {
     }
   }, [uninstallSkill, messageApi, t]);
 
+  const handleInspect = useCallback(async () => {
+    try {
+      await inspectSkills();
+    } catch (e) {
+      messageApi.error(t('skills.availabilityInspectFailed', { error: String(e) }));
+    }
+  }, [inspectSkills, messageApi, t]);
+
   const handleOpenSkillDir = useCallback(async (path: string) => {
     try {
       await openSkillDir(path);
@@ -519,6 +533,12 @@ export function SkillsPage() {
             icon={<RefreshCw size={14} />}
             onClick={() => loadSkills()}
           />
+          <Button
+            loading={inspectLoading}
+            onClick={() => { void handleInspect(); }}
+          >
+            {t('skills.checkAvailability')}
+          </Button>
         </Space.Compact>
         <Tabs
           size="small"
@@ -561,6 +581,14 @@ export function SkillsPage() {
             </Button>
           </div>
         )}
+        {inspectReport && (
+          <SkillAvailabilityPanel
+            report={inspectReport}
+            loading={inspectLoading}
+            onRecheck={() => { void handleInspect(); }}
+            onOpenDir={(path) => { void handleOpenSkillDir(path); }}
+          />
+        )}
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Spin />
@@ -586,6 +614,7 @@ export function SkillsPage() {
                 onUninstall={handleUninstall}
                 onOpenDir={handleOpenSkillDir}
                 t={t}
+                inspectTag={skillInspectTagFor(inspectReport, skill, t)}
               />
             ))}
             {Array.from(groupedSkills.groups.entries()).map(([groupKey, groupSkills]) => {
@@ -658,6 +687,7 @@ export function SkillsPage() {
                             skill={skill}
                             onToggle={handleToggle}
                             onDetail={handleDetail}
+                            inspectTag={skillInspectTagFor(inspectReport, skill, t)}
                             onUninstall={handleUninstall}
                             onOpenDir={handleOpenSkillDir}
                             t={t}

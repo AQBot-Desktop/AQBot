@@ -73,7 +73,7 @@ describe('agentStore tool history resource', () => {
   it('clears the conversation status when a tool finishes', async () => {
     const { useAgentStore } = await import('../agentStore');
     const store = useAgentStore.getState();
-    store.handleStatus('conv-status', 'running');
+    store.handleStatus({ conversationId: 'conv-status', message: 'running' });
     store.handleToolStart({
       conversationId: 'conv-status',
       assistantMessageId: 'message-status',

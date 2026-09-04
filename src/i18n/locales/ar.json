@@ -428,7 +428,17 @@
       "title": "المهارات",
       "searchPlaceholder": "مهارات البحث",
       "empty": "لا توجد مهارات بعد. قم بتثبيت بعضها على صفحة المهارات.",
-      "manage": "إدارة المهارات →"
+      "manage": "إدارة المهارات →",
+      "reason": {
+        "disabled": "مغلقة",
+        "skillToolDisabled": "أداة Skill معطّلة لهذا الوكيل",
+        "overridden": "تم تجاوزها بمصدر أعلى أولوية",
+        "parseFailed": "فشل التحليل: {{message}}",
+        "parseFailedAt": "فشل التحليل: {{message}} (السطر {{line}}، العمود {{column}})",
+        "unreadable": "غير قابلة للقراءة: {{message}}",
+        "disableModelInvocation": "لن تُضاف تلقائيًا إلى ملخص المهارات",
+        "unknown": "غير قابلة للاستدعاء ({{code}})"
+      }
     },
     "compressionSource": "مصدر الضغط",
     "retryCompression": "أعد محاولة الضغط",
@@ -2219,7 +2229,35 @@
     "installedAt": "تم التثبيت",
     "filesLabel": "الملفات",
     "skillMdNotFound": "لم يتم العثور على SKILL.md",
-    "skillMdFetchFailed": "فشل جلب SKILL.md"
+    "skillMdFetchFailed": "فشل جلب SKILL.md",
+    "checkAvailability": "تحقق من التوافر",
+    "recheck": "إعادة التحقق",
+    "copyDiagnostics": "نسخ التشخيص",
+    "copyDiagnosticsSuccess": "تم نسخ التشخيص",
+    "availabilityTitle": "توافر المهارات",
+    "availabilityCallable": "قابلة للاستدعاء",
+    "availabilityNotCallable": "غير قابلة للاستدعاء لهذا الوكيل",
+    "availabilityScanErrors": "أخطاء المسح",
+    "availabilitySkillToolOn": "أداة Skill مفعّلة",
+    "availabilitySkillToolOff": "أداة Skill معطّلة",
+    "availabilityNoScanErrors": "لا توجد أخطاء مسح",
+    "availabilityEmpty": "لم يتم العثور على مهارات",
+    "availabilityInspectFailed": "فشل التحقق من التوافر: {{error}}",
+    "availabilityOverridden": "تم تجاوزها",
+    "availabilityParseFailed": "فشل التحليل",
+    "availabilityUnreadable": "غير قابلة للقراءة",
+    "availabilityManualOnly": "استدعاء يدوي فقط",
+    "reason": {
+      "disabled": "مغلقة في مهاراتي",
+      "skillToolDisabled": "أداة Skill غير مفعّلة لهذا الوكيل",
+      "overridden": "تم تجاوزها بمصدر أعلى أولوية ({{path}})",
+      "parseFailed": "فشل التحليل: {{message}}",
+      "parseFailedAt": "فشل التحليل: {{message}} (السطر {{line}}، العمود {{column}})",
+      "unreadable": "غير قابلة للقراءة: {{message}}",
+      "disableModelInvocation": "تم تعيين disable-model-invocation لذا لن تُدرج في ملخص مهارات النموذج",
+      "callable": "يمكن حقنها في هذا الوكيل",
+      "unknown": "غير متاحة ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "اكتب إجابتك...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "سيكون لدى الوكيل حق الوصول الكامل ويمكنه تنفيذ أي عملية ملف دون قيود المسار. تأكد من أنك تثق في النموذج الحالي وموجه النظام.",
     "permissionFullAccessChatWarning": "سيتمتع الوكيل بوصول كامل، ويمكنه تشغيل أوامر الطرفية واستدعاء أدوات MCP المحددة وتنفيذ عمليات الملفات دون قيود على المسار أو تأكيد لكل إجراء. تأكد من أنك تثق في النموذج الحالي وموجّه النظام.",
     "permissionAcceptEditsWarning": "سيوافق الوكيل تلقائيًا على تعديلات الملفات واستدعاءات أدوات MCP المحددة دون تأكيد فردي. ستظل أوامر الطرفية تتطلب الموافقة. تأكد من أنك تفهم المخاطر الأمنية المحتملة.",
-    "cwdIsProcessStart": "دليل العمل الابتدائي للعملية وليس صندوق رمل لنظام الملفات"
+    "cwdIsProcessStart": "دليل العمل الابتدائي للعملية وليس صندوق رمل لنظام الملفات",
+    "stage": {
+      "preparingResources": "جارٍ تجهيز الموارد",
+      "preparingSkills": "جارٍ تجهيز المهارات",
+      "preparingContext": "جارٍ تجهيز السياق",
+      "waitingModel": "بانتظار النموذج",
+      "streaming": "جارٍ استلام الرد",
+      "retryWait": "جارٍ إعادة محاولة طلب النموذج (المحاولة {{attempt}}، الانتظار {{waitSeconds}} ث)"
+    }
   },
   "imageProtocol": {
     "title": "بروتوكول الصور",

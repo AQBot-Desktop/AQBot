@@ -428,7 +428,17 @@
       "title": "技能",
       "searchPlaceholder": "搜尋技能",
       "empty": "暫無技能，請先在技能頁安裝",
-      "manage": "管理技能 →"
+      "manage": "管理技能 →",
+      "reason": {
+        "disabled": "已關閉",
+        "skillToolDisabled": "目前 Agent 未啟用 Skill 工具",
+        "overridden": "被更高優先順序覆蓋",
+        "parseFailed": "解析失敗：{{message}}",
+        "parseFailedAt": "解析失敗：{{message}}（第 {{line}} 行第 {{column}} 列）",
+        "unreadable": "無法讀取：{{message}}",
+        "disableModelInvocation": "不會自動寫入技能摘要",
+        "unknown": "目前無法呼叫（{{code}}）"
+      }
     },
     "compressionSource": "壓縮輸入原文",
     "retryCompression": "重新壓縮",
@@ -2219,7 +2229,35 @@
     "installedAt": "安裝時間",
     "filesLabel": "文件",
     "skillMdNotFound": "找不到 SKILL.md",
-    "skillMdFetchFailed": "取得 SKILL.md 失敗"
+    "skillMdFetchFailed": "取得 SKILL.md 失敗",
+    "checkAvailability": "檢查可用性",
+    "recheck": "重新檢查",
+    "copyDiagnostics": "複製診斷資訊",
+    "copyDiagnosticsSuccess": "診斷資訊已複製",
+    "availabilityTitle": "技能可用性",
+    "availabilityCallable": "可呼叫",
+    "availabilityNotCallable": "目前 Agent 無法呼叫",
+    "availabilityScanErrors": "掃描錯誤",
+    "availabilitySkillToolOn": "Skill 工具已啟用",
+    "availabilitySkillToolOff": "Skill 工具已關閉",
+    "availabilityNoScanErrors": "未發現掃描錯誤",
+    "availabilityEmpty": "未發現技能",
+    "availabilityInspectFailed": "可用性檢查失敗：{{error}}",
+    "availabilityOverridden": "已被覆蓋",
+    "availabilityParseFailed": "解析失敗",
+    "availabilityUnreadable": "無法讀取",
+    "availabilityManualOnly": "僅手動呼叫",
+    "reason": {
+      "disabled": "已在「我的技能」中關閉",
+      "skillToolDisabled": "目前 Agent 未啟用 Skill 工具",
+      "overridden": "被更高優先順序來源覆蓋（{{path}}）",
+      "parseFailed": "解析失敗：{{message}}",
+      "parseFailedAt": "解析失敗：{{message}}（第 {{line}} 行第 {{column}} 列）",
+      "unreadable": "無法讀取：{{message}}",
+      "disableModelInvocation": "已設定 disable-model-invocation，不會寫入模型技能摘要",
+      "callable": "可注入目前 Agent",
+      "unknown": "無法使用（{{code}}）"
+    }
   },
   "agent": {
     "askUserPlaceholder": "輸入您的回答...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "Agent 將擁有完全存取權限，可以執行任何檔案操作且不受路徑限制。請確保你信任目前使用的模型和 System Prompt。",
     "permissionFullAccessChatWarning": "Agent 將擁有完全存取權限，可以在不逐次確認的情況下執行終端命令、呼叫已選 MCP 工具，以及執行不受路徑限制的檔案操作。請確保你信任目前使用的模型和 System Prompt。",
     "permissionAcceptEditsWarning": "Agent 將自動批准檔案編輯和已選 MCP 工具呼叫，無需逐一確認，終端命令仍需審批。請確保你了解潛在的安全風險。",
-    "cwdIsProcessStart": "進程起始工作目錄，不是檔案系統沙箱"
+    "cwdIsProcessStart": "進程起始工作目錄，不是檔案系統沙箱",
+    "stage": {
+      "preparingResources": "正在準備資源",
+      "preparingSkills": "正在準備技能",
+      "preparingContext": "正在準備上下文",
+      "waitingModel": "正在等待模型",
+      "streaming": "正在接收回覆",
+      "retryWait": "模型請求重試中（第 {{attempt}} 次，等待 {{waitSeconds}} 秒）"
+    }
   },
   "imageProtocol": {
     "title": "圖片協議",

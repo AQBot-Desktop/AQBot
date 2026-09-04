@@ -77,6 +77,7 @@ import {
   bindWaitingChatQueueToStream,
   ensureChatQueueStreamBlocker,
 } from './conversationStoreQueueActions';
+import { useAgentStore } from './agentStore';
 
 type ConversationMessageActions = Pick<ConversationState,
   | 'sendMessage'
@@ -876,7 +877,10 @@ export function createConversationMessageActions(
         status: 'partial',
       };
 
-      const streamId = createStreamId();
+      const runId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `agent-run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const streamId = runId;
       set((s) => ({
         messages: [...s.messages, optimisticUserMsg, placeholderAssistant],
         streaming: true,
@@ -1000,22 +1004,34 @@ export function createConversationMessageActions(
         assign(fn);
       };
 
-      try {
-        const eventPromise = new Promise<void>((resolve, reject) => {
-          cancelActiveRun = () => {
-            if (isCurrentAgentRun()) {
-              runtime.agentStreamSeq++;
-            }
-            cleanup();
-            resolve();
-          };
-          runtime.activeAgentCancel = cancelActiveRun;
+      useAgentStore.getState().setActiveRun(conversationId, runId);
+      const matchesRun = (eventRunId?: string) => !eventRunId || eventRunId === runId;
 
-          // Listen for the real assistant message ID from the backend
-          // This replaces the temp ID so tool call events can be matched
-          listen<{ conversationId: string; assistantMessageId: string }>('agent-message-id', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
-            // Flush pending buffer before switching IDs
+      try {
+        let resolveEvent: () => void = () => {};
+        let rejectEvent: (error: Error) => void = () => {};
+        const eventPromise = new Promise<void>((resolve, reject) => {
+          resolveEvent = resolve;
+          rejectEvent = reject;
+        });
+        cancelActiveRun = () => {
+          if (isCurrentAgentRun()) {
+            runtime.agentStreamSeq++;
+          }
+          cleanup();
+          resolveEvent();
+        };
+        runtime.activeAgentCancel = cancelActiveRun;
+
+        const [
+          messageIdUnlisten,
+          streamTextUnlisten,
+          streamThinkingUnlisten,
+          doneUnlisten,
+          errorUnlisten,
+        ] = await Promise.all([
+          listen<{ conversationId: string; assistantMessageId: string; runId?: string }>('agent-message-id', (event) => {
+            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
             flushAgentStreamChunks();
             const realId = event.payload.assistantMessageId;
             const oldId = currentMsgId;
@@ -1034,36 +1050,28 @@ export function createConversationMessageActions(
                 ),
               };
             });
-          }).then(keepAgentUnlisten((fn) => { unlistenMessageId = fn; }));
-
-          // Listen for incremental text chunks — buffer and flush periodically
+          }),
           listen<AgentStreamTextEvent>('agent-stream-text', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
+            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
             _agentPendingText += event.payload.text;
             scheduleAgentFlush();
-          }).then(keepAgentUnlisten((fn) => { unlistenStreamText = fn; }));
-
-          // Listen for incremental thinking chunks — buffer and flush periodically
+          }),
           listen<AgentStreamThinkingEvent>('agent-stream-thinking', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
+            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
             _agentPendingThinking += event.payload.thinking;
             scheduleAgentFlush();
-          }).then(keepAgentUnlisten((fn) => { unlistenStreamThinking = fn; }));
-
-          // Listen for agent-done — correction overwrite with final content
+          }),
           listen<AgentDoneEvent>('agent-done', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
-            // Clear pending buffer (done event overwrites with final content)
+            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
             clearAgentStreamBuffer();
             const isActiveConversation = get().activeConversationId === conversationId;
-            // Skip if streaming was already cancelled (avoid stale fetchMessages re-render)
             const isStillStreaming = get().streaming && get().streamingMessageId === currentMsgId;
             if (!isStillStreaming) {
               if (!isActiveConversation) {
                 runtime.pendingConversationRefresh.add(conversationId);
               }
               cleanup();
-              resolve();
+              resolveEvent();
               return;
             }
 
@@ -1094,24 +1102,19 @@ export function createConversationMessageActions(
 
             cleanup();
             if (isActiveConversation) {
-              // Fetch messages to fully sync with backend (real user message ID, etc.)
               get().fetchMessages(conversationId);
             } else {
               runtime.pendingConversationRefresh.add(conversationId);
             }
-            resolve();
-          }).then(keepAgentUnlisten((fn) => { unlistenDone = fn; }));
-
-          // Listen for agent-error
+            resolveEvent();
+          }),
           listen<AgentErrorEvent>('agent-error', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun()) return;
-            // Clear pending buffer (error event overwrites content)
+            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
             clearAgentStreamBuffer();
-            // Skip if streaming was already cancelled
             const isStillStreaming = get().streaming && get().streamingMessageId === currentMsgId;
             if (!isStillStreaming) {
               cleanup();
-              resolve();
+              resolveEvent();
               return;
             }
 
@@ -1138,11 +1141,20 @@ export function createConversationMessageActions(
             }));
 
             cleanup();
-            reject(new Error(event.payload.message));
-          }).then(keepAgentUnlisten((fn) => { unlistenError = fn; }));
-        });
+            rejectEvent(new Error(event.payload.message));
+          }),
+        ]);
 
-        // Invoke the backend command (this creates the real user message in DB)
+        keepAgentUnlisten((fn) => { unlistenMessageId = fn; })(messageIdUnlisten);
+        keepAgentUnlisten((fn) => { unlistenStreamText = fn; })(streamTextUnlisten);
+        keepAgentUnlisten((fn) => { unlistenStreamThinking = fn; })(streamThinkingUnlisten);
+        keepAgentUnlisten((fn) => { unlistenDone = fn; })(doneUnlisten);
+        keepAgentUnlisten((fn) => { unlistenError = fn; })(errorUnlisten);
+
+        if (cleanedUp || !isCurrentAgentRun()) {
+          return;
+        }
+
         await get().startStreamListening();
         await invoke('agent_query', {
           conversationId,
@@ -1154,10 +1166,9 @@ export function createConversationMessageActions(
           enabledKnowledgeBaseIds: capabilityIds.enabledKnowledgeBaseIds,
           enabledMemoryNamespaceIds: capabilityIds.enabledMemoryNamespaceIds,
           streamId,
+          runId,
         });
 
-        // Keep listening until done/error/cancel. Return now so the composer
-        // can clear while the assistant placeholder stays on screen.
         void eventPromise.catch((error) => {
           console.error('[sendAgentMessage] stream error:', error);
         });
@@ -1165,8 +1176,8 @@ export function createConversationMessageActions(
         cleanup();
         const errMsg = String(e);
         console.error('[sendAgentMessage] error:', errMsg);
+        useAgentStore.getState().clearStatus(conversationId, runId);
 
-        // If streaming is still true, the error came from invoke itself (not an event)
         if (get().streaming && (get().streamingMessageId === currentMsgId)) {
           set((s) => ({
             streaming: false,

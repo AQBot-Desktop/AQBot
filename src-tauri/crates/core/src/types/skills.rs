@@ -50,6 +50,48 @@ pub struct SkillUpdateInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SkillAvailabilityReason {
+    pub code: String,
+    pub params: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInspectItem {
+    pub name: String,
+    pub description: String,
+    pub source: String,
+    pub source_path: String,
+    pub enabled: bool,
+    pub disable_model_invocation: bool,
+    pub user_invocable: bool,
+    pub group: Option<String>,
+    pub effective: bool,
+    pub effective_source_path: Option<String>,
+    pub callable: bool,
+    pub reasons: Vec<SkillAvailabilityReason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInspectScanError {
+    pub path: String,
+    pub code: String,
+    pub message: String,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInspectReport {
+    pub items: Vec<SkillInspectItem>,
+    pub scan_errors: Vec<SkillInspectScanError>,
+    pub skill_tool_allowed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MarketplaceSkill {
     pub name: String,
     pub description: String,

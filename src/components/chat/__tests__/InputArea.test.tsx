@@ -229,6 +229,8 @@ vi.mock('@/stores', () => ({
       selector({
         skills: [],
         skillsMeta: { status: 'ready' },
+        inspectReport: null,
+        inspectSkills: async () => ({ items: [], scanErrors: [], skillToolAllowed: true }),
         ensureSkillsLoaded: async () => {},
         toggleSkill: async () => {},
       }),

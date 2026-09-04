@@ -428,7 +428,17 @@
       "title": "Habilidades",
       "searchPlaceholder": "Habilidades de búsqueda",
       "empty": "Aún no hay habilidades. Instale algunos en la página de Habilidades.",
-      "manage": "Administrar habilidades →"
+      "manage": "Administrar habilidades →",
+      "reason": {
+        "disabled": "Desactivada",
+        "skillToolDisabled": "La herramienta Skill está desactivada para este Agent",
+        "overridden": "Sustituida por un origen de mayor prioridad",
+        "parseFailed": "Error de análisis: {{message}}",
+        "parseFailedAt": "Error de análisis: {{message}} (línea {{line}}, columna {{column}})",
+        "unreadable": "No se puede leer: {{message}}",
+        "disableModelInvocation": "No se añade automáticamente al resumen de habilidades",
+        "unknown": "No se puede invocar ({{code}})"
+      }
     },
     "compressionSource": "Fuente de compresión",
     "retryCompression": "Reintentar compresión",
@@ -2219,7 +2229,35 @@
     "installedAt": "Instalado",
     "filesLabel": "Archivos",
     "skillMdNotFound": "No se encontró SKILL.md",
-    "skillMdFetchFailed": "Error al obtener SKILL.md"
+    "skillMdFetchFailed": "Error al obtener SKILL.md",
+    "checkAvailability": "Comprobar disponibilidad",
+    "recheck": "Volver a comprobar",
+    "copyDiagnostics": "Copiar diagnóstico",
+    "copyDiagnosticsSuccess": "Diagnóstico copiado",
+    "availabilityTitle": "Disponibilidad de habilidades",
+    "availabilityCallable": "Invocable",
+    "availabilityNotCallable": "No invocable para este Agent",
+    "availabilityScanErrors": "Errores de análisis",
+    "availabilitySkillToolOn": "Herramienta Skill activada",
+    "availabilitySkillToolOff": "Herramienta Skill desactivada",
+    "availabilityNoScanErrors": "No hay errores de análisis",
+    "availabilityEmpty": "No se encontraron habilidades",
+    "availabilityInspectFailed": "Error al comprobar la disponibilidad: {{error}}",
+    "availabilityOverridden": "Sustituida",
+    "availabilityParseFailed": "Error de análisis",
+    "availabilityUnreadable": "No se puede leer",
+    "availabilityManualOnly": "Solo invocación manual",
+    "reason": {
+      "disabled": "Desactivada en Mis habilidades",
+      "skillToolDisabled": "La herramienta Skill no está activada para este Agent",
+      "overridden": "Sustituida por un origen de mayor prioridad ({{path}})",
+      "parseFailed": "Error de análisis: {{message}}",
+      "parseFailedAt": "Error de análisis: {{message}} (línea {{line}}, columna {{column}})",
+      "unreadable": "No se puede leer: {{message}}",
+      "disableModelInvocation": "disable-model-invocation está activo, así que no entra en el resumen de habilidades del modelo",
+      "callable": "Se puede inyectar en este Agent",
+      "unknown": "No disponible ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "Escriba su respuesta...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "El agente tendrá acceso completo y podrá realizar cualquier operación de archivo sin restricciones de ruta. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
     "permissionFullAccessChatWarning": "El agente tendrá acceso completo y podrá ejecutar comandos de terminal, invocar las herramientas MCP seleccionadas y realizar operaciones de archivos sin restricciones de ruta ni confirmación para cada acción. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
     "permissionAcceptEditsWarning": "El agente aprobará automáticamente las ediciones de archivos y las llamadas a las herramientas MCP seleccionadas sin confirmación individual. Los comandos de terminal seguirán requiriendo aprobación. Asegúrese de comprender los posibles riesgos de seguridad.",
-    "cwdIsProcessStart": "Directorio de trabajo inicial del proceso, no un entorno aislado del sistema de archivos"
+    "cwdIsProcessStart": "Directorio de trabajo inicial del proceso, no un entorno aislado del sistema de archivos",
+    "stage": {
+      "preparingResources": "Preparando recursos",
+      "preparingSkills": "Preparando habilidades",
+      "preparingContext": "Preparando contexto",
+      "waitingModel": "Esperando al modelo",
+      "streaming": "Recibiendo respuesta",
+      "retryWait": "Reintentando la solicitud al modelo (intento {{attempt}}, espera de {{waitSeconds}} s)"
+    }
   },
   "imageProtocol": {
     "title": "Protocolo de imagen",

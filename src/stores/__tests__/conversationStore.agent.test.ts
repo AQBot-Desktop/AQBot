@@ -217,6 +217,7 @@ describe('conversationStore agent streaming', () => {
       enabledKnowledgeBaseIds: [],
       enabledMemoryNamespaceIds: [],
       streamId: expect.any(String),
+      runId: expect.any(String),
     }));
   });
 

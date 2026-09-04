@@ -428,7 +428,17 @@
       "title": "Fähigkeiten",
       "searchPlaceholder": "Suchfähigkeiten",
       "empty": "Noch keine Fähigkeiten. Installieren Sie einige davon auf der Seite „Skills“.",
-      "manage": "Fertigkeiten verwalten →"
+      "manage": "Fertigkeiten verwalten →",
+      "reason": {
+        "disabled": "Deaktiviert",
+        "skillToolDisabled": "Skill-Werkzeug ist für diesen Agent aus",
+        "overridden": "Von einer Quelle mit höherer Priorität überschrieben",
+        "parseFailed": "Analyse fehlgeschlagen: {{message}}",
+        "parseFailedAt": "Analyse fehlgeschlagen: {{message}} (Zeile {{line}}, Spalte {{column}})",
+        "unreadable": "Nicht lesbar: {{message}}",
+        "disableModelInvocation": "Wird nicht in die Skill-Zusammenfassung aufgenommen",
+        "unknown": "Derzeit nicht aufrufbar ({{code}})"
+      }
     },
     "compressionSource": "Komprimierungsquelle",
     "retryCompression": "Komprimierung erneut versuchen",
@@ -2219,7 +2229,35 @@
     "installedAt": "Installiert",
     "filesLabel": "Dateien",
     "skillMdNotFound": "SKILL.md nicht gefunden",
-    "skillMdFetchFailed": "SKILL.md konnte nicht geladen werden"
+    "skillMdFetchFailed": "SKILL.md konnte nicht geladen werden",
+    "checkAvailability": "Verfügbarkeit prüfen",
+    "recheck": "Erneut prüfen",
+    "copyDiagnostics": "Diagnose kopieren",
+    "copyDiagnosticsSuccess": "Diagnose kopiert",
+    "availabilityTitle": "Skill-Verfügbarkeit",
+    "availabilityCallable": "Aufrufbar",
+    "availabilityNotCallable": "Für diesen Agent nicht aufrufbar",
+    "availabilityScanErrors": "Scanfehler",
+    "availabilitySkillToolOn": "Skill-Werkzeug aktiviert",
+    "availabilitySkillToolOff": "Skill-Werkzeug deaktiviert",
+    "availabilityNoScanErrors": "Keine Scanfehler",
+    "availabilityEmpty": "Keine Skills gefunden",
+    "availabilityInspectFailed": "Verfügbarkeitsprüfung fehlgeschlagen: {{error}}",
+    "availabilityOverridden": "Überschrieben",
+    "availabilityParseFailed": "Analyse fehlgeschlagen",
+    "availabilityUnreadable": "Nicht lesbar",
+    "availabilityManualOnly": "Nur manuell aufrufbar",
+    "reason": {
+      "disabled": "In „Meine Skills“ deaktiviert",
+      "skillToolDisabled": "Das Skill-Werkzeug ist für diesen Agent nicht aktiviert",
+      "overridden": "Von einer Quelle mit höherer Priorität überschrieben ({{path}})",
+      "parseFailed": "Analyse fehlgeschlagen: {{message}}",
+      "parseFailedAt": "Analyse fehlgeschlagen: {{message}} (Zeile {{line}}, Spalte {{column}})",
+      "unreadable": "Nicht lesbar: {{message}}",
+      "disableModelInvocation": "disable-model-invocation ist gesetzt, daher fehlt der Skill in der Modellzusammenfassung",
+      "callable": "Für diesen Agent injizierbar",
+      "unknown": "Nicht verfügbar ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "Geben Sie Ihre Antwort ein...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "Der Agent hat vollen Zugriff und kann jeden Dateivorgang ohne Pfadbeschränkungen ausführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und der Systemaufforderung vertrauen.",
     "permissionFullAccessChatWarning": "Der Agent erhält vollständigen Zugriff und kann Terminalbefehle ausführen, ausgewählte MCP-Tools aufrufen und Dateioperationen ohne Pfadbeschränkungen oder Bestätigung jeder einzelnen Aktion durchführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und dem System-Prompt vertrauen.",
     "permissionAcceptEditsWarning": "Der Agent genehmigt Dateiänderungen und Aufrufe ausgewählter MCP-Tools automatisch ohne individuelle Bestätigung. Terminalbefehle müssen weiterhin genehmigt werden. Stellen Sie sicher, dass Sie die potenziellen Sicherheitsrisiken verstehen.",
-    "cwdIsProcessStart": "Startverzeichnis des Prozesses, kein Dateisystem-Sandkasten"
+    "cwdIsProcessStart": "Startverzeichnis des Prozesses, kein Dateisystem-Sandkasten",
+    "stage": {
+      "preparingResources": "Ressourcen werden vorbereitet",
+      "preparingSkills": "Skills werden vorbereitet",
+      "preparingContext": "Kontext wird vorbereitet",
+      "waitingModel": "Warten auf das Modell",
+      "streaming": "Antwort wird empfangen",
+      "retryWait": "Modellanfrage wird wiederholt (Versuch {{attempt}}, Wartezeit {{waitSeconds}}s)"
+    }
   },
   "imageProtocol": {
     "title": "Bildprotokoll",

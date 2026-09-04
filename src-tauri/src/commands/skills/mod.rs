@@ -96,6 +96,71 @@ fn ensure_removable_skill_dir(skill_dir: &Path) -> Result<(), String> {
     ))
 }
 
+fn inspect_report_from_sdk(
+    report: open_agent_sdk::skills::SkillInspectReport,
+) -> SkillInspectReport {
+    SkillInspectReport {
+        items: report
+            .items
+            .into_iter()
+            .map(|item| SkillInspectItem {
+                name: item.name,
+                description: item.description,
+                source: item.source,
+                source_path: item.source_path,
+                enabled: item.enabled,
+                disable_model_invocation: item.disable_model_invocation,
+                user_invocable: item.user_invocable,
+                group: item.group,
+                effective: item.effective,
+                effective_source_path: item.effective_source_path,
+                callable: item.callable,
+                reasons: item
+                    .reasons
+                    .into_iter()
+                    .map(|reason| SkillAvailabilityReason {
+                        code: reason.code,
+                        params: reason.params,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        scan_errors: report
+            .scan_errors
+            .into_iter()
+            .map(|error| SkillInspectScanError {
+                path: error.path,
+                code: error.code,
+                message: error.message,
+                line: error.line,
+                column: error.column,
+            })
+            .collect(),
+        skill_tool_allowed: report.skill_tool_allowed,
+    }
+}
+
+#[tauri::command]
+pub async fn inspect_skills(state: State<'_, AppState>) -> Result<SkillInspectReport, String> {
+    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+    let skill_tool_allowed = aqbot_core::types::should_inject_skills_summary(
+        settings.agent_allowed_tools_enabled,
+        &settings.agent_allowed_tools,
+    );
+    let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+    let home = home_dir();
+    let report = tokio::task::spawn_blocking(move || {
+        open_agent_sdk::skills::inspect_global_skills(&home, &disabled, skill_tool_allowed)
+    })
+    .await
+    .map_err(|e| format!("Failed to inspect skills: {e}"))?;
+    Ok(inspect_report_from_sdk(report))
+}
+
 #[tauri::command]
 pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<SkillInfo>, String> {
     let home = home_dir();

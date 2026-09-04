@@ -317,7 +317,17 @@
       "title": "技能",
       "searchPlaceholder": "搜索技能",
       "empty": "暂无技能，请先在技能页安装",
-      "manage": "管理技能 →"
+      "manage": "管理技能 →",
+      "reason": {
+        "disabled": "已关闭",
+        "skillToolDisabled": "当前 Agent 未启用 Skill 工具",
+        "overridden": "被更高优先级覆盖",
+        "parseFailed": "解析失败：{{message}}",
+        "parseFailedAt": "解析失败：{{message}}（第 {{line}} 行第 {{column}} 列）",
+        "unreadable": "无法读取：{{message}}",
+        "disableModelInvocation": "不会自动写入技能摘要",
+        "unknown": "当前不可调用（{{code}}）"
+      }
     },
     "contextCleared": "上下文已从此处重置",
     "knowledge": {
@@ -2219,7 +2229,35 @@
     "installedAt": "安装时间",
     "filesLabel": "文件",
     "skillMdNotFound": "未找到 SKILL.md",
-    "skillMdFetchFailed": "获取 SKILL.md 失败"
+    "skillMdFetchFailed": "获取 SKILL.md 失败",
+    "checkAvailability": "检查可用性",
+    "recheck": "重新检查",
+    "copyDiagnostics": "复制诊断信息",
+    "copyDiagnosticsSuccess": "诊断信息已复制",
+    "availabilityTitle": "技能可用性",
+    "availabilityCallable": "可调用",
+    "availabilityNotCallable": "当前 Agent 不可调用",
+    "availabilityScanErrors": "扫描错误",
+    "availabilitySkillToolOn": "Skill 工具已启用",
+    "availabilitySkillToolOff": "Skill 工具已关闭",
+    "availabilityNoScanErrors": "未发现扫描错误",
+    "availabilityEmpty": "未发现技能",
+    "availabilityInspectFailed": "可用性检查失败：{{error}}",
+    "availabilityOverridden": "已被覆盖",
+    "availabilityParseFailed": "解析失败",
+    "availabilityUnreadable": "无法读取",
+    "availabilityManualOnly": "仅手动调用",
+    "reason": {
+      "disabled": "已在「我的技能」中关闭",
+      "skillToolDisabled": "当前 Agent 未启用 Skill 工具",
+      "overridden": "被更高优先级来源覆盖（{{path}}）",
+      "parseFailed": "解析失败：{{message}}",
+      "parseFailedAt": "解析失败：{{message}}（第 {{line}} 行第 {{column}} 列）",
+      "unreadable": "无法读取：{{message}}",
+      "disableModelInvocation": "已设置 disable-model-invocation，不会写入模型技能摘要",
+      "callable": "可注入当前 Agent",
+      "unknown": "不可用（{{code}}）"
+    }
   },
   "roles": {
     "title": "角色",
@@ -2320,7 +2358,15 @@
     "permissionFullAccessWarning": "Agent 将拥有完全访问权限，可以执行任何文件操作且不受路径限制。请确保你信任当前使用的模型和 System Prompt。",
     "permissionFullAccessChatWarning": "Agent 将拥有完全访问权限，可以在不逐次确认的情况下执行终端命令、调用已选 MCP 工具，以及执行不受路径限制的文件操作。请确保你信任当前使用的模型和 System Prompt。",
     "permissionAcceptEditsWarning": "Agent 将自动批准文件编辑和已选 MCP 工具调用，无需逐一确认，终端命令仍需审批。请确保你了解潜在的安全风险。",
-    "cwdIsProcessStart": "进程起始工作目录，不是文件系统沙箱"
+    "cwdIsProcessStart": "进程起始工作目录，不是文件系统沙箱",
+    "stage": {
+      "preparingResources": "正在准备资源",
+      "preparingSkills": "正在准备技能",
+      "preparingContext": "正在准备上下文",
+      "waitingModel": "正在等待模型",
+      "streaming": "正在接收回复",
+      "retryWait": "模型请求重试中（第 {{attempt}} 次，等待 {{waitSeconds}} 秒）"
+    }
   },
   "imageProtocol": {
     "title": "图片协议",

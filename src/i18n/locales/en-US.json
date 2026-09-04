@@ -445,7 +445,17 @@
       "title": "Skills",
       "searchPlaceholder": "Search skills",
       "empty": "No skills yet. Install some on the Skills page.",
-      "manage": "Manage skills →"
+      "manage": "Manage skills →",
+      "reason": {
+        "disabled": "Disabled",
+        "skillToolDisabled": "Skill tool is off for this Agent",
+        "overridden": "Overridden by a higher-priority source",
+        "parseFailed": "Parse failed: {{message}}",
+        "parseFailedAt": "Parse failed: {{message}} (line {{line}}, column {{column}})",
+        "unreadable": "Unreadable: {{message}}",
+        "disableModelInvocation": "Not included in the skill summary",
+        "unknown": "Not callable ({{code}})"
+      }
     },
     "categorySystemPromptPlaceholder": "System Prompt (conversations in this category inherit this prompt)",
     "imageMissingSource": "Image source is empty",
@@ -2219,7 +2229,35 @@
     "installedAt": "Installed",
     "filesLabel": "Files",
     "skillMdNotFound": "SKILL.md not found",
-    "skillMdFetchFailed": "Failed to fetch SKILL.md"
+    "skillMdFetchFailed": "Failed to fetch SKILL.md",
+    "checkAvailability": "Check availability",
+    "recheck": "Recheck",
+    "copyDiagnostics": "Copy diagnostics",
+    "copyDiagnosticsSuccess": "Diagnostics copied",
+    "availabilityTitle": "Skill availability",
+    "availabilityCallable": "Callable",
+    "availabilityNotCallable": "Not callable for this Agent",
+    "availabilityScanErrors": "Scan errors",
+    "availabilitySkillToolOn": "Skill tool enabled",
+    "availabilitySkillToolOff": "Skill tool disabled",
+    "availabilityNoScanErrors": "No scan errors",
+    "availabilityEmpty": "No skills found",
+    "availabilityInspectFailed": "Availability check failed: {{error}}",
+    "availabilityOverridden": "Overridden",
+    "availabilityParseFailed": "Parse failed",
+    "availabilityUnreadable": "Unreadable",
+    "availabilityManualOnly": "Manual invocation only",
+    "reason": {
+      "disabled": "Turned off in My Skills",
+      "skillToolDisabled": "The Skill tool is not enabled for this Agent",
+      "overridden": "Overridden by a higher-priority source ({{path}})",
+      "parseFailed": "Parse failed: {{message}}",
+      "parseFailedAt": "Parse failed: {{message}} (line {{line}}, column {{column}})",
+      "unreadable": "Unreadable: {{message}}",
+      "disableModelInvocation": "disable-model-invocation is set, so it is omitted from the model skill summary",
+      "callable": "Injectable for this Agent",
+      "unknown": "Unavailable ({{code}})"
+    }
   },
   "roles": {
     "title": "Roles",
@@ -2320,7 +2358,15 @@
     "permissionFullAccessWarning": "The agent will have full access and can perform any file operation without path restrictions. Make sure you trust the current model and System Prompt.",
     "permissionFullAccessChatWarning": "The agent will have full access and can run terminal commands, call selected MCP tools, and perform file operations without path restrictions or per-action confirmation. Make sure you trust the current model and System Prompt.",
     "permissionAcceptEditsWarning": "The agent will automatically approve file edits and calls to selected MCP tools without individual confirmation. Terminal commands will still require approval. Make sure you understand the potential security risks.",
-    "cwdIsProcessStart": "Process starting working directory, not a filesystem sandbox"
+    "cwdIsProcessStart": "Process starting working directory, not a filesystem sandbox",
+    "stage": {
+      "preparingResources": "Preparing resources",
+      "preparingSkills": "Preparing skills",
+      "preparingContext": "Preparing context",
+      "waitingModel": "Waiting for the model",
+      "streaming": "Receiving reply",
+      "retryWait": "Retrying the model request (attempt {{attempt}}, waiting {{waitSeconds}}s)"
+    }
   },
   "imageProtocol": {
     "title": "Image protocol",
