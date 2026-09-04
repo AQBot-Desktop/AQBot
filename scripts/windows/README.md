@@ -7,6 +7,7 @@
 - 脚本启动的 AQBot 进程仍存活
 - 该进程拥有标题为 `AQBot` 的可见、未最小化原生主窗口
 - 本次独立日志存在 `AQBot startup surface presented`，且字段为 `window="main" surface="app" visible=true`，这条日志由前端真实 commit 后的后端可见性确认产生；`surface="error"` 明确失败
+- 进程会一直占用 `aqbot.log` 的追加句柄，脚本必须以 `FileShare.ReadWrite` 读这份仍在写入的日志，不能用 `File.ReadAllText`；短暂 IO 错误继续轮询，不能直接判失败
 
 仅在全新的 GitHub-hosted Windows x64 runner 执行，ARM64 任务保持编译、打包验证，不声称通过运行验证；脚本拒绝已有 AQBot 进程和配置、文档或 WebView 数据，不删除已有内容
 

@@ -17,6 +17,32 @@ if (Test-Path -LiteralPath $outputPath) {
 New-Item -ItemType Directory -Path $outputPath | Out-Null
 $logPath = Join-Path $outputPath 'aqbot.log'
 
+# File.ReadAllText opens with FileShare.Read, which Windows rejects while AQBot
+# holds an append handle. Keep ReadWrite share; pwsh wraps IOException, so unwrap it.
+function Read-SharedLogText([string]$Path) {
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite
+        )
+        $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false), $true)
+        try {
+            return $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+    } catch {
+        $current = $_.Exception
+        while ($null -ne $current) {
+            if ($current -is [IO.IOException]) { return $null }
+            $current = $current.InnerException
+        }
+        throw
+    }
+}
+
 try {
     if (!$IsWindows -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
         throw 'This test requires a fresh GitHub-hosted Windows runner; do not run against a personal profile'
@@ -60,6 +86,20 @@ try {
     Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
     $executable = Join-Path $extractDirectory 'AQBot.exe'
     if (!(Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'Portable ZIP does not contain AQBot.exe at its root' }
+
+    $probePath = Join-Path $outputPath 'share-probe.log'
+    $writer = [IO.FileStream]::new($probePath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+    try {
+        $payload = [Text.Encoding]::UTF8.GetBytes("shared-log-probe`n")
+        $writer.Write($payload, 0, $payload.Length)
+        $writer.Flush()
+        if ((Read-SharedLogText -Path $probePath) -notmatch 'shared-log-probe') {
+            throw 'Shared log reader could not see bytes from a live append handle'
+        }
+    } finally {
+        $writer.Dispose()
+        Remove-Item -LiteralPath $probePath -ErrorAction SilentlyContinue
+    }
 
     Add-Type -TypeDefinition @'
 using System;
@@ -110,8 +150,11 @@ public static class AQBotSmokeNative {
         if ($appProcess.HasExited) { throw "AQBot exited before startup completed, code $($appProcess.ExitCode)" }
         $lines = @()
         if (Test-Path -LiteralPath $logPath) {
-            $text = [IO.File]::ReadAllText($logPath) -replace '\x1b\[[0-9;]*m', ''
-            $lines = @($text -split "`n" | Where-Object { $_ -match 'AQBot startup surface presented' })
+            $text = Read-SharedLogText -Path $logPath
+            if ($null -ne $text) {
+                $text = $text -replace '\x1b\[[0-9;]*m', ''
+                $lines = @($text -split "`n" | Where-Object { $_ -match 'AQBot startup surface presented' })
+            }
         }
         if (@($lines | Where-Object { $_ -match '\bsurface="?error"?(\s|$)' }).Count -gt 0) {
             throw 'AQBot presented a startup error surface; this is not a successful launch'
