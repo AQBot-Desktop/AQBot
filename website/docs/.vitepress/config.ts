@@ -1,17 +1,17 @@
 import { defineConfig } from 'vitepress';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { applyPageSeo, OG_IMAGE } from './seo';
+import { SITE_URL } from './theme/constants';
 
 const rootPkg = JSON.parse(
   readFileSync(resolve(__dirname, '../../../package.json'), 'utf-8'),
 );
 const APP_VERSION = rootPkg.version as string;
 
-const SITE_URL = 'https://app.aqbot.top';
-const OG_IMAGE = `${SITE_URL}/og-image.png`;
-
 export default defineConfig({
   title: 'AQBot',
+  titleTemplate: ':title - AQBot',
   description: 'AQBot — Open-source AI desktop client with built-in AI gateway, multi-model chat, MCP server support. Connect OpenAI, Claude, Gemini and more LLMs in one app.',
 
   base: '/',
@@ -23,6 +23,10 @@ export default defineConfig({
 
   sitemap: {
     hostname: SITE_URL,
+  },
+
+  transformPageData(pageData) {
+    applyPageSeo(pageData);
   },
 
   vite: {
@@ -38,6 +42,7 @@ export default defineConfig({
       `(()=>{try{var s=localStorage.getItem("vitepress-theme-appearance")||"auto";var isDark=s==="auto"?window.matchMedia("(prefers-color-scheme: dark)").matches:s==="dark";if(isDark){document.documentElement.classList.add("dark");document.documentElement.setAttribute("data-mode","ink");}else{document.documentElement.classList.remove("dark");document.documentElement.setAttribute("data-mode","paper");}}catch(e){}})();`,
     ],
     ['link', { rel: 'icon', href: '/favicon.ico' }],
+    ['link', { rel: 'apple-touch-icon', href: '/logo.png' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     [
@@ -47,25 +52,19 @@ export default defineConfig({
         href: 'https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,600;0,700;0,800;0,900;1,800;1,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
       },
     ],
-    // Primary SEO meta
     ['meta', { name: 'theme-color', content: '#17171a' }],
     ['meta', { name: 'author', content: 'AQBot Team' }],
-    ['meta', { name: 'keywords', content: 'AQBot, AI desktop client, AI gateway, AI chat client, LLM client, multi-model AI, MCP server, OpenAI client, Claude client, Gemini client, AI assistant, desktop AI app, open source AI, ChatGPT alternative, AI aggregator, large language model, AI desktop application, Tauri AI app' }],
     ['meta', { name: 'robots', content: 'index, follow' }],
-    // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'AQBot' }],
-    ['meta', { property: 'og:title', content: 'AQBot — Open-source AI Desktop Client & Gateway' }],
-    ['meta', { property: 'og:description', content: 'Free, open-source AI desktop client with built-in gateway. Connect multiple LLMs (OpenAI, Claude, Gemini, DeepSeek) in one app. MCP server support, knowledge base, and more.' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
-    ['meta', { property: 'og:url', content: SITE_URL }],
-    ['meta', { property: 'og:locale', content: 'en' }],
-    ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
-    // Twitter Card
-    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'AQBot — Open-source AI Desktop Client & Gateway' }],
-    ['meta', { name: 'twitter:description', content: 'Free, open-source AI desktop client with built-in gateway. Multi-model chat, MCP server support, knowledge base.' }],
+    ['meta', { property: 'og:image:type', content: 'image/png' }],
+    ['meta', { property: 'og:image:width', content: '512' }],
+    ['meta', { property: 'og:image:height', content: '512' }],
+    ['meta', { property: 'og:image:alt', content: 'AQBot' }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
+    ['meta', { name: 'twitter:image:alt', content: 'AQBot' }],
   ],
 
   locales: {

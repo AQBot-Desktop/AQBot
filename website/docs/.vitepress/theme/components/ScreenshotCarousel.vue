@@ -85,7 +85,10 @@ function onSlideChange(swiper: SwiperType) {
 <template>
   <section class="hd-shots">
     <div class="hd-shots-header">
-      <h2 class="hd-shots-title">{{ heading || defaultHeading }}</h2>
+      <h2 class="hd-shots-title">
+        <i class="far fa-images" aria-hidden="true" />
+        {{ heading || defaultHeading }}
+      </h2>
       <p class="hd-shots-lead">{{ description || defaultDescription }}</p>
     </div>
 
@@ -108,7 +111,7 @@ function onSlideChange(swiper: SwiperType) {
             aria-label="Previous"
             @click="swiperRef?.slidePrev()"
           >
-            ←
+            <i class="far fa-circle-left" aria-hidden="true" />
           </button>
           <span class="hd-shot-counter">
             {{ String(active + 1).padStart(2, '0') }} / {{ String(shots.length).padStart(2, '0') }}
@@ -119,7 +122,7 @@ function onSlideChange(swiper: SwiperType) {
             aria-label="Next"
             @click="swiperRef?.slideNext()"
           >
-            →
+            <i class="far fa-circle-right" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -186,6 +189,14 @@ function onSlideChange(swiper: SwiperType) {
   color: var(--ink);
   line-height: 1.05;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hd-shots-title i {
+  color: var(--spot);
+  font-size: 0.7em;
 }
 
 .hd-shots-lead {

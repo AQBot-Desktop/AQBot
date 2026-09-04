@@ -443,14 +443,52 @@ a {
   text-transform: uppercase !important;
   font-weight: 500 !important;
   color: var(--dim) !important;
-  padding: 0 4px !important;
-  line-height: 60px !important;
-  transition: color 0.12s ease !important;
+  padding: 0 8px !important;
+  height: 60px !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  transition: color 0.12s ease, font-weight 0.12s ease !important;
+}
+
+.VPNavBarMenuLink::before,
+.VPNavScreenMenuLink::before {
+  font-family: "Font Awesome 7 Free" !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  font-size: 13px;
+  line-height: 1;
+  width: 1em;
+  flex-shrink: 0;
+  text-align: center;
+  content: "\f015";
+}
+
+.VPNavBarMenuLink[href$="/features"]::before,
+.VPNavScreenMenuLink[href$="/features"]::before {
+  content: "\f022";
+}
+
+.VPNavBarMenuLink[href$="/download"]::before,
+.VPNavScreenMenuLink[href$="/download"]::before {
+  content: "\f358";
+}
+
+.VPNavBarMenuLink[href*="/guide/getting-started"]::before,
+.VPNavScreenMenuLink[href*="/guide/getting-started"]::before {
+  content: "\f15c";
 }
 
 .VPNavBarMenuLink:hover,
+.VPNavBarMenuLink:focus-visible {
+  color: var(--spot) !important;
+  font-weight: 700 !important;
+}
+
 .VPNavBarMenuLink.active {
-  color: var(--ink) !important;
+  color: var(--spot) !important;
+  font-weight: 700 !important;
 }
 
 /* Hide default VitePress switch appearance & social icons (we use custom GroundSwitch & GitHubBadge) */
@@ -537,12 +575,14 @@ a {
   padding: 15px var(--gut) !important;
   display: flex !important;
   align-items: center !important;
+  gap: 10px !important;
   transition: color 0.12s ease !important;
 }
 
 .VPNavScreenMenuLink:hover,
 .VPNavScreenMenuLink.active {
   color: var(--spot) !important;
+  font-weight: 700 !important;
 }
 
 .VPNavScreen .appearance,
@@ -761,10 +801,29 @@ a.hd-btn,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   box-sizing: border-box;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.12s ease;
+}
+
+.hd-btn i,
+.hd-os-tab i,
+.hd-foot-link i,
+.hd-dl-tag i,
+.hd-hero-meta i {
+  font-size: 0.95em;
+  line-height: 1;
+  width: 1.1em;
+  text-align: center;
+}
+
+i.far,
+i.fab,
+i.fa-regular,
+i.fa-brands {
+  font-style: normal;
 }
 
 html:not(.dark) .hd-btn-primary,
@@ -1065,6 +1124,25 @@ body {
   font-size: 15px !important;
   letter-spacing: -0.02em !important;
   color: var(--ink) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.VPDocFooter .pager-link.prev .title::before,
+.VPDocFooter .pager-link.next .title::after {
+  font-family: "Font Awesome 7 Free";
+  font-weight: 400;
+  color: var(--spot);
+  font-size: 14px;
+}
+
+.VPDocFooter .pager-link.prev .title::before {
+  content: "\f359";
+}
+
+.VPDocFooter .pager-link.next .title::after {
+  content: "\f35a";
 }
 
 .VPDocFooter .pager-link.next {

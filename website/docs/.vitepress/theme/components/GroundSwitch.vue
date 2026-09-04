@@ -113,49 +113,21 @@ watch(isDark, (dark) => {
       :aria-label="currentLabel"
       @click="open = !open"
     >
-      <!-- Monitor / System Icon -->
-      <svg
+      <i
         v-if="preference === 'auto'"
-        class="hd-theme-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
+        class="far fa-window-maximize hd-theme-icon"
         aria-hidden="true"
-      >
-        <rect width="20" height="14" x="2" y="3" rx="2" />
-        <line x1="8" x2="16" y1="21" y2="21" />
-        <line x1="12" x2="12" y1="17" y2="21" />
-      </svg>
-      <!-- Moon Icon (Dark) -->
-      <svg
+      />
+      <i
         v-else-if="preference === 'dark'"
-        class="hd-theme-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+        class="far fa-moon hd-theme-icon"
         aria-hidden="true"
-      >
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-      </svg>
-      <!-- Sun Icon (Light) -->
-      <svg
+      />
+      <i
         v-else
-        class="hd-theme-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+        class="far fa-sun hd-theme-icon"
         aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-      </svg>
+      />
 
       <span class="hd-theme-label">{{ currentLabel }}</span>
 
@@ -172,11 +144,7 @@ watch(isDark, (dark) => {
           :class="{ 'is-active': preference === 'auto' }"
           @click="setPreference('auto')"
         >
-          <svg class="item-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <rect width="20" height="14" x="2" y="3" rx="2" />
-            <line x1="8" x2="16" y1="21" y2="21" />
-            <line x1="12" x2="12" y1="17" y2="21" />
-          </svg>
+          <i class="far fa-window-maximize item-ico" aria-hidden="true" />
           <span>{{ copy.system }}</span>
           <span v-if="preference === 'auto'" class="hd-check">✓</span>
         </button>
@@ -187,9 +155,7 @@ watch(isDark, (dark) => {
           :class="{ 'is-active': preference === 'dark' }"
           @click="setPreference('dark')"
         >
-          <svg class="item-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-          </svg>
+          <i class="far fa-moon item-ico" aria-hidden="true" />
           <span>{{ copy.dark }}</span>
           <span v-if="preference === 'dark'" class="hd-check">✓</span>
         </button>
@@ -200,10 +166,7 @@ watch(isDark, (dark) => {
           :class="{ 'is-active': preference === 'light' }"
           @click="setPreference('light')"
         >
-          <svg class="item-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-          </svg>
+          <i class="far fa-sun item-ico" aria-hidden="true" />
           <span>{{ copy.light }}</span>
           <span v-if="preference === 'light'" class="hd-check">✓</span>
         </button>
@@ -221,11 +184,7 @@ watch(isDark, (dark) => {
         :class="{ 'is-active': preference === 'auto' }"
         @click="setPreference('auto')"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="screen-btn-ico">
-          <rect width="20" height="14" x="2" y="3" rx="2" />
-          <line x1="8" x2="16" y1="21" y2="21" />
-          <line x1="12" x2="12" y1="17" y2="21" />
-        </svg>
+        <i class="far fa-window-maximize screen-btn-ico" aria-hidden="true" />
         <span>{{ copy.system }}</span>
       </button>
 
@@ -235,9 +194,7 @@ watch(isDark, (dark) => {
         :class="{ 'is-active': preference === 'dark' }"
         @click="setPreference('dark')"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="screen-btn-ico">
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-        </svg>
+        <i class="far fa-moon screen-btn-ico" aria-hidden="true" />
         <span>{{ copy.dark }}</span>
       </button>
 
@@ -247,10 +204,7 @@ watch(isDark, (dark) => {
         :class="{ 'is-active': preference === 'light' }"
         @click="setPreference('light')"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="screen-btn-ico">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </svg>
+        <i class="far fa-sun screen-btn-ico" aria-hidden="true" />
         <span>{{ copy.light }}</span>
       </button>
     </div>
@@ -285,8 +239,8 @@ watch(isDark, (dark) => {
 }
 
 .hd-theme-icon {
+  font-size: 13px;
   width: 13px;
-  height: 13px;
 }
 
 .hd-theme-arrow {
@@ -348,8 +302,8 @@ watch(isDark, (dark) => {
 }
 
 .item-ico {
+  font-size: 14px;
   width: 14px;
-  height: 14px;
 }
 
 .hd-check {
@@ -395,8 +349,8 @@ watch(isDark, (dark) => {
 }
 
 .screen-btn-ico {
+  font-size: 14px;
   width: 14px;
-  height: 14px;
 }
 
 .hd-theme-screen-btn.is-active {

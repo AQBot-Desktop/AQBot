@@ -22,7 +22,7 @@ const defaultHeading = computed(() => {
 
 const defaultLead = computed(() => {
   return locale.value === 'zh' || locale.value === 'zh-tw'
-    ? '免费开源、零外部遥测。多模型调度、自主 Agent、本地向量知识库与 API 网关全部开箱即用。'
+    ? '免费开源、零外部遥测，多模型调度、自主 Agent、本地向量知识库与 API 网关全部开箱即用。'
     : 'Free and open-source. Local-first privacy, multi-model chat, autonomous Agent sandbox, and built-in API gateway.';
 });
 
@@ -60,7 +60,10 @@ const docText = computed(() => {
 <template>
   <section class="hd-cta">
     <div class="hd-cta-in">
-      <h2 class="hd-cta-title">{{ heading || defaultHeading }}</h2>
+      <h2 class="hd-cta-title">
+        <i class="far fa-paper-plane" aria-hidden="true" />
+        {{ heading || defaultHeading }}
+      </h2>
       <p class="hd-cta-lead">{{ lead || defaultLead }}</p>
 
       <ul class="hd-cta-steps" role="list">
@@ -72,10 +75,12 @@ const docText = computed(() => {
 
       <div class="hd-cta-actions">
         <a class="hd-btn hd-btn-primary" :href="primaryLink || '/download'">
+          <i class="far fa-circle-down" aria-hidden="true" />
           {{ primaryText || dlText }}
         </a>
         <a class="hd-btn hd-btn-ghost" :href="secondaryLink || '/guide/getting-started'">
-          {{ secondaryText || docText }} →
+          <i class="far fa-file-lines" aria-hidden="true" />
+          {{ secondaryText || docText }}
         </a>
       </div>
     </div>
@@ -101,6 +106,15 @@ const docText = computed(() => {
   color: var(--ink);
   line-height: 1.05;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hd-cta-title i {
+  color: var(--spot);
+  font-size: 0.7em;
+  flex-shrink: 0;
 }
 
 .hd-cta-lead {
@@ -148,6 +162,7 @@ const docText = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   height: 42px;
   padding: 0 22px;
   font-family: var(--body);

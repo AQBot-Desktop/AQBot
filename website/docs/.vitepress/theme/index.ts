@@ -6,6 +6,9 @@ import Layout from './Layout.vue';
 import HomePage from './components/marketing/HomePage.vue';
 import FeaturesPage from './components/marketing/FeaturesPage.vue';
 import DownloadHero from './DownloadHero.vue';
+import '@fortawesome/fontawesome-free/css/fontawesome.css';
+import '@fortawesome/fontawesome-free/css/regular.css';
+import '@fortawesome/fontawesome-free/css/brands.css';
 import './style.css';
 
 export default {

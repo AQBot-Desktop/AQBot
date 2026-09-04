@@ -28,6 +28,17 @@ const defaultLead = computed(() => {
     : 'Unified multi-model chat, autonomous Agent approval, local API gateway, and vector knowledge base in one native desktop app.';
 });
 
+const BENTO_ICONS = [
+  'far fa-comments',
+  'far fa-share-from-square',
+  'far fa-user',
+  'far fa-object-group',
+  'far fa-folder-open',
+  'far fa-id-badge',
+  'far fa-file-code',
+  'far fa-hard-drive',
+] as const;
+
 const defaultItems = computed<BentoItem[]>(() => {
   if (locale.value === 'zh') {
     return [
@@ -165,7 +176,10 @@ const defaultItems = computed<BentoItem[]>(() => {
 <template>
   <section class="hd-capabilities">
     <div class="hd-caps-header">
-      <h2 class="hd-caps-title">{{ heading || defaultHeading }}</h2>
+      <h2 class="hd-caps-title">
+        <i class="far fa-object-group" aria-hidden="true" />
+        {{ heading || defaultHeading }}
+      </h2>
       <p class="hd-caps-lead">{{ lead || defaultLead }}</p>
     </div>
 
@@ -183,8 +197,9 @@ const defaultItems = computed<BentoItem[]>(() => {
 
         <div class="cap-title-col">
           <h3 class="cap-title">
+            <i :class="BENTO_ICONS[i]" aria-hidden="true" />
             <span>{{ item.title }}</span>
-            <span class="arw" aria-hidden="true">→</span>
+            <i class="far fa-circle-right arw" aria-hidden="true" />
           </h3>
         </div>
 
@@ -214,6 +229,14 @@ const defaultItems = computed<BentoItem[]>(() => {
   color: var(--ink);
   line-height: 1.05;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hd-caps-title i {
+  color: var(--spot);
+  font-size: 0.7em;
 }
 
 .hd-caps-lead {
@@ -297,12 +320,19 @@ const defaultItems = computed<BentoItem[]>(() => {
   transition: color 0.12s ease;
 }
 
+.cap-title > .far:first-child {
+  color: var(--spot);
+  font-size: 15px;
+  width: 1.1em;
+  flex-shrink: 0;
+}
+
 .arw {
-  font-family: var(--body);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--faint);
   transition: all 0.12s ease;
   display: inline-block;
+  margin-left: auto;
 }
 
 .cap-desc-col {

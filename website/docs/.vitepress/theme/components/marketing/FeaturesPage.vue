@@ -5,6 +5,18 @@ import { useSiteLocale, localeHref } from '../../i18n';
 const locale = useSiteLocale();
 const isZh = computed(() => locale.value === 'zh' || locale.value === 'zh-tw');
 
+const FEATURE_ICONS = [
+  'far fa-comments',
+  'far fa-share-from-square',
+  'far fa-user',
+  'far fa-object-group',
+  'far fa-folder-open',
+  'far fa-id-badge',
+  'far fa-file-code',
+  'far fa-hard-drive',
+  'far fa-window-maximize',
+] as const;
+
 interface Group {
   title: string;
   items: string[];
@@ -189,6 +201,7 @@ const groups = computed<Group[]>(() => {
       <!-- ── Header ── -->
       <header class="hd-feat-hero">
         <h1 class="hd-feat-title">
+          <i class="far fa-rectangle-list" aria-hidden="true" />
           {{ isZh ? 'AQBot 全部功能矩阵' : 'Full Capability Matrix' }}
         </h1>
         <p class="hd-feat-lead">
@@ -211,15 +224,18 @@ const groups = computed<Group[]>(() => {
       <!-- ── Capabilities Grid ── -->
       <div class="hd-feat-grid">
         <div
-          v-for="group in groups"
+          v-for="(group, i) in groups"
           :key="group.title"
           class="hd-feat-card"
         >
-          <h2 class="card-title">{{ group.title }}</h2>
+          <h2 class="card-title">
+            <i :class="FEATURE_ICONS[i]" aria-hidden="true" />
+            {{ group.title }}
+          </h2>
 
           <ul class="card-items" role="list">
             <li v-for="(item, i) in group.items" :key="i">
-              <span class="bullet-dot" />
+              <i class="far fa-circle-check" aria-hidden="true" />
               <span>{{ item }}</span>
             </li>
           </ul>
@@ -234,10 +250,12 @@ const groups = computed<Group[]>(() => {
         </div>
         <div class="bottom-actions">
           <a class="hd-btn hd-btn-primary" :href="localeHref(locale, '/download')">
+            <i class="far fa-circle-down" aria-hidden="true" />
             {{ isZh ? '下载客户端' : 'Download Now' }}
           </a>
           <a class="hd-btn hd-btn-ghost" :href="localeHref(locale, '/guide/getting-started')">
-            {{ isZh ? '阅读文档' : 'Documentation' }} →
+            <i class="far fa-file-lines" aria-hidden="true" />
+            {{ isZh ? '阅读文档' : 'Documentation' }}
           </a>
         </div>
       </div>
@@ -276,6 +294,15 @@ const groups = computed<Group[]>(() => {
   line-height: 1.05;
   color: var(--ink);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hd-feat-title i {
+  color: var(--spot);
+  font-size: 0.7em;
+  flex-shrink: 0;
 }
 
 .hd-feat-lead {
@@ -329,6 +356,15 @@ const groups = computed<Group[]>(() => {
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-title i {
+  color: var(--spot);
+  font-size: 16px;
+  flex-shrink: 0;
 }
 
 .card-items {
@@ -351,11 +387,10 @@ const groups = computed<Group[]>(() => {
   color: var(--dim);
 }
 
-.bullet-dot {
-  width: 5px;
-  height: 5px;
-  background: var(--spot);
-  margin-top: 8px;
+.card-items li i {
+  color: var(--spot);
+  font-size: 12px;
+  margin-top: 4px;
   flex-shrink: 0;
 }
 
@@ -390,6 +425,10 @@ const groups = computed<Group[]>(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.bottom-actions .hd-btn {
+  gap: 8px;
 }
 
 .bottom-actions .hd-btn {

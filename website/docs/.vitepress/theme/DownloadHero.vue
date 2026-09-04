@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useData } from 'vitepress';
 import { APP_VERSION, GITHUB_RELEASES, GITHUB_RELEASE_TAG } from './constants';
-import { generalUiCopy, useSiteLocale } from './i18n';
+import { useSiteLocale } from './i18n';
 
 const VERSION = APP_VERSION;
 const BASE = `https://github.com/AQBot-Desktop/AQBot/releases/download/v${VERSION}`;
@@ -32,14 +31,13 @@ const downloads: DownloadItem[] = [
   { os: 'linux', arch: 'ARM64 rpm', labelEn: 'ARM64 .rpm', labelZh: 'ARM64 .rpm', file: `AQBot-${VERSION}-1.aarch64.rpm` },
 ];
 
-const osTabs: { id: OS; label: string }[] = [
-  { id: 'macos', label: 'macOS' },
-  { id: 'windows', label: 'Windows' },
-  { id: 'linux', label: 'Linux' },
+const osTabs: { id: OS; label: string; icon: string }[] = [
+  { id: 'macos', label: 'macOS', icon: 'fab fa-apple' },
+  { id: 'windows', label: 'Windows', icon: 'fab fa-windows' },
+  { id: 'linux', label: 'Linux', icon: 'fab fa-linux' },
 ];
 
 const locale = useSiteLocale();
-const generalCopy = computed(() => generalUiCopy(locale.value));
 const isZh = computed(() => locale.value === 'zh' || locale.value === 'zh-tw');
 const activeOS = ref<OS>('macos');
 
@@ -109,6 +107,7 @@ const installSteps = computed(() => {
       <!-- ── Page Header ── -->
       <header class="hd-dl-hero">
         <h1 class="hd-dl-title">
+          <i class="far fa-circle-down" aria-hidden="true" />
           {{ isZh ? '下载 AQBot 桌面客户端' : 'Download AQBot for Desktop' }}
         </h1>
         <p class="hd-dl-lead">
@@ -126,17 +125,25 @@ const installSteps = computed(() => {
             target="_blank"
             rel="noopener"
           >
+            <i class="far fa-bookmark" aria-hidden="true" />
             v{{ VERSION }}
           </a>
-          <span class="hd-dl-tag">macOS 11+ · Windows 10+ · Linux</span>
-          <span class="hd-dl-tag">AGPL-3.0 License</span>
+          <span class="hd-dl-tag">
+            <i class="far fa-window-maximize" aria-hidden="true" />
+            macOS 11+ · Windows 10+ · Linux
+          </span>
+          <span class="hd-dl-tag">
+            <i class="far fa-copyright" aria-hidden="true" />
+            AGPL-3.0 License
+          </span>
           <a
             class="hd-dl-tag release-link"
             :href="GITHUB_RELEASES"
             target="_blank"
             rel="noopener"
           >
-            {{ isZh ? '更新日志与所有版本 →' : 'Changelog & Releases →' }}
+            <i class="far fa-newspaper" aria-hidden="true" />
+            {{ isZh ? '更新日志与所有版本' : 'Changelog & Releases' }}
           </a>
         </div>
       </header>
@@ -151,6 +158,7 @@ const installSteps = computed(() => {
           :class="{ active: activeOS === tab.id }"
           @click="activeOS = tab.id"
         >
+          <i :class="tab.icon" aria-hidden="true" />
           {{ tab.label }}
         </button>
       </div>
@@ -178,6 +186,7 @@ const installSteps = computed(() => {
               :href="downloadUrl(item)"
               download
             >
+              <i class="far fa-circle-down" aria-hidden="true" />
               {{ isZh ? '直接下载' : 'Download' }} ({{ item.arch }})
             </a>
           </div>
@@ -203,6 +212,7 @@ const installSteps = computed(() => {
                 :href="downloadUrl(item)"
                 download
               >
+                <i class="far fa-circle-down" aria-hidden="true" />
                 {{ isZh ? '下载' : 'Download' }}
               </a>
             </div>
@@ -224,7 +234,10 @@ const installSteps = computed(() => {
             :key="idx"
             class="hd-step-item"
           >
-            <span class="step-idx">0{{ idx + 1 }}</span>
+            <span class="step-idx">
+              <i class="far fa-circle-check" aria-hidden="true" />
+              0{{ idx + 1 }}
+            </span>
             <p class="step-p">{{ step }}</p>
           </div>
         </div>
@@ -264,6 +277,15 @@ const installSteps = computed(() => {
   line-height: 1.05;
   color: var(--ink);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hd-dl-title i {
+  color: var(--spot);
+  font-size: 0.7em;
+  flex-shrink: 0;
 }
 
 .hd-dl-lead {
@@ -282,6 +304,9 @@ const installSteps = computed(() => {
 }
 
 .hd-dl-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
   padding: 3px 8px;
@@ -321,6 +346,9 @@ const installSteps = computed(() => {
   font-size: 14px;
   letter-spacing: 0.02em;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   transition: all 0.12s ease;
 }
 
@@ -396,6 +424,7 @@ const installSteps = computed(() => {
 .hd-card-btn {
   width: 100%;
   height: 42px;
+  gap: 8px;
 }
 
 /* ── More/Alternative Downloads ── */
@@ -455,6 +484,7 @@ const installSteps = computed(() => {
   height: 32px;
   padding: 0 14px;
   font-size: 12px;
+  gap: 6px;
 }
 
 /* ── Installation Steps ── */
@@ -474,6 +504,9 @@ const installSteps = computed(() => {
 }
 
 .step-idx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--spot);

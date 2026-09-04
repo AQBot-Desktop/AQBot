@@ -98,17 +98,7 @@ function go(href: string) {
       aria-label="Change language"
       @click="open = !open"
     >
-      <svg
-        class="hd-lang-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a14.5 14.5 0 0 0 0 20M12 2a14.5 14.5 0 0 1 0 20M2 12h20" />
-      </svg>
+      <i class="far fa-flag hd-lang-icon" aria-hidden="true" />
       <span class="hd-lang-label">{{ currentLabel }}</span>
       <svg
         class="hd-lang-arrow"
@@ -190,8 +180,8 @@ function go(href: string) {
 }
 
 .hd-lang-icon {
+  font-size: 13px;
   width: 13px;
-  height: 13px;
 }
 
 .hd-lang-arrow {

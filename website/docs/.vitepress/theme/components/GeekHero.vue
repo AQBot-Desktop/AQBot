@@ -40,17 +40,27 @@ const generalCopy = computed(() => generalUiCopy(locale.value));
 
       <div class="hd-hero-go">
         <a class="hd-btn hd-btn-primary" :href="primaryLink">
+          <i class="far fa-circle-down" aria-hidden="true" />
           {{ primaryText }}
         </a>
         <a class="hd-btn hd-btn-ghost" :href="secondaryLink">
-          {{ secondaryText }} →
+          <i class="far fa-file-lines" aria-hidden="true" />
+          {{ secondaryText }}
         </a>
       </div>
 
       <div class="hd-hero-meta">
+        <span class="hd-hero-os" aria-hidden="true">
+          <i class="fab fa-apple" />
+          <i class="fab fa-windows" />
+          <i class="fab fa-linux" />
+        </span>
         <span>macOS Apple Silicon &amp; Intel · Windows x64 · Linux · AGPL-3.0</span>
         <span class="meta-sep">—</span>
-        <a :href="primaryLink">{{ generalCopy.allDownloads }}</a>
+        <a :href="primaryLink">
+          <i class="far fa-share-from-square" aria-hidden="true" />
+          {{ generalCopy.allDownloads }}
+        </a>
       </div>
     </div>
   </header>
@@ -120,6 +130,7 @@ const generalCopy = computed(() => generalUiCopy(locale.value));
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   height: 42px;
   padding: 0 20px;
   font-family: var(--body);
@@ -144,7 +155,21 @@ const generalCopy = computed(() => generalUiCopy(locale.value));
   opacity: 0.5;
 }
 
+.hd-hero-os {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--spot);
+}
+
+.hd-hero-os i {
+  font-size: 13px;
+}
+
 .hd-hero-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--spot);
   text-decoration: none;
 }

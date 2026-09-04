@@ -20,6 +20,12 @@ const defaultHeading = computed(() => {
     : 'Three steps to a private AI workspace';
 });
 
+const STEP_ICONS = [
+  'far fa-circle-down',
+  'far fa-handshake',
+  'far fa-paper-plane',
+] as const;
+
 const defaultSteps = computed<HowStep[]>(() => {
   if (locale.value === 'zh') {
     return [
@@ -73,7 +79,10 @@ const defaultSteps = computed<HowStep[]>(() => {
 <template>
   <section class="hd-how">
     <div class="hd-how-header">
-      <h2 class="hd-how-title">{{ heading || defaultHeading }}</h2>
+      <h2 class="hd-how-title">
+        <i class="far fa-paper-plane" aria-hidden="true" />
+        {{ heading || defaultHeading }}
+      </h2>
     </div>
 
     <div class="hd-how-grid">
@@ -86,7 +95,10 @@ const defaultSteps = computed<HowStep[]>(() => {
           <span>0{{ i + 1 }}</span>
         </div>
         <div class="hd-how-content">
-          <h3 class="hd-how-card-title">{{ step.title }}</h3>
+          <h3 class="hd-how-card-title">
+            <i :class="STEP_ICONS[i]" aria-hidden="true" />
+            {{ step.title }}
+          </h3>
           <p class="hd-how-desc">{{ step.desc }}</p>
         </div>
       </div>
@@ -113,6 +125,14 @@ const defaultSteps = computed<HowStep[]>(() => {
   color: var(--ink);
   line-height: 1.05;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hd-how-title i {
+  color: var(--spot);
+  font-size: 0.7em;
 }
 
 .hd-how-grid {
@@ -161,6 +181,14 @@ const defaultSteps = computed<HowStep[]>(() => {
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hd-how-card-title i {
+  color: var(--spot);
+  font-size: 15px;
 }
 
 .hd-how-desc {
