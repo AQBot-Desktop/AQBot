@@ -332,8 +332,8 @@ const copy = computed(() => {
               <div class="session-item active">
                 <span class="item-dot blue" />
                 <div class="item-text">
-                  <b class="item-title">AQBot-Inner</b>
-                  <span class="item-sub">thread #12: refactor-website</span>
+                  <b class="item-title">notes-app</b>
+                  <span class="item-sub">thread #12: add-search</span>
                 </div>
               </div>
               <div class="session-item">
@@ -350,8 +350,8 @@ const copy = computed(() => {
           <main class="chat-main">
             <div class="chat-header">
               <div class="session-title-wrap">
-                <b class="title-text">AQBot-Inner / refactor-website</b>
-                <span class="tag-dir">~/dev/project/AQBot-Inner</span>
+                <b class="title-text">notes-app / add-search</b>
+                <span class="tag-dir">~/Projects/notes-app</span>
               </div>
               <div class="chat-header-actions">
                 <div class="model-select-pill">
@@ -382,7 +382,7 @@ const copy = computed(() => {
                 <div class="approval-actions">
                   <button type="button" class="btn-allow">Allow Action</button>
                   <button type="button" class="btn-reject">Reject</button>
-                  <span class="sandbox-hint">Sandbox: ~/dev/project/AQBot-Inner</span>
+                  <span class="sandbox-hint">Sandbox: ~/Projects/notes-app</span>
                 </div>
               </div>
             </div>
