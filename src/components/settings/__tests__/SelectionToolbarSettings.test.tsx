@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       ai: {
         prompt: 'Translate {selection} from {source_language} to {target_language}',
+        text_direct_send: true,
+        screenshot_direct_send: true,
         provider_id: null,
         model_id: null,
         temperature: null,
@@ -34,6 +36,8 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       ai: {
         prompt: 'Explain {selection} in {app_language}',
+        text_direct_send: true,
+        screenshot_direct_send: true,
         provider_id: null,
         model_id: null,
         temperature: null,
@@ -47,6 +51,8 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       ai: {
         prompt: 'Polish {selection}',
+        text_direct_send: true,
+        screenshot_direct_send: true,
         provider_id: null,
         model_id: null,
         temperature: null,
@@ -60,6 +66,8 @@ const mocks = vi.hoisted(() => {
       enabled: true,
       ai: {
         prompt: 'Summarize {selection}',
+        text_direct_send: true,
+        screenshot_direct_send: true,
         provider_id: null,
         model_id: null,
         temperature: null,
@@ -82,6 +90,7 @@ const mocks = vi.hoisted(() => {
       result_pinned_by_default: false,
       trigger_mode: 'selection' as const,
       trigger_shortcut: 'CmdOrCtrl+Shift+E',
+      screenshot_shortcut: '',
       translate_target_language: null as string | null,
       search_url: 'https://www.google.com/search?q=%s',
       app_filter_mode: 'off' as const,
@@ -149,6 +158,7 @@ beforeEach(() => {
     result_pinned_by_default: false,
     trigger_mode: 'selection',
     trigger_shortcut: 'CmdOrCtrl+Shift+E',
+    screenshot_shortcut: '',
     translate_target_language: null,
     search_url: 'https://www.google.com/search?q=%s',
     app_filter_mode: 'off',
@@ -223,6 +233,8 @@ describe('SelectionToolbarSettings', () => {
           enabled: true,
           ai: {
             prompt: 'Custom {selection}',
+            text_direct_send: true,
+            screenshot_direct_send: true,
             provider_id: null,
             model_id: null,
             temperature: null,
@@ -311,7 +323,9 @@ describe('SelectionToolbarSettings', () => {
     const input = screen.getByRole('textbox', {
       name: 'settings.selectionToolbar.triggerShortcut',
     });
-    await user.click(screen.getByRole('button', { name: 'settings.recordShortcut' }));
+    await user.click(within(screen.getByRole('group', {
+      name: 'settings.selectionToolbar.triggerShortcut',
+    })).getByRole('button', { name: 'settings.recordShortcut' }));
     fireEvent.keyDown(input, { key: 'K', metaKey: true, shiftKey: true });
 
     await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
@@ -334,7 +348,9 @@ describe('SelectionToolbarSettings', () => {
     const input = screen.getByRole('textbox', {
       name: 'settings.selectionToolbar.triggerShortcut',
     });
-    await user.click(screen.getByRole('button', { name: 'settings.recordShortcut' }));
+    await user.click(within(screen.getByRole('group', {
+      name: 'settings.selectionToolbar.triggerShortcut',
+    })).getByRole('button', { name: 'settings.recordShortcut' }));
     fireEvent.keyDown(input, { key: 'D', ctrlKey: true });
 
     await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
@@ -405,6 +421,74 @@ describe('SelectionToolbarSettings', () => {
     expect(screen.getByText(
       'settings.selectionToolbar.globalShortcutsDisabled',
     )).toBeInTheDocument();
+  });
+
+  it('records and clears screenshots independently from the text trigger mode', async () => {
+    const user = userEvent.setup();
+    render(<SelectionToolbarSettings />);
+    expect(screen.queryByRole('textbox', {
+      name: 'settings.selectionToolbar.triggerShortcut',
+    })).not.toBeInTheDocument();
+    const group = within(screen.getByRole('group', {
+      name: 'settings.selectionToolbar.screenshotShortcut',
+    }));
+    await user.click(group.getByRole('button', { name: 'settings.recordShortcut' }));
+    fireEvent.keyDown(group.getByRole('textbox'), { key: 'X', metaKey: true, shiftKey: true });
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
+      selection_toolbar: expect.objectContaining({
+        trigger_mode: 'selection',
+        screenshot_shortcut: 'CmdOrCtrl+Shift+X',
+      }),
+    }));
+    await user.click(group.getByRole('button', { name: 'settings.clearShortcut' }));
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenLastCalledWith({
+      selection_toolbar: expect.objectContaining({ screenshot_shortcut: '' }),
+    }));
+  });
+
+  it('checks screenshot conflicts against the text trigger and warns when globally disabled', () => {
+    mocks.toolbar.value = {
+      ...mocks.toolbar.value,
+      trigger_mode: 'shortcut',
+      screenshot_shortcut: 'CmdOrCtrl+Shift+E',
+    };
+    mocks.globalShortcutsEnabled.value = false;
+    render(<SelectionToolbarSettings />);
+    const group = within(screen.getByRole('group', {
+      name: 'settings.selectionToolbar.screenshotShortcut',
+    }));
+    expect(group.getByText('settings.selectionToolbar.shortcutConflict')).toBeInTheDocument();
+    expect(group.getByText('settings.selectionToolbar.globalShortcutsDisabled')).toBeInTheDocument();
+    expect(group.getByRole('textbox')).toHaveClass('ant-input-status-error');
+  });
+
+  it.each(['builtin', 'custom'])('persists independent direct-send switches for a %s AI tool', async (kind) => {
+    const user = userEvent.setup();
+    render(<SelectionToolbarSettings />);
+    if (kind === 'custom') {
+      await user.click(screen.getByRole('button', { name: 'settings.selectionToolbar.addTool' }));
+    } else {
+      await user.click((await screen.findAllByRole('button', { name: 'common.edit' }))[0]);
+    }
+    const textSwitch = screen.getByRole('switch', { name: 'settings.selectionToolbar.textDirectSend' });
+    const screenshotSwitch = screen.getByRole('switch', { name: 'settings.selectionToolbar.screenshotDirectSend' });
+    expect(textSwitch).toBeChecked();
+    expect(screenshotSwitch).toBeChecked();
+    await user.click(kind === 'custom' ? screenshotSwitch : textSwitch);
+    expect(kind === 'custom' ? screenshotSwitch : textSwitch).not.toBeChecked();
+    expect(kind === 'custom' ? textSwitch : screenshotSwitch).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledWith({
+      selection_toolbar: expect.objectContaining({
+        tools: expect.arrayContaining([expect.objectContaining({
+          kind: kind === 'custom' ? 'custom_ai' : 'builtin_ai',
+          ai: expect.objectContaining({
+            text_direct_send: kind === 'custom',
+            screenshot_direct_send: kind !== 'custom',
+          }),
+        })]),
+      }),
+    }));
   });
 
   it('uses the full settings content width without a page-specific maximum', () => {

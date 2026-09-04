@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, ConfigProvider, Input, Select, Spin, theme as antdTheme } from 'antd';
+import { Button, ConfigProvider, Image, Input, Select, Spin, theme as antdTheme } from 'antd';
 import {
   ArrowLeftRight,
   Check,
@@ -14,12 +14,15 @@ import {
 import NodeRenderer, { enableD2, setCustomComponents } from 'markstream-react';
 import { registerHighlight } from 'stream-markdown';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import i18n from '@/i18n';
 import type {
   SelectionToolbarHistoryItem,
   SelectionToolbarRunView,
   SelectionToolbarToolView,
+  SelectionToolbarCaptureError,
 } from '@/types';
+import { invoke } from '@/lib/invoke';
 import { useSelectionToolbarStore } from '@/stores/selectionToolbarStore';
 import { useSettingsStore } from '@/stores';
 import { quoteCssFontFamily } from '@/lib/cssFontFamily';
@@ -53,6 +56,82 @@ setCustomComponents('selection-toolbar', { think: ThinkNode });
 function labelFor(tool: SelectionToolbarToolView, t: (key: string) => string) {
   if (tool.name) return tool.name;
   return t(`settings.selectionToolbar.tools.${tool.builtin_key}`);
+}
+
+function executionErrorMessage(error: string, t: TFunction): string {
+  const code = error.replace(/^Error: /, '');
+  if (code === 'selection_toolbar_source_text_required') return t('settings.selectionToolbar.sourceTextRequired');
+  if (code === 'selection_toolbar_vision_required') return t('settings.selectionToolbar.visionRequired');
+  return error;
+}
+
+function captureErrorMessage(error: SelectionToolbarCaptureError, t: TFunction): string {
+  const keys: Record<string, string> = {
+    capture_permission_required: 'settings.selectionToolbar.capturePermissionRequired',
+    capture_unavailable: 'settings.selectionToolbar.captureUnavailable',
+    capture_busy: 'settings.selectionToolbar.captureBusy',
+    capture_invalid_region: 'settings.selectionToolbar.captureInvalidRegion',
+    capture_expired: 'settings.selectionToolbar.captureExpired',
+    capture_too_large: 'settings.selectionToolbar.captureTooLarge',
+  };
+  const key = keys[error.code];
+  return key ? t(key) : t('settings.selectionToolbar.captureFailed', { error: error.detail });
+}
+
+function CaptureErrorBanner() {
+  const { t } = useTranslation();
+  const error = useSelectionToolbarStore((state) => state.captureError);
+  const session = useSelectionToolbarStore((state) => state.session);
+  const clear = useSelectionToolbarStore((state) => state.clearCaptureError);
+  const close = useSelectionToolbarStore((state) => state.close);
+  if (!error) return null;
+  return (
+    <div className="selection-toolbar__capture-error" role="alert">
+      <span>{captureErrorMessage(error, t)}</span>
+      <Button
+        aria-label={t('common.close')}
+        icon={<X size={14} />}
+        size="small"
+        type="text"
+        onClick={() => void (session ? clear() : close('capture_error'))}
+      />
+    </div>
+  );
+}
+
+function ScreenshotPreview({ selectionId }: { selectionId: string }) {
+  const { t } = useTranslation();
+  const [preview, setPreview] = useState<{ selectionId: string; url?: string; error?: string } | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | undefined;
+    void invoke<ArrayBuffer>('selection_toolbar_read_image', { selectionId }).then((bytes) => {
+      if (disposed) return;
+      objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+      setPreview({ selectionId, url: objectUrl });
+    }).catch((error) => {
+      if (!disposed) setPreview({ selectionId, error: String(error) });
+    });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selectionId]);
+  const current = preview?.selectionId === selectionId ? preview : null;
+  if (current?.error) return (
+    <div className="selection-toolbar__error" role="alert">
+      {t('settings.selectionToolbar.captureFailed', { error: current.error })}
+    </div>
+  );
+  if (!current?.url) return <Spin size="small" />;
+  return (
+    <Image
+      alt={t('settings.selectionToolbar.screenshotPreview')}
+      className="selection-toolbar__screenshot"
+      preview={{ mask: { blur: true }, scaleStep: 0.5 }}
+      src={current.url}
+    />
+  );
 }
 
 function beginWindowDrag(onDragEnded: () => Promise<void>) {
@@ -111,7 +190,7 @@ function ToolbarSurface({
   const session = useSelectionToolbarStore((state) => state.session);
   const copied = useSelectionToolbarStore((state) => state.copied);
   const busy = useSelectionToolbarStore((state) => state.busy);
-  const activeToolId = useSelectionToolbarStore((state) => state.run?.tool_id);
+  const activeToolId = useSelectionToolbarStore((state) => state.pendingRequest?.tool_id ?? state.run?.tool_id);
   const executeTool = useSelectionToolbarStore((state) => state.executeTool);
   const dragEnded = useSelectionToolbarStore((state) => state.dragEnded);
   const toggleOverflow = useSelectionToolbarStore((state) => state.toggleOverflow);
@@ -239,6 +318,7 @@ function TranslateBar() {
   const translateSource = useSelectionToolbarStore((state) => state.translateSource);
   const translateTarget = useSelectionToolbarStore((state) => state.translateTarget);
   const setTranslateLanguages = useSelectionToolbarStore((state) => state.setTranslateLanguages);
+  const busy = useSelectionToolbarStore((state) => state.busy);
   const target = translateTarget
     ?? normalizeTranslateLanguage(session?.translate_target_language ?? session?.language);
   const targetOptions = useMemo<TranslateLanguageOption[]>(
@@ -265,6 +345,7 @@ function TranslateBar() {
     <div className="selection-toolbar__translate-bar">
       <Select<string, TranslateLanguageOption>
         aria-label={t('settings.selectionToolbar.translateSourceLanguage')}
+        disabled={busy}
         filterOption={filterTranslateOption}
         listHeight={190}
         options={sourceOptions}
@@ -278,7 +359,7 @@ function TranslateBar() {
       />
       <Button
         aria-label={t('settings.selectionToolbar.translateSwap')}
-        disabled={translateSource === 'auto'}
+        disabled={translateSource === 'auto' || busy}
         icon={<ArrowLeftRight size={13} />}
         size="small"
         title={t('settings.selectionToolbar.translateSwap')}
@@ -290,6 +371,7 @@ function TranslateBar() {
       />
       <Select<string, TranslateLanguageOption>
         aria-label={t('settings.selectionToolbar.translateTargetLanguage')}
+        disabled={busy}
         filterOption={filterTranslateOption}
         listHeight={190}
         options={targetOptions}
@@ -338,7 +420,7 @@ function ResultTurnContent({
         {!turn.output && !turn.error && streaming && (
           <div className="selection-toolbar__waiting">{t('chat.thinkingInProgress')}</div>
         )}
-        {turn.error && <div className="selection-toolbar__error">{turn.error}</div>}
+        {turn.error && <div className="selection-toolbar__error">{executionErrorMessage(turn.error, t)}</div>}
       </div>
     </article>
   );
@@ -349,6 +431,9 @@ function ResultSurface() {
   const session = useSelectionToolbarStore((state) => state.session);
   const history = useSelectionToolbarStore((state) => state.history);
   const run = useSelectionToolbarStore((state) => state.run);
+  const pending = useSelectionToolbarStore((state) => state.pendingRequest);
+  const updatePending = useSelectionToolbarStore((state) => state.updatePendingRequest);
+  const submitInitial = useSelectionToolbarStore((state) => state.submitInitial);
   const copied = useSelectionToolbarStore((state) => state.copied);
   const busy = useSelectionToolbarStore((state) => state.busy);
   const error = useSelectionToolbarStore((state) => state.error);
@@ -375,12 +460,14 @@ function ResultSurface() {
     element.scrollTop = element.scrollHeight;
   }, [history.length, requestId, run?.output]);
 
-  if (!run) return null;
-  const streaming = run.status === 'started' || run.status === 'streaming';
-  const followUpAvailable = (run.status === 'completed' || run.status === 'stopped')
+  if (!run && !pending) return null;
+  const streaming = !pending && (run?.status === 'started' || run?.status === 'streaming');
+  const followUpAvailable = (run?.status === 'completed' || run?.status === 'stopped')
     && run.output.trim().length > 0;
-  const sendDisabled = !followUpAvailable || busy || draft.trim().length === 0;
-  const tool = session?.tools.find((candidate) => candidate.id === run.tool_id);
+  const sendDisabled = busy || (pending
+    ? !pending.input || (pending.input.kind === 'text' && !pending.input.text.trim())
+    : !followUpAvailable || draft.trim().length === 0);
+  const tool = session?.tools.find((candidate) => candidate.id === (pending?.tool_id ?? run?.tool_id));
   const title = tool
     ? t('settings.selectionToolbar.aiFeatureTitle', { feature: labelFor(tool, t) })
     : t('settings.selectionToolbar.result');
@@ -390,8 +477,13 @@ function ResultSurface() {
       : 'settings.selectionToolbar.pinResult',
   );
   const submitFollowUp = () => {
+    if (sendDisabled) return;
+    if (pending) {
+      void submitInitial();
+      return;
+    }
     const text = draft.trim();
-    if (!text || sendDisabled) return;
+    if (!text) return;
     void followUp(text).then((sent) => {
       if (!sent) return;
       setDraft((current) => current.trim() === text ? '' : current);
@@ -428,7 +520,7 @@ function ResultSurface() {
               type="text"
               onClick={() => void setPinned(!(session?.pinned ?? false))}
             />
-            {run.output && (
+            {!pending && run?.output && (
               <Button
                 aria-label={t('common.copy')}
                 icon={copied ? <Check size={14} /> : <Copy size={14} />}
@@ -437,7 +529,7 @@ function ResultSurface() {
                 onClick={() => void copyResult()}
               />
             )}
-            <Button
+            {!pending && <Button
               aria-label={t('chat.regenerate')}
               disabled={streaming || busy}
               icon={<RotateCcw size={14} />}
@@ -445,7 +537,7 @@ function ResultSurface() {
               title={t('chat.regenerate')}
               type="text"
               onClick={() => void regenerate()}
-            />
+            />}
             {streaming && (
               <Button
                 aria-label={t('chat.stop')}
@@ -467,6 +559,7 @@ function ResultSurface() {
             />
           </div>
         </header>
+        <CaptureErrorBanner />
         {tool?.builtin_key === 'translate' && tool.kind === 'ai' && <TranslateBar />}
         <main
           aria-live="polite"
@@ -479,7 +572,23 @@ function ResultSurface() {
                 < AUTO_SCROLL_BOTTOM_THRESHOLD;
           }}
         >
-          {history.map((turn) => (
+          {pending?.input?.kind === 'text' && (
+            <div className="selection-toolbar__source">
+              <label htmlFor="selection-toolbar-source">{t('settings.selectionToolbar.sourceText')}</label>
+              <Input.TextArea
+                aria-label={t('settings.selectionToolbar.sourceText')}
+                autoSize={{ minRows: 3, maxRows: 8 }}
+                disabled={busy}
+                id="selection-toolbar-source"
+                value={pending.input.text}
+                onChange={(event) => updatePending({ sourceText: event.target.value })}
+              />
+            </div>
+          )}
+          {pending?.input?.kind === 'screenshot' && (
+            <ScreenshotPreview selectionId={pending.selection_id} />
+          )}
+          {!pending && history.map((turn) => (
             <ResultTurnContent
               isCurrent={false}
               isDark={session?.theme === 'dark'}
@@ -487,25 +596,28 @@ function ResultSurface() {
               turn={turn}
             />
           ))}
-          <ResultTurnContent
+          {!pending && run && <ResultTurnContent
             isCurrent
             isDark={session?.theme === 'dark'}
             turn={run}
-          />
+          />}
         </main>
         <div className="selection-toolbar__composer">
-          {error && error !== run.error && (
-            <div className="selection-toolbar__composer-error" role="alert">{error}</div>
+          {error && (pending || error !== run?.error) && (
+            <div className="selection-toolbar__composer-error" role="alert">{executionErrorMessage(error, t)}</div>
           )}
           <div className="selection-toolbar__composer-row">
             <Input.TextArea
-              aria-label={t('settings.selectionToolbar.followUpPlaceholder')}
+              aria-label={t(pending ? 'settings.selectionToolbar.additionalInstructions' : 'settings.selectionToolbar.followUpPlaceholder')}
               autoSize={{ minRows: 1, maxRows: 3 }}
-              disabled={!followUpAvailable || busy}
-              placeholder={t('settings.selectionToolbar.followUpPlaceholder')}
-              value={draft}
+              autoFocus={Boolean(pending)}
+              disabled={(!pending && !followUpAvailable) || busy}
+              placeholder={t(pending ? 'settings.selectionToolbar.additionalInstructionsPlaceholder' : 'settings.selectionToolbar.followUpPlaceholder')}
+              value={pending?.user_input ?? draft}
               variant="borderless"
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => pending
+                ? updatePending({ userInput: event.target.value })
+                : setDraft(event.target.value)}
               onCompositionEnd={() => {
                 composingRef.current = false;
               }}
@@ -526,11 +638,11 @@ function ResultSurface() {
               }}
             />
             <Button
-              aria-label={t('settings.selectionToolbar.followUpSend')}
+              aria-label={t(pending ? 'settings.selectionToolbar.sendInitial' : 'settings.selectionToolbar.followUpSend')}
               disabled={sendDisabled}
               icon={<SendHorizontal size={15} />}
               size="small"
-              title={t('settings.selectionToolbar.followUpSend')}
+              title={t(pending ? 'settings.selectionToolbar.sendInitial' : 'settings.selectionToolbar.followUpSend')}
               type="primary"
               onClick={submitFollowUp}
             />
@@ -547,7 +659,10 @@ export function SelectionToolbarApp() {
   const session = useSelectionToolbarStore((state) => state.session);
   const surface = useSelectionToolbarStore((state) => state.surface);
   const requestId = useSelectionToolbarStore((state) => state.run?.request_id);
+  const pending = useSelectionToolbarStore((state) => state.pendingRequest);
+  const captureError = useSelectionToolbarStore((state) => state.captureError);
   const ensureSettingsLoaded = useSettingsStore((state) => state.ensureSettingsLoaded);
+  const appearance = session ?? captureError;
 
   useEffect(() => {
     // The window resizes/moves under a stationary cursor when the surface
@@ -571,23 +686,29 @@ export function SelectionToolbarApp() {
   }, [ensureSettingsLoaded]);
 
   useEffect(() => {
-    if (!session) return;
-    document.documentElement.dataset.theme = session.theme;
-    document.documentElement.lang = session.language;
-    document.documentElement.dir = i18n.dir(session.language);
-    void i18n.changeLanguage(session.language).then(() => {
-      applyMarkstreamI18nMap(i18n.getFixedT(session.language));
+    if (!appearance) return;
+    document.documentElement.dataset.theme = appearance.theme;
+    document.documentElement.lang = appearance.language;
+    document.documentElement.dir = i18n.dir(appearance.language);
+    void i18n.changeLanguage(appearance.language).then(() => {
+      applyMarkstreamI18nMap(i18n.getFixedT(appearance.language));
     });
-  }, [session]);
+  }, [appearance]);
 
+  if (captureError && (!session || (!pending && !requestId))) return (
+    <div className="selection-toolbar__result-stack">
+      <ToolbarSurface />
+      <section className="selection-toolbar__result"><CaptureErrorBanner /></section>
+    </div>
+  );
   if (!session) return null;
-  if (surface === 'result') return <ResultSurface />;
+  if (surface === 'result') return <ResultSurface key={session.selection_id} />;
   return <ToolbarSurfaceHost expanded={surface === 'overflow'} />;
 }
 
 export function SelectionToolbarRoot() {
-  const theme = useSelectionToolbarStore((state) => state.session?.theme ?? 'light');
-  const language = useSelectionToolbarStore((state) => state.session?.language ?? 'en-US');
+  const theme = useSelectionToolbarStore((state) => state.session?.theme ?? state.captureError?.theme ?? 'light');
+  const language = useSelectionToolbarStore((state) => state.session?.language ?? state.captureError?.language ?? 'en-US');
   return (
     <ConfigProvider
       direction={i18n.dir(language)}

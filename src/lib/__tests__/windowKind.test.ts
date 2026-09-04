@@ -7,6 +7,10 @@ import {
 } from '../windowKind';
 
 describe('frontendKindForWindow', () => {
+  it('keeps the screenshot overlay out of the main application bootstrap', () => {
+    expect(frontendKindForWindow('capture-overlay')).toBe('capture-overlay');
+  });
+
   it('routes only the selection-toolbar label to the lightweight frontend', () => {
     expect(frontendKindForWindow('selection-toolbar')).toBe('selection-toolbar');
     expect(frontendKindForWindow('main')).toBe('main');

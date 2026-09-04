@@ -156,6 +156,7 @@ fn selection_toolbar_defaults_are_backward_compatible_and_valid() {
         settings.selection_toolbar.trigger_shortcut,
         DEFAULT_SELECTION_TOOLBAR_SHORTCUT
     );
+    assert!(settings.selection_toolbar.screenshot_shortcut.is_empty());
     assert_eq!(
         settings.selection_toolbar.app_filter_mode,
         SelectionToolbarAppFilterMode::Off
@@ -250,6 +251,8 @@ fn selection_toolbar_rejects_invalid_ai_configuration() {
             enabled: true,
             ai: SelectionToolbarAiConfig {
                 prompt: "Translate {selection}".into(),
+                text_direct_send: true,
+                screenshot_direct_send: true,
                 provider_id: Some("provider".into()),
                 model_id: None,
                 temperature: None,
@@ -318,6 +321,8 @@ fn selection_toolbar_rejects_invalid_ai_configuration() {
             enabled: true,
             ai: SelectionToolbarAiConfig {
                 prompt: "Explain {selection}".into(),
+                text_direct_send: true,
+                screenshot_direct_send: true,
                 provider_id: None,
                 model_id: None,
                 temperature: None,
@@ -407,6 +412,8 @@ fn selection_toolbar_accepts_any_kebab_case_lucide_icon() {
         enabled: true,
         ai: SelectionToolbarAiConfig {
             prompt: "Explain {selection}".into(),
+            text_direct_send: true,
+            screenshot_direct_send: true,
             provider_id: None,
             model_id: None,
             temperature: None,
@@ -467,6 +474,41 @@ fn selection_toolbar_placement_and_pin_default_are_backward_compatible() {
         "placement": "automatic"
     }));
     assert!(invalid.is_err(), "unknown placements must be rejected");
+}
+
+#[test]
+fn selection_toolbar_direct_send_preserves_legacy_and_explicit_values() {
+    let legacy: SelectionToolbarAiConfig = serde_json::from_value(json!({
+        "prompt": "Explain {selection}"
+    }))
+    .expect("legacy tool config should deserialize");
+    assert!(legacy.text_direct_send);
+    assert!(legacy.screenshot_direct_send);
+
+    let configured: SelectionToolbarAiConfig = serde_json::from_value(json!({
+        "prompt": "Explain {selection}",
+        "text_direct_send": false,
+        "screenshot_direct_send": false
+    }))
+    .expect("explicit direct-send preferences should deserialize");
+    let roundtrip: SelectionToolbarAiConfig =
+        serde_json::from_value(serde_json::to_value(configured).unwrap()).unwrap();
+    assert!(!roundtrip.text_direct_send);
+    assert!(!roundtrip.screenshot_direct_send);
+}
+
+#[test]
+fn selection_toolbar_screenshot_shortcut_is_optional_and_bounded() {
+    let mut settings: SelectionToolbarSettings = serde_json::from_value(json!({})).unwrap();
+    assert!(settings.screenshot_shortcut.is_empty());
+    settings.validate().unwrap();
+    settings.screenshot_shortcut = "Control+Shift+X".into();
+    settings.validate().unwrap();
+    let roundtrip: SelectionToolbarSettings =
+        serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+    assert_eq!(roundtrip.screenshot_shortcut, "Control+Shift+X");
+    settings.screenshot_shortcut = "X".repeat(129);
+    assert!(settings.validate().is_err());
 }
 
 #[test]

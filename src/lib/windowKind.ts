@@ -1,4 +1,4 @@
-export type FrontendKind = 'main' | 'selection-toolbar' | 'conversation-popout';
+export type FrontendKind = 'main' | 'selection-toolbar' | 'capture-overlay' | 'conversation-popout';
 
 export const CONVERSATION_POPOUT_LABEL_PREFIX = 'conversation-popout:';
 
@@ -35,6 +35,7 @@ export function conversationIdFromPopoutLabel(label: string): string | null {
 }
 
 export function frontendKindForWindow(label: string): FrontendKind {
+  if (label === 'capture-overlay') return 'capture-overlay';
   if (label === 'selection-toolbar') return 'selection-toolbar';
   if (label.startsWith(CONVERSATION_POPOUT_LABEL_PREFIX)) return 'conversation-popout';
   return 'main';

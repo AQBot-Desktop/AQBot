@@ -116,9 +116,13 @@ export function useGlobalShortcutManager() {
         if (cancelled) return;
 
         const registrations: Array<{
-          action: string;
+          action: ShortcutAction | 'selectionToolbar';
           binding: string;
           execute: () => Promise<void>;
+        } | {
+          action: 'selectionToolbarScreenshot';
+          binding: string;
+          execute?: never;
         }> = SHORTCUT_ACTIONS
           .filter(isGlobalShortcutAction)
           .map((action) => ({
@@ -134,6 +138,12 @@ export function useGlobalShortcutManager() {
             action: 'selectionToolbar',
             binding: settings.selection_toolbar.trigger_shortcut,
             execute: () => invoke('selection_toolbar_trigger'),
+          });
+        }
+        if (settings.selection_toolbar.enabled) {
+          registrations.push({
+            action: 'selectionToolbarScreenshot',
+            binding: settings.selection_toolbar.screenshot_shortcut,
           });
         }
 
@@ -166,41 +176,45 @@ export function useGlobalShortcutManager() {
             message: 'Attempting to register global shortcut.',
           });
           try {
-            await register(accelerator, async (event) => {
-              if (event.state !== 'Pressed') return;
-              pushDiagnostic({
-                phase: 'register',
-                level: 'info',
-                action,
-                shortcut: accelerator,
-                message: 'Global shortcut callback fired.',
-              });
-              console.info('[shortcut-global-hit]', {
-                action,
-                accelerator,
-                eventShortcut: event.shortcut,
-                state: event.state,
-              });
-              try {
-                await execute();
-              } catch (error) {
-                const reason = String(error);
+            if (action === 'selectionToolbarScreenshot') {
+              await invoke('selection_toolbar_register_screenshot_shortcut', { shortcut: accelerator });
+            } else {
+              await register(accelerator, async (event) => {
+                if (event.state !== 'Pressed') return;
                 pushDiagnostic({
-                  phase: 'trigger',
-                  level: 'warn',
+                  phase: 'register',
+                  level: 'info',
                   action,
                   shortcut: accelerator,
-                  reason,
-                  message: 'Global shortcut action failed.',
+                  message: 'Global shortcut callback fired.',
                 });
-                updateStatus({
-                  enabled: true,
-                  registered: [...registered],
-                  failed: [...failed],
+                console.info('[shortcut-global-hit]', {
+                  action,
+                  accelerator,
+                  eventShortcut: event.shortcut,
+                  state: event.state,
                 });
-                console.warn(`Global shortcut action failed for ${action} (${accelerator}):`, error);
-              }
-            });
+                try {
+                  await execute();
+                } catch (error) {
+                  const reason = String(error);
+                  pushDiagnostic({
+                    phase: 'trigger',
+                    level: 'warn',
+                    action,
+                    shortcut: accelerator,
+                    reason,
+                    message: 'Global shortcut action failed.',
+                  });
+                  updateStatus({
+                    enabled: true,
+                    registered: [...registered],
+                    failed: [...failed],
+                  });
+                  console.warn(`Global shortcut action failed for ${action} (${accelerator}):`, error);
+                }
+              });
+            }
             const verifyRegistered = await isRegistered(accelerator);
             if (!verifyRegistered) {
               const reason = 'register returned without error but isRegistered returned false';

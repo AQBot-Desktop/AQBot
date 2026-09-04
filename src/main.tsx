@@ -24,6 +24,12 @@ async function bootstrap() {
     ? (await import('@tauri-apps/api/webviewWindow')).getCurrentWebviewWindow().label
     : 'main';
   setCurrentWindowLabel(windowLabel);
+  if (frontendKindForWindow(windowLabel) === 'capture-overlay') {
+    const { CaptureOverlay } = await import('./capture-overlay/CaptureOverlay');
+    ReactDOM.createRoot(rootElement).render(<CaptureOverlay />);
+    void writeStartupDiagnostic('info', 'AQBot capture overlay frontend rendered');
+    return;
+  }
   if (frontendKindForWindow(windowLabel) === 'selection-toolbar') {
     const { SelectionToolbarRoot } = await import('./selection-toolbar/SelectionToolbarApp');
     ReactDOM.createRoot(rootElement).render(<SelectionToolbarRoot />);

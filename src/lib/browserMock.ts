@@ -815,6 +815,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         session: null,
         run: null,
         history: [],
+        capture_error: null,
       } as T;
     case 'selection_toolbar_frontend_ready':
     case 'selection_toolbar_set_translate_target':
@@ -823,6 +824,8 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     case 'selection_toolbar_copy_result':
     case 'selection_toolbar_drag_ended':
     case 'selection_toolbar_close':
+    case 'selection_toolbar_clear_capture_error':
+    case 'selection_toolbar_register_screenshot_shortcut':
       return undefined as T;
     case 'selection_toolbar_set_pinned':
       return Boolean(args?.pinned) as T;
@@ -830,9 +833,17 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       return (args?.surface === 'overflow' ? 'below' : null) as T;
     case 'selection_toolbar_prepare_overflow':
       return 'below' as T;
+    case 'capture_overlay_snapshot':
+    case 'capture_overlay_image':
+    case 'capture_overlay_confirm':
+    case 'capture_overlay_cancel':
+      throw { code: 'capture_unavailable', detail: 'Screen capture is unavailable in browser preview mode.' };
     case 'selection_toolbar_open_permission_settings':
     case 'selection_toolbar_request_permission':
     case 'selection_toolbar_trigger':
+    case 'selection_toolbar_capture_screenshot':
+    case 'selection_toolbar_get_input':
+    case 'selection_toolbar_read_image':
     case 'selection_toolbar_execute_tool':
     case 'selection_toolbar_follow_up':
     case 'selection_toolbar_regenerate':

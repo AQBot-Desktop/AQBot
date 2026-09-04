@@ -1,0 +1,53 @@
+html.capture-overlay-active,
+.capture-overlay-active body,
+.capture-overlay-active #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #101010;
+}
+
+.capture-overlay {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  color: #fff;
+}
+
+.capture-overlay__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.capture-overlay__shade { position: absolute; inset: 0; background: rgb(0 0 0 / 35%); pointer-events: none; }
+.capture-overlay__selection {
+  position: absolute;
+  outline: 1px solid #fff;
+  box-shadow: 0 0 0 99999px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+.capture-overlay__instructions,
+.capture-overlay__error {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgb(16 16 16 / 92%);
+  font-size: 14px;
+  cursor: default;
+}
+.capture-overlay__instructions { top: 16px; display: flex; align-items: center; gap: 16px; }
+.capture-overlay__instructions button { border: 1px solid #777; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.capture-overlay__instructions button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.capture-overlay__instructions button:disabled { cursor: wait; opacity: 0.6; }
+.capture-overlay__error { bottom: 24px; color: #ffb3b3; }

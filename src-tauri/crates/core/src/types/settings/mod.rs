@@ -66,6 +66,10 @@ impl SelectionToolbarBuiltinActionKey {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SelectionToolbarAiConfig {
     pub prompt: String,
+    #[serde(default = "default_true")]
+    pub text_direct_send: bool,
+    #[serde(default = "default_true")]
+    pub screenshot_direct_send: bool,
     #[serde(default)]
     pub provider_id: Option<String>,
     #[serde(default)]
@@ -76,6 +80,10 @@ pub struct SelectionToolbarAiConfig {
     pub top_p: Option<f32>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl SelectionToolbarAiConfig {
@@ -229,6 +237,8 @@ pub struct SelectionToolbarSettings {
     pub trigger_mode: SelectionToolbarTriggerMode,
     /// Global accelerator used in shortcut trigger mode.
     pub trigger_shortcut: String,
+    /// Independent screenshot accelerator; empty means capture is disabled.
+    pub screenshot_shortcut: String,
     /// Target language for the builtin translate tool; `None` follows the
     /// application UI language.
     pub translate_target_language: Option<String>,
@@ -307,6 +317,8 @@ impl SelectionToolbarSettings {
                 enabled: true,
                 ai: SelectionToolbarAiConfig {
                     prompt: DEFAULT_EXPLAIN_PROMPT.into(),
+                    text_direct_send: true,
+                    screenshot_direct_send: true,
                     provider_id: None,
                     model_id: None,
                     temperature: None,
@@ -364,6 +376,9 @@ impl SelectionToolbarSettings {
 
         if self.trigger_shortcut.trim().is_empty() || self.trigger_shortcut.len() > 128 {
             return Err("Selection toolbar trigger shortcut is invalid".into());
+        }
+        if self.screenshot_shortcut.len() > 128 {
+            return Err("Selection toolbar screenshot shortcut is invalid".into());
         }
 
         if self
@@ -447,6 +462,8 @@ impl Default for SelectionToolbarSettings {
     fn default() -> Self {
         let ai = |prompt: &str| SelectionToolbarAiConfig {
             prompt: prompt.into(),
+            text_direct_send: true,
+            screenshot_direct_send: true,
             provider_id: None,
             model_id: None,
             temperature: None,
@@ -461,6 +478,7 @@ impl Default for SelectionToolbarSettings {
             result_pinned_by_default: false,
             trigger_mode: SelectionToolbarTriggerMode::Selection,
             trigger_shortcut: DEFAULT_SELECTION_TOOLBAR_SHORTCUT.into(),
+            screenshot_shortcut: String::new(),
             translate_target_language: None,
             search_url: DEFAULT_SELECTION_TOOLBAR_SEARCH_URL.into(),
             app_filter_mode: SelectionToolbarAppFilterMode::Off,

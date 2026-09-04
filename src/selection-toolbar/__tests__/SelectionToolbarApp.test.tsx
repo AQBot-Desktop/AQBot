@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SelectionToolbarApp } from '../SelectionToolbarApp';
 
@@ -14,6 +14,10 @@ const {
   startDragging,
   nodeRendererProps,
   storeState,
+  submitInitial,
+  updatePendingRequest,
+  clearCaptureError,
+  invokeMock,
 } = vi.hoisted(() => ({
   executeTool: vi.fn(async () => {}),
   copyResult: vi.fn(async () => {}),
@@ -26,6 +30,10 @@ const {
   startDragging: vi.fn(async () => {}),
   nodeRendererProps: vi.fn(),
   storeState: {} as Record<string, unknown>,
+  submitInitial: vi.fn(async () => true),
+  updatePendingRequest: vi.fn(),
+  clearCaptureError: vi.fn(async () => {}),
+  invokeMock: vi.fn(),
 }));
 
 const tools = Array.from({ length: 7 }, (_, index) => ({
@@ -41,16 +49,18 @@ vi.mock('@/stores/selectionToolbarStore', () => ({
     selector(storeState),
 }));
 
+vi.mock('@/lib/invoke', () => ({ invoke: invokeMock }));
+
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
   getCurrentWebviewWindow: () => ({ startDragging }),
 }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { feature?: string }) =>
+    t: (key: string, options?: { feature?: string; error?: string }) =>
       key === 'settings.selectionToolbar.aiFeatureTitle'
         ? `AI ${options?.feature ?? ''}`.trim()
-        : key,
+        : key === 'settings.selectionToolbar.captureFailed' ? `${key}: ${options?.error}` : key,
   }),
 }));
 
@@ -124,10 +134,16 @@ describe('SelectionToolbarApp', () => {
       copied: false,
       busy: false,
       error: null,
+      pendingRequest: null,
+      lastSubmission: null,
+      captureError: null,
       translateSource: 'auto',
       translateTarget: null,
       initialize: vi.fn(async () => {}),
       executeTool,
+      submitInitial,
+      updatePendingRequest,
+      clearCaptureError,
       followUp,
       stop,
       copyResult,
@@ -692,5 +708,144 @@ describe('SelectionToolbarApp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.copy' }));
 
     expect(copyResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the source separately and submits an initial request even without extra instructions', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      pendingRequest: {
+        selection_id: 'selection', tool_id: 'tool-1',
+        input: { kind: 'text', text: '<b>Selected content</b>' }, user_input: '',
+      },
+    });
+    const { container, rerender } = render(<SelectionToolbarApp />);
+    const source = screen.getByRole('textbox', { name: 'settings.selectionToolbar.sourceText' });
+    const composer = screen.getByRole('textbox', { name: 'settings.selectionToolbar.additionalInstructions' });
+    const send = screen.getByRole('button', { name: 'settings.selectionToolbar.sendInitial' });
+    expect(source).toHaveValue('<b>Selected content</b>');
+    expect(container.querySelector('b')).toBeNull();
+    expect(composer).toBeEnabled();
+    expect(send).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'chat.regenerate' })).not.toBeInTheDocument();
+    fireEvent.change(source, { target: { value: 'Edited source' } });
+    expect(updatePendingRequest).toHaveBeenCalledWith({ sourceText: 'Edited source' });
+    fireEvent.change(composer, { target: { value: 'Use a formal tone' } });
+    expect(updatePendingRequest).toHaveBeenCalledWith({ userInput: 'Use a formal tone' });
+    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: true });
+    fireEvent.compositionStart(composer);
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true, keyCode: 229 });
+    fireEvent.compositionEnd(composer);
+    expect(submitInitial).not.toHaveBeenCalled();
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(submitInitial).toHaveBeenCalledTimes(1);
+    expect(followUp).not.toHaveBeenCalled();
+    Object.assign(storeState, {
+      pendingRequest: { ...(storeState.pendingRequest as object), input: { kind: 'text', text: '  ' } },
+    });
+    rerender(<SelectionToolbarApp />);
+    expect(send).toBeDisabled();
+  });
+
+  it('keeps initial input visible on rejected submission and localizes validation errors', async () => {
+    submitInitial.mockResolvedValueOnce(false);
+    Object.assign(storeState, {
+      surface: 'result', error: 'selection_toolbar_vision_required',
+      pendingRequest: {
+        selection_id: 'selection', tool_id: 'tool-1',
+        input: { kind: 'text', text: 'Keep original' }, user_input: 'Keep instruction',
+      },
+    });
+    render(<SelectionToolbarApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'settings.selectionToolbar.sendInitial' }));
+    await waitFor(() => expect(submitInitial).toHaveBeenCalled());
+    expect(screen.getByRole('textbox', { name: 'settings.selectionToolbar.sourceText' })).toHaveValue('Keep original');
+    expect(screen.getByRole('textbox', { name: 'settings.selectionToolbar.additionalInstructions' })).toHaveValue('Keep instruction');
+    expect(screen.getByRole('alert')).toHaveTextContent('settings.selectionToolbar.visionRequired');
+  });
+
+  it('loads screenshot previews as a PNG Blob and releases their object URL on unmount', async () => {
+    const createUrl = vi.fn(() => 'blob:selection-preview');
+    const revokeUrl = vi.fn();
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = createUrl;
+    URL.revokeObjectURL = revokeUrl;
+    invokeMock.mockResolvedValueOnce(new ArrayBuffer(8));
+    Object.assign(storeState, {
+      surface: 'result',
+      pendingRequest: {
+        selection_id: 'selection', tool_id: 'tool-1',
+        input: { kind: 'screenshot', width: 100, height: 80 }, user_input: '',
+      },
+    });
+    try {
+      const { unmount } = render(<SelectionToolbarApp />);
+      const preview = await screen.findByAltText('settings.selectionToolbar.screenshotPreview');
+      expect(preview).toHaveAttribute('src', 'blob:selection-preview');
+      expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_read_image', { selectionId: 'selection' });
+      expect(createUrl).toHaveBeenCalledWith(expect.objectContaining({ type: 'image/png', size: 8 }));
+      expect(screen.queryByRole('textbox', { name: 'settings.selectionToolbar.sourceText' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'settings.selectionToolbar.sendInitial' })).toBeEnabled();
+      unmount();
+      expect(revokeUrl).toHaveBeenCalledWith('blob:selection-preview');
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it('does not allocate a screenshot URL after its preview has unmounted', async () => {
+    const createUrl = vi.fn();
+    const originalCreate = URL.createObjectURL;
+    URL.createObjectURL = createUrl;
+    let resolveImage!: (value: ArrayBuffer) => void;
+    invokeMock.mockImplementationOnce(() => new Promise((resolve) => { resolveImage = resolve; }));
+    Object.assign(storeState, {
+      surface: 'result',
+      pendingRequest: {
+        selection_id: 'selection', tool_id: 'tool-1',
+        input: { kind: 'screenshot', width: 100, height: 80 }, user_input: '',
+      },
+    });
+    try {
+      const { unmount } = render(<SelectionToolbarApp />);
+      unmount();
+      resolveImage(new ArrayBuffer(8));
+      await Promise.resolve();
+      expect(createUrl).not.toHaveBeenCalled();
+    } finally {
+      URL.createObjectURL = originalCreate;
+    }
+  });
+
+  it('renders a localized capture failure without a session and closes the error window', () => {
+    Object.assign(storeState, {
+      session: null,
+      captureError: { code: 'capture_permission_required', detail: 'Denied', theme: 'dark', language: 'ja' },
+    });
+    render(<SelectionToolbarApp />);
+    expect(screen.getByRole('alert')).toHaveTextContent('settings.selectionToolbar.capturePermissionRequired');
+    expect(document.documentElement).toHaveAttribute('lang', 'ja');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
+    expect(storeState.close).toHaveBeenCalledWith('capture_error');
+  });
+
+  it('shows capture errors as a dismissible banner without replacing an existing draft', () => {
+    Object.assign(storeState, {
+      surface: 'result',
+      captureError: { code: 'unknown', detail: 'Native capture failed', theme: 'light', language: 'en-US' },
+      pendingRequest: {
+        selection_id: 'selection', tool_id: 'tool-1',
+        input: { kind: 'text', text: 'Existing source' }, user_input: 'Existing draft',
+      },
+    });
+    render(<SelectionToolbarApp />);
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent('settings.selectionToolbar.captureFailed: Native capture failed');
+    expect(screen.getByRole('textbox', { name: 'settings.selectionToolbar.additionalInstructions' })).toHaveValue('Existing draft');
+    fireEvent.click(within(banner).getByRole('button', { name: 'common.close' }));
+    expect(clearCaptureError).toHaveBeenCalledTimes(1);
+    expect(storeState.close).not.toHaveBeenCalled();
   });
 });

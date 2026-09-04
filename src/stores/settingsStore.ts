@@ -176,7 +176,14 @@ function normalizeSelectionToolbarTools(
   tools: AppSettings['selection_toolbar']['tools'] | undefined,
 ): AppSettings['selection_toolbar']['tools'] {
   if (!tools) return DEFAULT_SETTINGS.selection_toolbar.tools;
-  let normalized = [...tools];
+  const normalized = tools.map((tool) => tool.kind === 'builtin_action' ? tool : {
+    ...tool,
+    ai: {
+      ...tool.ai,
+      text_direct_send: tool.ai.text_direct_send ?? true,
+      screenshot_direct_send: tool.ai.screenshot_direct_send ?? true,
+    },
+  });
   if (!normalized.some((tool) =>
     tool.kind === 'builtin_ai' && tool.builtin_key === 'explain')) {
     const explain = DEFAULT_SETTINGS.selection_toolbar.tools.find((tool) =>

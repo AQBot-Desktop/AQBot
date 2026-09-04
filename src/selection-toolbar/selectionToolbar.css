@@ -201,6 +201,36 @@ html[data-theme="dark"] .selection-toolbar__user-turn {
   white-space: nowrap;
 }
 
+.selection-toolbar__source {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.selection-toolbar__screenshot {
+  max-height: 160px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.selection-toolbar__capture-error {
+  align-items: flex-start;
+  background: rgba(255, 77, 79, 0.08);
+  color: #ff4d4f;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.selection-toolbar__capture-error > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* Chat defines this inside ChatView's inline styles; the toolbar window
    renders ThinkNode without ChatView, so declare the spinner here too. */
 @keyframes aqbot-think-spin {

@@ -1,6 +1,8 @@
+pub mod capture;
 mod controller;
 mod domain;
 mod executor;
+mod input;
 mod installed_apps;
 mod languages;
 #[cfg(target_os = "macos")]
@@ -15,6 +17,8 @@ pub use executor::{
     execute_tool as execute_ai_tool, follow_up as follow_up_ai_tool,
     regenerate as regenerate_ai_tool, ToolRunOptions,
 };
+pub(crate) use input::{InitialToolInput, ToolbarInput};
+pub use input::{ToolbarInputKind, ToolbarInputView};
 #[cfg(not(target_os = "macos"))]
 pub use installed_apps::resolve_app_icons;
 #[cfg(target_os = "macos")]

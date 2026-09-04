@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture-overlay",
+  "description": "Minimal capability for the one-shot screenshot rectangle selector",
+  "windows": ["capture-overlay"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

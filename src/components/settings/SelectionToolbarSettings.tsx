@@ -688,6 +688,24 @@ function ToolEditor({
         }}
       />
       <Divider />
+      {([
+        ['text_direct_send', 'textDirectSend', 'textDirectSendHint'],
+        ['screenshot_direct_send', 'screenshotDirectSend', 'screenshotDirectSendHint'],
+      ] as const).map(([field, labelKey, hintKey]) => (
+        <div key={field} style={{ alignItems: 'center', display: 'flex', gap: 16, justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div>{t(`settings.selectionToolbar.${labelKey}`)}</div>
+            <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+              {t(`settings.selectionToolbar.${hintKey}`)}
+            </div>
+          </div>
+          <Switch
+            aria-label={t(`settings.selectionToolbar.${labelKey}`)}
+            checked={draft.ai[field]}
+            onChange={(checked) => setDraft({ ...draft, ai: { ...draft.ai, [field]: checked } })}
+          />
+        </div>
+      ))}
       <ModelParamSliders
         values={{
           temperature: draft.ai.temperature,
@@ -743,12 +761,114 @@ function ToolbarPreview({
   );
 }
 
+function ToolbarShortcutSetting({
+  kind,
+  binding,
+  otherBinding,
+  onChange,
+}: {
+  kind: 'triggerShortcut' | 'screenshotShortcut';
+  binding: string;
+  otherBinding: string;
+  onChange: (binding: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const appSettings = useSettingsStore((state) => state.settings);
+  const status = useSettingsStore((state) => state.globalShortcutStatus);
+  const [recording, setRecording] = useState(false);
+  const inputRef = useRef<InputRef>(null);
+  const accelerator = toTauriAccelerator(binding);
+  const conflictAction = binding.trim() && GLOBAL_SHORTCUT_ACTIONS.find((action) =>
+    toTauriAccelerator(getShortcutBinding(appSettings, action)).toLowerCase()
+      === accelerator.toLowerCase());
+  const conflictLabel = conflictAction
+    ? SHORTCUT_ACTION_LABEL_KEYS[conflictAction]
+    : binding.trim() && otherBinding.trim()
+      && toTauriAccelerator(otherBinding).toLowerCase() === accelerator.toLowerCase()
+      ? `settings.selectionToolbar.${kind === 'triggerShortcut' ? 'screenshotShortcut' : 'triggerShortcut'}`
+      : null;
+  const externalConflict = findExternalConflict(accelerator);
+  const failure = binding.trim() && status?.failed.find((item) =>
+    item.shortcut === accelerator || item.shortcut === '*');
+
+  useEffect(() => {
+    if (recording) inputRef.current?.focus();
+  }, [recording]);
+
+  const update = (shortcut: string) => {
+    setRecording(false);
+    onChange(shortcut);
+  };
+
+  return (
+    <div aria-label={t(`settings.selectionToolbar.${kind}`)} role="group" style={{ padding: '12px 0' }}>
+      <div style={{ alignItems: 'center', display: 'flex', gap: 12, justifyContent: 'space-between' }}>
+        <div style={{ minWidth: 0 }}>
+          <div>{t(`settings.selectionToolbar.${kind}`)}</div>
+          <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+            {t(`settings.selectionToolbar.${kind}Hint`)}
+          </div>
+        </div>
+        <Space>
+          <Input
+            aria-label={t(`settings.selectionToolbar.${kind}`)}
+            readOnly
+            ref={inputRef}
+            status={conflictLabel ? 'error' : undefined}
+            style={{ width: 180 }}
+            value={recording ? t('settings.pressShortcut') : formatShortcutForDisplay(binding)}
+            onKeyDown={(event) => {
+              if (!recording) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const shortcut = normalizeShortcutFromKeyboardEvent(event.nativeEvent);
+              if (shortcut) update(shortcut);
+            }}
+          />
+          <Button type={recording ? 'primary' : 'default'} onClick={() => setRecording(true)}>
+            {t('settings.recordShortcut')}
+          </Button>
+          <Tooltip title={t(kind === 'triggerShortcut' ? 'settings.resetShortcutSingle' : 'settings.clearShortcut')}>
+            <Button
+              aria-label={t(kind === 'triggerShortcut' ? 'settings.resetShortcutSingle' : 'settings.clearShortcut')}
+              icon={kind === 'triggerShortcut' ? <RotateCcw size={14} /> : <Trash2 size={14} />}
+              size="small"
+              type="text"
+              onClick={() => update(kind === 'triggerShortcut' ? SELECTION_TOOLBAR_DEFAULT_SHORTCUT : '')}
+            />
+          </Tooltip>
+        </Space>
+      </div>
+      {!appSettings.global_shortcuts_enabled && binding.trim() && (
+        <Alert message={t('settings.selectionToolbar.globalShortcutsDisabled')} showIcon style={{ marginTop: 10 }} type="warning" />
+      )}
+      {conflictLabel && (
+        <div style={{ color: token.colorError, fontSize: 12, marginTop: 8 }}>
+          <AlertTriangle size={13} style={{ marginInlineEnd: 4, verticalAlign: -2 }} />
+          {t('settings.selectionToolbar.shortcutConflict', { target: t(conflictLabel) })}
+        </div>
+      )}
+      {!conflictLabel && externalConflict && (
+        <div style={{ color: token.colorWarning, fontSize: 12, marginTop: 8 }}>
+          <AlertTriangle size={13} style={{ marginInlineEnd: 4, verticalAlign: -2 }} />
+          {t('settings.selectionToolbar.shortcutExternalConflict', { apps: externalConflict })}
+        </div>
+      )}
+      {failure && (
+        <div style={{ color: token.colorError, fontSize: 12, marginTop: 8 }}>
+          {t('settings.selectionToolbar.shortcutRegisterFailed', { reason: failure.reason })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SelectionToolbarSettings() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const appSettings = useSettingsStore((state) => state.settings);
   const settings = appSettings.selection_toolbar;
-  const globalShortcutStatus = useSettingsStore((state) => state.globalShortcutStatus);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const ensureProvidersLoaded = useProviderStore((state) => state.ensureProvidersLoaded);
   const [runtime, setRuntime] = useState<SelectionToolbarRuntimeStatus | null>(null);
@@ -758,12 +878,10 @@ export function SelectionToolbarSettings() {
   const [appConfirmOpen, setAppConfirmOpen] = useState(false);
   const [pendingApps, setPendingApps] = useState<SelectionToolbarInstalledApp[]>([]);
   const [appPickResolving, setAppPickResolving] = useState(false);
-  const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [appIcons, setAppIcons] = useState<Record<string, string>>(
     () => cachedAppIcons((settings.app_filter ?? []).map((entry) => entry.id)),
   );
   const runtimeRefreshInFlight = useRef<Promise<SelectionToolbarRuntimeStatus> | null>(null);
-  const shortcutInputRef = useRef<InputRef>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const appFilterMode: SelectionToolbarAppFilterMode = settings.app_filter_mode ?? 'off';
@@ -774,13 +892,7 @@ export function SelectionToolbarSettings() {
   const resultPinnedByDefault = settings.result_pinned_by_default ?? false;
   const triggerMode: SelectionToolbarTriggerMode = settings.trigger_mode ?? 'selection';
   const triggerShortcut = settings.trigger_shortcut ?? SELECTION_TOOLBAR_DEFAULT_SHORTCUT;
-  const shortcutAccelerator = toTauriAccelerator(triggerShortcut);
-  const shortcutConflictAction = GLOBAL_SHORTCUT_ACTIONS.find((action) =>
-    toTauriAccelerator(getShortcutBinding(appSettings, action)).toLowerCase()
-      === shortcutAccelerator.toLowerCase());
-  const shortcutExternalConflict = findExternalConflict(shortcutAccelerator);
-  const shortcutRegistrationFailure = globalShortcutStatus?.failed.find((item) =>
-    item.shortcut === shortcutAccelerator || item.shortcut === '*');
+  const screenshotShortcut = settings.screenshot_shortcut ?? '';
 
   useEffect(() => {
     if (appFilterMode === 'off' || appFilter.length === 0) return;
@@ -791,10 +903,6 @@ export function SelectionToolbarSettings() {
         // Icons are decorative; ignore resolution failures.
       });
   }, [appFilter, appFilterMode]);
-
-  useEffect(() => {
-    if (recordingShortcut) shortcutInputRef.current?.focus();
-  }, [recordingShortcut]);
 
   useEffect(() => {
     if (!appConfirmOpen || pendingApps.length === 0) return;
@@ -996,6 +1104,8 @@ export function SelectionToolbarSettings() {
       enabled: true,
       ai: {
         prompt: '{selection}',
+        text_direct_send: true,
+        screenshot_direct_send: true,
         provider_id: null,
         model_id: null,
         temperature: null,
@@ -1032,16 +1142,6 @@ export function SelectionToolbarSettings() {
     const [moved] = tools.splice(from, 1);
     tools.splice(to, 0, moved);
     persist({ ...settings, tools });
-  };
-
-  const captureShortcut = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!recordingShortcut) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const shortcut = normalizeShortcutFromKeyboardEvent(event.nativeEvent);
-    if (!shortcut) return;
-    setRecordingShortcut(false);
-    void persist({ ...settings, trigger_shortcut: shortcut });
   };
 
   const previewItems = settings.tools
@@ -1097,7 +1197,6 @@ export function SelectionToolbarSettings() {
             ]}
             value={triggerMode}
             onChange={(trigger_mode) => {
-              setRecordingShortcut(false);
               void persist({
                 ...settings,
                 trigger_mode: trigger_mode as SelectionToolbarTriggerMode,
@@ -1108,83 +1207,21 @@ export function SelectionToolbarSettings() {
         {triggerMode === 'shortcut' && (
           <>
             <Divider style={{ margin: 0 }} />
-            <div style={{ padding: '12px 0' }}>
-              <div style={{ alignItems: 'center', display: 'flex', gap: 12, justifyContent: 'space-between' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div>{t('settings.selectionToolbar.triggerShortcut')}</div>
-                  <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
-                    {t('settings.selectionToolbar.triggerShortcutHint')}
-                  </div>
-                </div>
-                <Space>
-                  <Input
-                    aria-label={t('settings.selectionToolbar.triggerShortcut')}
-                    readOnly
-                    ref={shortcutInputRef}
-                    status={shortcutConflictAction ? 'error' : undefined}
-                    style={{ width: 180 }}
-                    value={recordingShortcut
-                      ? t('settings.pressShortcut')
-                      : formatShortcutForDisplay(triggerShortcut)}
-                    onKeyDown={captureShortcut}
-                  />
-                  <Button
-                    type={recordingShortcut ? 'primary' : 'default'}
-                    onClick={() => setRecordingShortcut(true)}
-                  >
-                    {t('settings.recordShortcut')}
-                  </Button>
-                  <Tooltip title={t('settings.resetShortcutSingle')}>
-                    <Button
-                      aria-label={t('settings.resetShortcutSingle')}
-                      icon={<RotateCcw size={14} />}
-                      size="small"
-                      type="text"
-                      onClick={() => {
-                        setRecordingShortcut(false);
-                        void persist({
-                          ...settings,
-                          trigger_shortcut: SELECTION_TOOLBAR_DEFAULT_SHORTCUT,
-                        });
-                      }}
-                    />
-                  </Tooltip>
-                </Space>
-              </div>
-              {!appSettings.global_shortcuts_enabled && (
-                <Alert
-                  message={t('settings.selectionToolbar.globalShortcutsDisabled')}
-                  showIcon
-                  style={{ marginTop: 10 }}
-                  type="warning"
-                />
-              )}
-              {shortcutConflictAction && (
-                <div style={{ color: token.colorError, fontSize: 12, marginTop: 8 }}>
-                  <AlertTriangle size={13} style={{ marginInlineEnd: 4, verticalAlign: -2 }} />
-                  {t('settings.selectionToolbar.shortcutConflict', {
-                    target: t(SHORTCUT_ACTION_LABEL_KEYS[shortcutConflictAction]),
-                  })}
-                </div>
-              )}
-              {!shortcutConflictAction && shortcutExternalConflict && (
-                <div style={{ color: token.colorWarning, fontSize: 12, marginTop: 8 }}>
-                  <AlertTriangle size={13} style={{ marginInlineEnd: 4, verticalAlign: -2 }} />
-                  {t('settings.selectionToolbar.shortcutExternalConflict', {
-                    apps: shortcutExternalConflict,
-                  })}
-                </div>
-              )}
-              {shortcutRegistrationFailure && (
-                <div style={{ color: token.colorError, fontSize: 12, marginTop: 8 }}>
-                  {t('settings.selectionToolbar.shortcutRegisterFailed', {
-                    reason: shortcutRegistrationFailure.reason,
-                  })}
-                </div>
-              )}
-            </div>
+            <ToolbarShortcutSetting
+              binding={triggerShortcut}
+              kind="triggerShortcut"
+              otherBinding={screenshotShortcut}
+              onChange={(trigger_shortcut) => { void persist({ ...settings, trigger_shortcut }); }}
+            />
           </>
         )}
+        <Divider style={{ margin: 0 }} />
+        <ToolbarShortcutSetting
+          binding={screenshotShortcut}
+          kind="screenshotShortcut"
+          otherBinding={triggerMode === 'shortcut' ? triggerShortcut : ''}
+          onChange={(screenshot_shortcut) => { void persist({ ...settings, screenshot_shortcut }); }}
+        />
         <Divider style={{ margin: 0 }} />
         <div style={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', padding: '12px 0' }}>
           <span>{t('settings.selectionToolbar.themeFollow')}</span>

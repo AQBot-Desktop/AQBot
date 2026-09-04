@@ -5,8 +5,8 @@ use aqbot_core::{
     crypto::decrypt_key,
     repo::{conversation as conversation_repo, provider, settings as settings_repo},
     types::{
-        AppSettings, ChatRequest, ModelParamOverrides, ModelType, ProviderProxyConfig,
-        ProviderType, SelectionToolbarAiConfig,
+        AppSettings, ChatRequest, ModelCapability, ModelParamOverrides, ModelType,
+        ProviderProxyConfig, ProviderType, SelectionToolbarAiConfig,
     },
 };
 use aqbot_providers::{
@@ -31,6 +31,12 @@ pub struct ToolRunOptions {
     /// Overrides the configured translate target language for this run.
     #[serde(default)]
     pub target_language: Option<String>,
+    /// Effective text for this first request; the captured selection is immutable.
+    #[serde(default)]
+    pub source_text: Option<String>,
+    /// Instructions outside the source content, sent in the same first request.
+    #[serde(default)]
+    pub user_input: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -68,14 +74,11 @@ pub async fn execute_tool(
         .and_then(|tool| tool.ai())
         .cloned()
         .ok_or_else(|| "The requested selection toolbar AI tool is unavailable".to_string())?;
-    let selection = state
-        .selection_toolbar
-        .selection_text(selection_id)
-        .await
-        .ok_or_else(|| "The selected text is no longer active".to_string())?;
+    let input = state.selection_toolbar.input(selection_id).await?;
+    let selection = input.source_text(options.source_text.as_deref())?;
     let prompt = render_prompt(
         &ai.prompt,
-        &selection,
+        selection,
         &resolve_languages(&options, &settings),
     );
     let (configured_provider_id, model_id) = match resolve_model_target(&ai, &settings)? {
@@ -107,6 +110,7 @@ pub async fn execute_tool(
     if model.model_type != ModelType::Chat {
         return Err(format!("Model {} does not support Chat", model.name));
     }
+    validate_input_capability(input.kind(), &model.capabilities)?;
     let params = resolve_effective_params(
         &ai,
         &settings,
@@ -137,10 +141,30 @@ pub async fn execute_tool(
                 provider_id,
                 request,
             },
-            prompt,
+            super::InitialToolInput {
+                content: input.content(prompt),
+                user_input: options
+                    .user_input
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string),
+            },
         )
         .await?;
     launch_run(app, state, prepared).await
+}
+
+fn validate_input_capability(
+    kind: super::ToolbarInputKind,
+    capabilities: &[ModelCapability],
+) -> Result<(), String> {
+    if kind == super::ToolbarInputKind::Screenshot
+        && !capabilities.contains(&ModelCapability::Vision)
+    {
+        return Err("selection_toolbar_vision_required".into());
+    }
+    Ok(())
 }
 
 pub async fn follow_up(
@@ -667,6 +691,22 @@ async fn publish_error(
 mod tests {
     use aqbot_core::types::{AppSettings, ModelParamOverrides, SelectionToolbarAiConfig};
 
+    #[test]
+    fn screenshot_requires_vision_without_affecting_text_models() {
+        use super::super::ToolbarInputKind;
+        use super::{validate_input_capability, ModelCapability};
+        assert!(validate_input_capability(ToolbarInputKind::Text, &[]).is_ok());
+        assert_eq!(
+            validate_input_capability(ToolbarInputKind::Screenshot, &[]).unwrap_err(),
+            "selection_toolbar_vision_required"
+        );
+        assert!(validate_input_capability(
+            ToolbarInputKind::Screenshot,
+            &[ModelCapability::Vision]
+        )
+        .is_ok());
+    }
+
     use super::{
         render_prompt, resolve_effective_params, resolve_languages, resolve_model_target,
         PromptLanguages, ThinkMerge, ToolRunOptions,
@@ -726,6 +766,8 @@ mod tests {
     fn ai_config() -> SelectionToolbarAiConfig {
         SelectionToolbarAiConfig {
             prompt: "Before {selection}; after {selection}".into(),
+            text_direct_send: true,
+            screenshot_direct_send: true,
             provider_id: None,
             model_id: None,
             temperature: Some(0.2),
@@ -793,6 +835,7 @@ mod tests {
             &ToolRunOptions {
                 source_language: Some("fr".into()),
                 target_language: Some("ko".into()),
+                ..Default::default()
             },
             &settings,
         );
@@ -804,6 +847,7 @@ mod tests {
             &ToolRunOptions {
                 source_language: Some("auto".into()),
                 target_language: None,
+                ..Default::default()
             },
             &settings,
         );

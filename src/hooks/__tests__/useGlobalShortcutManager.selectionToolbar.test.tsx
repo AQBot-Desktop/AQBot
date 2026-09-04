@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
         enabled: true,
         trigger_mode: 'shortcut',
         trigger_shortcut: 'CmdOrCtrl+Shift+E',
+        screenshot_shortcut: '',
       },
     },
   },
@@ -72,6 +73,7 @@ describe('selection toolbar global shortcut registration', () => {
         enabled: true,
         trigger_mode: 'shortcut',
         trigger_shortcut: 'CmdOrCtrl+Shift+E',
+        screenshot_shortcut: '',
       },
     };
   });
@@ -124,6 +126,10 @@ describe('selection toolbar global shortcut registration', () => {
     mocks.settings.value = {
       ...mocks.settings.value,
       global_shortcuts_enabled: false,
+      selection_toolbar: {
+        ...mocks.settings.value.selection_toolbar,
+        screenshot_shortcut: 'Control+Shift+X',
+      },
     };
 
     render(<Harness />);
@@ -131,6 +137,62 @@ describe('selection toolbar global shortcut registration', () => {
     await waitFor(() => expect(mocks.unregisterAll).toHaveBeenCalled());
     expect(mocks.register).not.toHaveBeenCalled();
     expect(mocks.callbacks.size).toBe(0);
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'selection_toolbar_register_screenshot_shortcut', expect.anything(),
+    );
+  });
+
+  it('registers screenshots natively in the shared pass even in selection mode', async () => {
+    mocks.settings.value.selection_toolbar = {
+      ...mocks.settings.value.selection_toolbar,
+      trigger_mode: 'selection',
+      screenshot_shortcut: 'Control+Shift+X',
+    };
+    const { unmount } = render(<Harness />);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith(
+      'selection_toolbar_register_screenshot_shortcut', { shortcut: 'Control+Shift+X' },
+    ));
+    expect(mocks.register).not.toHaveBeenCalledWith('Control+Shift+X', expect.anything());
+    expect(mocks.isRegistered).toHaveBeenCalledWith('Control+Shift+X');
+    await waitFor(() => expect(mocks.setGlobalShortcutStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ registered: expect.arrayContaining(['Control+Shift+X']) }),
+    ));
+    unmount();
+    await waitFor(() => expect(mocks.unregisterAll).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([false, true])('skips screenshot registration when cleared or toolbar enabled=%s', async (enabled) => {
+    mocks.settings.value.selection_toolbar = {
+      ...mocks.settings.value.selection_toolbar,
+      enabled,
+      screenshot_shortcut: enabled ? '' : 'Control+Shift+X',
+    };
+    render(<Harness />);
+    await waitFor(() => expect(mocks.setGlobalShortcutStatus).toHaveBeenCalled());
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      'selection_toolbar_register_screenshot_shortcut', expect.anything(),
+    );
+  });
+
+  it('reports native screenshot registration failures through the shared diagnostics', async () => {
+    mocks.settings.value = {
+      ...mocks.settings.value,
+      shortcut_registration_logs_enabled: true,
+      selection_toolbar: {
+        ...mocks.settings.value.selection_toolbar,
+        screenshot_shortcut: 'Control+Shift+X',
+      },
+    };
+    mocks.invoke.mockRejectedValueOnce(new Error('already registered'));
+    render(<Harness />);
+    await waitFor(() => expect(mocks.setGlobalShortcutStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        failed: [{ shortcut: 'Control+Shift+X', reason: 'Error: already registered' }],
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ action: 'selectionToolbarScreenshot', phase: 'register', level: 'error' }),
+        ]),
+      }),
+    ));
   });
 
   it('records an explicit diagnostic when triggering without a valid selection', async () => {

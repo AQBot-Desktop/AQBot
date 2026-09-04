@@ -27,4 +27,22 @@ describe('selection toolbar locales', () => {
       expect(leafKeys(translations.settings.selectionToolbar), locale).toEqual(expected);
     }
   });
+
+  it('translates initial-composer and capture messages with consistent error placeholders', () => {
+    const keys = [
+      'textDirectSend', 'textDirectSendHint', 'screenshotDirectSend', 'screenshotDirectSendHint',
+      'screenshotShortcut', 'screenshotShortcutHint', 'sourceText', 'additionalInstructions',
+      'additionalInstructionsPlaceholder', 'sendInitial', 'screenshotPreview', 'sourceTextRequired',
+      'visionRequired', 'captureInstructions', 'captureFailed', 'capturePermissionRequired',
+      'captureUnavailable', 'captureBusy', 'captureInvalidRegion', 'captureExpired', 'captureTooLarge',
+    ] as const;
+    for (const [locale, translations] of Object.entries(locales)) {
+      for (const key of keys) {
+        const text = translations.settings.selectionToolbar[key];
+        expect(text.trim(), `${locale}.${key}`).not.toBe('');
+        if (locale !== 'en-US') expect(text, `${locale}.${key}`).not.toBe(enUS.settings.selectionToolbar[key]);
+      }
+      expect(translations.settings.selectionToolbar.captureFailed).toContain('{{error}}');
+    }
+  });
 });

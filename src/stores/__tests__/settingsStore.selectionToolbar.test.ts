@@ -26,6 +26,7 @@ describe('selection toolbar settings', () => {
       result_pinned_by_default: false,
       trigger_mode: 'selection',
       trigger_shortcut: 'CmdOrCtrl+Shift+E',
+      screenshot_shortcut: '',
     });
     expect(useSettingsStore.getState().settings.selection_toolbar.tools).toHaveLength(6);
     expect(useSettingsStore.getState().settings.selection_toolbar.search_url)
@@ -64,6 +65,36 @@ describe('selection toolbar settings', () => {
     expect(useSettingsStore.getState().settings.selection_toolbar).toMatchObject({
       placement: 'below',
       result_pinned_by_default: false,
+      screenshot_shortcut: '',
+    });
+    const translate = useSettingsStore.getState().settings.selection_toolbar.tools[0];
+    expect(translate).toMatchObject({ ai: { text_direct_send: true, screenshot_direct_send: true } });
+  });
+
+  it('preserves explicitly disabled direct-send preferences', async () => {
+    invokeMock.mockResolvedValueOnce({
+      selection_toolbar: {
+        screenshot_shortcut: 'Control+Shift+X',
+        tools: [{
+          kind: 'custom_ai',
+          id: 'custom',
+          name: 'Custom',
+          icon: 'sparkles',
+          enabled: true,
+          ai: { prompt: '{selection}', text_direct_send: false, screenshot_direct_send: false },
+        }],
+      },
+    });
+    const { useSettingsStore } = await import('../settingsStore');
+    await useSettingsStore.getState().fetchSettings();
+    expect(useSettingsStore.getState().settings.selection_toolbar).toMatchObject({
+      screenshot_shortcut: 'Control+Shift+X',
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custom',
+          ai: expect.objectContaining({ text_direct_send: false, screenshot_direct_send: false }),
+        }),
+      ]),
     });
   });
 

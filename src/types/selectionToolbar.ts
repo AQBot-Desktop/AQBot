@@ -34,6 +34,8 @@ export function matchSelectionToolbarSearchPreset(url: string): SelectionToolbar
 
 export interface SelectionToolbarAiConfig {
   prompt: string;
+  text_direct_send: boolean;
+  screenshot_direct_send: boolean;
   provider_id: string | null;
   model_id: string | null;
   temperature: number | null;
@@ -86,6 +88,8 @@ export interface SelectionToolbarSettings {
   trigger_mode: SelectionToolbarTriggerMode;
   /** Global accelerator used when `trigger_mode` is `shortcut`. */
   trigger_shortcut: string;
+  /** Independent screenshot accelerator; an empty binding disables capture. */
+  screenshot_shortcut: string;
   /** Translate tool target language; null follows the app UI language. */
   translate_target_language: string | null;
   /**
@@ -130,6 +134,8 @@ export const SELECTION_TOOLBAR_EXPLAIN_PROMPT =
 function ai(prompt: string): SelectionToolbarAiConfig {
   return {
     prompt,
+    text_direct_send: true,
+    screenshot_direct_send: true,
     provider_id: null,
     model_id: null,
     temperature: null,
@@ -147,6 +153,7 @@ export function createDefaultSelectionToolbarSettings(): SelectionToolbarSetting
     result_pinned_by_default: false,
     trigger_mode: 'selection',
     trigger_shortcut: SELECTION_TOOLBAR_DEFAULT_SHORTCUT,
+    screenshot_shortcut: '',
     translate_target_language: null,
     search_url: SELECTION_TOOLBAR_DEFAULT_SEARCH_URL,
     app_filter_mode: 'off',
@@ -217,10 +224,13 @@ export interface SelectionToolbarToolView {
   builtin_key: SelectionToolbarBuiltinAiKey | SelectionToolbarBuiltinActionKey | null;
   name: string | null;
   icon: string;
+  /** Missing on older snapshots, which retain direct-send behavior. */
+  direct_send?: boolean;
 }
 
 export interface SelectionToolbarSessionView {
   selection_id: string;
+  input_kind?: 'text' | 'screenshot';
   tools: SelectionToolbarToolView[];
   theme: 'light' | 'dark';
   language: string;
@@ -229,6 +239,17 @@ export interface SelectionToolbarSessionView {
   pinned: boolean;
   /** Configured translate target language; null follows `language`. */
   translate_target_language?: string | null;
+}
+
+export type SelectionToolbarInput =
+  | { kind: 'text'; text: string }
+  | { kind: 'screenshot'; width: number; height: number };
+
+export interface SelectionToolbarCaptureError {
+  code: string;
+  detail: string;
+  language: string;
+  theme: 'light' | 'dark';
 }
 
 export type SelectionToolbarToolRunMode = 'new_tool' | 'follow_up' | 'regenerate';
@@ -259,6 +280,7 @@ export interface SelectionToolbarSnapshot {
   session: SelectionToolbarSessionView | null;
   run: SelectionToolbarRunView | null;
   history: SelectionToolbarHistoryItem[];
+  capture_error?: SelectionToolbarCaptureError | null;
 }
 
 export type SelectionToolbarRunEvent =

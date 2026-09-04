@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[cfg(not(target_os = "macos"))]
@@ -75,6 +75,104 @@ pub async fn selection_toolbar_get_snapshot(
     state: State<'_, AppState>,
 ) -> Result<RuntimeSnapshot, String> {
     Ok(state.selection_toolbar.snapshot().await)
+}
+
+fn require_toolbar_window(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() != SELECTION_TOOLBAR_WINDOW_LABEL {
+        return Err("Selection toolbar input is only available to its own window".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_get_input(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    selection_id: String,
+) -> Result<crate::selection_toolbar::ToolbarInputView, String> {
+    require_toolbar_window(&window)?;
+    state.selection_toolbar.input_view(&selection_id).await
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_read_image(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    selection_id: String,
+) -> Result<tauri::ipc::Response, String> {
+    require_toolbar_window(&window)?;
+    match state.selection_toolbar.input(&selection_id).await? {
+        crate::selection_toolbar::ToolbarInput::Screenshot { png, .. } => {
+            Ok(tauri::ipc::Response::new(png.to_vec()))
+        }
+        crate::selection_toolbar::ToolbarInput::Text(_) => {
+            Err("The current input is not an image".into())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_clear_capture_error(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_toolbar_window(&window)?;
+    state.selection_toolbar.clear_capture_error().await;
+    Ok(())
+}
+
+/// Registration shares the frontend's one registration pass, but the callback
+/// must outlive the main WebView when it is released to the tray.
+#[tauri::command]
+pub async fn selection_toolbar_register_screenshot_shortcut(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    shortcut: String,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    if window.label() != "main" {
+        return Err("Only the main window can register shortcuts".into());
+    }
+    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !settings.global_shortcuts_enabled
+        || !settings.selection_toolbar.enabled
+        || settings
+            .selection_toolbar
+            .screenshot_shortcut
+            .trim()
+            .is_empty()
+    {
+        return Err("Screenshot shortcut is disabled".into());
+    }
+    app.global_shortcut()
+        .on_shortcut(shortcut.as_str(), |app, _, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app.state::<AppState>();
+                if let Err(error) = state.selection_toolbar.capture_screenshot(&app).await {
+                    tracing::error!(%error, "Screenshot shortcut failed");
+                }
+            });
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn selection_toolbar_capture_screenshot(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if !matches!(window.label(), "main" | "selection-toolbar") {
+        return Err("Screenshot capture is unavailable to this window".into());
+    }
+    state.selection_toolbar.capture_screenshot(&app).await
 }
 
 #[tauri::command]

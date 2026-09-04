@@ -8,7 +8,9 @@ use std::sync::{
 };
 use uuid::Uuid;
 
-use super::SelectionObservation;
+use super::{
+    InitialToolInput, SelectionObservation, ToolbarInput, ToolbarInputKind, ToolbarInputView,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +119,12 @@ pub struct ToolbarToolView {
     pub builtin_key: Option<String>,
     pub name: Option<String>,
     pub icon: String,
+    #[serde(default = "direct_send_default")]
+    pub direct_send: bool,
+}
+
+fn direct_send_default() -> bool {
+    true
 }
 
 impl ToolbarToolView {
@@ -127,6 +135,7 @@ impl ToolbarToolView {
             builtin_key: Some(builtin_key.into()),
             name: None,
             icon: icon.into(),
+            direct_send: true,
         }
     }
 
@@ -137,6 +146,7 @@ impl ToolbarToolView {
             builtin_key: builtin_key.map(str::to_string),
             name: name.map(str::to_string),
             icon: icon.into(),
+            direct_send: true,
         }
     }
 }
@@ -144,6 +154,8 @@ impl ToolbarToolView {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionView {
     pub selection_id: String,
+    #[serde(default)]
+    pub input_kind: ToolbarInputKind,
     pub tools: Vec<ToolbarToolView>,
     pub theme: String,
     pub language: String,
@@ -213,6 +225,16 @@ pub struct RuntimeSnapshot {
     pub run: Option<ToolRunView>,
     #[serde(default)]
     pub history: Vec<ToolRunHistoryView>,
+    #[serde(default)]
+    pub capture_error: Option<CaptureErrorView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptureErrorView {
+    pub code: String,
+    pub detail: String,
+    pub language: String,
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,7 +293,7 @@ pub(crate) struct PreparedToolRun {
 
 struct ActiveSelection {
     view: SessionView,
-    observation: SelectionObservation,
+    input: ToolbarInput,
 }
 
 struct ActiveRun {
@@ -289,7 +311,7 @@ struct ActiveTranscript {
     selection_id: String,
     tool_id: String,
     config: ToolExecutionConfig,
-    hidden_prompt: String,
+    initial_content: ChatContent,
     turns: Vec<TranscriptTurn>,
 }
 
@@ -298,6 +320,7 @@ pub struct RuntimeStore {
     selection: Option<ActiveSelection>,
     run: Option<ActiveRun>,
     transcript: Option<ActiveTranscript>,
+    capture_error: Option<CaptureErrorView>,
 }
 
 impl RuntimeStore {
@@ -307,6 +330,7 @@ impl RuntimeStore {
             selection: None,
             run: None,
             transcript: None,
+            capture_error: None,
         }
     }
 
@@ -329,13 +353,11 @@ impl RuntimeStore {
         resolved_placement: SelectionToolbarPlacement,
         pinned: bool,
     ) -> String {
-        self.cancel_active_run();
-        self.run = None;
-        self.transcript = None;
-        let selection_id = Uuid::new_v4().to_string();
-        self.selection = Some(ActiveSelection {
-            view: SessionView {
-                selection_id: selection_id.clone(),
+        self.accept_input(
+            ToolbarInput::Text(observation),
+            SessionView {
+                selection_id: String::new(),
+                input_kind: ToolbarInputKind::Text,
                 tools,
                 theme: theme.into(),
                 language: language.into(),
@@ -344,23 +366,50 @@ impl RuntimeStore {
                 resolved_placement,
                 pinned,
             },
-            observation,
-        });
+        )
+    }
+
+    pub(crate) fn accept_input(&mut self, input: ToolbarInput, view: SessionView) -> String {
+        self.cancel_active_run();
+        self.run = None;
+        self.transcript = None;
+        self.capture_error = None;
+        let selection_id = Uuid::new_v4().to_string();
+        let view = SessionView {
+            selection_id: selection_id.clone(),
+            input_kind: input.kind(),
+            ..view
+        };
+        self.selection = Some(ActiveSelection { view, input });
         selection_id
     }
 
-    pub fn selection_text(&self, selection_id: &str) -> Option<&str> {
+    pub(crate) fn input(&self, selection_id: &str) -> Result<&ToolbarInput, String> {
         self.selection
             .as_ref()
             .filter(|selection| selection.view.selection_id == selection_id)
-            .map(|selection| selection.observation.text.as_str())
+            .map(|selection| &selection.input)
+            .ok_or_else(|| "The selection toolbar input is no longer active".into())
+    }
+
+    pub fn input_view(&self, selection_id: &str) -> Result<ToolbarInputView, String> {
+        Ok(self.input(selection_id)?.view())
+    }
+
+    pub fn set_capture_error(&mut self, error: Option<CaptureErrorView>) {
+        self.capture_error = error;
+    }
+
+    pub fn selection_text(&self, selection_id: &str) -> Option<&str> {
+        self.selection_observation(selection_id)
+            .map(|observation| observation.text.as_str())
     }
 
     pub fn selection_observation(&self, selection_id: &str) -> Option<&SelectionObservation> {
-        self.selection
-            .as_ref()
-            .filter(|selection| selection.view.selection_id == selection_id)
-            .map(|selection| &selection.observation)
+        match self.input(selection_id).ok()? {
+            ToolbarInput::Text(observation) => Some(observation),
+            ToolbarInput::Screenshot { .. } => None,
+        }
     }
 
     pub fn reanchor_selection(
@@ -375,7 +424,10 @@ impl RuntimeStore {
         else {
             return false;
         };
-        selection.observation = observation;
+        if !matches!(selection.input, ToolbarInput::Text(_)) {
+            return false;
+        }
+        selection.input = ToolbarInput::Text(observation);
         true
     }
 
@@ -425,7 +477,7 @@ impl RuntimeStore {
         selection_id: &str,
         tool_id: &str,
         config: ToolExecutionConfig,
-        hidden_prompt: String,
+        initial: InitialToolInput,
     ) -> Result<PreparedToolRun, String> {
         self.require_selection(selection_id)?;
         self.cancel_active_run();
@@ -433,10 +485,10 @@ impl RuntimeStore {
             selection_id: selection_id.into(),
             tool_id: tool_id.into(),
             config,
-            hidden_prompt,
+            initial_content: initial.content,
             turns: Vec::new(),
         });
-        self.prepare_run(ToolRunMode::NewTool, None, None)
+        self.prepare_run(ToolRunMode::NewTool, initial.user_input, None)
     }
 
     pub(crate) fn begin_follow_up_run(
@@ -578,6 +630,7 @@ impl RuntimeStore {
         });
         RuntimeSnapshot {
             runtime: self.runtime.clone(),
+            capture_error: self.capture_error.clone(),
             session: self
                 .selection
                 .as_ref()
@@ -607,6 +660,7 @@ impl RuntimeStore {
         self.selection = None;
         self.run = None;
         self.transcript = None;
+        self.capture_error = None;
     }
 
     fn cancel_active_run(&mut self) {
@@ -762,7 +816,13 @@ fn transcript_messages(
     user_input: &Option<String>,
 ) -> Vec<ChatMessage> {
     let end = before_history_index.unwrap_or(transcript.turns.len());
-    let mut messages = vec![text_message("user", transcript.hidden_prompt.clone())];
+    let mut messages = vec![ChatMessage {
+        role: "user".into(),
+        content: transcript.initial_content.clone(),
+        reasoning_content: None,
+        tool_calls: None,
+        tool_call_id: None,
+    }];
     for turn in transcript.turns.iter().take(end) {
         let Some(output) = &turn.context_output else {
             continue;
@@ -810,6 +870,129 @@ fn valid_open_think_start(output: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::selection_toolbar::{ScreenRect, SelectionAnchorKind, SelectionObservation};
+
+    #[test]
+    fn manual_first_request_replays_instructions_once() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let id = store.accept_selection(
+            selected("original"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = store
+            .begin_new_tool_run(
+                &id,
+                "summarize",
+                execution_config(),
+                InitialToolInput {
+                    content: ChatContent::Text("preset with edited source".into()),
+                    user_input: Some("Use bullet points".into()),
+                },
+            )
+            .unwrap();
+        assert_eq!(first.mode, ToolRunMode::NewTool);
+        assert_eq!(first.config.request.messages.len(), 2);
+        assert_eq!(
+            message_text(&first.config.request.messages[1]),
+            "Use bullet points"
+        );
+        assert_eq!(store.selection_text(&id), Some("original"));
+        store.append_delta(&first.request_id, "answer");
+        store.complete_run(&first.request_id);
+        let regenerated = store.begin_regenerate_run(&id, &first.request_id).unwrap();
+        assert_eq!(regenerated.config.request.messages.len(), 2);
+        assert_eq!(
+            message_text(&regenerated.config.request.messages[1]),
+            "Use bullet points"
+        );
+        store.append_delta(&regenerated.request_id, "new answer");
+        store.complete_run(&regenerated.request_id);
+        let follow_up = store
+            .begin_follow_up_run(&id, "More detail".into())
+            .unwrap();
+        let texts: Vec<_> = follow_up
+            .config
+            .request
+            .messages
+            .iter()
+            .map(message_text)
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "preset with edited source",
+                "Use bullet points",
+                "new answer",
+                "More detail"
+            ]
+        );
+    }
+
+    #[test]
+    fn screenshot_session_has_no_text_or_public_image_payload() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Windows);
+        store.accept_selection(
+            selected("old selection"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let old_view = store.snapshot().session.unwrap();
+        let old_id = old_view.selection_id.clone();
+        let input = ToolbarInput::Screenshot {
+            png: Arc::from(&b"private image bytes"[..]),
+            width: 10,
+            height: 20,
+            anchor: super::super::ScreenPoint { x: -100.0, y: 20.0 },
+        };
+        let content = input.content("Describe the attached screenshot".into());
+        let id = store.accept_input(input, old_view);
+        assert!(store.input_view(&old_id).is_err());
+        assert!(store.selection_text(&id).is_none());
+        assert!(!store.reanchor_selection(&id, selected("unrelated selection")));
+        let run = store
+            .begin_new_tool_run(
+                &id,
+                "summarize",
+                execution_config(),
+                InitialToolInput {
+                    content,
+                    user_input: None,
+                },
+            )
+            .unwrap();
+        store.append_delta(&run.request_id, "description");
+        store.complete_run(&run.request_id);
+        let next = store.begin_follow_up_run(&id, "Explain".into()).unwrap();
+        let image_count = next
+            .config
+            .request
+            .messages
+            .iter()
+            .filter_map(|message| match &message.content {
+                ChatContent::Multipart(parts) => {
+                    Some(parts.iter().filter(|part| part.image_url.is_some()).count())
+                }
+                ChatContent::Text(_) => None,
+            })
+            .sum::<usize>();
+        assert_eq!(image_count, 1);
+        let public = serde_json::to_string(&store.snapshot()).unwrap();
+        assert!(!public.contains("private image"));
+        assert!(!public.contains("data:image"));
+        assert!(public.contains("screenshot"));
+        store.clear();
+        assert!(store.input_view(&id).is_err());
+    }
 
     fn selected(text: &str) -> SelectionObservation {
         SelectionObservation {

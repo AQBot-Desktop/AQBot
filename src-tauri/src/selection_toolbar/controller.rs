@@ -17,12 +17,15 @@ use super::{
     platform::{self, DismissReason, PlatformEvent, PlatformMonitorHandle},
     prefer_selection_observation,
     runtime::SessionView,
-    window, OverflowDirection, PermissionSettingsOutcome, PermissionState, PreparedToolRun,
-    RuntimeError, RuntimeSnapshot, RuntimeState, RuntimeStatus, RuntimeStore, ScreenPoint,
-    SelectionChange, SelectionDebouncer, SelectionObservation, SelectionPlatform, SurfaceSize,
-    ToolExecutionConfig, ToolbarToolView, OVERFLOW_SURFACE_MAX_HEIGHT, TOOLBAR_HEIGHT,
-    TOOLBAR_WIDTH,
+    window, InitialToolInput, OverflowDirection, PermissionSettingsOutcome, PermissionState,
+    PreparedToolRun, RuntimeError, RuntimeSnapshot, RuntimeState, RuntimeStatus, RuntimeStore,
+    ScreenPoint, SelectionChange, SelectionDebouncer, SelectionObservation, SelectionPlatform,
+    SurfaceSize, ToolExecutionConfig, ToolbarInput, ToolbarInputKind, ToolbarInputView,
+    ToolbarToolView, OVERFLOW_SURFACE_MAX_HEIGHT, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
 };
+
+#[path = "controller_capture.rs"]
+mod capture_lifecycle;
 
 const SELECTION_OBSERVATION_RACE_MS: u64 = 200;
 
@@ -53,6 +56,7 @@ pub struct SelectionToolbarRuntime {
     dragged_for_session: AtomicBool,
     /// True while a tool is running or the pointer is interacting with the toolbar.
     interaction_lock: AtomicBool,
+    capturing: AtomicBool,
     /// Latest non-empty selection observed by the platform monitor. Shortcut
     /// mode keeps this without opening a toolbar until the accelerator fires.
     pending_selection: Mutex<Option<PendingSelection>>,
@@ -122,6 +126,7 @@ impl SelectionToolbarRuntime {
             resolved_placement: Mutex::new(SelectionToolbarPlacement::Below),
             dragged_for_session: AtomicBool::new(false),
             interaction_lock: AtomicBool::new(false),
+            capturing: AtomicBool::new(false),
             pending_selection: Mutex::new(None),
             frontend_ready: AtomicBool::new(false),
             pending_session: Mutex::new(None),
@@ -143,7 +148,8 @@ impl SelectionToolbarRuntime {
             self.set_error("invalid_settings", message).await;
             return;
         }
-        self.settings_tx
+        let previous_settings = self
+            .settings_tx
             .send_replace(settings.selection_toolbar.clone());
         if !settings.selection_toolbar.enabled {
             self.stop(app).await;
@@ -153,7 +159,9 @@ impl SelectionToolbarRuntime {
             if self.status().await.state == RuntimeState::PermissionRequired {
                 return;
             }
-            if settings.selection_toolbar.trigger_mode == SelectionToolbarTriggerMode::Shortcut {
+            if settings.selection_toolbar.trigger_mode == SelectionToolbarTriggerMode::Shortcut
+                && previous_settings.trigger_mode != settings.selection_toolbar.trigger_mode
+            {
                 let _ = self.hide(app, "trigger_mode_changed").await;
                 return;
             }
@@ -300,14 +308,20 @@ impl SelectionToolbarRuntime {
         requested_overflow_height: Option<f64>,
     ) -> Result<Option<OverflowDirection>, String> {
         let _presentation_guard = self.presentation_lock.lock().await;
+        if self.capturing.load(Ordering::Acquire) {
+            // A request resolving before capture may finish while the screenshot
+            // picker is open; remember its surface, but do not expose our window.
+            *self.surface.lock().await = surface;
+            return Ok(None);
+        }
         let toolbar_width = *self.toolbar_width.lock().await;
         let anchor = {
             let store = self.store.lock().await;
             let snapshot = store.snapshot();
             snapshot
                 .session
-                .and_then(|session| store.selection_observation(&session.selection_id).cloned())
-                .map(|observation| (observation.anchor, observation.anchor_kind))
+                .and_then(|session| store.input(&session.selection_id).ok())
+                .map(ToolbarInput::anchor)
         };
         let previous_surface = *self.surface.lock().await;
         let current_position = window::current_screen_position(app);
@@ -464,6 +478,11 @@ impl SelectionToolbarRuntime {
     }
 
     pub async fn hide(&self, app: &AppHandle, reason: &str) -> Result<(), String> {
+        let _presentation_guard = self.presentation_lock.lock().await;
+        self.hide_locked(app, reason).await
+    }
+
+    async fn hide_locked(&self, app: &AppHandle, reason: &str) -> Result<(), String> {
         self.generation.fetch_add(1, Ordering::Relaxed);
         self.debouncer.lock().await.clear();
         self.store.lock().await.clear();
@@ -583,17 +602,29 @@ impl SelectionToolbarRuntime {
             .map(str::to_string)
     }
 
+    pub(crate) async fn input(&self, selection_id: &str) -> Result<ToolbarInput, String> {
+        self.store.lock().await.input(selection_id).cloned()
+    }
+
+    pub async fn input_view(&self, selection_id: &str) -> Result<ToolbarInputView, String> {
+        self.store.lock().await.input_view(selection_id)
+    }
+
+    pub async fn clear_capture_error(&self) {
+        self.store.lock().await.set_capture_error(None);
+    }
+
     pub(crate) async fn begin_new_tool_run(
         &self,
         selection_id: &str,
         tool_id: &str,
         config: ToolExecutionConfig,
-        hidden_prompt: String,
+        initial: InitialToolInput,
     ) -> Result<PreparedToolRun, String> {
         self.store
             .lock()
             .await
-            .begin_new_tool_run(selection_id, tool_id, config, hidden_prompt)
+            .begin_new_tool_run(selection_id, tool_id, config, initial)
     }
 
     pub(crate) async fn begin_follow_up_run(
@@ -666,6 +697,23 @@ impl SelectionToolbarRuntime {
     }
 
     async fn handle_platform_event(self: &Arc<Self>, app: &AppHandle, event: PlatformEvent) {
+        // Capture and monitor events must arbitrate before either changes the
+        // generation or presentation, including events already queued at capture start.
+        let _presentation_guard = self.presentation_lock.lock().await;
+        // The capture UI owns pointer/Escape events until it returns; do not
+        // let selection clearing destroy the previous editor while it is hidden.
+        if self.capturing.load(Ordering::Acquire) {
+            if let PlatformEvent::Error(error) = event {
+                tracing::warn!(code = %error.code, message = %error.message, "Selection monitor failed during screenshot capture");
+                self.set_runtime_state(
+                    RuntimeState::Error,
+                    self.status().await.permission,
+                    Some(error),
+                )
+                .await;
+            }
+            return;
+        }
         match event {
             PlatformEvent::Selection(observation) => {
                 tracing::debug!(
@@ -697,12 +745,18 @@ impl SelectionToolbarRuntime {
                                 runtime.publish_selection(&app, observation).await;
                             }
                             Some(SelectionChange::Cleared) => {
+                                let _guard = runtime.presentation_lock.lock().await;
+                                if runtime.generation.load(Ordering::Relaxed) != generation
+                                    || runtime.capturing.load(Ordering::Acquire)
+                                {
+                                    return;
+                                }
                                 if runtime.should_suppress_clear(&app) {
                                     tracing::debug!(
                                         "Suppressing selection_cleared while toolbar interaction is active"
                                     );
                                 } else {
-                                    let _ = runtime.hide(&app, "selection_cleared").await;
+                                    let _ = runtime.hide_locked(&app, "selection_cleared").await;
                                 }
                             }
                             None => {}
@@ -718,7 +772,7 @@ impl SelectionToolbarRuntime {
                     );
                 } else {
                     self.clear_selection_candidate().await;
-                    let _ = self.hide(app, "platform").await;
+                    let _ = self.hide_locked(app, "platform").await;
                 }
             }
             PlatformEvent::Dismiss(reason) => {
@@ -734,7 +788,7 @@ impl SelectionToolbarRuntime {
                         "Keeping selection toolbar open across an app change while interacting"
                     );
                 } else {
-                    let _ = self.hide(app, "platform").await;
+                    let _ = self.hide_locked(app, "platform").await;
                 }
             }
             PlatformEvent::GlobalPointerDown(point) => {
@@ -750,7 +804,7 @@ impl SelectionToolbarRuntime {
                     tracing::debug!("Keeping pinned selection result open after outside click");
                 } else {
                     self.clear_selection_candidate().await;
-                    let _ = self.hide(app, "outside_click").await;
+                    let _ = self.hide_locked(app, "outside_click").await;
                 }
             }
             PlatformEvent::Error(error) => {
@@ -761,7 +815,7 @@ impl SelectionToolbarRuntime {
                 )
                 .await;
                 self.clear_selection_candidate().await;
-                let _ = self.hide(app, "monitor_error").await;
+                let _ = self.hide_locked(app, "monitor_error").await;
             }
         }
     }
@@ -797,6 +851,16 @@ impl SelectionToolbarRuntime {
         &self,
         observation: &SelectionObservation,
     ) -> SelectionPublishDecision {
+        if self.capturing.load(Ordering::Acquire) {
+            return SelectionPublishDecision::Ignore;
+        }
+        let snapshot = self.store.lock().await.snapshot();
+        if snapshot
+            .session
+            .is_some_and(|session| session.input_kind == ToolbarInputKind::Screenshot)
+        {
+            return SelectionPublishDecision::Ignore;
+        }
         let live_selection = {
             let store = self.store.lock().await;
             store.snapshot().session.and_then(|session| {
@@ -882,6 +946,9 @@ impl SelectionToolbarRuntime {
         observation: SelectionObservation,
     ) -> Result<(), String> {
         let _presentation_guard = self.presentation_lock.lock().await;
+        if self.capturing.load(Ordering::Acquire) {
+            return Ok(());
+        }
         self.refresh_dragged_state(app).await;
         let surface = *self.surface.lock().await;
         let interaction_locked = self.interaction_lock.load(Ordering::Relaxed);
@@ -1010,21 +1077,44 @@ impl SelectionToolbarRuntime {
             self.set_runtime_state(RuntimeState::Running, status.permission, None)
                 .await;
         }
-        let tools = toolbar_tool_views(&settings);
+        self.show_input(app, ToolbarInput::Text(observation), settings, None)
+            .await
+    }
+
+    async fn show_input(
+        &self,
+        app: &AppHandle,
+        input: ToolbarInput,
+        settings: &AppSettings,
+        capture_generation: Option<u64>,
+    ) -> Result<(), String> {
+        let _presentation_guard = self.presentation_lock.lock().await;
+        if let Some(generation) = capture_generation {
+            if self.generation.load(Ordering::Relaxed) != generation
+                || !self.settings_tx.borrow().enabled
+            {
+                return Ok(());
+            }
+        } else {
+            if self.capturing.load(Ordering::Acquire)
+                || self
+                    .store
+                    .lock()
+                    .await
+                    .snapshot()
+                    .session
+                    .is_some_and(|session| session.input_kind == ToolbarInputKind::Screenshot)
+            {
+                return Ok(());
+            }
+        }
+        let tools = toolbar_tool_views(settings, input.kind());
         if tools.is_empty() {
-            let _ = self.hide(app, "no_enabled_tools").await;
             return Err("Selection toolbar has no enabled tools".into());
         }
         let toolbar_width = toolbar_width_for(settings.selection_toolbar.display_mode, tools.len());
         let theme = toolbar_theme(app, &settings);
-        let anchor = observation.anchor;
-        let anchor_kind = observation.anchor_kind;
-        let source_app = observation.source_app.clone();
-        let text_len = observation.text.chars().count();
-        *self.surface.lock().await = SurfaceSize::Toolbar;
-        *self.toolbar_width.lock().await = toolbar_width;
-        *self.preferred_placement.lock().await = settings.selection_toolbar.placement;
-        self.dragged_for_session.store(false, Ordering::Relaxed);
+        let (anchor, anchor_kind) = input.anchor();
         let placement = match window::show_surface(
             app,
             anchor,
@@ -1039,21 +1129,29 @@ impl SelectionToolbarRuntime {
                 return Err(error);
             }
         };
+        *self.surface.lock().await = SurfaceSize::Toolbar;
+        *self.toolbar_width.lock().await = toolbar_width;
+        *self.preferred_placement.lock().await = settings.selection_toolbar.placement;
+        self.dragged_for_session.store(false, Ordering::Relaxed);
         *self.resolved_placement.lock().await = placement.direction;
         let session = {
             let mut store = self.store.lock().await;
-            let id = store.accept_selection(
-                observation,
-                tools,
-                theme,
-                &settings.language,
-                settings.selection_toolbar.display_mode,
-                settings
-                    .selection_toolbar
-                    .translate_target_language
-                    .as_deref(),
-                placement.direction,
-                settings.selection_toolbar.result_pinned_by_default,
+            let id = store.accept_input(
+                input,
+                SessionView {
+                    selection_id: String::new(),
+                    input_kind: ToolbarInputKind::Text,
+                    tools,
+                    theme: theme.into(),
+                    language: settings.language.clone(),
+                    display_mode: settings.selection_toolbar.display_mode,
+                    translate_target_language: settings
+                        .selection_toolbar
+                        .translate_target_language
+                        .clone(),
+                    resolved_placement: placement.direction,
+                    pinned: settings.selection_toolbar.result_pinned_by_default,
+                },
             );
             store
                 .snapshot()
@@ -1061,8 +1159,6 @@ impl SelectionToolbarRuntime {
                 .filter(|session| session.selection_id == id)
         };
         tracing::debug!(
-            source_app = %source_app,
-            text_len,
             anchor_kind = ?anchor_kind,
             anchor_x = anchor.x,
             anchor_y = anchor.y,
@@ -1101,8 +1197,18 @@ impl SelectionToolbarRuntime {
     }
 
     async fn refresh_session(&self, app: &AppHandle, settings: &AppSettings) {
-        let tools = toolbar_tool_views(settings);
+        let presentation_guard = self.presentation_lock.lock().await;
+        let kind = self
+            .store
+            .lock()
+            .await
+            .snapshot()
+            .session
+            .map(|session| session.input_kind)
+            .unwrap_or_default();
+        let tools = toolbar_tool_views(settings, kind);
         if tools.is_empty() {
+            drop(presentation_guard);
             let _ = self.hide(app, "no_enabled_tools").await;
             return;
         }
@@ -1128,7 +1234,8 @@ impl SelectionToolbarRuntime {
             *current = toolbar_width;
             previous
         };
-        if session.is_some()
+        if !self.capturing.load(Ordering::Acquire)
+            && session.is_some()
             && *self.surface.lock().await == SurfaceSize::Toolbar
             && (previous_toolbar_width - toolbar_width).abs() > f64::EPSILON
         {
@@ -1242,6 +1349,22 @@ fn keep_after_dismiss(reason: DismissReason, sticky_interaction: bool) -> bool {
 mod tests {
     use super::*;
     use crate::selection_toolbar::{ScreenRect, SelectionAnchorKind};
+
+    #[test]
+    fn tool_views_resolve_sending_mode_and_hide_actions_for_images() {
+        let mut settings = AppSettings::default();
+        if let SelectionToolbarTool::BuiltinAi { ai, .. } = &mut settings.selection_toolbar.tools[0]
+        {
+            ai.text_direct_send = false;
+            ai.screenshot_direct_send = true;
+        }
+        let text = toolbar_tool_views(&settings, ToolbarInputKind::Text);
+        let image = toolbar_tool_views(&settings, ToolbarInputKind::Screenshot);
+        assert!(!text[0].direct_send);
+        assert!(image[0].direct_send);
+        assert!(text.iter().any(|tool| tool.kind == "action"));
+        assert!(image.iter().all(|tool| tool.kind == "ai"));
+    }
 
     fn observation(text: &str, source_app: &str) -> SelectionObservation {
         SelectionObservation {
@@ -1368,6 +1491,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn capture_and_image_sessions_block_text_replacement() {
+        let runtime = runtime_with_live_selection("hello").await;
+        let incoming = observation("new text", "com.example.editor");
+        runtime.capturing.store(true, Ordering::Release);
+        assert_eq!(
+            runtime.selection_publish_decision(&incoming).await,
+            SelectionPublishDecision::Ignore
+        );
+        runtime.capturing.store(false, Ordering::Release);
+        assert_eq!(
+            runtime.selection_publish_decision(&incoming).await,
+            SelectionPublishDecision::PublishNew
+        );
+        let mut store = runtime.store.lock().await;
+        let view = store.snapshot().session.unwrap();
+        store.accept_input(
+            ToolbarInput::Screenshot {
+                png: vec![1, 2, 3].into(),
+                width: 1,
+                height: 1,
+                anchor: ScreenPoint { x: 0.0, y: 0.0 },
+            },
+            view,
+        );
+        drop(store);
+        assert_eq!(
+            runtime.selection_publish_decision(&incoming).await,
+            SelectionPublishDecision::Ignore
+        );
+    }
+
+    #[tokio::test]
     async fn no_selection_is_published_while_the_user_interacts_with_the_toolbar() {
         let runtime = runtime_with_live_selection("hello").await;
         runtime.lock_interaction();
@@ -1491,7 +1646,7 @@ mod tests {
 
     #[test]
     fn default_toolbar_views_include_explain_with_lightbulb_icon() {
-        let views = toolbar_tool_views(&AppSettings::default());
+        let views = toolbar_tool_views(&AppSettings::default(), ToolbarInputKind::Text);
         let explain = views
             .iter()
             .find(|view| view.id == "explain")
@@ -1522,35 +1677,48 @@ mod tests {
     }
 }
 
-fn toolbar_tool_views(settings: &AppSettings) -> Vec<ToolbarToolView> {
+fn toolbar_tool_views(
+    settings: &AppSettings,
+    input_kind: ToolbarInputKind,
+) -> Vec<ToolbarToolView> {
     settings
         .selection_toolbar
         .tools
         .iter()
         .filter(|tool| tool.enabled())
-        .map(|tool| match tool {
-            SelectionToolbarTool::BuiltinAi { builtin_key, .. } => ToolbarToolView::ai(
-                builtin_key.as_str(),
-                Some(builtin_key.as_str()),
-                None,
-                match builtin_key {
-                    SelectionToolbarBuiltinAiKey::Translate => "languages",
-                    SelectionToolbarBuiltinAiKey::Explain => "lightbulb",
-                    SelectionToolbarBuiltinAiKey::Polish => "spell-check",
-                    SelectionToolbarBuiltinAiKey::Summarize => "list-collapse",
-                },
-            ),
-            SelectionToolbarTool::BuiltinAction { builtin_key, .. } => ToolbarToolView::action(
-                builtin_key.as_str(),
-                builtin_key.as_str(),
-                match builtin_key {
-                    SelectionToolbarBuiltinActionKey::Copy => "copy",
-                    SelectionToolbarBuiltinActionKey::Search => "search",
-                },
-            ),
-            SelectionToolbarTool::CustomAi { id, name, icon, .. } => {
-                ToolbarToolView::ai(id, None, Some(name), icon)
+        .filter(|tool| input_kind == ToolbarInputKind::Text || tool.ai().is_some())
+        .map(|tool| {
+            let mut view = match tool {
+                SelectionToolbarTool::BuiltinAi { builtin_key, .. } => ToolbarToolView::ai(
+                    builtin_key.as_str(),
+                    Some(builtin_key.as_str()),
+                    None,
+                    match builtin_key {
+                        SelectionToolbarBuiltinAiKey::Translate => "languages",
+                        SelectionToolbarBuiltinAiKey::Explain => "lightbulb",
+                        SelectionToolbarBuiltinAiKey::Polish => "spell-check",
+                        SelectionToolbarBuiltinAiKey::Summarize => "list-collapse",
+                    },
+                ),
+                SelectionToolbarTool::BuiltinAction { builtin_key, .. } => ToolbarToolView::action(
+                    builtin_key.as_str(),
+                    builtin_key.as_str(),
+                    match builtin_key {
+                        SelectionToolbarBuiltinActionKey::Copy => "copy",
+                        SelectionToolbarBuiltinActionKey::Search => "search",
+                    },
+                ),
+                SelectionToolbarTool::CustomAi { id, name, icon, .. } => {
+                    ToolbarToolView::ai(id, None, Some(name), icon)
+                }
+            };
+            if let Some(ai) = tool.ai() {
+                view.direct_send = match input_kind {
+                    ToolbarInputKind::Text => ai.text_direct_send,
+                    ToolbarInputKind::Screenshot => ai.screenshot_direct_send,
+                };
             }
+            view
         })
         .collect()
 }
