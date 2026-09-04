@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "AQBot wird gestartet…",
+    "settingsFailed": "Einstellungen konnten nicht geladen werden",
+    "failed": "AQBot konnte nicht gestartet werden",
+    "logInstructions": "Starten Sie AQBot mit AQBOT_LOG_FILE und RUST_LOG=debug neu und hängen Sie die erzeugte Protokolldatei an",
+    "nativeTitle": "AQBot-Startdiagnose",
+    "slowStartup": "AQBot ist noch nicht vollständig gestartet, aktueller Schritt: {{phase}}\n\nProtokolldatei: {{logPath}}\n\nDas Schließen dieser Meldung beendet die Initialisierung nicht",
+    "nativeFailure": "AQBot konnte nicht gestartet werden: {{error}}\n\nProtokolldatei: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot wurde zuletzt unerwartet beendet",
     "description": "AQBot hat erkannt, dass die vorherige Sitzung nicht ordnungsgemäß beendet wurde. Sie können die Diagnoseinformationen kopieren oder die Dateien anzeigen.",

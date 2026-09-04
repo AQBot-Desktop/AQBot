@@ -74,6 +74,8 @@ mod onnxruntime_dylib;
 mod paths;
 mod selection_toolbar;
 mod startup_diagnostics;
+#[cfg(any(target_os = "windows", test))]
+mod startup_messages;
 mod tray;
 mod tray_icon;
 mod tray_icon_image;
@@ -85,22 +87,28 @@ mod windows_utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     diagnostics::init_tracing();
+    let startup_phase = startup_diagnostics::StartupPhase::new("process.start");
+    startup_diagnostics::install_process_startup_phase(startup_phase.clone());
     diagnostics::install_panic_hook();
+    let watchdog = startup_diagnostics::start_startup_watchdog(startup_phase.clone());
+    startup_phase.set("process.environment");
     diagnostics::log_process_startup();
     startup_diagnostics::log_startup_env_switches();
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
     #[cfg(target_os = "linux")]
     linux_webkit::apply_startup_workarounds();
 
     #[allow(unused_mut)]
     let mut builder = {
+        startup_phase.set("builder.create");
         tracing::info!("Creating Tauri application builder");
         let builder = tauri::Builder::default();
         tracing::info!("Created Tauri application builder");
         builder
     };
+    builder = builder.manage(startup_phase.clone());
     builder = media_protocol::register(builder);
 
     let minimal_plugins = {
@@ -248,8 +256,10 @@ pub fn run() {
         context
     };
 
-    let startup_phase = startup_diagnostics::StartupPhase::new("attaching invoke handler");
-    let watchdog = startup_diagnostics::start_linux_startup_watchdog(startup_phase.clone());
+    tracing::info!(
+        app_version = %context.package_info().version,
+        "AQBot application version"
+    );
 
     tracing::info!("Attaching Tauri invoke handler");
     startup_phase.set("attaching invoke handler");
@@ -498,6 +508,7 @@ pub fn run() {
         commands::desktop::test_proxy,
         commands::desktop::open_devtools,
         commands::desktop::write_diagnostic_log,
+        commands::startup::report_startup_presented,
         commands::system_fonts::list_system_fonts,
         commands::system_fonts::list_system_font_faces,
         commands::desktop::minimize_window,
@@ -644,6 +655,8 @@ pub fn run() {
     tracing::info!("Attaching Tauri setup handler");
     startup_phase.set("attaching setup handler");
     let builder = builder.setup(|app| {
+            let startup_phase = app.state::<startup_diagnostics::StartupPhase>();
+            startup_phase.set("setup.storage");
             tracing::info!("AQBot setup closure entered");
 
             // Force overlay (auto-hide) scrollbar style on macOS.
@@ -683,6 +696,7 @@ pub fn run() {
                 app.config().identifier.clone(),
                 diagnostic_log::path(),
             ));
+            startup_phase.set("setup.pending_restore");
             match aqbot_core::pending_restore::apply_pending_restore(&app_dir) {
                 Ok(aqbot_core::pending_restore::PendingRestoreOutcome::Applied) => {
                     tracing::info!("Pending restore applied before database startup")
@@ -713,6 +727,7 @@ pub fn run() {
             );
 
             // Ensure ~/Documents/aqbot/{images,files,backups}/ exist
+            startup_phase.set("setup.documents");
             aqbot_core::storage_paths::ensure_documents_dirs()
                 .expect("failed to create documents storage dirs");
             tracing::info!("AQBot documents directories ensured");
@@ -724,6 +739,7 @@ pub fn run() {
             // db::create_pool uses SQLite create mode, which would create aqbot.db
             // on first launch — causing the safety guard below to misfire if it ran
             // after the pool is opened.
+            startup_phase.set("setup.master_key");
             let key_path = app_dir.join("master.key");
             let master_key = if key_path.exists() {
                 let mut bytes = std::fs::read(&key_path).expect("failed to read master key");
@@ -775,6 +791,7 @@ pub fn run() {
             // Register sqlite-vec extension before any DB connections
             aqbot_core::vector_store::register_sqlite_vec_extension();
 
+            startup_phase.set("setup.database");
             let rt = tokio::runtime::Runtime::new().unwrap();
             let db_handle = match rt.block_on(db::create_pool(&db_path)) {
                 Ok(h) => h,
@@ -799,7 +816,7 @@ pub fn run() {
                     }
                     #[cfg(target_os = "windows")]
                     {
-                        windows_utils::show_error_dialog("AQBot", &msg);
+                        startup_phase.fail(&e);
                     }
                     std::process::exit(1);
                 }
@@ -811,11 +828,11 @@ pub fn run() {
                 aqbot_core::vector_store::VectorStore::new(db_handle.conn.clone());
 
             // Migrate any hardcoded absolute paths in settings to dynamic variables
+            startup_phase.set("setup.settings");
             rt.block_on(aqbot_core::path_vars::migrate_hardcoded_paths(&db_handle.conn));
 
-            let app_settings = rt
-                .block_on(aqbot_core::repo::settings::get_settings(&db_handle.conn))
-                .unwrap_or_default();
+            let app_settings =
+                rt.block_on(aqbot_core::repo::settings::get_settings(&db_handle.conn))?;
 
             // Apply custom documents root (if configured) before anything
             // that reads documents_root().
@@ -830,6 +847,7 @@ pub fn run() {
             // One-time, idempotent migration of historical assistant images that were
             // embedded directly in message Markdown/HTML. Never mutate a candidate
             // unless a pre-migration SQLite backup succeeds.
+            startup_phase.set("setup.inline_media");
             match rt.block_on(aqbot_core::inline_media::pending_inline_media_message_ids(
                 &db_handle.conn,
                 None,
@@ -893,6 +911,7 @@ pub fn run() {
                 ),
             }
 
+            startup_phase.set("setup.app_state");
             app.manage(AppState {
                 sea_db: db_handle.conn,
                 master_key,
@@ -949,6 +968,7 @@ pub fn run() {
             }
 
             // Reset any agent sessions that were running when app crashed/closed
+            startup_phase.set("setup.session_recovery");
             {
                 let sea_db = app.state::<AppState>().sea_db.clone();
                 let _ = rt.block_on(aqbot_core::repo::agent_session::reset_running_sessions(&sea_db));
@@ -981,6 +1001,7 @@ pub fn run() {
                 }
             }
 
+            startup_phase.set("setup.main_window");
             if let Err(err) = window_lifecycle::ensure_main_window_for_setup(app.handle()) {
                 tracing::error!(
                     error = %err,
@@ -995,6 +1016,7 @@ pub fn run() {
             }
 
             // Initialize auto-backup scheduler if enabled
+            startup_phase.set("setup.background_services");
             {
                 let state = app.state::<AppState>();
                 let db = state.sea_db.clone();
@@ -1136,6 +1158,7 @@ pub fn run() {
             }
 
             // Reconcile system tray once at startup using the persisted appearance.
+            startup_phase.set("setup.tray");
             let handle = app.handle();
             let tray_available = match rt.block_on(tray_icon::reconcile(handle, &app_settings)) {
                 Ok(()) => app_settings.tray_enabled && tray::tray_exists(handle),
@@ -1150,6 +1173,7 @@ pub fn run() {
                 .tray_available
                 .store(tray_available, Ordering::Relaxed);
 
+            startup_phase.set("frontend.bootstrap");
             Ok(())
         });
     tracing::info!("Attached Tauri setup handler");
@@ -1223,7 +1247,6 @@ pub fn run() {
     startup_phase.set("inside builder.build(context)");
     let build_result = builder.build(context);
     startup_phase.set("builder.build(context) returned");
-    watchdog.stop();
 
     let app = match build_result {
         Ok(app) => {
@@ -1242,27 +1265,7 @@ pub fn run() {
             );
 
             #[cfg(target_os = "windows")]
-            {
-                let lower = error_msg.to_lowercase();
-                if lower.contains("webview2") || lower.contains("webview") || lower.contains("edge")
-                {
-                    let user_ok = windows_utils::show_warning_ok_cancel(
-                        "AQBot",
-                        "未检测到 Microsoft Edge WebView2 Runtime，AQBot 无法启动。\n\n\
-                         点击「确定」打开下载页面进行安装，安装完成后重新启动 AQBot。",
-                    );
-                    if user_ok {
-                        let _ = std::process::Command::new("cmd")
-                            .args(["/c", "start", "https://developer.microsoft.com/en-us/microsoft-edge/webview2/?form=MA13LH#download"])
-                            .spawn();
-                    }
-                } else {
-                    windows_utils::show_error_dialog(
-                        "AQBot",
-                        &format!("应用启动失败：{}", error_msg),
-                    );
-                }
-            }
+            startup_phase.fail(&e);
 
             #[cfg(target_os = "linux")]
             diagnostics::show_linux_startup_error_dialog(&format!(
@@ -1275,7 +1278,10 @@ pub fn run() {
     };
 
     tracing::info!("Starting Tauri application event loop");
-    app.run(|app, event| {
+    startup_phase.set("event_loop.webview_creation");
+    app.run(move |app, event| {
+        // Keep the monitor alive through automatic WebView creation and frontend commit.
+        let _startup_watchdog = &watchdog;
         if matches!(event, tauri::RunEvent::Exit) {
             let mcp_stdio_clients = app.state::<AppState>().mcp_stdio_clients.clone();
             match tauri::async_runtime::block_on(async {

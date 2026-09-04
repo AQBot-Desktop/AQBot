@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "AQBot を起動しています…",
+    "settingsFailed": "設定を読み込めませんでした",
+    "failed": "AQBot の起動に失敗しました",
+    "logInstructions": "AQBOT_LOG_FILE と RUST_LOG=debug を指定して AQBot を再起動し、生成されたログファイルを添付してください",
+    "nativeTitle": "AQBot の起動診断",
+    "slowStartup": "AQBot の起動がまだ完了していません、現在の段階: {{phase}}\n\nログファイル: {{logPath}}\n\nこのメッセージを閉じても初期化は停止しません",
+    "nativeFailure": "AQBot の起動に失敗しました: {{error}}\n\nログファイル: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "前回 AQBot が予期せず終了しました",
     "description": "前回のセッションが正常に終了しなかったことを検出しました。このレポートを閉じる前に診断情報をコピーしたり、ファイルを表示したりできます。",

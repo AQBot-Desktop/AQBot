@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import i18n from '@/i18n';
 import {
   formatStartupError,
   installStartupDiagnostics,
@@ -12,12 +13,19 @@ describe('startupDiagnostics', () => {
     expect(formatStartupError(error)).toContain('module failed');
   });
 
+  it('preserves the original cause in wrapped startup failures', () => {
+    const error = new Error('module import failed');
+    Reflect.set(error, 'cause', new Error('source file unavailable'));
+    expect(formatStartupError(error)).toContain('module import failed');
+    expect(formatStartupError(error)).toContain('source file unavailable');
+  });
+
   it('renders a visible startup error panel with log instructions', () => {
     const root = document.createElement('div');
 
     renderStartupError(root, new Error('bootstrap failed'));
 
-    expect(root.textContent).toContain('AQBot startup failed');
+    expect(root.textContent).toContain(i18n.t('startup.failed'));
     expect(root.textContent).toContain('bootstrap failed');
     expect(root.textContent).toContain('AQBOT_LOG_FILE');
   });

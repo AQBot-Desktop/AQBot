@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "Démarrage d’AQBot…",
+    "settingsFailed": "Impossible de charger les paramètres",
+    "failed": "Échec du démarrage d’AQBot",
+    "logInstructions": "Redémarrez AQBot avec AQBOT_LOG_FILE et RUST_LOG=debug, puis joignez le fichier journal généré",
+    "nativeTitle": "Diagnostic du démarrage d’AQBot",
+    "slowStartup": "AQBot n’a pas encore terminé son démarrage, étape actuelle : {{phase}}\n\nFichier journal : {{logPath}}\n\nFermer ce message n’interrompt pas l’initialisation",
+    "nativeFailure": "Échec du démarrage d’AQBot : {{error}}\n\nFichier journal : {{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot s'est fermé de façon inattendue",
     "description": "AQBot a détecté que la session précédente ne s'est pas arrêtée correctement. Vous pouvez copier les diagnostics ou afficher les fichiers avant de fermer ce rapport.",

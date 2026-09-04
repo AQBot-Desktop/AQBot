@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "Iniciando AQBot…",
+    "settingsFailed": "No se pudo cargar la configuración",
+    "failed": "No se pudo iniciar AQBot",
+    "logInstructions": "Reinicia AQBot con AQBOT_LOG_FILE y RUST_LOG=debug y adjunta el archivo de registro generado",
+    "nativeTitle": "Diagnóstico de inicio de AQBot",
+    "slowStartup": "AQBot aún no ha terminado de iniciarse, etapa actual: {{phase}}\n\nArchivo de registro: {{logPath}}\n\nCerrar este mensaje no detendrá la inicialización",
+    "nativeFailure": "No se pudo iniciar AQBot: {{error}}\n\nArchivo de registro: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot se cerró inesperadamente la última vez",
     "description": "AQBot detectó que la sesión anterior no se cerró correctamente. Puedes copiar la información de diagnóstico o mostrar los archivos antes de descartar el informe.",

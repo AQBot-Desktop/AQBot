@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "جارٍ بدء AQBot…",
+    "settingsFailed": "تعذر تحميل الإعدادات",
+    "failed": "تعذر بدء AQBot",
+    "logInstructions": "أعد تشغيل AQBot باستخدام AQBOT_LOG_FILE وRUST_LOG=debug، ثم أرفق ملف السجل الناتج",
+    "nativeTitle": "تشخيص بدء AQBot",
+    "slowStartup": "لم يكتمل بدء AQBot بعد، المرحلة الحالية: {{phase}}\n\nملف السجل: {{logPath}}\n\nإغلاق هذه الرسالة لن يوقف التهيئة",
+    "nativeFailure": "تعذر بدء AQBot: {{error}}\n\nملف السجل: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "تم إغلاق AQBot بشكل غير متوقع في المرة السابقة",
     "description": "اكتشف AQBot أن الجلسة السابقة لم تُغلق بشكل سليم. يمكنك نسخ معلومات التشخيص أو إظهار الملفات قبل إغلاق هذا التقرير.",

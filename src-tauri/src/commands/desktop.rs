@@ -50,6 +50,9 @@ pub async fn apply_startup_settings(
     release_webview_on_tray: bool,
     tray_enabled: Option<bool>,
 ) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Only the main window can apply application startup settings".into());
+    }
     window
         .set_always_on_top(always_on_top)
         .map_err(|e| e.to_string())?;

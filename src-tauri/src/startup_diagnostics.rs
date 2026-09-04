@@ -1,60 +1,30 @@
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 use std::time::{Duration, Instant};
+
+mod state;
+pub(crate) use state::process_startup_phase;
+pub use state::{install_process_startup_phase, StartupPhase, StartupPresentation};
 
 pub const ENABLE_DEVTOOLS_ENV: &str = "AQBOT_ENABLE_DEVTOOLS";
 pub const LINUX_ANY_THREAD_ENV: &str = "AQBOT_LINUX_ANY_THREAD";
 pub const LINUX_MINIMAL_PLUGINS_ENV: &str = "AQBOT_LINUX_MINIMAL_PLUGINS";
 const TEST_BUILD_ENV: &str = "AQBOT_TEST_BUILD";
 
-#[derive(Clone)]
-pub struct StartupPhase {
-    inner: Arc<Mutex<String>>,
-}
-
 pub struct StartupWatchdog {
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
-impl StartupPhase {
-    pub fn new(initial: impl Into<String>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(initial.into())),
-        }
-    }
-
-    pub fn set(&self, value: impl Into<String>) {
-        match self.inner.lock() {
-            Ok(mut phase) => *phase = value.into(),
-            Err(_) => tracing::warn!("AQBot startup phase lock poisoned"),
-        }
-    }
-
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub fn get(&self) -> String {
-        self.inner
-            .lock()
-            .map(|phase| phase.clone())
-            .unwrap_or_else(|_| "<phase lock poisoned>".to_string())
-    }
-}
-
 impl StartupWatchdog {
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     fn noop() -> Self {
         Self {
             stop: Arc::new(AtomicBool::new(true)),
             handle: None,
-        }
-    }
-
-    pub fn stop(mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
         }
     }
 }
@@ -62,6 +32,11 @@ impl StartupWatchdog {
 impl Drop for StartupWatchdog {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            if handle.join().is_err() {
+                tracing::error!("AQBot startup watchdog thread panicked");
+            }
+        }
     }
 }
 
@@ -114,6 +89,9 @@ pub fn diagnostic_marker_plugin<R: tauri::Runtime>(
 ) -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new(marker_name)
         .setup(move |_app, _api| {
+            if let Some(phase) = process_startup_phase() {
+                phase.set(format!("plugin setup: {marker_name}"));
+            }
             tracing::info!(
                 plugin_marker = marker_name,
                 "AQBot diagnostic plugin setup reached"
@@ -123,25 +101,52 @@ pub fn diagnostic_marker_plugin<R: tauri::Runtime>(
         .build()
 }
 
-#[cfg(target_os = "linux")]
-pub fn start_linux_startup_watchdog(phase: StartupPhase) -> StartupWatchdog {
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn start_startup_watchdog(phase: StartupPhase) -> StartupWatchdog {
+    start_watchdog(phase, Duration::from_secs(2), Duration::from_millis(250))
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn start_watchdog(phase: StartupPhase, heartbeat: Duration, tick: Duration) -> StartupWatchdog {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let handle = thread::spawn(move || {
         let started = Instant::now();
-        let mut next_heartbeat = Duration::from_secs(2);
-        tracing::info!("AQBot Linux startup watchdog started");
+        let mut next_heartbeat = heartbeat;
+        tracing::info!("AQBot startup watchdog started");
         while !thread_stop.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(250));
+            thread::sleep(tick);
             if thread_stop.load(Ordering::Relaxed) {
                 break;
+            }
+            let Some(snapshot) = phase.snapshot() else {
+                break;
+            };
+            if snapshot.finished {
+                break;
+            }
+            #[cfg(target_os = "windows")]
+            if phase.claim_slow_notice(snapshot.elapsed) {
+                let notice_phase = phase.clone();
+                // MessageBox is modal, so keep it off the heartbeat thread.
+                thread::spawn(move || {
+                    if let Some(snapshot) = notice_phase.snapshot().filter(|state| !state.finished)
+                    {
+                        crate::startup_messages::show_slow_startup(&snapshot.phase);
+                    }
+                });
             }
             if started.elapsed() < next_heartbeat {
                 continue;
             }
             tracing::warn!(
-                elapsed_secs = started.elapsed().as_secs(),
-                startup_phase = %phase.get(),
+                elapsed_ms = snapshot.elapsed.as_millis() as u64,
+                phase_elapsed_ms = snapshot.phase_elapsed.as_millis() as u64,
+                startup_phase = %snapshot.phase,
+                "AQBot startup watchdog heartbeat"
+            );
+            #[cfg(target_os = "linux")]
+            tracing::warn!(
                 xdg_session_type = %env_value("XDG_SESSION_TYPE"),
                 wayland_display = %env_value("WAYLAND_DISPLAY"),
                 display = %env_value("DISPLAY"),
@@ -151,13 +156,13 @@ pub fn start_linux_startup_watchdog(phase: StartupPhase) -> StartupWatchdog {
                 aqbot_linux_auto_window = %env_value("AQBOT_LINUX_AUTO_WINDOW"),
                 aqbot_linux_any_thread = %env_value(LINUX_ANY_THREAD_ENV),
                 aqbot_linux_minimal_plugins = %env_value(LINUX_MINIMAL_PLUGINS_ENV),
-                "AQBot Linux startup watchdog heartbeat"
+                "AQBot Linux startup environment"
             );
-            next_heartbeat += Duration::from_secs(2);
+            next_heartbeat += heartbeat;
         }
         tracing::info!(
             elapsed_secs = started.elapsed().as_secs(),
-            "AQBot Linux startup watchdog stopped"
+            "AQBot startup watchdog stopped"
         );
     });
 
@@ -167,8 +172,8 @@ pub fn start_linux_startup_watchdog(phase: StartupPhase) -> StartupWatchdog {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-pub fn start_linux_startup_watchdog(_phase: StartupPhase) -> StartupWatchdog {
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn start_startup_watchdog(_phase: StartupPhase) -> StartupWatchdog {
     StartupWatchdog::noop()
 }
 
@@ -266,5 +271,22 @@ mod tests {
         let error = std::io::Error::new(std::io::ErrorKind::Other, "outer");
 
         assert_eq!(format_error_chain(&error), "outer");
+    }
+
+    #[test]
+    fn watchdog_finishes_when_main_surface_is_presented() {
+        let phase = StartupPhase::new("frontend commit");
+        let watchdog = super::start_watchdog(
+            phase.clone(),
+            super::Duration::from_millis(5),
+            super::Duration::from_millis(1),
+        );
+        phase.mark_presented(super::StartupPresentation::App);
+        let deadline = super::Instant::now() + super::Duration::from_secs(2);
+        while !watchdog.handle.as_ref().unwrap().is_finished() && super::Instant::now() < deadline {
+            std::thread::sleep(super::Duration::from_millis(1));
+        }
+        assert!(watchdog.handle.as_ref().unwrap().is_finished());
+        drop(watchdog);
     }
 }

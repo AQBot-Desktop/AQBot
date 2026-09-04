@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke, isTauri } from '@/lib/invoke';
 import { useSettingsStore } from '@/stores';
 import {
@@ -10,12 +10,21 @@ import {
 } from '@/lib/shortcuts';
 import { executeShortcutAction } from '@/lib/shortcutActions';
 import type { GlobalShortcutDiagnostic, GlobalShortcutStatus } from '@/stores/settingsStore';
+import { getCurrentWindowLabel } from '@/lib/windowKind';
 
 export function useGlobalShortcutManager() {
   const settings = useSettingsStore((s) => s.settings);
+  const settingsReady = useSettingsStore((s) => s.settingsMeta.status === 'ready');
+  const [settingsLoaded, setSettingsLoaded] = useState(settingsReady);
+  const canRegister = settingsReady || settingsLoaded;
   const setGlobalShortcutStatus = useSettingsStore((s) => s.setGlobalShortcutStatus);
 
   useEffect(() => {
+    if (settingsReady) setSettingsLoaded(true);
+  }, [settingsReady]);
+
+  useEffect(() => {
+    if (!canRegister || getCurrentWindowLabel() !== 'main') return;
     const diagnostics: GlobalShortcutDiagnostic[] = [];
     const pushDiagnostic = (
       entry: Omit<GlobalShortcutDiagnostic, 'timestamp'>,
@@ -304,5 +313,5 @@ export function useGlobalShortcutManager() {
           });
       }
     };
-  }, [settings, setGlobalShortcutStatus]);
+  }, [settings, canRegister, setGlobalShortcutStatus]);
 }

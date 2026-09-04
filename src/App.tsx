@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useCallback, useDeferredValue } from 'react';
+import { lazy, Suspense, useEffect, useRef, useCallback, useDeferredValue, useState } from 'react';
 import { ConfigProvider, App as AntdApp, Layout, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,6 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { ContentArea } from '@/components/layout/ContentArea';
 import { ChatChromeContext } from '@/lib/chatChrome';
-import { notifyConversationPopoutReady } from '@/lib/conversationPopout';
 import {
   conversationIdFromPopoutLabel,
   frontendKindForWindow,
@@ -16,8 +15,8 @@ import CommandPalette from '@/components/layout/CommandPalette';
 import { GlobalCopyMenu } from '@/components/layout/GlobalCopyMenu';
 import { CrashRecoveryModal } from '@/components/layout/CrashRecoveryModal';
 import { useCommandPalette } from '@/hooks/useCommandPalette';
-import { useUIStore, useSettingsStore, useConversationStore, useMultiModelColumnLayoutStore } from '@/stores';
-import { useAcpStore } from '@/stores/acpStore';
+import { useUIStore, useSettingsStore, useConversationStore } from '@/stores';
+import { useAppStartup } from '@/hooks/useAppStartup';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useConversationTabsCoordinator } from '@/hooks/useConversationTabsCoordinator';
 import { useGlobalShortcutManager } from '@/hooks/useGlobalShortcutManager';
@@ -35,6 +34,7 @@ import { useSystemFontFaces } from '@/hooks/useSystemFontFaces';
 import { setupAgentEventListeners } from '@/stores/agentStore';
 import { enableD2 } from 'markstream-react';
 import { applyMarkstreamI18nMap } from '@/lib/markstreamI18n';
+import { closeStartupWindow, formatStartupError, presentStartupWindow, writeStartupDiagnostic } from '@/lib/startupDiagnostics';
 import './i18n';
 
 const { Sider, Content } = Layout;
@@ -43,18 +43,6 @@ const ConversationPopoutInner = lazy(async () => {
   const module = await import('@/components/chat/ConversationPopoutInner');
   return { default: module.ConversationPopoutInner };
 });
-
-/** Show the main window (it starts hidden to avoid white flash). */
-async function showWindow() {
-  try {
-    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-    const window = getCurrentWebviewWindow();
-    await window.show();
-    await window.setFocus();
-  } catch (e) {
-    console.warn('Failed to show window:', e);
-  }
-}
 
 export function runQuitFlow(
   confirmOnQuit: boolean,
@@ -81,9 +69,11 @@ function AppInner() {
   const frontendKind = frontendKindForWindow(windowLabel);
   const popoutConversationId = conversationIdFromPopoutLabel(windowLabel);
   const isConversationPopout = frontendKind === 'conversation-popout';
+  useKeyboardShortcuts();
   useConversationTabsCoordinator(!isConversationPopout);
   useTrayMenuActions();
   useGlobalOverlayScrollbars(appRootRef);
+  useEffect(() => { void presentStartupWindow('app'); }, []);
 
   // Handle app close confirmation from backend
   const handleCloseRequested = useCallback(() => {
@@ -104,10 +94,10 @@ function AppInner() {
   }, [confirmOnQuit, modal, t]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || windowLabel !== 'main') return;
     const unlisten = listen('app-close-requested', handleCloseRequested);
     return () => { unlisten.then((fn) => fn()); };
-  }, [handleCloseRequested]);
+  }, [handleCloseRequested, windowLabel]);
 
   // Sync Ant Design tokens to CSS custom properties for global usage
   useEffect(() => {
@@ -207,8 +197,45 @@ function AppInner() {
   );
 }
 
+function StartupScreen({ failed, error }: { failed: boolean; error: string | null }) {
+  const { t } = useTranslation();
+  const { token } = useToken();
+  useEffect(() => {
+    if (failed) void presentStartupWindow('error');
+  }, [failed]);
+  return (
+    <div className="flex h-screen flex-col" style={{ background: token.colorBgContainer, color: token.colorText }}>
+      <div data-tauri-drag-region className="flex h-9 shrink-0 items-center justify-end px-3">
+        <button type="button" onClick={() => { void closeStartupWindow(); }}>{t('common.close')}</button>
+      </div>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8" role={failed ? 'alert' : 'status'}>
+        <p>{t(failed ? 'startup.settingsFailed' : 'startup.loading')}</p>
+        {failed && <>
+          <p>{t('startup.logInstructions')}</p>
+          <pre className="max-w-full whitespace-pre-wrap break-words">{error}</pre>
+        </>}
+      </div>
+    </div>
+  );
+}
+
 function AppRoot() {
   const { i18n } = useTranslation();
+  const settingsStatus = useSettingsStore((s) => s.settingsMeta.status);
+  const settingsError = useSettingsStore((s) => s.error);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  useEffect(() => {
+    if (settingsStatus === 'ready') setSettingsLoaded(true);
+  }, [settingsStatus]);
+  useEffect(() => {
+    if (!isTauri() || getCurrentWindowLabel() !== 'main' || settingsLoaded || settingsStatus === 'ready') return;
+    const unlisten = listen('app-close-requested', () => {
+      void invoke('force_quit').catch((error) => {
+        void writeStartupDiagnostic('error', `frontend startup close failed: ${formatStartupError(error)}`);
+      });
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [settingsLoaded, settingsStatus]);
   const themeMode = useSettingsStore((s) => s.settings.theme_mode);
   const primaryColor = useSettingsStore((s) => s.settings.primary_color);
   const fontSize = useSettingsStore((s) => s.settings.font_size);
@@ -241,88 +268,15 @@ function AppRoot() {
     void preloadChatRenderers();
   }, []);
 
-  useKeyboardShortcuts();
+  useAppStartup();
   useGlobalShortcutManager();
-
-  // Load persisted settings from backend on startup, then apply native settings
-  useEffect(() => {
-    // Start ACP bootstrap immediately. The store owns the single-flight guard,
-    // so React StrictMode may re-run this effect without spawning duplicate
-    // Agent processes. Do not make Agent readiness wait for unrelated settings
-    // or native window initialization.
-    try {
-      useAcpStore.getState().warmBootstrap();
-    } catch (e) {
-      console.warn('Failed to warm ACP store:', e);
-    }
-
-    const init = async () => {
-      const isPopout = frontendKindForWindow(getCurrentWindowLabel()) === 'conversation-popout';
-      const popoutConversationId = conversationIdFromPopoutLabel(getCurrentWindowLabel());
-
-      if (isTauri() && isPopout) {
-        await showWindow();
-        if (popoutConversationId) {
-          try {
-            await notifyConversationPopoutReady(popoutConversationId);
-          } catch (error) {
-            console.warn('Failed to report independent window ready:', error);
-          }
-        }
-      }
-
-      try {
-        await useSettingsStore.getState().fetchSettings();
-      } catch (e) {
-        console.warn('Failed to fetch settings:', e);
-      }
-      try {
-        await useMultiModelColumnLayoutStore.getState().ensureLoaded();
-      } catch (e) {
-        console.warn('Failed to fetch multi-model column layout:', e);
-      }
-
-      if (!isTauri()) return;
-      const settings = useSettingsStore.getState().settings;
-
-      // Apply native window settings
-      try {
-        await invoke('apply_startup_settings', {
-          alwaysOnTop: settings.always_on_top ?? false,
-          closeToTray: isPopout ? false : (settings.minimize_to_tray ?? false),
-          releaseWebviewOnTray: isPopout ? false : (settings.release_webview_on_tray ?? false),
-          trayEnabled: isPopout ? false : (settings.tray_enabled ?? true),
-        });
-      } catch (e) {
-        console.warn('Failed to apply native settings:', e);
-      }
-
-      if (!isPopout) {
-        // Autostart
-        try {
-          const { enable, disable } = await import('@tauri-apps/plugin-autostart');
-          if (settings.auto_start) {
-            await enable();
-          } else {
-            await disable();
-          }
-        } catch (e) {
-          console.warn('Failed to set autostart:', e);
-        }
-
-        // Show window after initialization (window starts hidden to avoid white flash)
-        await showWindow();
-      }
-    };
-    init();
-  }, []);
 
   // Sync i18n language with settings store
   useEffect(() => {
-    if (i18n.language !== language) {
+    if (settingsStatus === 'ready' && i18n.language !== language) {
       i18n.changeLanguage(language);
     }
-  }, [i18n, language]);
+  }, [i18n, language, settingsStatus]);
 
   useEffect(() => {
     applyMarkstreamI18nMap(i18n.getFixedT(i18n.language));
@@ -374,7 +328,8 @@ function AppRoot() {
       modal={{ centered: true, styles: { mask: { backdropFilter: 'blur(4px)' } } }}
     >
       <AntdApp>
-        <AppInner />
+        {settingsLoaded || settingsStatus === 'ready' ? <AppInner />
+          : <StartupScreen failed={settingsStatus === 'error'} error={settingsError} />}
       </AntdApp>
     </ConfigProvider>
   );

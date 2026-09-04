@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "AQBot शुरू हो रहा है…",
+    "settingsFailed": "सेटिंग लोड नहीं हो सकीं",
+    "failed": "AQBot शुरू नहीं हो सका",
+    "logInstructions": "AQBOT_LOG_FILE और RUST_LOG=debug के साथ AQBot को फिर से शुरू करें और बनी हुई लॉग फ़ाइल संलग्न करें",
+    "nativeTitle": "AQBot स्टार्टअप निदान",
+    "slowStartup": "AQBot अभी पूरी तरह शुरू नहीं हुआ है, वर्तमान चरण: {{phase}}\n\nलॉग फ़ाइल: {{logPath}}\n\nयह संदेश बंद करने से आरंभीकरण नहीं रुकेगा",
+    "nativeFailure": "AQBot शुरू नहीं हो सका: {{error}}\n\nलॉग फ़ाइल: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot पिछली बार अप्रत्याशित रूप से बंद हुआ",
     "description": "AQBot ने पाया कि पिछला सत्र सामान्य रूप से बंद नहीं हुआ। रिपोर्ट बंद करने से पहले आप निदान जानकारी कॉपी या फ़ाइलें दिखा सकते हैं।",

@@ -89,14 +89,15 @@ pub fn release_main_window_to_tray(window: &tauri::Window) -> Result<(), String>
             return Err(err.to_string());
         }
         set_app_dock_visibility(&app, false);
-        Ok(())
     } else {
         // Hide from taskbar before hide so Windows doesn't keep a ghost button.
         set_skip_taskbar(window, true);
         window.hide().map_err(|err| err.to_string())?;
         set_app_dock_visibility(&app, false);
-        Ok(())
     }
+    app.state::<crate::startup_diagnostics::StartupPhase>()
+        .cancel_presentation();
+    Ok(())
 }
 
 pub fn release_webview_window_to_tray(window: &WebviewWindow) -> Result<(), String> {
@@ -108,13 +109,14 @@ pub fn release_webview_window_to_tray(window: &WebviewWindow) -> Result<(), Stri
             return Err(err.to_string());
         }
         set_app_dock_visibility(&app, false);
-        Ok(())
     } else {
         set_skip_taskbar(window, true);
         window.hide().map_err(|err| err.to_string())?;
         set_app_dock_visibility(&app, false);
-        Ok(())
     }
+    app.state::<crate::startup_diagnostics::StartupPhase>()
+        .cancel_presentation();
+    Ok(())
 }
 
 pub fn minimize_main_window(window: tauri::Window) -> Result<(), String> {

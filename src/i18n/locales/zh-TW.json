@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "正在啟動 AQBot…",
+    "settingsFailed": "無法讀取設定",
+    "failed": "AQBot 啟動失敗",
+    "logInstructions": "請使用 AQBOT_LOG_FILE 和 RUST_LOG=debug 重新啟動 AQBot，並附上產生的日誌檔案",
+    "nativeTitle": "AQBot 啟動診斷",
+    "slowStartup": "AQBot 啟動尚未完成，目前階段：{{phase}}\n\n日誌檔案：{{logPath}}\n\n關閉此提示不會終止初始化",
+    "nativeFailure": "AQBot 啟動失敗：{{error}}\n\n日誌檔案：{{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot 上次異常結束",
     "description": "偵測到 AQBot 上次未正常結束。你可以先複製診斷資訊或定位記錄檔，再關閉此報告。",

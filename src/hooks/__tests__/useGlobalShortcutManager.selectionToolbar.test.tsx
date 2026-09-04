@@ -1,6 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalShortcutManager } from '../useGlobalShortcutManager';
+import { setCurrentWindowLabel } from '@/lib/windowKind';
 
 const mocks = vi.hoisted(() => ({
   callbacks: new Map<string, (event: { state: string; shortcut: string }) => Promise<void>>(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   }),
   unregisterAll: vi.fn(async () => undefined),
   setGlobalShortcutStatus: vi.fn(),
+  settingsStatus: 'ready',
   settings: {
     value: {
       global_shortcuts_enabled: true,
@@ -49,6 +51,7 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
 vi.mock('@/stores', () => ({
   useSettingsStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
     settings: mocks.settings.value,
+    settingsMeta: { status: mocks.settingsStatus },
     setGlobalShortcutStatus: mocks.setGlobalShortcutStatus,
   }),
 }));
@@ -61,6 +64,8 @@ function Harness() {
 describe('selection toolbar global shortcut registration', () => {
   beforeEach(() => {
     mocks.callbacks.clear();
+    mocks.settingsStatus = 'ready';
+    setCurrentWindowLabel('main');
     mocks.invoke.mockClear();
     mocks.isRegistered.mockClear();
     mocks.register.mockClear();
@@ -76,6 +81,44 @@ describe('selection toolbar global shortcut registration', () => {
         screenshot_shortcut: '',
       },
     };
+  });
+
+  it.each(['idle', 'loading', 'error'])('does not touch native shortcuts before settings are ready (%s)', async (status) => {
+    mocks.settingsStatus = status;
+    const { unmount } = render(<Harness />);
+    unmount();
+    await vi.dynamicImportSettled();
+    expect(mocks.register).not.toHaveBeenCalled();
+    expect(mocks.unregisterAll).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it('does not replace main-window shortcuts from a popout', async () => {
+    setCurrentWindowLabel('conversation-popout:conversation-1');
+    const { unmount } = render(<Harness />);
+    unmount();
+    await vi.dynamicImportSettled();
+    expect(mocks.register).not.toHaveBeenCalled();
+    expect(mocks.unregisterAll).not.toHaveBeenCalled();
+  });
+
+  it('keeps registered shortcuts when a later settings refresh is pending and fails', async () => {
+    const { rerender } = render(<Harness />);
+    await waitFor(() => expect(mocks.setGlobalShortcutStatus).toHaveBeenCalled());
+    const registrationCount = mocks.register.mock.calls.length;
+    expect(mocks.unregisterAll).toHaveBeenCalledTimes(1);
+
+    for (const status of ['idle', 'loading', 'error']) {
+      mocks.settingsStatus = status;
+      rerender(<Harness />);
+      await vi.dynamicImportSettled();
+      expect(mocks.unregisterAll).toHaveBeenCalledTimes(1);
+      expect(mocks.register).toHaveBeenCalledTimes(registrationCount);
+    }
+    await mocks.callbacks.get('CommandOrControl+Shift+E')?.({
+      state: 'Pressed', shortcut: 'CommandOrControl+Shift+E',
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith('selection_toolbar_trigger');
   });
 
   it('registers and dispatches the configured selection toolbar shortcut', async () => {

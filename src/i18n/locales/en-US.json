@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "Loading AQBot…",
+    "settingsFailed": "Could not load settings",
+    "failed": "AQBot startup failed",
+    "logInstructions": "Please restart AQBot with AQBOT_LOG_FILE and RUST_LOG=debug, then attach the generated log file",
+    "nativeTitle": "AQBot startup diagnostics",
+    "slowStartup": "AQBot has not finished starting, current stage: {{phase}}\n\nLog file: {{logPath}}\n\nClosing this message will not stop initialization",
+    "nativeFailure": "AQBot startup failed: {{error}}\n\nLog file: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "AQBot quit unexpectedly last time",
     "description": "AQBot detected that the previous session did not shut down cleanly. You can copy or reveal the diagnostic files before dismissing this report.",

@@ -11,6 +11,7 @@ pub fn log_process_startup() {
         crate_version = env!("CARGO_PKG_VERSION"),
         os = env::consts::OS,
         arch = env::consts::ARCH,
+        pid = std::process::id(),
         rust_log = %env_value("RUST_LOG"),
         aqbot_log_file = %crate::diagnostic_log::path().display(),
         xdg_session_type = %env_value("XDG_SESSION_TYPE"),
@@ -27,6 +28,24 @@ pub fn log_process_startup() {
         aqbot_enable_devtools = %env_value(crate::startup_diagnostics::ENABLE_DEVTOOLS_ENV),
         "AQBot process startup diagnostics"
     );
+    #[cfg(target_os = "windows")]
+    log_windows_startup_environment();
+}
+
+#[cfg(target_os = "windows")]
+fn log_windows_startup_environment() {
+    match crate::windows_utils::system_version() {
+        Ok(version) => {
+            tracing::info!(windows_version = %version, "AQBot Windows version diagnostics")
+        }
+        Err(error) => tracing::warn!(%error, "Could not read Windows version from registry"),
+    }
+    match tauri::webview_version() {
+        Ok(version) => {
+            tracing::info!(webview2_version = %version, "AQBot available WebView runtime diagnostics")
+        }
+        Err(error) => tracing::warn!(%error, "Could not query available WebView runtime version"),
+    }
 }
 
 pub fn install_panic_hook() {
@@ -43,13 +62,18 @@ pub fn install_panic_hook() {
             })
             .unwrap_or_else(|| "<unknown>".to_string());
         let payload = panic_payload(panic_info.payload());
+        let backtrace = std::backtrace::Backtrace::force_capture();
 
         tracing::error!(
             location = %location,
             payload = %payload,
+            backtrace = %backtrace,
             "AQBot process panicked"
         );
         eprintln!("AQBot process panicked at {location}: {payload}");
+        if let Some(phase) = crate::startup_diagnostics::process_startup_phase() {
+            phase.fail(&std::io::Error::other(format!("{payload} ({location})")));
+        }
     }));
 }
 

@@ -35,4 +35,5 @@ pub mod settings;
 pub mod tray_icon;
 pub mod skills;
 pub mod storage;
+pub mod startup;
 pub mod webdav;

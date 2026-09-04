@@ -7,6 +7,8 @@ const setDefaultI18nMap = vi.fn();
 const setupAgentEventListeners = vi.fn(() => vi.fn());
 
 const settingsState = {
+  settingsMeta: { status: 'ready' },
+  error: null,
   settings: {
     theme_mode: 'dark',
     primary_color: '#17A93D',
@@ -94,6 +96,7 @@ vi.mock('react-i18next', () => ({
     init: () => {},
   },
   useTranslation: () => ({
+    t: (key: string) => key,
     i18n: {
       language: 'zh-CN',
       dir: () => 'ltr',

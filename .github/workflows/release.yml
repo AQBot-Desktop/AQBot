@@ -240,6 +240,22 @@ jobs:
           $zipName = "AQBot_${{ github.ref_name }}_windows-${arch}-portable.zip"
           Compress-Archive -Path $exe -DestinationPath $zipName
 
+      - name: Smoke-test Windows x64 portable ZIP
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          ./scripts/windows/smoke-portable.ps1 -ArchivePath "AQBot_${{ github.ref_name }}_windows-x64-portable.zip" -OutputDirectory "$env:RUNNER_TEMP/aqbot-windows-smoke"
+
+      - name: Upload Windows startup diagnostics
+        if: always() && matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-startup-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/aqbot-windows-smoke/*.log
+            ${{ runner.temp }}/aqbot-windows-smoke/result.json
+          if-no-files-found: warn
+
       - name: Upload Windows portable to release
         if: contains(matrix.target, 'windows')
         uses: softprops/action-gh-release@v2

@@ -2,6 +2,15 @@
   "app": {
     "name": "AQBot"
   },
+  "startup": {
+    "loading": "Запуск AQBot…",
+    "settingsFailed": "Не удалось загрузить настройки",
+    "failed": "Не удалось запустить AQBot",
+    "logInstructions": "Перезапустите AQBot с AQBOT_LOG_FILE и RUST_LOG=debug и приложите созданный файл журнала",
+    "nativeTitle": "Диагностика запуска AQBot",
+    "slowStartup": "Запуск AQBot ещё не завершён, текущий этап: {{phase}}\n\nФайл журнала: {{logPath}}\n\nЗакрытие этого сообщения не остановит инициализацию",
+    "nativeFailure": "Не удалось запустить AQBot: {{error}}\n\nФайл журнала: {{logPath}}"
+  },
   "crashRecovery": {
     "title": "В прошлый раз AQBot завершился неожиданно",
     "description": "AQBot обнаружил, что предыдущий сеанс завершился некорректно. Перед закрытием отчёта можно скопировать диагностику или показать файлы.",
