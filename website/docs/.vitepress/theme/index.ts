@@ -6,12 +6,7 @@ import Layout from './Layout.vue';
 import HomePage from './components/marketing/HomePage.vue';
 import FeaturesPage from './components/marketing/FeaturesPage.vue';
 import DownloadHero from './DownloadHero.vue';
-import './styles/tokens.css';
-import './styles/base.css';
-import './styles/chrome.css';
-import './styles/docs.css';
-import './styles/prose.css';
-import './styles/marketing.css';
+import './style.css';
 
 export default {
   extends: DefaultTheme,
