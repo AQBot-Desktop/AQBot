@@ -131,7 +131,8 @@ function resolveModeWhenApplyingRole(currentMode?: Conversation['mode']): NonNul
 /**
  * Build the conversation update payload for applying a role.
  *
- * Empty capability lists do not clear existing conversation MCP/skill settings.
+ * Empty MCP lists do not clear existing conversation MCP settings.
+ * Knowledge bases and memory notebooks always replace, including empty arrays.
  */
 export function buildApplyRoleUpdate(
   role: Role,
@@ -143,6 +144,8 @@ export function buildApplyRoleUpdate(
     temperature: role.temperature,
     top_p: role.top_p,
     mode: resolveModeWhenApplyingRole(options.currentMode),
+    enabled_knowledge_base_ids: [...(role.enabled_knowledge_base_ids ?? [])],
+    enabled_memory_namespace_ids: [...(role.enabled_memory_namespace_ids ?? [])],
   };
 
   const mcpIds = role.enabled_mcp_server_ids ?? [];

@@ -876,11 +876,13 @@ export function createConversationMessageActions(
         status: 'partial',
       };
 
+      const streamId = createStreamId();
       set((s) => ({
         messages: [...s.messages, optimisticUserMsg, placeholderAssistant],
         streaming: true,
         streamingConversationId: conversationId,
         streamingMessageId: currentMsgId,
+        activeStreamId: streamId,
         streamActivityByMessageId: {
           ...s.streamActivityByMessageId,
           [currentMsgId]: createStreamActivity(
@@ -1018,12 +1020,20 @@ export function createConversationMessageActions(
             const realId = event.payload.assistantMessageId;
             const oldId = currentMsgId;
             currentMsgId = realId;
-            set((s) => ({
-              streamingMessageId: realId,
-              messages: s.messages.map((m) =>
-                m.id === oldId ? { ...m, id: realId } : m
-              ),
-            }));
+            set((s) => {
+              const ragDisplayByMessageId = { ...s.ragDisplayByMessageId };
+              if (Object.prototype.hasOwnProperty.call(ragDisplayByMessageId, oldId)) {
+                ragDisplayByMessageId[realId] = ragDisplayByMessageId[oldId];
+                delete ragDisplayByMessageId[oldId];
+              }
+              return {
+                streamingMessageId: realId,
+                ragDisplayByMessageId,
+                messages: s.messages.map((m) =>
+                  m.id === oldId ? { ...m, id: realId } : m
+                ),
+              };
+            });
           }).then(keepAgentUnlisten((fn) => { unlistenMessageId = fn; }));
 
           // Listen for incremental text chunks — buffer and flush periodically
@@ -1133,6 +1143,7 @@ export function createConversationMessageActions(
         });
 
         // Invoke the backend command (this creates the real user message in DB)
+        await get().startStreamListening();
         await invoke('agent_query', {
           conversationId,
           prompt: content,
@@ -1140,6 +1151,9 @@ export function createConversationMessageActions(
           modelId,
           attachments: attachments ?? [],
           enabledMcpServerIds: mcpIds,
+          enabledKnowledgeBaseIds: capabilityIds.enabledKnowledgeBaseIds,
+          enabledMemoryNamespaceIds: capabilityIds.enabledMemoryNamespaceIds,
+          streamId,
         });
 
         // Keep listening until done/error/cancel. Return now so the composer
@@ -2389,12 +2403,13 @@ export function createConversationMessageActions(
       const ragUnsub = await listen<RagContextRetrievedEvent>('rag-context-retrieved', (event) => {
         if (runtime.listenerGen !== gen) return;
         if (!get().streaming) return;
-        const { conversation_id, message_id, stream_id, sources, errors, empty_results, emptyResults } = event.payload;
+        const { conversation_id, message_id, stream_id, sources, errors, empty_results, emptyResults, diagnostics } = event.payload;
         if (!isCurrentStreamEvent(get, stream_id)) return;
         const displayTag = buildRagDisplayTagFromSources(
           sources,
           errors,
           empty_results ?? emptyResults ?? [],
+          diagnostics ?? [],
         );
 
         // Update UI immediately
@@ -2642,7 +2657,10 @@ export function createConversationMessageActions(
         }
         // Also cancel the agent if in agent mode
         if (conversation?.mode === 'agent') {
-          invoke('agent_cancel', { conversationId }).catch(() => {});
+          invoke('agent_cancel', {
+            conversationId,
+            streamId: initialState.activeStreamId,
+          }).catch(() => {});
         }
       }
       // Mark the current streaming message as partial

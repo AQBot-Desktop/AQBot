@@ -22,6 +22,8 @@ const installedRole: Role = {
   top_p: 0.8,
   enabled_mcp_server_ids: [],
   enabled_skill_names: [],
+  enabled_knowledge_base_ids: [],
+  enabled_memory_namespace_ids: [],
   source_kind: 'prompts-chat',
   source_ref: 'prompts-chat://english-translator',
   created_at: 1,

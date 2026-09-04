@@ -4,6 +4,8 @@ import { Search, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   useConversationStore,
+  useKnowledgeStore,
+  useMemoryStore,
   useProviderStore,
   useRoleStore,
   useSettingsStore,
@@ -16,9 +18,42 @@ import {
   getConversationRoleId,
   roleSkillNames,
 } from '@/lib/applyRole';
+import { parseCodedError } from '@/lib/contextErrorMessage';
+import { getRoleErrorMessage } from '@/lib/roleErrorMessage';
+import { ensureLoadedRoleContextBindings, isRoleContextBindingsError } from '@/lib/roleContextBindings';
+import type { TFunction } from 'i18next';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import type { Role } from '@/types';
 import type { AvatarType } from '@/stores/userProfileStore';
+
+function applyFailureMessage(error: unknown, t: TFunction) {
+  if (
+    isRoleContextBindingsError(error)
+    || parseCodedError(error)?.code === 'ROLE_CONTEXT_BINDINGS_MISSING'
+  ) {
+    return getRoleErrorMessage(error, t);
+  }
+  return t('roles.applyFailed');
+}
+
+function assertRoleContextBindingsForRole(role: Role) {
+  return ensureLoadedRoleContextBindings({
+    knowledgeBaseIds: role.enabled_knowledge_base_ids ?? [],
+    memoryNamespaceIds: role.enabled_memory_namespace_ids ?? [],
+    loadBases: () => useKnowledgeStore.getState().ensureBasesLoaded({ force: true }),
+    loadNamespaces: () => useMemoryStore.getState().ensureNamespacesLoaded({ force: true }),
+    getSnapshot: () => {
+      const knowledge = useKnowledgeStore.getState();
+      const memory = useMemoryStore.getState();
+      return {
+        bases: knowledge.bases,
+        namespaces: memory.namespaces,
+        basesReady: knowledge.basesMeta.status === 'ready',
+        namespacesReady: memory.namespacesMeta.status === 'ready',
+      };
+    },
+  });
+}
 
 function RoleListAvatar({ role }: { role: Role }) {
   const value = role.avatar_value ?? role.avatar ?? '';
@@ -158,6 +193,7 @@ export function RoleSwitcherPopover() {
       return;
     }
     try {
+      await assertRoleContextBindingsForRole(role);
       await applyRoleWithRollback(activeConversation.id, role, async () => {
         await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
           currentMode: activeConversation.mode,
@@ -168,13 +204,20 @@ export function RoleSwitcherPopover() {
       setOpen(false);
     } catch (error) {
       console.error('[RoleSwitcherPopover] failed to apply role', error);
-      messageApi.error(t('roles.applyFailed'));
+      messageApi.error(applyFailureMessage(error, t));
     }
   }, [activeConversation, ensureRoleSkillsEnabled, messageApi, t, updateConversation]);
 
   const createWithRole = useCallback(async (role: Role) => {
     const selection = pickModel();
     if (!selection) return;
+    try {
+      await assertRoleContextBindingsForRole(role);
+    } catch (error) {
+      console.error('[RoleSwitcherPopover] failed to validate role context bindings', error);
+      messageApi.error(applyFailureMessage(error, t));
+      return;
+    }
     const conversation = await createConversation(
       role.name,
       selection.model.model_id,
@@ -189,7 +232,7 @@ export function RoleSwitcherPopover() {
       setOpen(false);
     } catch (error) {
       console.error('[RoleSwitcherPopover] failed to apply role to new conversation', error);
-      messageApi.error(t('roles.applyFailed'));
+      messageApi.error(t('roles.applyCreatedButFailed'));
     }
   }, [
     createConversation,

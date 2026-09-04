@@ -524,6 +524,10 @@ pub struct Role {
     pub enabled_mcp_server_ids: Vec<String>,
     #[serde(default)]
     pub enabled_skill_names: Vec<String>,
+    #[serde(default)]
+    pub enabled_knowledge_base_ids: Vec<String>,
+    #[serde(default)]
+    pub enabled_memory_namespace_ids: Vec<String>,
     pub source_kind: String,
     pub source_ref: Option<String>,
     pub created_at: i64,
@@ -547,6 +551,10 @@ pub struct CreateRoleInput {
     pub enabled_mcp_server_ids: Vec<String>,
     #[serde(default)]
     pub enabled_skill_names: Vec<String>,
+    #[serde(default)]
+    pub enabled_knowledge_base_ids: Vec<String>,
+    #[serde(default)]
+    pub enabled_memory_namespace_ids: Vec<String>,
     pub source_kind: Option<String>,
     pub source_ref: Option<String>,
 }
@@ -573,6 +581,8 @@ pub struct UpdateRoleInput {
     pub top_p: Option<Option<f64>>,
     pub enabled_mcp_server_ids: Option<Vec<String>>,
     pub enabled_skill_names: Option<Vec<String>>,
+    pub enabled_knowledge_base_ids: Option<Vec<String>>,
+    pub enabled_memory_namespace_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

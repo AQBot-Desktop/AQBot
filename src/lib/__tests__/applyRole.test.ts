@@ -28,6 +28,8 @@ function makeRole(overrides: Partial<Role> = {}): Role {
     top_p: 0.9,
     enabled_mcp_server_ids: [],
     enabled_skill_names: [],
+    enabled_knowledge_base_ids: [],
+    enabled_memory_namespace_ids: [],
     source_kind: 'local',
     source_ref: null,
     created_at: 1,
@@ -44,7 +46,34 @@ describe('buildApplyRoleUpdate', () => {
       temperature: 0.3,
       top_p: 0.9,
       mode: 'role',
+      enabled_knowledge_base_ids: [],
+      enabled_memory_namespace_ids: [],
     });
+  });
+
+  it('always writes knowledge and memory bindings, including empty arrays, without mutating the role', () => {
+    const knowledgeIds = ['kb-1'];
+    const memoryIds = ['ns-1'];
+    const role = makeRole({
+      enabled_knowledge_base_ids: knowledgeIds,
+      enabled_memory_namespace_ids: memoryIds,
+    });
+    const filled = buildApplyRoleUpdate(role);
+    expect(filled.enabled_knowledge_base_ids).toEqual(['kb-1']);
+    expect(filled.enabled_memory_namespace_ids).toEqual(['ns-1']);
+    filled.enabled_knowledge_base_ids!.push('mutated');
+    filled.enabled_memory_namespace_ids!.push('mutated');
+    expect(role.enabled_knowledge_base_ids).toEqual(['kb-1']);
+    expect(role.enabled_memory_namespace_ids).toEqual(['ns-1']);
+    expect(knowledgeIds).toEqual(['kb-1']);
+    expect(memoryIds).toEqual(['ns-1']);
+
+    const empty = buildApplyRoleUpdate(makeRole({
+      enabled_knowledge_base_ids: [],
+      enabled_memory_namespace_ids: [],
+    }));
+    expect(empty.enabled_knowledge_base_ids).toEqual([]);
+    expect(empty.enabled_memory_namespace_ids).toEqual([]);
   });
 
   it('keeps agent mode so role skills can run', () => {

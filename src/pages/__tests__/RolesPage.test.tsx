@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RolesPage } from '../RolesPage';
@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   setActivePage: vi.fn(),
   ensureSkillsLoaded: vi.fn(),
   toggleSkill: vi.fn(),
+  ensureBasesLoaded: vi.fn(),
+  ensureNamespacesLoaded: vi.fn(),
 }));
 
 const roles: Role[] = [
@@ -39,6 +41,8 @@ const roles: Role[] = [
     top_p: 0.8,
     enabled_mcp_server_ids: [],
     enabled_skill_names: [],
+    enabled_knowledge_base_ids: [],
+    enabled_memory_namespace_ids: [],
     source_kind: 'local',
     source_ref: null,
     created_at: 1,
@@ -84,11 +88,27 @@ const storeState = vi.hoisted(() => ({
     mode: 'chat' | 'agent' | 'role' | undefined;
   }>,
   skills: [] as Array<{ name: string; enabled: boolean }>,
+  bases: [] as Array<{ id: string; name: string; enabled: boolean; sortOrder: number }>,
+  namespaces: [] as Array<{ id: string; name: string; scope: 'global'; sortOrder: number }>,
+  basesMeta: { status: 'ready' as const, key: 'knowledge-bases', loadedAt: 1, revision: 1 },
+  namespacesMeta: { status: 'ready' as const, key: 'memory-namespaces', loadedAt: 1, revision: 1 },
 }));
+
+function roleApplyPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    system_prompt: '你是中文翻译助手',
+    temperature: 0.2,
+    top_p: 0.8,
+    mode: 'role',
+    enabled_knowledge_base_ids: [],
+    enabled_memory_namespace_ids: [],
+    ...overrides,
+  };
+}
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => {
+    t: (key: string, opts?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
         'roles.title': '角色',
         'roles.myRoles': '我的角色',
@@ -127,9 +147,24 @@ vi.mock('react-i18next', () => ({
         'roles.skillsHint': '技能提示',
         'roles.skillsPlaceholder': '搜索并选择技能',
         'roles.skillsEmpty': '暂无已安装技能',
+        'roles.knowledgeBases': '知识库',
+        'roles.knowledgeBasesHint': '知识库提示',
+        'roles.knowledgeBasesPlaceholder': '搜索并选择知识库',
+        'roles.knowledgeEmpty': '暂无知识库',
+        'roles.knowledgeLoadFailed': '无法加载知识库，请稍后重试',
+        'roles.memoryNamespaces': '记忆空间',
+        'roles.memoryNamespacesHint': '记忆空间提示',
+        'roles.memoryNamespacesPlaceholder': '搜索并选择记忆空间',
+        'roles.memoryEmpty': '暂无记忆空间',
+        'roles.memoryLoadFailed': '无法加载记忆空间，请稍后重试',
+        'roles.contextBindingsHint': '应用角色将替换会话的知识库和记忆选择，之后可在会话中单独调整',
+        'roles.missingBindings': '以下绑定已失效，请移除后再保存：{{items}}',
+        'roles.applyCreatedButFailed': '会话已创建，角色配置未应用',
         'roles.validation.nameRequired': '请输入角色名称',
         'roles.validation.systemPromptRequired': '请输入系统提示词',
         'roles.validation.openingQuestionContentRequired': '请填写开场问题正文',
+        'roles.validation.contextBindingsMissing': '角色绑定的知识库或记忆空间已不存在',
+        'roles.validation.contextBindingsLoadFailed': '无法加载知识库或记忆空间，请稍后重试',
         'roles.saveSuccess': '角色已保存',
         'roles.applyFailed': '应用角色失败',
         'roles.conversationMissing': '当前会话不存在，无法应用角色',
@@ -140,7 +175,13 @@ vi.mock('react-i18next', () => ({
         'common.cancel': '取消',
         'common.save': '保存',
       };
-      return translations[key] ?? key;
+      let text = translations[key] ?? key;
+      if (opts) {
+        for (const [name, value] of Object.entries(opts)) {
+          text = text.replaceAll(`{{${name}}}`, String(value));
+        }
+      }
+      return text;
     },
   }),
 }));
@@ -157,6 +198,14 @@ vi.mock('@/components/common/ModelParamSliders', () => ({
 
 vi.mock('@/components/shared/McpServerIcon', () => ({
   McpServerIcon: () => <span>mcp-icon</span>,
+}));
+
+vi.mock('@/components/shared/KnowledgeBaseIcon', () => ({
+  KnowledgeBaseIcon: () => <span>kb-icon</span>,
+}));
+
+vi.mock('@/components/shared/NamespaceIcon', () => ({
+  NamespaceIcon: () => <span>ns-icon</span>,
 }));
 
 vi.mock('@/hooks/useResolvedAvatarSrc', () => ({
@@ -238,6 +287,40 @@ vi.mock('@/stores', () => ({
       getState: () => ({ skills: storeState.skills }),
     },
   ),
+  useKnowledgeStore: Object.assign(
+    (selector?: (state: any) => unknown) => {
+      const state = {
+        bases: storeState.bases,
+        basesMeta: storeState.basesMeta,
+        ensureBasesLoaded: mocks.ensureBasesLoaded,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        bases: storeState.bases,
+        basesMeta: storeState.basesMeta,
+        ensureBasesLoaded: mocks.ensureBasesLoaded,
+      }),
+    },
+  ),
+  useMemoryStore: Object.assign(
+    (selector?: (state: any) => unknown) => {
+      const state = {
+        namespaces: storeState.namespaces,
+        namespacesMeta: storeState.namespacesMeta,
+        ensureNamespacesLoaded: mocks.ensureNamespacesLoaded,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        namespaces: storeState.namespaces,
+        namespacesMeta: storeState.namespacesMeta,
+        ensureNamespacesLoaded: mocks.ensureNamespacesLoaded,
+      }),
+    },
+  ),
 }));
 
 describe('RolesPage', () => {
@@ -248,7 +331,13 @@ describe('RolesPage', () => {
     mocks.createConversation.mockResolvedValue({ id: 'conv-2' });
     mocks.ensureSkillsLoaded.mockResolvedValue(undefined);
     mocks.toggleSkill.mockResolvedValue(undefined);
+    mocks.ensureBasesLoaded.mockResolvedValue(undefined);
+    mocks.ensureNamespacesLoaded.mockResolvedValue(undefined);
     storeState.roles = roles;
+    storeState.bases = [];
+    storeState.namespaces = [];
+    storeState.basesMeta = { status: 'ready', key: 'knowledge-bases', loadedAt: 1, revision: 1 };
+    storeState.namespacesMeta = { status: 'ready', key: 'memory-namespaces', loadedAt: 1, revision: 1 };
     storeState.marketplaceRoles = marketplaceRoles;
     storeState.activeConversationId = 'conv-1';
     storeState.conversations = [
@@ -269,12 +358,7 @@ describe('RolesPage', () => {
     await waitFor(() => {
       expect(mocks.createConversation).toHaveBeenCalledWith('中文翻译助手', 'model-1', 'provider-1');
     });
-    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-2', {
-      system_prompt: '你是中文翻译助手',
-      temperature: 0.2,
-      top_p: 0.8,
-      mode: 'role',
-    });
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-2', roleApplyPayload());
     expect(localStorage.getItem('aqbot_conv_icon_conv-2')).toBe(JSON.stringify({ type: 'emoji', value: '🌐' }));
     expect(JSON.parse(localStorage.getItem('aqbot_role_intro_conv-2') ?? '{}')).toEqual({
       openingMessage: '发来文本',
@@ -295,12 +379,7 @@ describe('RolesPage', () => {
     await user.click(screen.getByText('应用到当前会话'));
 
     expect(mocks.createConversation).not.toHaveBeenCalled();
-    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
-      system_prompt: '你是中文翻译助手',
-      temperature: 0.2,
-      top_p: 0.8,
-      mode: 'role',
-    });
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload());
     expect(localStorage.getItem('aqbot_conv_icon_conv-1')).toBe(JSON.stringify({ type: 'emoji', value: '🌐' }));
     expect(mocks.setActiveConversation).not.toHaveBeenCalled();
     expect(mocks.setActivePage).toHaveBeenCalledWith('chat');
@@ -315,12 +394,7 @@ describe('RolesPage', () => {
     await user.click(screen.getByRole('button', { name: '更多角色操作' }));
     await user.click(screen.getByText('应用到当前会话'));
 
-    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
-      system_prompt: '你是中文翻译助手',
-      temperature: 0.2,
-      top_p: 0.8,
-      mode: 'agent',
-    });
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({ mode: 'agent' }));
     expect(localStorage.getItem('aqbot_conv_role_conv-1')).toBe('role-1');
   });
 
@@ -336,12 +410,7 @@ describe('RolesPage', () => {
     await user.click(screen.getByRole('button', { name: '更多角色操作' }));
     await user.click(screen.getByText('应用到当前会话'));
 
-    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
-      system_prompt: '你是中文翻译助手',
-      temperature: 0.2,
-      top_p: 0.8,
-      mode: 'agent',
-    });
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({ mode: 'agent' }));
   });
 
   it('does not update the conversation when role binding storage fails', async () => {
@@ -565,5 +634,134 @@ describe('RolesPage', () => {
     expect(mocks.createRole.mock.calls[0][0].opening_questions).toEqual([
       { title: '翻译', content: '请翻译\n这段话' },
     ]);
+  });
+
+  it('round-trips knowledge and memory multi-selects on create and edit', async () => {
+    const user = userEvent.setup();
+    storeState.bases = [{ id: 'kb-1', name: '产品文档', enabled: true, sortOrder: 0 }];
+    storeState.namespaces = [{ id: 'ns-1', name: '项目笔记', scope: 'global', sortOrder: 0 }];
+    mocks.createRole.mockResolvedValue({});
+    mocks.updateRole.mockResolvedValue({});
+
+    const clickSave = async () => {
+      const saveButton = Array.from(document.querySelectorAll('button')).find((btn) => {
+        const text = (btn.textContent || '').replace(/\s+/g, '');
+        return text === '保存' || text === 'Save' || text === 'common.save' || text === 'OK';
+      });
+      expect(saveButton).toBeTruthy();
+      await user.click(saveButton!);
+    };
+
+    const selectFirstOption = async (label: string) => {
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
+      const option = await screen.findByText((_, node) => (
+        node?.classList.contains('ant-select-item-option-content')
+        && Boolean(node.textContent?.includes(label === '知识库' ? '产品文档' : '项目笔记'))
+      ));
+      fireEvent.click(option);
+    };
+
+    const view = render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    fireEvent.change(screen.getByPlaceholderText('请输入角色名称'), { target: { value: '助手' } });
+    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（必填）'), { target: { value: '你是助手' } });
+    await selectFirstOption('知识库');
+    await selectFirstOption('记忆空间');
+    await clickSave();
+
+    await waitFor(() => {
+      expect(mocks.createRole).toHaveBeenCalled();
+    });
+    expect(mocks.createRole.mock.calls[0][0].enabled_knowledge_base_ids).toEqual(['kb-1']);
+    expect(mocks.createRole.mock.calls[0][0].enabled_memory_namespace_ids).toEqual(['ns-1']);
+
+    storeState.roles = [{
+      ...roles[0],
+      enabled_knowledge_base_ids: ['kb-1'],
+      enabled_memory_namespace_ids: ['ns-1'],
+    }];
+    view.rerender(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '编辑' }));
+    expect(within(screen.getByRole('dialog')).getByText('产品文档')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText('项目笔记')).toBeInTheDocument();
+    await clickSave();
+    await waitFor(() => {
+      expect(mocks.updateRole).toHaveBeenCalled();
+    });
+    expect(mocks.updateRole.mock.calls[0][1].enabled_knowledge_base_ids).toEqual(['kb-1']);
+    expect(mocks.updateRole.mock.calls[0][1].enabled_memory_namespace_ids).toEqual(['ns-1']);
+  }, 15000);
+
+  it('blocks save when bound knowledge or memory ids are missing', async () => {
+    const user = userEvent.setup();
+    storeState.roles = [{
+      ...roles[0],
+      enabled_knowledge_base_ids: ['missing-kb'],
+      enabled_memory_namespace_ids: ['missing-ns'],
+    }];
+
+    render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '编辑' }));
+    expect(within(screen.getByRole('dialog')).getByText('missing-kb')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText('missing-ns')).toBeInTheDocument();
+
+    const saveButton = Array.from(document.querySelectorAll('button')).find((btn) => {
+      const text = (btn.textContent || '').replace(/\s+/g, '');
+      return text === '保存' || text === 'Save' || text === 'common.save' || text === 'OK';
+    });
+    await user.click(saveButton!);
+
+    await waitFor(() => {
+      expect(screen.getByText('以下绑定已失效，请移除后再保存：missing-kb, missing-ns')).toBeInTheDocument();
+    });
+    expect(mocks.updateRole).not.toHaveBeenCalled();
+    expect(mocks.createRole).not.toHaveBeenCalled();
+  });
+
+  it('applies empty knowledge and memory arrays so they overwrite conversation selections', async () => {
+    const user = userEvent.setup();
+    render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({
+      enabled_knowledge_base_ids: [],
+      enabled_memory_namespace_ids: [],
+    }));
+  });
+
+  it('writes both context arrays when applying a role with bindings', async () => {
+    const user = userEvent.setup();
+    storeState.roles = [{
+      ...roles[0],
+      enabled_knowledge_base_ids: ['kb-1'],
+      enabled_memory_namespace_ids: ['ns-1'],
+    }];
+    storeState.bases = [{ id: 'kb-1', name: '产品文档', enabled: true, sortOrder: 0 }];
+    storeState.namespaces = [{ id: 'ns-1', name: '项目笔记', scope: 'global', sortOrder: 0 }];
+
+    render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '更多角色操作' }));
+    await user.click(screen.getByText('应用到当前会话'));
+
+    expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({
+      enabled_knowledge_base_ids: ['kb-1'],
+      enabled_memory_namespace_ids: ['ns-1'],
+    }));
+  });
+
+  it('shows applyCreatedButFailed when a new conversation is created but applying the role fails', async () => {
+    const user = userEvent.setup();
+    mocks.updateConversation.mockRejectedValueOnce(new Error('backend down'));
+
+    render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '使用' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('会话已创建，角色配置未应用')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('已应用到当前会话')).not.toBeInTheDocument();
+    expect(mocks.createConversation).toHaveBeenCalled();
+    expect(mocks.setActivePage).not.toHaveBeenCalled();
   });
 });

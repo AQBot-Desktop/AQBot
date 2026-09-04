@@ -11,7 +11,7 @@ pub use memory_tool::{
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 
-use crate::error::{coded_error, Result};
+use crate::error::{coded_error, AQBotError, Result};
 use crate::repo::memory;
 use crate::types::{ContextDiagnostic, MEMORY_ACTIVATION_AUTO, MEMORY_ACTIVATION_TOOL_ONLY};
 
@@ -59,7 +59,7 @@ pub async fn prepare_turn(
     for id in request.enabled_memory_namespace_ids {
         let ns = match memory::get_namespace(db, id).await {
             Ok(ns) => ns,
-            Err(_) => {
+            Err(AQBotError::NotFound(_)) => {
                 diagnostics.push(ContextDiagnostic {
                     code: "MEMORY_NAMESPACE_MISSING".into(),
                     source_type: "memory".into(),
@@ -68,6 +68,7 @@ pub async fn prepare_turn(
                 });
                 continue;
             }
+            Err(err) => return Err(err),
         };
 
         if ns.migration_review_required {
@@ -255,6 +256,25 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("TOOL_CAPABILITY_REQUIRED"));
+    }
+
+    #[tokio::test]
+    async fn missing_namespace_is_diagnostic_not_error() {
+        let db = fixture().await;
+        let prepared = prepare_turn(
+            &db,
+            PrepareTurnRequest {
+                enabled_knowledge_base_ids: &[],
+                enabled_memory_namespace_ids: &["missing-ns".into()],
+                inject_l1: false,
+                model_supports_tools: true,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(prepared.diagnostics[0].code, "MEMORY_NAMESPACE_MISSING");
+        assert!(prepared.memory_tool.is_none());
+        assert!(prepared.auto_memory_ids.is_empty());
     }
 
     #[tokio::test]

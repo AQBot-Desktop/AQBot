@@ -27,6 +27,13 @@ export interface RagSourceEmptyResult {
   reason: 'no_candidates' | 'threshold_filtered' | string;
 }
 
+export interface ContextDiagnostic {
+  code: string;
+  sourceType: string;
+  containerId?: string | null;
+  args?: Record<string, unknown>;
+}
+
 export interface RagContextRetrievedEvent {
   conversation_id: string;
   message_id?: string | null;
@@ -35,6 +42,18 @@ export interface RagContextRetrievedEvent {
   errors?: RagSourceError[];
   empty_results?: RagSourceEmptyResult[];
   emptyResults?: RagSourceEmptyResult[];
+  diagnostics?: ContextDiagnostic[];
+}
+
+export function translateDiagnosticError(
+  content: string | undefined,
+  t: (key: string) => string,
+  fallbackKey: string,
+): string {
+  if (!content) return t(fallbackKey);
+  const key = `errors.${content}`;
+  const translated = t(key);
+  return translated === key ? content : translated;
 }
 
 function escapeTagText(value: string): string {

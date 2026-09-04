@@ -48,7 +48,7 @@ pub async fn cancel_stream(
 
 /// Build separate `<knowledge-retrieval>` and `<memory-retrieval>` HTML tags
 /// from RAG source results for persistence, split by source type.
-fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
+pub(crate) fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
     if sources.is_empty() {
         return String::new();
     }
@@ -75,7 +75,7 @@ fn build_memory_retrieval_tag(sources: &[RagSourceResult]) -> String {
     result
 }
 
-fn sanitize_rag_context_result(mut result: RagContextResult) -> RagContextResult {
+pub(crate) fn sanitize_rag_context_result(mut result: RagContextResult) -> RagContextResult {
     let safe = aqbot_core::inline_media::filter_complete_inline_data;
     for part in &mut result.context_parts {
         *part = safe(part);
@@ -101,6 +101,21 @@ fn sanitize_rag_context_result(mut result: RagContextResult) -> RagContextResult
         empty.reason = safe(&empty.reason);
     }
     result
+}
+
+pub(crate) fn sanitize_context_diagnostics(
+    diagnostics: &[aqbot_core::types::ContextDiagnostic],
+) -> Vec<aqbot_core::types::ContextDiagnostic> {
+    let safe = aqbot_core::inline_media::filter_complete_inline_data;
+    diagnostics
+        .iter()
+        .map(|item| aqbot_core::types::ContextDiagnostic {
+            code: safe(&item.code),
+            source_type: safe(&item.source_type),
+            container_id: item.container_id.as_deref().map(safe),
+            args: item.args.clone(),
+        })
+        .collect()
 }
 
 fn rag_source_errors(kb_ids: &[String], mem_ids: &[String], message: &str) -> Vec<RagSourceError> {
@@ -188,6 +203,7 @@ async fn collect_and_emit_rag_context(
     kb_ids: Vec<String>,
     mem_ids: Vec<String>,
     cancel_flag: &AtomicBool,
+    diagnostics: &[aqbot_core::types::ContextDiagnostic],
 ) -> (RagContextResult, bool) {
     let future = crate::indexing::collect_rag_context(
         db,
@@ -218,6 +234,7 @@ async fn collect_and_emit_rag_context(
             sources: rag_result.source_results.clone(),
             errors: rag_result.errors.clone(),
             empty_results: rag_result.empty_results.clone(),
+            diagnostics: sanitize_context_diagnostics(diagnostics),
         },
     );
 

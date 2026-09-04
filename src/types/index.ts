@@ -1238,6 +1238,8 @@ export interface Role {
   top_p: number | null;
   enabled_mcp_server_ids: string[];
   enabled_skill_names: string[];
+  enabled_knowledge_base_ids: string[];
+  enabled_memory_namespace_ids: string[];
   source_kind: string;
   source_ref: string | null;
   created_at: number;
@@ -1258,6 +1260,8 @@ export interface CreateRoleInput {
   top_p?: number | null;
   enabled_mcp_server_ids?: string[];
   enabled_skill_names?: string[];
+  enabled_knowledge_base_ids?: string[];
+  enabled_memory_namespace_ids?: string[];
   source_kind?: string | null;
   source_ref?: string | null;
 }
@@ -1276,6 +1280,8 @@ export interface UpdateRoleInput {
   top_p?: number | null;
   enabled_mcp_server_ids?: string[];
   enabled_skill_names?: string[];
+  enabled_knowledge_base_ids?: string[];
+  enabled_memory_namespace_ids?: string[];
 }
 
 export interface MarketplaceRole {

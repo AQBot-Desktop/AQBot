@@ -1,10 +1,15 @@
 import type { TFunction } from 'i18next';
+import { parseCodedError } from '@/lib/contextErrorMessage';
 import { getErrorMessage } from '@/lib/errorMessage';
 import {
   OPENING_QUESTION_TITLE_MAX_CHARS,
   normalizeOpeningQuestions,
   type OpeningQuestionDraft,
 } from '@/lib/openingQuestions';
+import {
+  formatRoleContextBindingItems,
+  isRoleContextBindingsError,
+} from '@/lib/roleContextBindings';
 
 /** Known backend role validation payloads (after "Validation error: " prefix). */
 const ROLE_VALIDATION_KEYS: Record<string, string> = {
@@ -19,9 +24,44 @@ const ROLE_VALIDATION_KEYS: Record<string, string> = {
  * Turn backend / transport errors into user-facing role messages.
  * Maps English validation strings from the Rust layer to i18n keys.
  */
+function stringIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function missingBindingsMessage(
+  t: TFunction,
+  knowledgeBaseIds: string[],
+  memoryNamespaceIds: string[],
+  fallbackKey: string,
+): string {
+  const items = formatRoleContextBindingItems(knowledgeBaseIds, memoryNamespaceIds);
+  return items ? t('roles.missingBindings', { items }) : t(fallbackKey);
+}
+
 export function getRoleErrorMessage(error: unknown, t: TFunction): string {
   if (error instanceof Error && error.name === 'ConversationRoleStorageError') {
     return t('roles.applyFailed');
+  }
+  if (isRoleContextBindingsError(error)) {
+    if (error.kind === 'loadFailed') {
+      return t('roles.validation.contextBindingsLoadFailed');
+    }
+    return missingBindingsMessage(
+      t,
+      error.missingKnowledgeBaseIds,
+      error.missingMemoryNamespaceIds,
+      'roles.validation.contextBindingsMissing',
+    );
+  }
+  const coded = parseCodedError(error);
+  if (coded?.code === 'ROLE_CONTEXT_BINDINGS_MISSING') {
+    return missingBindingsMessage(
+      t,
+      stringIdList(coded.args?.missing_knowledge_base_ids),
+      stringIdList(coded.args?.missing_memory_namespace_ids),
+      'errors.ROLE_CONTEXT_BINDINGS_MISSING',
+    );
   }
   const raw = getErrorMessage(error).trim();
   if (!raw) return t('roles.saveFailed');

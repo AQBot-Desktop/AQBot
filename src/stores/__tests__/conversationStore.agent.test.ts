@@ -214,6 +214,9 @@ describe('conversationStore agent streaming', () => {
       conversationId: 'conv-1',
       prompt: '你好呀',
       enabledMcpServerIds: [],
+      enabledKnowledgeBaseIds: [],
+      enabledMemoryNamespaceIds: [],
+      streamId: expect.any(String),
     }));
   });
 

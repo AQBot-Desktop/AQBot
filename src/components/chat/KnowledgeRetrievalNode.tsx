@@ -3,7 +3,7 @@ import { theme } from 'antd';
 import { BookOpen, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import type { NodeComponentProps } from 'markstream-react';
 import { useTranslation } from 'react-i18next';
-import type { MemorySourceResult, MemoryRetrievedItem } from '@/lib/memoryUtils';
+import { translateDiagnosticError, type MemorySourceResult, type MemoryRetrievedItem } from '@/lib/memoryUtils';
 
 type KnowledgeRetrievalNodeData = {
   type: 'knowledge-retrieval';
@@ -102,7 +102,7 @@ export function KnowledgeRetrievalNode(props: NodeComponentProps<KnowledgeRetrie
         }}
       >
         <AlertCircle size={16} />
-        <span>{node.content || t('chat.knowledgeRetrieval.error')}</span>
+        <span>{translateDiagnosticError(node.content, t, 'chat.knowledgeRetrieval.error')}</span>
       </div>
     );
   }

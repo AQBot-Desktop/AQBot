@@ -374,9 +374,7 @@ pub async fn collect_rag_context(
         let source = src_ref.source();
 
         // Resolve per-source search parameters (top_k, threshold, dimensions)
-        let (source_top_k, threshold, dims, final_top_k, rerank_provider) = match src_ref
-            .source_type
-        {
+        let resolved = match src_ref.source_type {
             RAGSourceType::Memory => {
                 match crate::repo::memory::get_namespace(db, &src_ref.container_id).await {
                     Ok(ns) => {
@@ -386,15 +384,22 @@ pub async fn collect_rag_context(
                             .map(|v| v as usize)
                             .unwrap_or(top_k)
                             .max(1);
-                        (
+                        Some((
                             final_top_k,
                             ns.retrieval_threshold.unwrap_or(0.0),
                             ns.embedding_dimensions.map(|v| v as usize),
                             final_top_k,
                             None,
-                        )
+                        ))
                     }
-                    Err(_) => (top_k, 0.0, None, top_k, None),
+                    Err(err) => {
+                        errors.push(RagSourceError {
+                            source_type: src_ref.source_type_str().to_string(),
+                            container_id: src_ref.container_id.clone(),
+                            message: format_rag_failure_message(err.to_string()),
+                        });
+                        None
+                    }
                 }
             }
             RAGSourceType::Knowledge => {
@@ -417,7 +422,7 @@ pub async fn collect_rag_context(
                         } else {
                             final_top_k
                         };
-                        (
+                        Some((
                             source_top_k,
                             kb.retrieval_threshold.unwrap_or(0.0),
                             kb.embedding_dimensions
@@ -425,11 +430,21 @@ pub async fn collect_rag_context(
                                 .filter(|value| *value > 0),
                             final_top_k,
                             rerank_provider,
-                        )
+                        ))
                     }
-                    Err(_) => (top_k, 0.0, None, top_k, None),
+                    Err(err) => {
+                        errors.push(RagSourceError {
+                            source_type: src_ref.source_type_str().to_string(),
+                            container_id: src_ref.container_id.clone(),
+                            message: format_rag_failure_message(err.to_string()),
+                        });
+                        None
+                    }
                 }
             }
+        };
+        let Some((source_top_k, threshold, dims, final_top_k, rerank_provider)) = resolved else {
+            continue;
         };
 
         let result = search(

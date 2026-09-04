@@ -2,7 +2,9 @@ pub mod acp;
 pub mod agent;
 #[cfg(test)]
 mod agent_allowed_tools;
+pub(crate) mod agent_context;
 pub(crate) mod agent_mcp;
+pub(crate) mod agent_memory_tool;
 pub mod artifacts;
 pub mod backup;
 pub mod branches;

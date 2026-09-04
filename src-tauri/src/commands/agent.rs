@@ -49,15 +49,21 @@ impl Drop for RunningAgentGuard {
 
 struct AgentCancelTokenGuard {
     conversation_id: String,
-    tokens: Arc<tokio::sync::Mutex<HashMap<String, open_agent_sdk::CancellationToken>>>,
+    run_id: String,
+    tokens: Arc<tokio::sync::Mutex<HashMap<String, crate::AgentCancelEntry>>>,
 }
 
 impl Drop for AgentCancelTokenGuard {
     fn drop(&mut self) {
         let conversation_id = self.conversation_id.clone();
+        let run_id = self.run_id.clone();
         let tokens = self.tokens.clone();
         tokio::spawn(async move {
-            tokens.lock().await.remove(&conversation_id);
+            let mut map = tokens.lock().await;
+            if map.get(&conversation_id).map(|entry| entry.run_id.as_str()) == Some(run_id.as_str())
+            {
+                map.remove(&conversation_id);
+            }
         });
     }
 }
@@ -341,6 +347,66 @@ async fn persist_agent_partial_content(
     .await?;
     persist_agent_stream_snapshot(db, &message_id, content).await;
     Some(message_id)
+}
+
+async fn create_agent_assistant_placeholder(
+    db: &sea_orm::DatabaseConnection,
+    app: &tauri::AppHandle,
+    conv_id: &str,
+    user_msg_id: &str,
+) -> Result<String, String> {
+    let assist_msg = message::create_message(
+        db,
+        conv_id,
+        MessageRole::Assistant,
+        "",
+        &[],
+        Some(user_msg_id),
+        0,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    if let Err(error) = conversation::increment_message_count(db, conv_id).await {
+        let rollback_errors =
+            super::conversations::rollback_new_message(db, &assist_msg.id, &[]).await;
+        return Err(super::conversations::format_new_message_failure(
+            &assist_msg.id,
+            "agent assistant message-count update failed",
+            error,
+            rollback_errors,
+        ));
+    }
+    let _ = app.emit(
+        "agent-message-id",
+        serde_json::json!({
+            "conversationId": conv_id,
+            "assistantMessageId": assist_msg.id.clone(),
+        }),
+    );
+    Ok(assist_msg.id)
+}
+
+async fn fail_agent_turn(
+    app: &tauri::AppHandle,
+    db: &sea_orm::DatabaseConnection,
+    session_id: &str,
+    conversation_id: &str,
+    assistant_message_id: &str,
+    message: &str,
+) -> Result<(), String> {
+    let safe_message = filter_complete_agent_event_text(message);
+    let _ = message::update_message_content(db, assistant_message_id, &safe_message).await;
+    let _ = message::update_message_status(db, assistant_message_id, "error").await;
+    let _ = agent_session::update_agent_session_status(db, session_id, "idle").await;
+    let _ = app.emit(
+        "agent-error",
+        AgentErrorPayload {
+            conversation_id: conversation_id.to_string(),
+            assistant_message_id: Some(assistant_message_id.to_string()),
+            message: safe_message,
+        },
+    );
+    Ok(())
 }
 
 fn filtered_agent_stream_chunk(filter: &mut InlineDataStreamFilter, chunk: &str) -> Option<String> {
@@ -734,6 +800,9 @@ pub async fn agent_query(
     model_id: String,
     attachments: Option<Vec<AttachmentInput>>,
     enabled_mcp_server_ids: Vec<String>,
+    enabled_knowledge_base_ids: Option<Vec<String>>,
+    enabled_memory_namespace_ids: Option<Vec<String>>,
+    stream_id: Option<String>,
 ) -> Result<(), String> {
     // 1. Get agent session (must exist)
     let session =
@@ -755,16 +824,23 @@ pub async fn agent_query(
     }
     let running_guard = RunningAgentGuard {
         conversation_id: conversation_id.clone(),
-        run_id,
+        run_id: run_id.clone(),
     };
     let cancel_token = open_agent_sdk::CancellationToken::new();
-    state
-        .agent_cancel_tokens
-        .lock()
-        .await
-        .insert(conversation_id.clone(), cancel_token.clone());
+    let stream_id = stream_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| run_id.clone());
+    state.agent_cancel_tokens.lock().await.insert(
+        conversation_id.clone(),
+        crate::AgentCancelEntry {
+            run_id: run_id.clone(),
+            token: cancel_token.clone(),
+        },
+    );
     let cancel_guard = AgentCancelTokenGuard {
         conversation_id: conversation_id.clone(),
+        run_id: run_id.clone(),
         tokens: state.agent_cancel_tokens.clone(),
     };
 
@@ -875,6 +951,117 @@ pub async fn agent_query(
     let resolved_model = provider::get_model(&state.sea_db, &real_provider_id, &model_id)
         .await
         .ok();
+    let model_supports_tools = super::agent_context::model_supports_function_calling(
+        resolved_model
+            .as_ref()
+            .map(|model| model.capabilities.as_slice()),
+    );
+    let kb_ids = super::agent_context::resolve_turn_resource_ids(
+        enabled_knowledge_base_ids,
+        &pre_conv.enabled_knowledge_base_ids,
+    );
+    let mem_ids = super::agent_context::resolve_turn_resource_ids(
+        enabled_memory_namespace_ids,
+        &pre_conv.enabled_memory_namespace_ids,
+    );
+    let prepared_turn = aqbot_core::context_engine::prepare_turn(
+        &state.sea_db,
+        aqbot_core::context_engine::PrepareTurnRequest {
+            enabled_knowledge_base_ids: &kb_ids,
+            enabled_memory_namespace_ids: &mem_ids,
+            inject_l1: true,
+            model_supports_tools,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let assistant_message_id = create_agent_assistant_placeholder(
+        &state.sea_db,
+        &app,
+        &conversation_id,
+        &user_message.id,
+    )
+    .await?;
+    if let Some(diagnostic) =
+        super::agent_context::first_blocking_diagnostic(&prepared_turn.diagnostics)
+    {
+        return fail_agent_turn(
+            &app,
+            &state.sea_db,
+            &session.id,
+            &conversation_id,
+            &assistant_message_id,
+            &diagnostic.code,
+        )
+        .await;
+    }
+    let mut rag_result = aqbot_core::types::RagContextResult {
+        context_parts: Vec::new(),
+        source_results: Vec::new(),
+        errors: Vec::new(),
+        empty_results: Vec::new(),
+    };
+    if super::agent_context::prepared_turn_has_retrieval(&prepared_turn) {
+        match super::agent_context::collect_agent_rag_context(
+            &state.sea_db,
+            &state.master_key,
+            state.vector_store.as_ref(),
+            &prompt,
+            &prepared_turn.knowledge_ids,
+            &prepared_turn.auto_memory_ids,
+            &cancel_token,
+        )
+        .await
+        {
+            super::agent_context::AgentRagOutcome::Cancelled => {
+                return fail_agent_turn(
+                    &app,
+                    &state.sea_db,
+                    &session.id,
+                    &conversation_id,
+                    &assistant_message_id,
+                    "已停止生成",
+                )
+                .await;
+            }
+            super::agent_context::AgentRagOutcome::Ready(result) => rag_result = result,
+        }
+    }
+    super::agent_context::emit_agent_rag_context(
+        &app,
+        &conversation_id,
+        &assistant_message_id,
+        &stream_id,
+        &rag_result,
+        &prepared_turn.diagnostics,
+    );
+    let retrieval_tag =
+        super::conversations::build_memory_retrieval_tag(&rag_result.source_results);
+    if !retrieval_tag.is_empty() {
+        let _ = message::update_message_content(&state.sea_db, &assistant_message_id, &retrieval_tag)
+            .await;
+    }
+    if !rag_result.errors.is_empty() {
+        let message = rag_result
+            .errors
+            .first()
+            .map(|error| error.message.clone())
+            .unwrap_or_else(|| "检索失败".to_string());
+        return fail_agent_turn(
+            &app,
+            &state.sea_db,
+            &session.id,
+            &conversation_id,
+            &assistant_message_id,
+            &message,
+        )
+        .await;
+    }
+    let append_system_prompt = super::agent_context::build_append_system_prompt(
+        prepared_turn.l1_system_message.as_deref(),
+        &rag_result.context_parts,
+    );
+    let memory_tool_scope = prepared_turn.memory_tool.map(|binding| binding.scope);
     let model_max_output_tokens = resolved_model
         .as_ref()
         .and_then(|model| model.max_output_tokens);
@@ -926,7 +1113,8 @@ pub async fn agent_query(
     let permission_senders = state.agent_permission_senders.clone();
     let app_for_perm = app.clone();
     let conv_id_for_perm = conversation_id.clone();
-    let current_assistant_id_for_perm: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    let current_assistant_id_for_perm: Arc<RwLock<Option<String>>> =
+        Arc::new(RwLock::new(Some(assistant_message_id.clone())));
     let assistant_id_for_task = current_assistant_id_for_perm.clone();
     let db_for_perm = state.sea_db.clone();
     let cancel_token_for_perm = cancel_token.clone();
@@ -1115,6 +1303,13 @@ pub async fn agent_query(
     );
     let mut custom_tools = mcp_tools;
     custom_tools.push(skill_tool);
+    let memory_tool_scope_bound = memory_tool_scope.is_some();
+    if let Some(scope) = memory_tool_scope {
+        custom_tools.push(std::sync::Arc::new(super::agent_memory_tool::AgentMemoryTool::new(
+            state.sea_db.clone(),
+            scope,
+        )));
+    }
 
     // Build ask_fn for AskUserQuestion tool
     let ask_senders = state.agent_ask_senders.clone();
@@ -1165,20 +1360,30 @@ pub async fn agent_query(
         },
     );
 
+    let mut allowed_tools = resolve_agent_allowed_tools(
+        global_settings.agent_allowed_tools_enabled,
+        &global_settings.agent_allowed_tools,
+        &mcp_aliases,
+    );
+    if memory_tool_scope_bound {
+        if let Some(allowed) = allowed_tools.as_mut() {
+            let name = aqbot_core::context_engine::MEMORY_TOOL_NAME.to_string();
+            if !allowed.iter().any(|item| item == &name) {
+                allowed.push(name);
+            }
+        }
+    }
     let agent_options = AgentOptions {
         model: Some(model_id.clone()),
         provider: Some(Arc::new(bridge)),
         cwd: session.cwd.clone(),
         system_prompt: conv.system_prompt.clone(),
+        append_system_prompt,
         skills_summary,
         ask_fn: Some(ask_fn),
         can_use_tool: Some(can_use_tool),
         custom_tools,
-        allowed_tools: resolve_agent_allowed_tools(
-            global_settings.agent_allowed_tools_enabled,
-            &global_settings.agent_allowed_tools,
-            &mcp_aliases,
-        ),
+        allowed_tools,
         disallowed_tools: Some(
             AGENT_HIDDEN_SDK_TOOLS
                 .iter()
@@ -1251,8 +1456,8 @@ pub async fn agent_query(
         let mut num_turns = 0u32;
         let mut cost_usd = 0.0f64;
         let mut sdk_messages: Option<Vec<open_agent_sdk::Message>> = None;
-        let mut current_assistant_msg_id: Option<String> = None;
-        let mut accumulated_text = String::new();
+        let mut current_assistant_msg_id: Option<String> = Some(assistant_message_id.clone());
+        let mut accumulated_text = retrieval_tag.clone();
         let mut in_thinking_block = false;
         let mut has_streamed_deltas = false;
         let mut has_agent_content = false;
@@ -2178,6 +2383,7 @@ pub async fn agent_respond_ask(
 pub async fn agent_cancel(
     state: State<'_, AppState>,
     conversation_id: String,
+    stream_id: Option<String>,
 ) -> Result<(), String> {
     let session =
         agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
@@ -2190,18 +2396,16 @@ pub async fn agent_cancel(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(token) = state
-        .agent_cancel_tokens
-        .lock()
-        .await
-        .remove(&conversation_id)
-    {
-        token.cancel();
-    }
-
-    // Remove from in-memory running set
-    if let Ok(mut running) = RUNNING_AGENTS.lock() {
-        running.remove(&conversation_id);
+    let tokens = state.agent_cancel_tokens.lock().await;
+    if let Some(entry) = tokens.get(&conversation_id) {
+        let matches_run = match stream_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
+        {
+            None => true,
+            Some(id) => id == entry.run_id,
+        };
+        if matches_run {
+            entry.token.cancel();
+        }
     }
 
     Ok(())

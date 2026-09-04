@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   setActivePage: vi.fn(),
   ensureSkillsLoaded: vi.fn(),
   toggleSkill: vi.fn(),
+  ensureBasesLoaded: vi.fn(),
+  ensureNamespacesLoaded: vi.fn(),
 }));
 
 const role: Role = {
@@ -30,6 +32,8 @@ const role: Role = {
   top_p: 0.8,
   enabled_mcp_server_ids: [],
   enabled_skill_names: [],
+  enabled_knowledge_base_ids: [],
+  enabled_memory_namespace_ids: [],
   source_kind: 'local',
   source_ref: null,
   created_at: 1,
@@ -50,7 +54,23 @@ const storeState = vi.hoisted(() => ({
   conversations: [] as ConversationStub[],
   archivedConversations: [] as ConversationStub[],
   skills: [] as Array<{ name: string; enabled: boolean }>,
+  bases: [] as Array<{ id: string; name: string; enabled: boolean; sortOrder: number }>,
+  namespaces: [] as Array<{ id: string; name: string; scope: 'global'; sortOrder: number }>,
+  basesMeta: { status: 'ready' as const, key: 'knowledge-bases', loadedAt: 1, revision: 1 },
+  namespacesMeta: { status: 'ready' as const, key: 'memory-namespaces', loadedAt: 1, revision: 1 },
 }));
+
+function roleApplyPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    system_prompt: '你是中文翻译助手',
+    temperature: 0.2,
+    top_p: 0.8,
+    mode: 'role',
+    enabled_knowledge_base_ids: [],
+    enabled_memory_namespace_ids: [],
+    ...overrides,
+  };
+}
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -65,7 +85,10 @@ vi.mock('react-i18next', () => ({
         'roles.searchPlaceholder': '搜索角色',
         'roles.emptyDesc': '还没有角色',
         'roles.applyFailed': '应用角色失败',
+        'roles.applyCreatedButFailed': '会话已创建，角色配置未应用',
         'roles.conversationMissing': '当前会话不存在，无法应用角色',
+        'roles.missingBindings': '以下绑定已失效，请移除后再保存：{{items}}',
+        'roles.validation.contextBindingsLoadFailed': '无法加载知识库或记忆空间，请稍后重试',
         'chat.role.bindingReadFailed': '读取角色绑定失败',
       };
       return translations[key] ?? key;
@@ -137,6 +160,40 @@ vi.mock('@/stores', () => ({
       getState: () => ({ skills: storeState.skills }),
     },
   ),
+  useKnowledgeStore: Object.assign(
+    (selector?: (state: any) => unknown) => {
+      const state = {
+        bases: storeState.bases,
+        basesMeta: storeState.basesMeta,
+        ensureBasesLoaded: mocks.ensureBasesLoaded,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        bases: storeState.bases,
+        basesMeta: storeState.basesMeta,
+        ensureBasesLoaded: mocks.ensureBasesLoaded,
+      }),
+    },
+  ),
+  useMemoryStore: Object.assign(
+    (selector?: (state: any) => unknown) => {
+      const state = {
+        namespaces: storeState.namespaces,
+        namespacesMeta: storeState.namespacesMeta,
+        ensureNamespacesLoaded: mocks.ensureNamespacesLoaded,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        namespaces: storeState.namespaces,
+        namespacesMeta: storeState.namespacesMeta,
+        ensureNamespacesLoaded: mocks.ensureNamespacesLoaded,
+      }),
+    },
+  ),
 }));
 
 async function openSwitcher() {
@@ -159,7 +216,13 @@ describe('RoleSwitcherPopover', () => {
     mocks.ensureRolesLoaded.mockResolvedValue(undefined);
     mocks.ensureSkillsLoaded.mockResolvedValue(undefined);
     mocks.toggleSkill.mockResolvedValue(undefined);
+    mocks.ensureBasesLoaded.mockResolvedValue(undefined);
+    mocks.ensureNamespacesLoaded.mockResolvedValue(undefined);
     storeState.roles = [role];
+    storeState.bases = [];
+    storeState.namespaces = [];
+    storeState.basesMeta = { status: 'ready', key: 'knowledge-bases', loadedAt: 1, revision: 1 };
+    storeState.namespacesMeta = { status: 'ready', key: 'memory-namespaces', loadedAt: 1, revision: 1 };
     storeState.activeConversationId = 'conv-1';
     storeState.conversations = [
       { id: 'conv-1', provider_id: 'provider-1', model_id: 'model-1', system_prompt: null, mode: undefined },
@@ -175,12 +238,7 @@ describe('RoleSwitcherPopover', () => {
     await user.click(screen.getByRole('button', { name: '应用' }));
 
     await waitFor(() => {
-      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
-        system_prompt: '你是中文翻译助手',
-        temperature: 0.2,
-        top_p: 0.8,
-        mode: 'agent',
-      });
+      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({ mode: 'agent' }));
     });
   });
 
@@ -194,12 +252,7 @@ describe('RoleSwitcherPopover', () => {
     await user.click(screen.getByRole('button', { name: '应用' }));
 
     await waitFor(() => {
-      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
-        system_prompt: '你是中文翻译助手',
-        temperature: 0.2,
-        top_p: 0.8,
-        mode: 'agent',
-      });
+      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({ mode: 'agent' }));
     });
   });
 
@@ -341,5 +394,38 @@ describe('RoleSwitcherPopover', () => {
       expect(screen.getByText('应用角色失败')).toBeInTheDocument();
     });
     expect(mocks.updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('writes knowledge and memory bindings when applying a role', async () => {
+    storeState.roles = [{
+      ...role,
+      enabled_knowledge_base_ids: ['kb-1'],
+      enabled_memory_namespace_ids: ['ns-1'],
+    }];
+    storeState.bases = [{ id: 'kb-1', name: '产品文档', enabled: true, sortOrder: 0 }];
+    storeState.namespaces = [{ id: 'ns-1', name: '项目笔记', scope: 'global', sortOrder: 0 }];
+    const user = await openSwitcher();
+
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    await waitFor(() => {
+      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({
+        enabled_knowledge_base_ids: ['kb-1'],
+        enabled_memory_namespace_ids: ['ns-1'],
+      }));
+    });
+  });
+
+  it('clears conversation knowledge and memory when switching to a role with empty arrays', async () => {
+    const user = await openSwitcher();
+
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    await waitFor(() => {
+      expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', roleApplyPayload({
+        enabled_knowledge_base_ids: [],
+        enabled_memory_namespace_ids: [],
+      }));
+    });
   });
 });

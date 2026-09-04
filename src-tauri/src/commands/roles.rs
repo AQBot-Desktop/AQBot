@@ -51,6 +51,8 @@ mod tests {
         assert_eq!(input.opening_questions[0].title, None);
         assert_eq!(input.opening_questions[1].title.as_deref(), Some("短标题"));
         assert_eq!(input.opening_questions[1].content, "完整\n正文");
+        assert!(input.enabled_knowledge_base_ids.is_empty());
+        assert!(input.enabled_memory_namespace_ids.is_empty());
     }
 
     #[test]
@@ -385,6 +387,8 @@ fn entry_to_create_input(entry: RoleMarketplaceEntry) -> Result<CreateRoleInput,
         top_p: entry.top_p,
         enabled_mcp_server_ids: Vec::new(),
         enabled_skill_names: Vec::new(),
+        enabled_knowledge_base_ids: Vec::new(),
+        enabled_memory_namespace_ids: Vec::new(),
         source_kind: Some(entry.source_kind),
         source_ref: Some(entry.source_ref),
     })

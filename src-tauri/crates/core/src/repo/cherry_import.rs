@@ -1257,6 +1257,8 @@ where
             top_p: Set(top_p),
             enabled_mcp_server_ids_json: Set("[]".to_string()),
             enabled_skill_names_json: Set("[]".to_string()),
+            enabled_knowledge_base_ids_json: Set("[]".to_string()),
+            enabled_memory_namespace_ids_json: Set("[]".to_string()),
             source_kind: Set(CHERRY_ROLE_SOURCE_KIND.to_string()),
             source_ref: Set(source_ref),
             created_at: Set(now),

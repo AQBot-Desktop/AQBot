@@ -20,6 +20,8 @@ pub struct Model {
     pub top_p: Option<f64>,
     pub enabled_mcp_server_ids_json: String,
     pub enabled_skill_names_json: String,
+    pub enabled_knowledge_base_ids_json: String,
+    pub enabled_memory_namespace_ids_json: String,
     pub source_kind: String,
     pub source_ref: Option<String>,
     pub created_at: i64,

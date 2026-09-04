@@ -3,7 +3,7 @@ import { theme } from 'antd';
 import { Brain, ChevronDown, ChevronRight, AlertCircle, Database } from 'lucide-react';
 import type { NodeComponentProps } from 'markstream-react';
 import { useTranslation } from 'react-i18next';
-import type { MemorySourceResult, MemoryRetrievedItem } from '@/lib/memoryUtils';
+import { translateDiagnosticError, type MemorySourceResult, type MemoryRetrievedItem } from '@/lib/memoryUtils';
 
 type MemoryRetrievalNodeData = {
   type: 'memory-retrieval';
@@ -96,7 +96,7 @@ export function MemoryRetrievalNode(props: NodeComponentProps<MemoryRetrievalNod
         }}
       >
         <AlertCircle size={16} />
-        <span>{node.content || t('chat.memoryRetrieval.error')}</span>
+        <span>{translateDiagnosticError(node.content, t, 'chat.memoryRetrieval.error')}</span>
       </div>
     );
   }

@@ -420,6 +420,7 @@ mod tests {
             sources: result.source_results.clone(),
             errors: result.errors.clone(),
             empty_results: result.empty_results.clone(),
+            diagnostics: Vec::new(),
         };
         let serialized = serde_json::to_string(&event).unwrap();
         let tag = build_memory_retrieval_tag(&result.source_results);

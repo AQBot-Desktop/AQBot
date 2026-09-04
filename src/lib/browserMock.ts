@@ -2631,6 +2631,8 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         top_p: input.top_p ?? null,
         enabled_mcp_server_ids: input.enabled_mcp_server_ids ?? [],
         enabled_skill_names: input.enabled_skill_names ?? [],
+        enabled_knowledge_base_ids: input.enabled_knowledge_base_ids ?? [],
+        enabled_memory_namespace_ids: input.enabled_memory_namespace_ids ?? [],
         source_kind: input.source_kind ?? 'local',
         source_ref: input.source_ref ?? null,
         created_at: now,
@@ -2688,6 +2690,8 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         id: genId(),
         enabled_mcp_server_ids: [],
         enabled_skill_names: [],
+        enabled_knowledge_base_ids: [],
+        enabled_memory_namespace_ids: [],
         created_at: now,
         updated_at: now,
       };

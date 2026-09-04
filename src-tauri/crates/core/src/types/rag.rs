@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::ContextDiagnostic;
+
 // === RAG Context Events ===
 
 /// A single retrieved chunk from RAG search.
@@ -77,6 +79,8 @@ pub struct RagContextRetrievedEvent {
     pub errors: Vec<RagSourceError>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub empty_results: Vec<RagSourceEmptyResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<ContextDiagnostic>,
 }
 
 // === Embedding Types ===

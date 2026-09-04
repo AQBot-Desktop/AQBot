@@ -57,6 +57,7 @@ mod m20260825_000003_fix_assistant_version_slots;
 mod m20260825_000004_add_conversation_multi_model_preferences;
 mod m20260825_000005_add_conversation_tab_pin_order;
 mod m20260827_000001_add_role_opening_questions_v2;
+mod m20260904_000001_add_role_context_bindings;
 
 pub struct Migrator;
 
@@ -123,6 +124,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260825_000004_add_conversation_multi_model_preferences::Migration),
             Box::new(m20260825_000005_add_conversation_tab_pin_order::Migration),
             Box::new(m20260827_000001_add_role_opening_questions_v2::Migration),
+            Box::new(m20260904_000001_add_role_context_bindings::Migration),
         ]
     }
 }
@@ -291,6 +293,8 @@ mod tests {
             "avatar_value",
             "enabled_mcp_server_ids_json",
             "enabled_skill_names_json",
+            "enabled_knowledge_base_ids_json",
+            "enabled_memory_namespace_ids_json",
         ] {
             assert!(
                 manager
@@ -508,6 +512,8 @@ mod tests {
             "avatar_value",
             "enabled_mcp_server_ids_json",
             "enabled_skill_names_json",
+            "enabled_knowledge_base_ids_json",
+            "enabled_memory_namespace_ids_json",
         ] {
             assert!(
                 manager
@@ -933,7 +939,10 @@ mod tests {
                  VALUES ('d', 'conv', 'assistant', 'user-1', 1, 4)",
             )
             .await;
-        assert!(insert_duplicate.is_err(), "duplicate slot should be rejected");
+        assert!(
+            insert_duplicate.is_err(),
+            "duplicate slot should be rejected"
+        );
     }
 
     #[tokio::test]

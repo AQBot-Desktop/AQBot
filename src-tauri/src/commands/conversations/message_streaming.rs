@@ -1040,6 +1040,7 @@ pub async fn send_message(
         prepared_turn.knowledge_ids.clone(),
         prepared_turn.auto_memory_ids.clone(),
         &cancel_flag,
+        &prepared_turn.diagnostics,
     )
     .await;
 
@@ -1531,6 +1532,7 @@ pub async fn regenerate_message(
             prepared_turn.knowledge_ids.clone(),
             prepared_turn.auto_memory_ids.clone(),
             &cancel_flag,
+            &prepared_turn.diagnostics,
         )
         .await;
 
@@ -2081,6 +2083,7 @@ async fn start_target_stream(
             prepared_turn.knowledge_ids.clone(),
             prepared_turn.auto_memory_ids.clone(),
             &cancel_flag,
+            &prepared_turn.diagnostics,
         )
         .await;
 

@@ -881,6 +881,7 @@ function buildRagDisplayTagFromSources(
   sources: RagContextRetrievedEvent['sources'],
   errors: RagContextRetrievedEvent['errors'] = [],
   emptyResults: RagContextRetrievedEvent['empty_results'] = [],
+  diagnostics: RagContextRetrievedEvent['diagnostics'] = [],
 ): string {
   const knowledgeSources = sources.filter(s => s.source_type === 'knowledge');
   const memorySources = sources.filter(s => s.source_type === 'memory');
@@ -888,21 +889,27 @@ function buildRagDisplayTagFromSources(
   const memoryErrors = errors.filter(e => e.source_type === 'memory');
   const knowledgeEmpty = emptyResults.find(e => e.source_type === 'knowledge');
   const memoryEmpty = emptyResults.find(e => e.source_type === 'memory');
+  const knowledgeDiagnostic = diagnostics.find((item) => item.sourceType === 'knowledge');
+  const memoryDiagnostic = diagnostics.find((item) => item.sourceType === 'memory');
   return [
     knowledgeSources.length > 0
       ? buildKnowledgeTag('done', knowledgeSources)
       : knowledgeErrors.length > 0
         ? buildKnowledgeTag('error', knowledgeErrors[0].message)
-        : knowledgeEmpty
-          ? buildKnowledgeTag('empty', knowledgeEmpty.reason)
-          : '',
+        : knowledgeDiagnostic
+          ? buildKnowledgeTag('error', knowledgeDiagnostic.code)
+          : knowledgeEmpty
+            ? buildKnowledgeTag('empty', knowledgeEmpty.reason)
+            : '',
     memorySources.length > 0
       ? buildMemoryTag('done', memorySources)
       : memoryErrors.length > 0
         ? buildMemoryTag('error', memoryErrors[0].message)
-        : memoryEmpty
-          ? buildMemoryTag('empty', memoryEmpty.reason)
-          : '',
+        : memoryDiagnostic
+          ? buildMemoryTag('error', memoryDiagnostic.code)
+          : memoryEmpty
+            ? buildMemoryTag('empty', memoryEmpty.reason)
+            : '',
   ].join('');
 }
 

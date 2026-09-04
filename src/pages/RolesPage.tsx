@@ -24,7 +24,9 @@ import { ChevronDown, Download, Edit3, Plus, Search, Trash2, User, Wand2 } from 
 import { useTranslation } from 'react-i18next';
 import {
   useConversationStore,
+  useKnowledgeStore,
   useMcpStore,
+  useMemoryStore,
   useProviderStore,
   useRoleStore,
   useSettingsStore,
@@ -33,7 +35,9 @@ import {
 } from '@/stores';
 import { IconEditor } from '@/components/shared/IconEditor';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
+import { KnowledgeBaseIcon } from '@/components/shared/KnowledgeBaseIcon';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
+import { NamespaceIcon } from '@/components/shared/NamespaceIcon';
 import { OpeningQuestionsEditor } from '@/components/roles/OpeningQuestionsEditor';
 import { applyRoleWithRollback, buildApplyRoleUpdate, roleSkillNames } from '@/lib/applyRole';
 import {
@@ -42,6 +46,10 @@ import {
   type OpeningQuestionDraft,
 } from '@/lib/openingQuestions';
 import { getRoleErrorMessage, validateRoleDraft, type RoleDraftValidation } from '@/lib/roleErrorMessage';
+import {
+  ensureLoadedRoleContextBindings,
+  normalizeRoleContextIds,
+} from '@/lib/roleContextBindings';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import type { CreateRoleInput, MarketplaceRole, Role, RoleOpeningQuestion, UpdateRoleInput } from '@/types';
 import type { AvatarType } from '@/stores/userProfileStore';
@@ -81,6 +89,8 @@ interface RoleDraft {
   topP: number | null;
   enabledMcpServerIds: string[];
   enabledSkillNames: string[];
+  enabledKnowledgeBaseIds: string[];
+  enabledMemoryNamespaceIds: string[];
 }
 
 const emptyDraft: RoleDraft = {
@@ -96,6 +106,8 @@ const emptyDraft: RoleDraft = {
   topP: null,
   enabledMcpServerIds: [],
   enabledSkillNames: [],
+  enabledKnowledgeBaseIds: [],
+  enabledMemoryNamespaceIds: [],
 };
 
 let didAutoOpenMarketplace = false;
@@ -114,6 +126,8 @@ function roleToDraft(role: Role): RoleDraft {
     topP: role.top_p,
     enabledMcpServerIds: role.enabled_mcp_server_ids ?? [],
     enabledSkillNames: role.enabled_skill_names ?? [],
+    enabledKnowledgeBaseIds: role.enabled_knowledge_base_ids ?? [],
+    enabledMemoryNamespaceIds: role.enabled_memory_namespace_ids ?? [],
   };
 }
 
@@ -133,6 +147,8 @@ function draftToCreateInput(draft: RoleDraft): CreateRoleInput {
     top_p: draft.topP,
     enabled_mcp_server_ids: draft.enabledMcpServerIds,
     enabled_skill_names: draft.enabledSkillNames,
+    enabled_knowledge_base_ids: normalizeRoleContextIds(draft.enabledKnowledgeBaseIds),
+    enabled_memory_namespace_ids: normalizeRoleContextIds(draft.enabledMemoryNamespaceIds),
     source_kind: 'local',
     source_ref: null,
   };
@@ -154,6 +170,8 @@ function draftToUpdateInput(draft: RoleDraft): UpdateRoleInput {
     top_p: draft.topP,
     enabled_mcp_server_ids: draft.enabledMcpServerIds,
     enabled_skill_names: draft.enabledSkillNames,
+    enabled_knowledge_base_ids: normalizeRoleContextIds(draft.enabledKnowledgeBaseIds),
+    enabled_memory_namespace_ids: normalizeRoleContextIds(draft.enabledMemoryNamespaceIds),
   };
 }
 
@@ -175,6 +193,40 @@ function draftOpeningQuestions(draft: RoleDraft): RoleOpeningQuestion[] {
 
 function inferAvatarType(value: string): string {
   return value.startsWith('http://') || value.startsWith('https://') ? 'url' : 'emoji';
+}
+
+function roleContextStoreSnapshot() {
+  const knowledge = useKnowledgeStore.getState();
+  const memory = useMemoryStore.getState();
+  return {
+    bases: knowledge.bases,
+    namespaces: memory.namespaces,
+    basesReady: knowledge.basesMeta.status === 'ready',
+    namespacesReady: memory.namespacesMeta.status === 'ready',
+  };
+}
+
+function assertRoleContextBindingsForIds(knowledgeBaseIds: string[], memoryNamespaceIds: string[]) {
+  return ensureLoadedRoleContextBindings({
+    knowledgeBaseIds,
+    memoryNamespaceIds,
+    loadBases: () => useKnowledgeStore.getState().ensureBasesLoaded({ force: true }),
+    loadNamespaces: () => useMemoryStore.getState().ensureNamespacesLoaded({ force: true }),
+    getSnapshot: roleContextStoreSnapshot,
+  });
+}
+
+function contextSelectOptions<T extends { id: string; name: string }>(
+  items: T[],
+  selectedIds: string[],
+): { value: string; label: string; item?: T }[] {
+  const byId = new Map(items.map((item) => [item.id, { value: item.id, label: item.name, item }]));
+  for (const id of selectedIds) {
+    if (!byId.has(id)) {
+      byId.set(id, { value: id, label: id });
+    }
+  }
+  return Array.from(byId.values());
 }
 
 function getRoleAvatar(role: Pick<Role | MarketplaceRole, 'avatar' | 'avatar_type' | 'avatar_value'>) {
@@ -271,6 +323,12 @@ export function RolesPage() {
   const skills = useSkillStore((s) => s.skills);
   const ensureSkillsLoaded = useSkillStore((s) => s.ensureSkillsLoaded);
   const toggleSkill = useSkillStore((s) => s.toggleSkill);
+  const knowledgeBases = useKnowledgeStore((s) => s.bases);
+  const basesMeta = useKnowledgeStore((s) => s.basesMeta);
+  const ensureBasesLoaded = useKnowledgeStore((s) => s.ensureBasesLoaded);
+  const memoryNamespaces = useMemoryStore((s) => s.namespaces);
+  const namespacesMeta = useMemoryStore((s) => s.namespacesMeta);
+  const ensureNamespacesLoaded = useMemoryStore((s) => s.ensureNamespacesLoaded);
 
   const [activeTab, setActiveTab] = useState('roles');
   const [query, setQuery] = useState('');
@@ -349,6 +407,10 @@ export function RolesPage() {
       return;
     }
     try {
+      await assertRoleContextBindingsForIds(
+        role.enabled_knowledge_base_ids ?? [],
+        role.enabled_memory_namespace_ids ?? [],
+      );
       await applyRoleWithRollback(activeConversation.id, role, async () => {
         await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
           currentMode: activeConversation.mode,
@@ -368,6 +430,15 @@ export function RolesPage() {
       messageApi.warning(t('chat.noModelsAvailable'));
       return;
     }
+    try {
+      await assertRoleContextBindingsForIds(
+        role.enabled_knowledge_base_ids ?? [],
+        role.enabled_memory_namespace_ids ?? [],
+      );
+    } catch (e) {
+      messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
+      return;
+    }
     const conversation = await createConversation(role.name, selection.model.model_id, selection.provider.id);
     try {
       await applyRoleWithRollback(conversation.id, role, async () => {
@@ -376,8 +447,8 @@ export function RolesPage() {
       await ensureRoleSkillsEnabled(role);
       setActiveConversation(conversation.id);
       setActivePage('chat');
-    } catch (e) {
-      messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
+    } catch {
+      messageApi.error(t('roles.applyCreatedButFailed'));
     }
   }, [createConversation, ensureRoleSkillsEnabled, messageApi, pickModel, setActiveConversation, setActivePage, t, updateConversation]);
 
@@ -407,7 +478,9 @@ export function RolesPage() {
     setModalOpen(true);
     void ensureMcpLoaded();
     void ensureSkillsLoaded();
-  }, [ensureMcpLoaded, ensureSkillsLoaded]);
+    void ensureBasesLoaded();
+    void ensureNamespacesLoaded();
+  }, [ensureBasesLoaded, ensureMcpLoaded, ensureNamespacesLoaded, ensureSkillsLoaded]);
 
   const openEdit = useCallback((role: Role) => {
     setEditingRole(role);
@@ -417,7 +490,9 @@ export function RolesPage() {
     setModalOpen(true);
     void ensureMcpLoaded();
     void ensureSkillsLoaded();
-  }, [ensureMcpLoaded, ensureSkillsLoaded]);
+    void ensureBasesLoaded();
+    void ensureNamespacesLoaded();
+  }, [ensureBasesLoaded, ensureMcpLoaded, ensureNamespacesLoaded, ensureSkillsLoaded]);
 
   const mcpSelectOptions = useMemo(() => {
     const enabled = mcpServers.filter((server) => server.enabled);
@@ -456,6 +531,17 @@ export function RolesPage() {
     return Array.from(groups.values());
   }, [skills, t]);
 
+  const knowledgeSelectOptions = useMemo(
+    () => contextSelectOptions(knowledgeBases, draft.enabledKnowledgeBaseIds),
+    [draft.enabledKnowledgeBaseIds, knowledgeBases],
+  );
+  const memorySelectOptions = useMemo(
+    () => contextSelectOptions(memoryNamespaces, draft.enabledMemoryNamespaceIds),
+    [draft.enabledMemoryNamespaceIds, memoryNamespaces],
+  );
+  const knowledgeSelectDisabled = basesMeta.status === 'loading' || basesMeta.status === 'idle';
+  const memorySelectDisabled = namespacesMeta.status === 'loading' || namespacesMeta.status === 'idle';
+
   const saveDraft = useCallback(async () => {
     const errors = validateRoleDraft(draft, t);
     setFieldErrors(errors);
@@ -471,6 +557,10 @@ export function RolesPage() {
 
     setSaving(true);
     try {
+      await assertRoleContextBindingsForIds(
+        draft.enabledKnowledgeBaseIds,
+        draft.enabledMemoryNamespaceIds,
+      );
       if (editingRole) {
         await updateRole(editingRole.id, draftToUpdateInput(draft));
       } else {
@@ -974,6 +1064,80 @@ export function RolesPage() {
               notFoundContent={t('roles.skillsEmpty')}
             />
           </Form.Item>
+
+          <Form.Item
+            label={t('roles.knowledgeBases')}
+            extra={basesMeta.status === 'error' ? t('roles.knowledgeLoadFailed') : t('roles.knowledgeBasesHint')}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              aria-label={t('roles.knowledgeBases')}
+              placeholder={knowledgeSelectOptions.length === 0 ? t('roles.knowledgeEmpty') : t('roles.knowledgeBasesPlaceholder')}
+              value={draft.enabledKnowledgeBaseIds}
+              disabled={knowledgeSelectDisabled}
+              onChange={(ids) => setDraft((s) => ({ ...s, enabledKnowledgeBaseIds: ids }))}
+              options={knowledgeSelectOptions}
+              optionRender={(option) => (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {option.data?.item ? <KnowledgeBaseIcon kb={option.data.item} size={16} /> : null}
+                  <span>{option.label}</span>
+                </span>
+              )}
+              labelRender={(props) => {
+                const item = knowledgeSelectOptions.find((option) => option.value === props.value)?.item;
+                return (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {item ? <KnowledgeBaseIcon kb={item} size={14} /> : null}
+                    <span>{props.label}</span>
+                  </span>
+                );
+              }}
+              style={{ width: '100%' }}
+              notFoundContent={t('roles.knowledgeEmpty')}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={t('roles.memoryNamespaces')}
+            extra={namespacesMeta.status === 'error' ? t('roles.memoryLoadFailed') : t('roles.memoryNamespacesHint')}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              aria-label={t('roles.memoryNamespaces')}
+              placeholder={memorySelectOptions.length === 0 ? t('roles.memoryEmpty') : t('roles.memoryNamespacesPlaceholder')}
+              value={draft.enabledMemoryNamespaceIds}
+              disabled={memorySelectDisabled}
+              onChange={(ids) => setDraft((s) => ({ ...s, enabledMemoryNamespaceIds: ids }))}
+              options={memorySelectOptions}
+              optionRender={(option) => (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {option.data?.item ? <NamespaceIcon ns={option.data.item} size={16} /> : null}
+                  <span>{option.label}</span>
+                </span>
+              )}
+              labelRender={(props) => {
+                const item = memorySelectOptions.find((option) => option.value === props.value)?.item;
+                return (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {item ? <NamespaceIcon ns={item} size={14} /> : null}
+                    <span>{props.label}</span>
+                  </span>
+                );
+              }}
+              style={{ width: '100%' }}
+              notFoundContent={t('roles.memoryEmpty')}
+            />
+          </Form.Item>
+
+          <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+            {t('roles.contextBindingsHint')}
+          </Paragraph>
         </Form>
       </Modal>
     </div>
