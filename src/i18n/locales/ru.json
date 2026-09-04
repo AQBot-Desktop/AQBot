@@ -428,7 +428,17 @@
       "title": "Навыки",
       "searchPlaceholder": "Навыки поиска",
       "empty": "Навыков пока нет. Установите некоторые из них на странице «Навыки».",
-      "manage": "Управление навыками →"
+      "manage": "Управление навыками →",
+      "reason": {
+        "disabled": "Отключён",
+        "skillToolDisabled": "Инструмент Skill выключен для этого Agent",
+        "overridden": "Переопределён источником с более высоким приоритетом",
+        "parseFailed": "Ошибка разбора: {{message}}",
+        "parseFailedAt": "Ошибка разбора: {{message}} (строка {{line}}, столбец {{column}})",
+        "unreadable": "Не читается: {{message}}",
+        "disableModelInvocation": "Не добавляется в сводку навыков автоматически",
+        "unknown": "Сейчас нельзя вызвать ({{code}})"
+      }
     },
     "compressionSource": "Источник сжатия",
     "retryCompression": "Повторить сжатие",
@@ -2219,7 +2229,35 @@
     "installedAt": "Установлено",
     "filesLabel": "Файлы",
     "skillMdNotFound": "SKILL.md не найден",
-    "skillMdFetchFailed": "Не удалось загрузить SKILL.md"
+    "skillMdFetchFailed": "Не удалось загрузить SKILL.md",
+    "checkAvailability": "Проверить доступность",
+    "recheck": "Проверить снова",
+    "copyDiagnostics": "Скопировать диагностику",
+    "copyDiagnosticsSuccess": "Диагностика скопирована",
+    "availabilityTitle": "Доступность навыков",
+    "availabilityCallable": "Можно вызвать",
+    "availabilityNotCallable": "Нельзя вызвать для этого Agent",
+    "availabilityScanErrors": "Ошибки сканирования",
+    "availabilitySkillToolOn": "Инструмент Skill включён",
+    "availabilitySkillToolOff": "Инструмент Skill выключен",
+    "availabilityNoScanErrors": "Ошибок сканирования нет",
+    "availabilityEmpty": "Навыки не найдены",
+    "availabilityInspectFailed": "Не удалось проверить доступность: {{error}}",
+    "availabilityOverridden": "Переопределён",
+    "availabilityParseFailed": "Ошибка разбора",
+    "availabilityUnreadable": "Не читается",
+    "availabilityManualOnly": "Только ручной вызов",
+    "reason": {
+      "disabled": "Отключён в «Моих навыках»",
+      "skillToolDisabled": "Инструмент Skill не включён для этого Agent",
+      "overridden": "Переопределён источником с более высоким приоритетом ({{path}})",
+      "parseFailed": "Ошибка разбора: {{message}}",
+      "parseFailedAt": "Ошибка разбора: {{message}} (строка {{line}}, столбец {{column}})",
+      "unreadable": "Не читается: {{message}}",
+      "disableModelInvocation": "Задан disable-model-invocation, поэтому навык не попадает в сводку модели",
+      "callable": "Можно внедрить в этот Agent",
+      "unknown": "Недоступен ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "Введите ваш ответ...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "Агент будет иметь полный доступ и сможет выполнять любые операции с файлами без ограничений по пути. Убедитесь, что вы доверяете текущей модели и системной подсказке.",
     "permissionFullAccessChatWarning": "Агент получит полный доступ и сможет выполнять команды терминала, вызывать выбранные инструменты MCP и работать с файлами без ограничений по пути и подтверждения каждого действия. Убедитесь, что вы доверяете текущей модели и системному промпту.",
     "permissionAcceptEditsWarning": "Агент будет автоматически одобрять изменения файлов и вызовы выбранных инструментов MCP без отдельного подтверждения. Для команд терминала по-прежнему потребуется одобрение. Убедитесь, что вы понимаете потенциальные риски безопасности.",
-    "cwdIsProcessStart": "Начальный рабочий каталог процесса, а не песочница файловой системы"
+    "cwdIsProcessStart": "Начальный рабочий каталог процесса, а не песочница файловой системы",
+    "stage": {
+      "preparingResources": "Подготовка ресурсов",
+      "preparingSkills": "Подготовка навыков",
+      "preparingContext": "Подготовка контекста",
+      "waitingModel": "Ожидание модели",
+      "streaming": "Получение ответа",
+      "retryWait": "Повтор запроса к модели (попытка {{attempt}}, ожидание {{waitSeconds}} с)"
+    }
   },
   "imageProtocol": {
     "title": "Протокол изображений",

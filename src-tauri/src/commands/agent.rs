@@ -49,15 +49,21 @@ impl Drop for RunningAgentGuard {
 
 struct AgentCancelTokenGuard {
     conversation_id: String,
-    tokens: Arc<tokio::sync::Mutex<HashMap<String, open_agent_sdk::CancellationToken>>>,
+    run_id: String,
+    tokens: Arc<tokio::sync::Mutex<HashMap<String, crate::AgentCancelEntry>>>,
 }
 
 impl Drop for AgentCancelTokenGuard {
     fn drop(&mut self) {
         let conversation_id = self.conversation_id.clone();
+        let run_id = self.run_id.clone();
         let tokens = self.tokens.clone();
         tokio::spawn(async move {
-            tokens.lock().await.remove(&conversation_id);
+            let mut map = tokens.lock().await;
+            if map.get(&conversation_id).map(|entry| entry.run_id.as_str()) == Some(run_id.as_str())
+            {
+                map.remove(&conversation_id);
+            }
         });
     }
 }
@@ -414,6 +420,7 @@ fn filter_agent_event_json(value: &Value) -> Value {
 fn flush_agent_stream_filters(
     app: &tauri::AppHandle,
     conversation_id: &str,
+    run_id: &str,
     assistant_message_id: Option<&str>,
     text_filter: &mut InlineDataStreamFilter,
     thinking_filter: &mut InlineDataStreamFilter,
@@ -424,6 +431,7 @@ fn flush_agent_stream_filters(
             "agent-stream-text",
             AgentTextPayload {
                 conversation_id: conversation_id.to_string(),
+                run_id: Some(run_id.to_string()),
                 assistant_message_id: assistant_message_id.clone(),
                 text,
             },
@@ -434,6 +442,7 @@ fn flush_agent_stream_filters(
             "agent-stream-thinking",
             AgentThinkingPayload {
                 conversation_id: conversation_id.to_string(),
+                run_id: Some(run_id.to_string()),
                 assistant_message_id,
                 thinking,
             },
@@ -449,6 +458,8 @@ fn flush_agent_stream_filters(
 pub struct AgentDonePayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
+    #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     #[serde(rename = "assistantMessageId")]
     pub assistant_message_id: String,
     pub text: String,
@@ -469,6 +480,8 @@ pub struct AgentUsagePayload {
 pub struct AgentErrorPayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
+    #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     #[serde(rename = "assistantMessageId")]
     pub assistant_message_id: Option<String>,
     pub message: String,
@@ -558,13 +571,6 @@ struct AgentAskUserPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentStatusPayload {
-    #[serde(rename = "conversationId")]
-    pub conversation_id: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentRateLimitPayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
@@ -577,6 +583,8 @@ pub struct AgentRateLimitPayload {
 pub struct AgentThinkingPayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
+    #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     #[serde(rename = "assistantMessageId")]
     pub assistant_message_id: String,
     pub thinking: String,
@@ -586,6 +594,8 @@ pub struct AgentThinkingPayload {
 pub struct AgentTextPayload {
     #[serde(rename = "conversationId")]
     pub conversation_id: String,
+    #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     #[serde(rename = "assistantMessageId")]
     pub assistant_message_id: String,
     pub text: String,
@@ -734,6 +744,7 @@ pub async fn agent_query(
     model_id: String,
     attachments: Option<Vec<AttachmentInput>>,
     enabled_mcp_server_ids: Vec<String>,
+    run_id: Option<String>,
 ) -> Result<(), String> {
     // 1. Get agent session (must exist)
     let session =
@@ -745,7 +756,10 @@ pub async fn agent_query(
     ensure_agent_prompt_safe_for_persistence(&prompt)?;
     // 2. Atomically reserve this conversation before any persistence or SDK
     // initialization so concurrent queries cannot both pass a separate check.
-    let run_id = aqbot_core::utils::gen_id();
+    let run_id = run_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(aqbot_core::utils::gen_id);
     {
         let mut running = RUNNING_AGENTS.lock().unwrap();
         if running.contains_key(&conversation_id) {
@@ -755,18 +769,32 @@ pub async fn agent_query(
     }
     let running_guard = RunningAgentGuard {
         conversation_id: conversation_id.clone(),
-        run_id,
+        run_id: run_id.clone(),
     };
     let cancel_token = open_agent_sdk::CancellationToken::new();
-    state
-        .agent_cancel_tokens
-        .lock()
-        .await
-        .insert(conversation_id.clone(), cancel_token.clone());
+    state.agent_cancel_tokens.lock().await.insert(
+        conversation_id.clone(),
+        crate::AgentCancelEntry {
+            run_id: run_id.clone(),
+            token: cancel_token.clone(),
+        },
+    );
     let cancel_guard = AgentCancelTokenGuard {
         conversation_id: conversation_id.clone(),
+        run_id: run_id.clone(),
         tokens: state.agent_cancel_tokens.clone(),
     };
+    super::agent_status::emit_agent_stage(
+        &app,
+        &conversation_id,
+        &run_id,
+        super::agent_status::AgentWaitStage::PreparingResources,
+    );
+    let mut status_clear_guard = super::agent_status::AgentStatusClearGuard::new(
+        app.clone(),
+        conversation_id.clone(),
+        run_id.clone(),
+    );
 
     let real_provider_id = resolve_agent_provider_id(&state.sea_db, &provider_id).await?;
     let pre_conv = conversation::get_conversation(&state.sea_db, &conversation_id)
@@ -915,6 +943,14 @@ pub async fn agent_query(
         .map_err(|e| e.to_string())?
         .with_model_param_overrides(model_param_overrides)
         .with_model_max_output_tokens(model_max_output_tokens)
+        .with_stream_timeouts(
+            super::agent_status::duration_from_timeout_secs(
+                global_settings.chat_stream_first_packet_timeout_secs,
+            ),
+            super::agent_status::duration_from_timeout_secs(
+                global_settings.chat_stream_idle_timeout_secs,
+            ),
+        )
         .with_app(app.clone(), conversation_id.clone());
 
     // 8. Build permission callback (CanUseToolFn)
@@ -1085,36 +1121,37 @@ pub async fn agent_query(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Load enabled skills, build context summary, and create SkillTool
-    let home = dirs::home_dir().unwrap_or_default();
-    let all_skills = open_agent_sdk::skills::load_all_global(&home);
-    let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
-        .await
-        .unwrap_or_default();
-    let mut registry = open_agent_sdk::skills::SkillRegistry::new();
-    for skill in all_skills {
-        registry.register(skill);
-    }
-    registry.set_disabled(disabled);
-    let skills_summary = if should_inject_skills_summary(
+    super::agent_status::emit_agent_stage(
+        &app,
+        &conversation_id,
+        &run_id,
+        super::agent_status::AgentWaitStage::PreparingSkills,
+    );
+    let inject_skills_summary = should_inject_skills_summary(
         global_settings.agent_allowed_tools_enabled,
         &global_settings.agent_allowed_tools,
-    ) {
-        let summary = registry.generate_context_summary();
-        if summary.is_empty() {
-            None
-        } else {
-            Some(summary)
-        }
-    } else {
-        None
-    };
-    let skill_registry = Arc::new(tokio::sync::RwLock::new(registry));
-    let skill_tool: Arc<dyn open_agent_sdk::types::Tool> = Arc::new(
-        open_agent_sdk::tools::skill_tool::SkillTool::new(skill_registry),
     );
+    let disabled = aqbot_core::repo::skill::get_disabled_skills(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+    let home = dirs::home_dir().unwrap_or_default();
+    let prepared_skills = tokio::task::spawn_blocking(move || {
+        super::agent_skills::prepare_agent_skills(&home, disabled, inject_skills_summary)
+    })
+    .await
+    .map_err(|error| format!("Failed to prepare skills: {error}"))?;
+    if cancel_token.is_cancelled() {
+        return Err("Agent cancelled during initialization".to_string());
+    }
+    let skills_summary = prepared_skills.summary;
     let mut custom_tools = mcp_tools;
-    custom_tools.push(skill_tool);
+    if inject_skills_summary {
+        let skill_registry = Arc::new(tokio::sync::RwLock::new(prepared_skills.registry));
+        let skill_tool: Arc<dyn open_agent_sdk::types::Tool> = Arc::new(
+            open_agent_sdk::tools::skill_tool::SkillTool::new(skill_registry),
+        );
+        custom_tools.push(skill_tool);
+    }
 
     // Build ask_fn for AskUserQuestion tool
     let ask_senders = state.agent_ask_senders.clone();
@@ -1234,15 +1271,19 @@ pub async fn agent_query(
     let title_settings = global_settings.clone();
     let title_prompt = prompt.clone();
     let mcp_display_names_for_events = mcp_display_names;
+    let run_id_for_task = run_id.clone();
+    status_clear_guard.disarm();
 
     tokio::spawn(async move {
         // RAII guard: ensures conv_id is removed from RUNNING_AGENTS on exit (even panic)
         let _running_guard = running_guard;
         let _cancel_guard = cancel_guard;
+        let run_id = run_id_for_task;
 
         tracing::info!(
-            "[agent] Background task started for conversation {}",
-            conv_id
+            "[agent] Background task started for conversation {} run {}",
+            conv_id,
+            run_id
         );
         let (mut rx, handle) = agent.query(&agent_prompt).await;
 
@@ -1308,6 +1349,7 @@ pub async fn agent_query(
                                             "agent-stream-thinking",
                                             AgentThinkingPayload {
                                                 conversation_id: conv_id.clone(),
+                                                run_id: Some(run_id.clone()),
                                                 assistant_message_id: current_assistant_msg_id
                                                     .clone()
                                                     .unwrap_or_default(),
@@ -1331,6 +1373,7 @@ pub async fn agent_query(
                                             "agent-stream-text",
                                             AgentTextPayload {
                                                 conversation_id: conv_id.clone(),
+                                                run_id: Some(run_id.clone()),
                                                 assistant_message_id: current_assistant_msg_id
                                                     .clone()
                                                     .unwrap_or_default(),
@@ -1437,6 +1480,7 @@ pub async fn agent_query(
                                     "agent-stream-text",
                                     AgentTextPayload {
                                         conversation_id: conv_id.clone(),
+                                        run_id: Some(run_id.clone()),
                                         assistant_message_id: current_assistant_msg_id
                                             .clone()
                                             .unwrap_or_default(),
@@ -1589,13 +1633,43 @@ pub async fn agent_query(
                 | SDKMessage::Progress {
                     message: status_msg,
                 } => {
-                    let _ = app.emit(
-                        "agent-status",
-                        AgentStatusPayload {
-                            conversation_id: conv_id.clone(),
-                            message: filter_complete_agent_event_text(&status_msg),
-                        },
+                    super::agent_status::emit_agent_status_message(
+                        &app,
+                        &conv_id,
+                        &run_id,
+                        &filter_complete_agent_event_text(&status_msg),
                     );
+                }
+                SDKMessage::Stage {
+                    stage,
+                    retry_attempt,
+                    retry_wait_ms,
+                } => {
+                    if let (Some(attempt), Some(wait_ms)) = (retry_attempt, retry_wait_ms) {
+                        super::agent_status::emit_agent_retry(
+                            &app, &conv_id, &run_id, attempt, wait_ms,
+                        );
+                    } else if !stage.is_empty() {
+                        let parsed = match stage.as_str() {
+                            "preparing_context" => {
+                                Some(super::agent_status::AgentWaitStage::PreparingContext)
+                            }
+                            "waiting_model" => {
+                                Some(super::agent_status::AgentWaitStage::WaitingModel)
+                            }
+                            "streaming" => Some(super::agent_status::AgentWaitStage::Streaming),
+                            "preparing_resources" => {
+                                Some(super::agent_status::AgentWaitStage::PreparingResources)
+                            }
+                            "preparing_skills" => {
+                                Some(super::agent_status::AgentWaitStage::PreparingSkills)
+                            }
+                            _ => None,
+                        };
+                        if let Some(stage) = parsed {
+                            super::agent_status::emit_agent_stage(&app, &conv_id, &run_id, stage);
+                        }
+                    }
                 }
                 SDKMessage::RateLimit {
                     retry_after_ms,
@@ -1635,6 +1709,7 @@ pub async fn agent_query(
                     flush_agent_stream_filters(
                         &app,
                         &conv_id,
+                        &run_id,
                         current_assistant_msg_id.as_deref(),
                         &mut text_ipc_filter,
                         &mut thinking_ipc_filter,
@@ -1643,6 +1718,7 @@ pub async fn agent_query(
                         "agent-error",
                         AgentErrorPayload {
                             conversation_id: conv_id.clone(),
+                            run_id: Some(run_id.clone()),
                             assistant_message_id: current_assistant_msg_id.clone(),
                             message: filter_complete_agent_event_text(&err_msg),
                         },
@@ -1691,6 +1767,7 @@ pub async fn agent_query(
                             "agent-stream-thinking",
                             AgentThinkingPayload {
                                 conversation_id: conv_id.clone(),
+                                run_id: Some(run_id.clone()),
                                 assistant_message_id,
                                 thinking,
                             },
@@ -1723,6 +1800,7 @@ pub async fn agent_query(
                             "agent-stream-text",
                             AgentTextPayload {
                                 conversation_id: conv_id.clone(),
+                                run_id: Some(run_id.clone()),
                                 assistant_message_id,
                                 text,
                             },
@@ -1773,6 +1851,7 @@ pub async fn agent_query(
                     flush_agent_stream_filters(
                         &app,
                         &conv_id,
+                        &run_id,
                         current_assistant_msg_id.as_deref(),
                         &mut text_ipc_filter,
                         &mut thinking_ipc_filter,
@@ -1781,6 +1860,7 @@ pub async fn agent_query(
                         "agent-error",
                         AgentErrorPayload {
                             conversation_id: conv_id.clone(),
+                            run_id: Some(run_id.clone()),
                             assistant_message_id: current_assistant_msg_id.clone(),
                             message: "Agent task crashed unexpectedly".to_string(),
                         },
@@ -1805,6 +1885,7 @@ pub async fn agent_query(
                 "agent-error",
                 AgentErrorPayload {
                     conversation_id: conv_id.clone(),
+                    run_id: Some(run_id.clone()),
                     assistant_message_id: current_assistant_msg_id.clone(),
                     message: format!("Failed to stage generated image: {error}"),
                 },
@@ -1819,6 +1900,7 @@ pub async fn agent_query(
             flush_agent_stream_filters(
                 &app,
                 &conv_id,
+                &run_id,
                 current_assistant_msg_id.as_deref(),
                 &mut text_ipc_filter,
                 &mut thinking_ipc_filter,
@@ -1827,6 +1909,7 @@ pub async fn agent_query(
                 "agent-error",
                 AgentErrorPayload {
                     conversation_id: conv_id.clone(),
+                    run_id: Some(run_id.clone()),
                     assistant_message_id: current_assistant_msg_id.clone(),
                     message: "Agent ended unexpectedly without producing a result".to_string(),
                 },
@@ -1838,6 +1921,7 @@ pub async fn agent_query(
         flush_agent_stream_filters(
             &app,
             &conv_id,
+            &run_id,
             current_assistant_msg_id.as_deref(),
             &mut text_ipc_filter,
             &mut thinking_ipc_filter,
@@ -2012,6 +2096,7 @@ pub async fn agent_query(
                 "agent-error",
                 AgentErrorPayload {
                     conversation_id: conv_id.clone(),
+                    run_id: Some(run_id.clone()),
                     assistant_message_id: current_assistant_msg_id.clone(),
                     message: filter_complete_agent_event_text(&error),
                 },
@@ -2021,6 +2106,7 @@ pub async fn agent_query(
                 "agent-done",
                 AgentDonePayload {
                     conversation_id: conv_id.clone(),
+                    run_id: Some(run_id.clone()),
                     assistant_message_id: current_assistant_msg_id.clone().unwrap_or_default(),
                     text: final_event_content,
                     usage: usage_payload,
@@ -2190,13 +2276,13 @@ pub async fn agent_cancel(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(token) = state
+    if let Some(entry) = state
         .agent_cancel_tokens
         .lock()
         .await
         .remove(&conversation_id)
     {
-        token.cancel();
+        entry.token.cancel();
     }
 
     // Remove from in-memory running set

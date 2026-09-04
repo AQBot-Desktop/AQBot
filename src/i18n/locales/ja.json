@@ -428,7 +428,17 @@
       "title": "スキル",
       "searchPlaceholder": "検索スキル",
       "empty": "スキルはまだありません。スキルページでいくつかをインストールします。",
-      "manage": "スキルの管理 →"
+      "manage": "スキルの管理 →",
+      "reason": {
+        "disabled": "無効です",
+        "skillToolDisabled": "この Agent では Skill ツールがオフです",
+        "overridden": "優先度の高いソースで上書きされています",
+        "parseFailed": "解析に失敗しました：{{message}}",
+        "parseFailedAt": "解析に失敗しました：{{message}}（{{line}} 行 {{column}} 列）",
+        "unreadable": "読み取れません：{{message}}",
+        "disableModelInvocation": "スキル要約には自動追加されません",
+        "unknown": "現在呼び出せません（{{code}}）"
+      }
     },
     "compressionSource": "圧縮ソース",
     "retryCompression": "圧縮を再試行します",
@@ -2219,7 +2229,35 @@
     "installedAt": "インストール済み",
     "filesLabel": "ファイル",
     "skillMdNotFound": "SKILL.md が見つかりません",
-    "skillMdFetchFailed": "SKILL.md の取得に失敗しました"
+    "skillMdFetchFailed": "SKILL.md の取得に失敗しました",
+    "checkAvailability": "利用可否を確認",
+    "recheck": "再確認",
+    "copyDiagnostics": "診断情報をコピー",
+    "copyDiagnosticsSuccess": "診断情報をコピーしました",
+    "availabilityTitle": "スキルの利用可否",
+    "availabilityCallable": "呼び出し可能",
+    "availabilityNotCallable": "この Agent では呼び出せません",
+    "availabilityScanErrors": "スキャンエラー",
+    "availabilitySkillToolOn": "Skill ツールは有効です",
+    "availabilitySkillToolOff": "Skill ツールは無効です",
+    "availabilityNoScanErrors": "スキャンエラーはありません",
+    "availabilityEmpty": "スキルが見つかりません",
+    "availabilityInspectFailed": "利用可否の確認に失敗しました：{{error}}",
+    "availabilityOverridden": "上書き済み",
+    "availabilityParseFailed": "解析に失敗",
+    "availabilityUnreadable": "読み取れません",
+    "availabilityManualOnly": "手動呼び出しのみ",
+    "reason": {
+      "disabled": "「マイスキル」で無効になっています",
+      "skillToolDisabled": "この Agent では Skill ツールが有効ではありません",
+      "overridden": "優先度の高いソースで上書きされています（{{path}}）",
+      "parseFailed": "解析に失敗しました：{{message}}",
+      "parseFailedAt": "解析に失敗しました：{{message}}（{{line}} 行 {{column}} 列）",
+      "unreadable": "読み取れません：{{message}}",
+      "disableModelInvocation": "disable-model-invocation が設定されているため、モデルのスキル要約には含まれません",
+      "callable": "この Agent に注入できます",
+      "unknown": "利用できません（{{code}}）"
+    }
   },
   "agent": {
     "askUserPlaceholder": "回答を入力...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "エージェントは完全なアクセス権を持ち、パスの制限なしであらゆるファイル操作を実行できます。現在のモデルとシステム プロンプトを信頼していることを確認してください。",
     "permissionFullAccessChatWarning": "エージェントはフルアクセス権を持ち、操作ごとの確認なしでターミナルコマンドの実行、選択した MCP ツールの呼び出し、パス制限のないファイル操作を行えます。現在のモデルとシステムプロンプトを信頼できることを確認してください。",
     "permissionAcceptEditsWarning": "エージェントは、個別の確認なしにファイル編集と選択済み MCP ツールの呼び出しを自動的に承認します。ターミナルコマンドには引き続き承認が必要です。潜在的なセキュリティリスクを必ず理解してください。",
-    "cwdIsProcessStart": "プロセスの開始作業ディレクトリであり、ファイルシステムのサンドボックスではありません"
+    "cwdIsProcessStart": "プロセスの開始作業ディレクトリであり、ファイルシステムのサンドボックスではありません",
+    "stage": {
+      "preparingResources": "リソースを準備しています",
+      "preparingSkills": "スキルを準備しています",
+      "preparingContext": "コンテキストを準備しています",
+      "waitingModel": "モデルを待っています",
+      "streaming": "応答を受信しています",
+      "retryWait": "モデル要求を再試行中です（{{attempt}} 回目、{{waitSeconds}} 秒待機）"
+    }
   },
   "imageProtocol": {
     "title": "画像プロトコル",

@@ -16,6 +16,7 @@ use aqbot_core::types::{
 use aqbot_providers::{ProviderAdapter, ProviderRequestContext};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Bridge between AQBot providers and the open-agent-sdk LLMProvider interface.
 pub struct AQBotProviderBridge {
@@ -26,6 +27,8 @@ pub struct AQBotProviderBridge {
     model_max_output_tokens: Option<u32>,
     app: Option<tauri::AppHandle>,
     conversation_id: Option<String>,
+    first_packet_timeout: Option<Duration>,
+    idle_timeout: Option<Duration>,
 }
 
 impl AQBotProviderBridge {
@@ -61,6 +64,8 @@ impl AQBotProviderBridge {
             model_max_output_tokens: None,
             app: None,
             conversation_id: None,
+            first_packet_timeout: Some(Duration::from_secs(180)),
+            idle_timeout: Some(Duration::from_secs(90)),
         })
     }
 
@@ -78,6 +83,16 @@ impl AQBotProviderBridge {
     pub fn with_app(mut self, app: tauri::AppHandle, conversation_id: String) -> Self {
         self.app = Some(app);
         self.conversation_id = Some(conversation_id);
+        self
+    }
+
+    pub fn with_stream_timeouts(
+        mut self,
+        first_packet: Option<Duration>,
+        idle: Option<Duration>,
+    ) -> Self {
+        self.first_packet_timeout = first_packet;
+        self.idle_timeout = idle;
         self
     }
 }
@@ -104,16 +119,48 @@ impl LLMProvider for AQBotProviderBridge {
         let mut accumulated_thinking = String::new();
         let mut final_tool_calls: Option<Vec<ToolCall>> = None;
         let mut final_usage: Option<TokenUsage> = None;
+        let mut emitted_delta = false;
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(chunk) => {
+        if let Some(ref tx) = stream_tx {
+            let _ = tx.try_send(SDKMessage::Stage {
+                stage: "waiting_model".to_string(),
+                retry_attempt: None,
+                retry_wait_ms: None,
+            });
+        }
+
+        loop {
+            let timeout = if emitted_delta {
+                self.idle_timeout
+            } else {
+                self.first_packet_timeout
+            };
+            let next = match timeout {
+                Some(limit) => match tokio::time::timeout(limit, stream.next()).await {
+                    Ok(item) => item,
+                    Err(_) => {
+                        let phase = if emitted_delta {
+                            "idle"
+                        } else {
+                            "first_packet"
+                        };
+                        return Err(ApiError::StreamTimeout {
+                            phase: phase.to_string(),
+                            timeout_secs: limit.as_secs(),
+                        });
+                    }
+                },
+                None => stream.next().await,
+            };
+
+            match next {
+                Some(Ok(chunk)) => {
+                    let mut chunk_has_delta = false;
                     if let Some(ref text) = chunk.content {
                         if !text.is_empty() {
+                            chunk_has_delta = true;
                             accumulated_text.push_str(text);
 
-                            // Emit streaming text delta via SDK channel
-                            // (agent.rs will forward to frontend as agent-stream-text)
                             if let Some(ref tx) = stream_tx {
                                 let _ = tx.try_send(SDKMessage::TextDelta { text: text.clone() });
                             }
@@ -122,10 +169,9 @@ impl LLMProvider for AQBotProviderBridge {
 
                     if let Some(ref thinking) = chunk.thinking {
                         if !thinking.is_empty() {
+                            chunk_has_delta = true;
                             accumulated_thinking.push_str(thinking);
 
-                            // Emit streaming thinking delta via SDK channel
-                            // (agent.rs will forward to frontend as agent-stream-thinking)
                             if let Some(ref tx) = stream_tx {
                                 let _ = tx.try_send(SDKMessage::ThinkingDelta {
                                     thinking: thinking.clone(),
@@ -134,7 +180,8 @@ impl LLMProvider for AQBotProviderBridge {
                         }
                     }
 
-                    if chunk.tool_calls.is_some() {
+                    if chunk.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) {
+                        chunk_has_delta = true;
                         final_tool_calls.clone_from(&chunk.tool_calls);
                     }
 
@@ -142,13 +189,28 @@ impl LLMProvider for AQBotProviderBridge {
                         final_usage.clone_from(&chunk.usage);
                     }
 
+                    if chunk_has_delta && !emitted_delta {
+                        emitted_delta = true;
+                        if let Some(ref tx) = stream_tx {
+                            let _ = tx.try_send(SDKMessage::Stage {
+                                stage: "streaming".to_string(),
+                                retry_attempt: None,
+                                retry_wait_ms: None,
+                            });
+                        }
+                    }
+
                     if chunk.done {
                         break;
                     }
                 }
-                Err(e) => {
-                    return Err(classify_provider_error(e));
+                Some(Err(error)) => {
+                    if emitted_delta {
+                        return Err(ApiError::StreamInterrupted(error.to_string()));
+                    }
+                    return Err(classify_provider_error(error));
                 }
+                None => break,
             }
         }
 
@@ -658,5 +720,166 @@ mod tests {
             Some("hidden reasoning")
         );
         assert!(converted[0].tool_calls.is_some());
+    }
+
+    struct PendingAdapter;
+
+    #[async_trait::async_trait]
+    impl aqbot_providers::ProviderAdapter for PendingAdapter {
+        async fn chat(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::ChatRequest,
+        ) -> aqbot_core::error::Result<aqbot_core::types::ChatResponse> {
+            Err(aqbot_core::error::AQBotError::Provider("unused".into()))
+        }
+
+        fn chat_stream(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::ChatRequest,
+        ) -> std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>>
+                    + Send,
+            >,
+        > {
+            Box::pin(futures::stream::pending())
+        }
+
+        async fn list_models(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+        ) -> aqbot_core::error::Result<Vec<aqbot_core::types::Model>> {
+            Ok(Vec::new())
+        }
+
+        async fn embed(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::EmbedRequest,
+        ) -> aqbot_core::error::Result<aqbot_core::types::EmbedResponse> {
+            Err(aqbot_core::error::AQBotError::Provider("unused".into()))
+        }
+    }
+
+    struct PartialThenErrorAdapter;
+
+    #[async_trait::async_trait]
+    impl aqbot_providers::ProviderAdapter for PartialThenErrorAdapter {
+        async fn chat(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::ChatRequest,
+        ) -> aqbot_core::error::Result<aqbot_core::types::ChatResponse> {
+            Err(aqbot_core::error::AQBotError::Provider("unused".into()))
+        }
+
+        fn chat_stream(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::ChatRequest,
+        ) -> std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>>
+                    + Send,
+            >,
+        > {
+            Box::pin(futures::stream::iter([
+                Ok(aqbot_core::types::ChatStreamChunk {
+                    content: Some("partial".to_string()),
+                    thinking: None,
+                    done: false,
+                    is_final: None,
+                    usage: None,
+                    tool_calls: None,
+                }),
+                Err(aqbot_core::error::AQBotError::Provider("boom".into())),
+            ]))
+        }
+
+        async fn list_models(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+        ) -> aqbot_core::error::Result<Vec<aqbot_core::types::Model>> {
+            Ok(Vec::new())
+        }
+
+        async fn embed(
+            &self,
+            _ctx: &aqbot_providers::ProviderRequestContext,
+            _request: aqbot_core::types::EmbedRequest,
+        ) -> aqbot_core::error::Result<aqbot_core::types::EmbedResponse> {
+            Err(aqbot_core::error::AQBotError::Provider("unused".into()))
+        }
+    }
+
+    fn dummy_ctx() -> aqbot_providers::ProviderRequestContext {
+        aqbot_providers::ProviderRequestContext {
+            api_key: String::new(),
+            key_id: String::new(),
+            provider_id: "p".to_string(),
+            base_url: None,
+            api_path: None,
+            aws_region: None,
+            proxy_config: None,
+            custom_headers: None,
+        }
+    }
+
+    fn user_request(messages: &[Message]) -> ProviderRequest<'_> {
+        ProviderRequest {
+            model: "test-model",
+            max_tokens: 16,
+            messages,
+            system: None,
+            tools: None,
+            thinking: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn first_packet_timeout_is_not_retryable() {
+        let bridge = AQBotProviderBridge::new(std::sync::Arc::new(PendingAdapter), dummy_ctx(), "openai")
+            .unwrap()
+            .with_stream_timeouts(Some(Duration::from_millis(50)), Some(Duration::from_secs(1)));
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let error = bridge
+            .create_message(user_request(&messages), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ApiError::StreamTimeout { ref phase, .. } if phase == "first_packet"
+        ));
+        assert!(!open_agent_sdk::utils::retry::is_retryable(&error));
+    }
+
+    #[tokio::test]
+    async fn provider_error_after_delta_is_stream_interrupted() {
+        let bridge = AQBotProviderBridge::new(
+            std::sync::Arc::new(PartialThenErrorAdapter),
+            dummy_ctx(),
+            "openai",
+        )
+        .unwrap()
+        .with_stream_timeouts(None, None);
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let error = bridge
+            .create_message(user_request(&messages), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::StreamInterrupted(_)));
+        assert!(!open_agent_sdk::utils::retry::is_retryable(&error));
     }
 }

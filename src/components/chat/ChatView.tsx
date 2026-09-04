@@ -90,6 +90,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useChatChrome } from '@/lib/chatChrome';
 import { getContextErrorMessage } from '@/lib/contextErrorMessage';
+import { agentStatusText } from '@/lib/skillAvailability';
 import {
   buildLaneColumns,
   filterVersionsForLane,
@@ -731,6 +732,7 @@ export function ChatView() {
   const currentAgentStatus = useAgentStore(
     (s) => (activeConversationId ? s.agentStatus[activeConversationId] : undefined),
   );
+  const currentAgentStatusText = agentStatusText(t, currentAgentStatus);
 
   useAgentStore(
     (s) => (activeConversationId ? s.conversationRevisions[activeConversationId] ?? 0 : 0),
@@ -2704,7 +2706,7 @@ export function ChatView() {
       </div>
 
       {/* Agent status bar */}
-      {currentAgentStatus && (
+      {currentAgentStatusText && (
         <div
           style={{
             display: 'flex',
@@ -2715,7 +2717,7 @@ export function ChatView() {
             color: token.colorTextSecondary,
           }}
         >
-          <Spin size="small" /> {currentAgentStatus}
+          <Spin size="small" /> {currentAgentStatusText}
         </div>
       )}
 

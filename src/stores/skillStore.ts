@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@/lib/invoke';
 import { isResourceFresh } from '@/lib/resourceState';
 import type { EnsureLoadedOptions, ResourceInvalidationReason, ResourceMeta } from '@/lib/resourceState';
-import type { Skill, SkillDetail, MarketplaceSkill, SkillUpdateInfo } from '@/types';
+import type { Skill, SkillDetail, MarketplaceSkill, SkillUpdateInfo, SkillInspectReport } from '@/types';
 
 const SKILLS_RESOURCE_KEY = 'skills';
 let skillsRequest: { revision: number; promise: Promise<void> } | null = null;
@@ -29,6 +29,8 @@ interface SkillState {
   loading: boolean;
   marketplaceLoading: boolean;
   selectedSkill: SkillDetail | null;
+  inspectReport: SkillInspectReport | null;
+  inspectLoading: boolean;
   skillsMeta: ResourceMeta;
 
   ensureSkillsLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
@@ -43,6 +45,7 @@ interface SkillState {
   openSkillDir: (path: string) => Promise<void>;
   searchMarketplace: (query: string, source?: string) => Promise<void>;
   checkUpdates: () => Promise<SkillUpdateInfo[]>;
+  inspectSkills: () => Promise<SkillInspectReport>;
   clearSelectedSkill: () => void;
 }
 
@@ -52,6 +55,8 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   loading: false,
   marketplaceLoading: false,
   selectedSkill: null,
+  inspectReport: null,
+  inspectLoading: false,
   skillsMeta: { status: 'idle', key: null, loadedAt: null, revision: 0 },
 
   ensureSkillsLoaded: async (options = {}) => {
@@ -141,6 +146,9 @@ export const useSkillStore = create<SkillState>((set, get) => ({
         ),
         skillsMeta: mutateSkillsMeta(state.skillsMeta),
       }));
+      void get().inspectSkills().catch((error) => {
+        console.error('Failed to refresh skill availability after toggle:', error);
+      });
     } catch (e) {
       console.error('Failed to toggle skill:', e);
       set((state) => ({
@@ -208,6 +216,19 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     } catch (e) {
       console.error('Failed to check updates:', e);
       return [];
+    }
+  },
+
+  inspectSkills: async () => {
+    set({ inspectLoading: true });
+    try {
+      const inspectReport = await invoke<SkillInspectReport>('inspect_skills');
+      set({ inspectReport, inspectLoading: false });
+      return inspectReport;
+    } catch (error) {
+      set({ inspectLoading: false });
+      console.error('Failed to inspect skills:', error);
+      throw error;
     }
   },
 

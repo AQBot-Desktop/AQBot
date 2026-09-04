@@ -37,7 +37,8 @@ interface AgentStore {
   sessions: Record<string, AgentSession>;
 
   // Runtime state
-  agentStatus: Record<string, string>; // conversationId → status message
+  agentStatus: Record<string, AgentStatusEvent>;
+  activeRunIds: Record<string, string>;
   pendingPermissions: Record<string, PermissionRequestEvent>; // toolUseId → request
   pendingAskUser: Record<string, AskUserEvent>; // askId → request
   toolCalls: Record<string, ToolCallState>; // toolUseId or execId → state
@@ -63,8 +64,9 @@ interface AgentStore {
   handleAskUser: (event: AskUserEvent) => void;
   handleAskUserResolved: (askId: string) => void;
   respondAskUser: (askId: string, answer: string) => Promise<void>;
-  handleStatus: (conversationId: string, message: string) => void;
-  clearStatus: (conversationId: string) => void;
+  setActiveRun: (conversationId: string, runId: string) => void;
+  handleStatus: (event: AgentStatusEvent) => void;
+  clearStatus: (conversationId: string, runId?: string) => void;
   handleDone: (event: AgentDoneEvent) => void;
 
   // History
@@ -79,6 +81,7 @@ interface AgentStore {
 type AgentCacheFields = Pick<AgentStore,
   | 'sessions'
   | 'agentStatus'
+  | 'activeRunIds'
   | 'pendingPermissions'
   | 'pendingAskUser'
   | 'toolCalls'
@@ -168,6 +171,7 @@ function withAgentCacheLimits(
   const next: AgentCacheFields = {
     sessions: updates.sessions ?? state.sessions,
     agentStatus: updates.agentStatus ?? state.agentStatus,
+    activeRunIds: updates.activeRunIds ?? state.activeRunIds,
     pendingPermissions: updates.pendingPermissions ?? state.pendingPermissions,
     pendingAskUser: updates.pendingAskUser ?? state.pendingAskUser,
     toolCalls: updates.toolCalls ?? state.toolCalls,
@@ -207,6 +211,7 @@ function withAgentCacheLimits(
   if (evictedConversationIds.size > 0) {
     next.sessions = filterRecord(next.sessions, (id) => !evictedConversationIds.has(id));
     next.agentStatus = filterRecord(next.agentStatus, (id) => !evictedConversationIds.has(id));
+    next.activeRunIds = filterRecord(next.activeRunIds, (id) => !evictedConversationIds.has(id));
     next.toolHistoryLoaded = filterRecord(
       next.toolHistoryLoaded,
       (id) => !evictedConversationIds.has(id),
@@ -246,6 +251,7 @@ function withAgentCacheLimits(
 export const useAgentStore = create<AgentStore>((set, get) => ({
   sessions: {},
   agentStatus: {},
+  activeRunIds: {},
   pendingPermissions: {},
   pendingAskUser: {},
   toolCalls: {},
@@ -474,22 +480,34 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  handleStatus: (conversationId, message) => {
-    if (!message) {
-      // Empty message from backend → clear status bar
-      set((s) => {
-        const { [conversationId]: _removed, ...rest } = s.agentStatus;
-        return withAgentCacheLimits(s, conversationId, { agentStatus: rest });
-      });
-      return;
-    }
+  setActiveRun: (conversationId, runId) => {
     set((s) => withAgentCacheLimits(s, conversationId, {
-      agentStatus: { ...s.agentStatus, [conversationId]: message },
+      activeRunIds: { ...s.activeRunIds, [conversationId]: runId },
     }));
   },
 
-  clearStatus: (conversationId) => {
+  handleStatus: (event) => {
+    const conversationId = event.conversationId;
     set((s) => {
+      if (event.runId && s.activeRunIds[conversationId] && s.activeRunIds[conversationId] !== event.runId) {
+        return s;
+      }
+      const clears = !event.stage && !event.retryAttempt && !event.message;
+      if (clears) {
+        const { [conversationId]: _removed, ...rest } = s.agentStatus;
+        return withAgentCacheLimits(s, conversationId, { agentStatus: rest });
+      }
+      return withAgentCacheLimits(s, conversationId, {
+        agentStatus: { ...s.agentStatus, [conversationId]: event },
+      });
+    });
+  },
+
+  clearStatus: (conversationId, runId) => {
+    set((s) => {
+      if (runId && s.activeRunIds[conversationId] && s.activeRunIds[conversationId] !== runId) {
+        return s;
+      }
       const { [conversationId]: _removed, ...rest } = s.agentStatus;
       return withAgentCacheLimits(s, conversationId, { agentStatus: rest });
     });
@@ -605,6 +623,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set((s) => {
       const { [conversationId]: _session, ...sessions } = s.sessions;
       const { [conversationId]: _status, ...agentStatus } = s.agentStatus;
+      const { [conversationId]: _run, ...activeRunIds } = s.activeRunIds;
       const { [conversationId]: _history, ...toolHistoryLoaded } = s.toolHistoryLoaded;
 
       const pendingPermissions: Record<string, PermissionRequestEvent> = {};
@@ -638,6 +657,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       return {
         sessions,
         agentStatus,
+        activeRunIds,
         pendingPermissions,
         pendingAskUser,
         toolCalls,
@@ -677,6 +697,7 @@ export function invalidateAgentResources(clearVisibleConversation = false): void
   useAgentStore.setState({
     sessions: {},
     agentStatus: {},
+    activeRunIds: {},
     pendingPermissions: {},
     pendingAskUser: {},
     toolCalls: {},
@@ -735,13 +756,13 @@ export function setupAgentEventListeners(): () => void {
 
   unlisteners.push(
     listen<AgentStatusEvent>('agent-status', (event) => {
-      store.handleStatus(event.payload.conversationId, event.payload.message);
+      store.handleStatus(event.payload);
     }),
   );
 
   unlisteners.push(
     listen<AgentDoneEvent>('agent-done', (event) => {
-      store.clearStatus(event.payload.conversationId);
+      store.clearStatus(event.payload.conversationId, event.payload.runId);
       store.handleDone(event.payload);
     }),
   );
@@ -754,7 +775,7 @@ export function setupAgentEventListeners(): () => void {
 
   unlisteners.push(
     listen<AgentErrorEvent>('agent-error', (event) => {
-      store.clearStatus(event.payload.conversationId);
+      store.clearStatus(event.payload.conversationId, event.payload.runId);
     }),
   );
 

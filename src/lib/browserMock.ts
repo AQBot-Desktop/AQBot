@@ -2704,6 +2704,27 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     }
 
     // ── Skills ────────────────────────────────────────────────────────
+    case 'inspect_skills':
+      return {
+        items: [
+          {
+            name: 'codex-demo',
+            description: 'Example Codex skill',
+            source: 'codex',
+            sourcePath: '/Users/demo/.codex/skills/codex-demo/SKILL.md',
+            enabled: true,
+            disableModelInvocation: false,
+            userInvocable: true,
+            effective: true,
+            effectiveSourcePath: '/Users/demo/.codex/skills/codex-demo/SKILL.md',
+            callable: true,
+            reasons: [{ code: 'callable', params: {} }],
+          },
+        ],
+        scanErrors: [],
+        skillToolAllowed: true,
+      } as T;
+
     case 'list_skills':
       return [
         {

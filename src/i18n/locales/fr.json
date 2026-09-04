@@ -428,7 +428,17 @@
       "title": "Compétences",
       "searchPlaceholder": "Compétences de recherche",
       "empty": "Aucune compétence pour l'instant. Installez-en sur la page Compétences.",
-      "manage": "Gérer les compétences →"
+      "manage": "Gérer les compétences →",
+      "reason": {
+        "disabled": "Désactivée",
+        "skillToolDisabled": "L’outil Skill est désactivé pour cet Agent",
+        "overridden": "Remplacée par une source plus prioritaire",
+        "parseFailed": "Échec de l’analyse : {{message}}",
+        "parseFailedAt": "Échec de l’analyse : {{message}} (ligne {{line}}, colonne {{column}})",
+        "unreadable": "Illisible : {{message}}",
+        "disableModelInvocation": "Non ajoutée automatiquement au résumé des compétences",
+        "unknown": "Non invocable ({{code}})"
+      }
     },
     "compressionSource": "Source de compression",
     "retryCompression": "Réessayer la compression",
@@ -2219,7 +2229,35 @@
     "installedAt": "Installé",
     "filesLabel": "Fichiers",
     "skillMdNotFound": "SKILL.md introuvable",
-    "skillMdFetchFailed": "Échec du chargement de SKILL.md"
+    "skillMdFetchFailed": "Échec du chargement de SKILL.md",
+    "checkAvailability": "Vérifier la disponibilité",
+    "recheck": "Revérifier",
+    "copyDiagnostics": "Copier le diagnostic",
+    "copyDiagnosticsSuccess": "Diagnostic copié",
+    "availabilityTitle": "Disponibilité des compétences",
+    "availabilityCallable": "Invocable",
+    "availabilityNotCallable": "Non invocable pour cet Agent",
+    "availabilityScanErrors": "Erreurs d’analyse",
+    "availabilitySkillToolOn": "Outil Skill activé",
+    "availabilitySkillToolOff": "Outil Skill désactivé",
+    "availabilityNoScanErrors": "Aucune erreur d’analyse",
+    "availabilityEmpty": "Aucune compétence trouvée",
+    "availabilityInspectFailed": "Échec de la vérification de disponibilité : {{error}}",
+    "availabilityOverridden": "Remplacée",
+    "availabilityParseFailed": "Échec de l’analyse",
+    "availabilityUnreadable": "Illisible",
+    "availabilityManualOnly": "Invocation manuelle uniquement",
+    "reason": {
+      "disabled": "Désactivée dans Mes compétences",
+      "skillToolDisabled": "L’outil Skill n’est pas activé pour cet Agent",
+      "overridden": "Remplacée par une source plus prioritaire ({{path}})",
+      "parseFailed": "Échec de l’analyse : {{message}}",
+      "parseFailedAt": "Échec de l’analyse : {{message}} (ligne {{line}}, colonne {{column}})",
+      "unreadable": "Illisible : {{message}}",
+      "disableModelInvocation": "disable-model-invocation est défini, donc elle n’entre pas dans le résumé des compétences du modèle",
+      "callable": "Injectable pour cet Agent",
+      "unknown": "Indisponible ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "Saisissez votre réponse...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "L'agent aura un accès complet et pourra effectuer n'importe quelle opération sur les fichiers sans restrictions de chemin. Assurez-vous de faire confiance au modèle actuel et à l'invite système.",
     "permissionFullAccessChatWarning": "L’agent disposera d’un accès complet et pourra exécuter des commandes de terminal, appeler les outils MCP sélectionnés et effectuer des opérations sur les fichiers sans restriction de chemin ni confirmation pour chaque action. Assurez-vous de faire confiance au modèle actuel et à l’invite système.",
     "permissionAcceptEditsWarning": "L’agent approuvera automatiquement les modifications de fichiers et les appels aux outils MCP sélectionnés sans confirmation individuelle. Les commandes du terminal nécessiteront toujours une approbation. Assurez-vous de comprendre les risques de sécurité potentiels.",
-    "cwdIsProcessStart": "Répertoire de travail de départ du processus, pas un bac à sable du système de fichiers"
+    "cwdIsProcessStart": "Répertoire de travail de départ du processus, pas un bac à sable du système de fichiers",
+    "stage": {
+      "preparingResources": "Préparation des ressources",
+      "preparingSkills": "Préparation des compétences",
+      "preparingContext": "Préparation du contexte",
+      "waitingModel": "En attente du modèle",
+      "streaming": "Réception de la réponse",
+      "retryWait": "Nouvel essai de la requête modèle (tentative {{attempt}}, attente de {{waitSeconds}} s)"
+    }
   },
   "imageProtocol": {
     "title": "Protocole d’image",

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Checkbox, Empty, Input, Popover, Tooltip, theme } from 'antd';
+import { Badge, Button, Checkbox, Empty, Input, Popover, Tooltip, message, theme } from 'antd';
 import { Search, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
+import { countCallableSkills, inspectItemForSkill, primarySkillReason, skillReasonText } from '@/lib/skillAvailability';
 
 export function SkillPickerPopover() {
   const { t } = useTranslation();
@@ -12,20 +13,27 @@ export function SkillPickerPopover() {
   const [query, setQuery] = useState('');
 
   const skills = useSkillStore((s) => s.skills);
-  const skillsMeta = useSkillStore((s) => s.skillsMeta);
+  const inspectReport = useSkillStore((s) => s.inspectReport);
   const ensureSkillsLoaded = useSkillStore((s) => s.ensureSkillsLoaded);
+  const inspectSkills = useSkillStore((s) => s.inspectSkills);
   const toggleSkill = useSkillStore((s) => s.toggleSkill);
   const setActivePage = useUIStore((s) => s.setActivePage);
 
-  // Load on mount so the badge count is ready the first time Agent mode is shown,
-  // not only after the user opens the popover.
   useEffect(() => {
     void ensureSkillsLoaded();
-  }, [ensureSkillsLoaded]);
+    void inspectSkills().catch((error) => {
+      message.error(String(error));
+    });
+  }, [ensureSkillsLoaded, inspectSkills]);
 
   useEffect(() => {
-    if (open) void ensureSkillsLoaded();
-  }, [ensureSkillsLoaded, open]);
+    if (open) {
+      void ensureSkillsLoaded();
+      void inspectSkills().catch((error) => {
+        message.error(String(error));
+      });
+    }
+  }, [ensureSkillsLoaded, inspectSkills, open]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -37,12 +45,7 @@ export function SkillPickerPopover() {
     );
   }, [query, skills]);
 
-  const enabledCount = useMemo(
-    () => skills.filter((skill) => skill.enabled).length,
-    [skills],
-  );
-  // Avoid flashing a zero badge while the first load is still in flight.
-  const badgeCount = skillsMeta.status === 'ready' || skills.length > 0 ? enabledCount : 0;
+  const badgeCount = useMemo(() => countCallableSkills(inspectReport), [inspectReport]);
 
   const content = (
     <div style={{ width: 260 }}>
@@ -93,6 +96,25 @@ export function SkillPickerPopover() {
                   {skill.description}
                 </div>
               ) : null}
+              {(() => {
+                const inspectItem = inspectItemForSkill(inspectReport, skill.sourcePath, skill.name);
+                if (!inspectItem || inspectItem.callable) return null;
+                const reason = primarySkillReason(inspectItem);
+                if (!reason) return null;
+                return (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: token.colorWarning,
+                      marginLeft: 24,
+                      marginTop: 2,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {skillReasonText(t, reason, true)}
+                  </div>
+                );
+              })()}
             </div>
           ))
         )}

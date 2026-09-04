@@ -1218,6 +1218,40 @@ export interface SkillUpdateInfo {
   sourceRef: string;
 }
 
+export interface SkillAvailabilityReason {
+  code: string;
+  params: Record<string, string>;
+}
+
+export interface SkillInspectItem {
+  name: string;
+  description: string;
+  source: string;
+  sourcePath: string;
+  enabled: boolean;
+  disableModelInvocation: boolean;
+  userInvocable: boolean;
+  group?: string;
+  effective: boolean;
+  effectiveSourcePath?: string | null;
+  callable: boolean;
+  reasons: SkillAvailabilityReason[];
+}
+
+export interface SkillInspectScanError {
+  path: string;
+  code: string;
+  message: string;
+  line?: number | null;
+  column?: number | null;
+}
+
+export interface SkillInspectReport {
+  items: SkillInspectItem[];
+  scanErrors: SkillInspectScanError[];
+  skillToolAllowed: boolean;
+}
+
 export interface RoleOpeningQuestion {
   title: string | null;
   content: string;

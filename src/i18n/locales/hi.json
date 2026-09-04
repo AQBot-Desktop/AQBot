@@ -428,7 +428,17 @@
       "title": "कौशल",
       "searchPlaceholder": "खोज कौशल",
       "empty": "अभी तक कोई कौशल नहीं। कौशल पृष्ठ पर कुछ स्थापित करें।",
-      "manage": "कौशल प्रबंधित करें →"
+      "manage": "कौशल प्रबंधित करें →",
+      "reason": {
+        "disabled": "बंद है",
+        "skillToolDisabled": "इस Agent के लिए Skill टूल बंद है",
+        "overridden": "उच्च प्राथमिकता वाले स्रोत ने अधिलेखित किया",
+        "parseFailed": "पार्स विफल: {{message}}",
+        "parseFailedAt": "पार्स विफल: {{message}} (पंक्ति {{line}}, स्तंभ {{column}})",
+        "unreadable": "पढ़ा नहीं जा सकता: {{message}}",
+        "disableModelInvocation": "कौशल सारांश में अपने आप नहीं जोड़ा जाएगा",
+        "unknown": "अभी कॉल नहीं हो सकता ({{code}})"
+      }
     },
     "compressionSource": "संपीड़न स्रोत",
     "retryCompression": "संपीड़न का पुनः प्रयास करें",
@@ -2219,7 +2229,35 @@
     "installedAt": "स्थापित",
     "filesLabel": "फ़ाइलें",
     "skillMdNotFound": "SKILL.md नहीं मिला",
-    "skillMdFetchFailed": "SKILL.md प्राप्त करने में विफल"
+    "skillMdFetchFailed": "SKILL.md प्राप्त करने में विफल",
+    "checkAvailability": "उपलब्धता जाँचें",
+    "recheck": "फिर जाँचें",
+    "copyDiagnostics": "निदान कॉपी करें",
+    "copyDiagnosticsSuccess": "निदान कॉपी हो गया",
+    "availabilityTitle": "कौशल उपलब्धता",
+    "availabilityCallable": "कॉल किया जा सकता है",
+    "availabilityNotCallable": "इस Agent के लिए कॉल नहीं हो सकता",
+    "availabilityScanErrors": "स्कैन त्रुटियाँ",
+    "availabilitySkillToolOn": "Skill टूल चालू है",
+    "availabilitySkillToolOff": "Skill टूल बंद है",
+    "availabilityNoScanErrors": "कोई स्कैन त्रुटि नहीं",
+    "availabilityEmpty": "कोई कौशल नहीं मिला",
+    "availabilityInspectFailed": "उपलब्धता जाँच विफल: {{error}}",
+    "availabilityOverridden": "अधिलेखित",
+    "availabilityParseFailed": "पार्स विफल",
+    "availabilityUnreadable": "पढ़ा नहीं जा सकता",
+    "availabilityManualOnly": "केवल मैन्युअल कॉल",
+    "reason": {
+      "disabled": "मेरे कौशलों में बंद है",
+      "skillToolDisabled": "इस Agent के लिए Skill टूल चालू नहीं है",
+      "overridden": "उच्च प्राथमिकता वाले स्रोत ने अधिलेखित किया ({{path}})",
+      "parseFailed": "पार्स विफल: {{message}}",
+      "parseFailedAt": "पार्स विफल: {{message}} (पंक्ति {{line}}, स्तंभ {{column}})",
+      "unreadable": "पढ़ा नहीं जा सकता: {{message}}",
+      "disableModelInvocation": "disable-model-invocation सेट है, इसलिए यह मॉडल कौशल सारांश में नहीं जाएगा",
+      "callable": "इस Agent में इंजेक्ट किया जा सकता है",
+      "unknown": "उपलब्ध नहीं ({{code}})"
+    }
   },
   "agent": {
     "askUserPlaceholder": "अपना उत्तर टाइप करें...",
@@ -2237,7 +2275,15 @@
     "permissionFullAccessWarning": "एजेंट के पास पूर्ण पहुंच होगी और वह पथ प्रतिबंध के बिना कोई भी फ़ाइल संचालन कर सकता है। सुनिश्चित करें कि आप वर्तमान मॉडल और सिस्टम प्रॉम्प्ट पर भरोसा करते हैं।",
     "permissionFullAccessChatWarning": "एजेंट के पास पूर्ण एक्सेस होगा और वह हर कार्रवाई की पुष्टि के बिना टर्मिनल कमांड चला सकता है, चुने गए MCP टूल कॉल कर सकता है और पथ प्रतिबंध के बिना फ़ाइल संचालन कर सकता है। सुनिश्चित करें कि आप वर्तमान मॉडल और सिस्टम प्रॉम्प्ट पर भरोसा करते हैं।",
     "permissionAcceptEditsWarning": "एजेंट व्यक्तिगत पुष्टि के बिना फ़ाइल संपादनों और चुने गए MCP टूल कॉल को स्वचालित रूप से मंज़ूरी देगा। टर्मिनल कमांड के लिए अब भी मंज़ूरी आवश्यक होगी। सुनिश्चित करें कि आप संभावित सुरक्षा जोखिमों को समझते हैं।",
-    "cwdIsProcessStart": "प्रक्रिया की आरंभिक कार्य निर्देशिका, फ़ाइल सिस्टम सैंडबॉक्स नहीं"
+    "cwdIsProcessStart": "प्रक्रिया की आरंभिक कार्य निर्देशिका, फ़ाइल सिस्टम सैंडबॉक्स नहीं",
+    "stage": {
+      "preparingResources": "संसाधन तैयार हो रहे हैं",
+      "preparingSkills": "कौशल तैयार हो रहे हैं",
+      "preparingContext": "संदर्भ तैयार हो रहा है",
+      "waitingModel": "मॉडल की प्रतीक्षा हो रही है",
+      "streaming": "उत्तर प्राप्त हो रहा है",
+      "retryWait": "मॉडल अनुरोध पुनः प्रयास (प्रयास {{attempt}}, {{waitSeconds}} सेकंड प्रतीक्षा)"
+    }
   },
   "imageProtocol": {
     "title": "इमेज प्रोटोकॉल",

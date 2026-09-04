@@ -251,6 +251,9 @@ describe('light module resource loading', () => {
       if (command === 'toggle_skill') {
         return new Promise<void>((resolve) => { resolveToggle = resolve; });
       }
+      if (command === 'inspect_skills') {
+        return Promise.resolve({ items: [], scanErrors: [], skillToolAllowed: true });
+      }
       throw new Error(`Unexpected command: ${command}`);
     });
     const { useSkillStore } = await import('../skillStore');

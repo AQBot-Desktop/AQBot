@@ -3,6 +3,8 @@ pub mod agent;
 #[cfg(test)]
 mod agent_allowed_tools;
 pub(crate) mod agent_mcp;
+pub(crate) mod agent_skills;
+pub(crate) mod agent_status;
 pub mod artifacts;
 pub mod backup;
 pub mod branches;
