@@ -223,6 +223,8 @@ vi.mock('@/stores', () => ({
     (selector: (state: {
       skills: [];
       skillsMeta: { status: string };
+      inspectReport: null;
+      inspectSkills: () => Promise<{ items: []; scanErrors: []; skillToolAllowed: boolean }>;
       ensureSkillsLoaded: () => Promise<void>;
       toggleSkill: () => Promise<void>;
     }) => unknown) =>

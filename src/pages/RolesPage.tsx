@@ -220,7 +220,9 @@ function contextSelectOptions<T extends { id: string; name: string }>(
   items: T[],
   selectedIds: string[],
 ): { value: string; label: string; item?: T }[] {
-  const byId = new Map(items.map((item) => [item.id, { value: item.id, label: item.name, item }]));
+  const byId = new Map<string, { value: string; label: string; item?: T }>(
+    items.map((item) => [item.id, { value: item.id, label: item.name, item }]),
+  );
   for (const id of selectedIds) {
     if (!byId.has(id)) {
       byId.set(id, { value: id, label: id });

@@ -178,7 +178,7 @@ vi.mock('react-i18next', () => ({
       let text = translations[key] ?? key;
       if (opts) {
         for (const [name, value] of Object.entries(opts)) {
-          text = text.replaceAll(`{{${name}}}`, String(value));
+          text = text.split(`{{${name}}}`).join(String(value));
         }
       }
       return text;
@@ -654,10 +654,10 @@ describe('RolesPage', () => {
 
     const selectFirstOption = async (label: string) => {
       fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
-      const option = await screen.findByText((_, node) => (
-        node?.classList.contains('ant-select-item-option-content')
-        && Boolean(node.textContent?.includes(label === '知识库' ? '产品文档' : '项目笔记'))
-      ));
+      const option = await screen.findByText((_, node) => {
+        if (!node?.classList.contains('ant-select-item-option-content')) return false;
+        return Boolean(node.textContent?.includes(label === '知识库' ? '产品文档' : '项目笔记'));
+      });
       fireEvent.click(option);
     };
 
