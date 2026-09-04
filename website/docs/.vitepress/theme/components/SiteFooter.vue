@@ -29,7 +29,7 @@ const licenseUrl = `${GITHUB_REPO}/blob/main/LICENSE`;
     <div class="hd-foot-inner">
       <a class="hd-foot-brand" :href="localeHref(locale, '/')">
         <img src="/logo.png" alt="AQBot" width="20" height="20" class="hd-foot-logo" />
-        <b>aqbot</b>
+        <b>{{ copy.brand }}</b>
       </a>
       <a class="hd-foot-link" :href="copy.docsLink">
         <i class="far fa-file-lines" aria-hidden="true" />
