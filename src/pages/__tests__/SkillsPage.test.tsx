@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   uninstallSkillGroup: vi.fn(),
   openSkillDir: vi.fn(),
   searchMarketplace: vi.fn(),
+  inspectSkills: vi.fn(async () => null),
   clearSelectedSkill: vi.fn(),
 }));
 
@@ -97,7 +98,7 @@ vi.mock('@/stores', () => ({
     selectedSkill: null,
     inspectReport: null,
     inspectLoading: false,
-    inspectSkills: vi.fn(),
+    inspectSkills: mocks.inspectSkills,
     ensureSkillsLoaded: mocks.ensureSkillsLoaded,
     loadSkills: mocks.loadSkills,
     getSkill: mocks.getSkill,

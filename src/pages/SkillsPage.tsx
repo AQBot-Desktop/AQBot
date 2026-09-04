@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '@/stores';
 import type { Skill, MarketplaceSkill } from '@/types';
 import { CopyButton } from '@/components/common/CopyButton';
-import { SkillAvailabilityPanel, skillInspectTagFor } from '@/components/skills/SkillAvailabilityPanel';
+import { skillInspectTagFor } from '@/components/skills/SkillStatusTag';
 
 
 const INSTALL_TARGETS = [
@@ -347,7 +347,10 @@ export function SkillsPage() {
 
   useEffect(() => {
     void ensureSkillsLoaded();
-  }, [ensureSkillsLoaded]);
+    void inspectSkills().catch((error) => {
+      console.error('Failed to inspect skills:', error);
+    });
+  }, [ensureSkillsLoaded, inspectSkills]);
 
   // Re-search when source changes (if marketplace was already searched)
   useEffect(() => {
@@ -580,14 +583,6 @@ export function SkillsPage() {
               {t('skills.openDir')}
             </Button>
           </div>
-        )}
-        {inspectReport && (
-          <SkillAvailabilityPanel
-            report={inspectReport}
-            loading={inspectLoading}
-            onRecheck={() => { void handleInspect(); }}
-            onOpenDir={(path) => { void handleOpenSkillDir(path); }}
-          />
         )}
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}>

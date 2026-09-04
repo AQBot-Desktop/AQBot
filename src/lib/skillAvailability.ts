@@ -80,36 +80,16 @@ export function inspectItemForSkill(
     ?? report.items.find((item) => item.name === name);
 }
 
-export function formatInspectDiagnostics(
+export function skillInspectTooltip(
   t: TFunction,
-  report: SkillInspectReport,
-): string {
-  const lines = [
-    t(report.skillToolAllowed ? 'skills.availabilitySkillToolOn' : 'skills.availabilitySkillToolOff'),
-    '',
-  ];
-  for (const item of report.items) {
-    const status = item.callable
-      ? t('skills.availabilityCallable')
-      : t('skills.availabilityNotCallable');
-    const reasons = item.reasons
-      .filter((reason) => reason.code !== 'callable')
-      .map((reason) => skillReasonText(t, reason))
-      .join('; ');
-    lines.push(`${item.name} [${item.source}] ${status}${reasons ? ` — ${reasons}` : ''}`);
-    lines.push(item.sourcePath);
-  }
-  if (report.scanErrors.length > 0) {
-    lines.push('', t('skills.availabilityScanErrors'));
-    for (const error of report.scanErrors) {
-      lines.push(`${error.path}: ${skillReasonText(t, { code: error.code, params: {
-        message: error.message,
-        ...(error.line != null ? { line: String(error.line) } : {}),
-        ...(error.column != null ? { column: String(error.column) } : {}),
-      } })}`);
-    }
-  }
-  return lines.join('\n');
+  item: SkillInspectItem | undefined,
+): string | undefined {
+  if (!item || item.callable) return undefined;
+  const texts = item.reasons
+    .filter((reason) => reason.code !== 'callable')
+    .map((reason) => skillReasonText(t, reason));
+  if (texts.length === 0) return undefined;
+  return texts.join('\n');
 }
 
 export function agentStatusText(t: TFunction, event: AgentStatusEvent | string | undefined): string {

@@ -3,6 +3,7 @@ import {
   agentStatusText,
   countCallableSkills,
   primarySkillReason,
+  skillInspectTooltip,
   skillReasonText,
 } from '../skillAvailability';
 import type { SkillInspectItem, SkillInspectReport } from '@/types';
@@ -64,6 +65,17 @@ describe('skillAvailability', () => {
       ],
     }));
     expect(reason?.code).toBe('disabled');
+  });
+
+  it('builds hover details only for abnormal inspect tags', () => {
+    expect(skillInspectTooltip(t as never, item({ callable: true }))).toBeUndefined();
+    expect(skillInspectTooltip(t as never, item({
+      callable: false,
+      reasons: [
+        { code: 'overridden', params: { path: '/win' } },
+        { code: 'parse_failed', params: { message: 'bad yaml' } },
+      ],
+    }))).toContain('/win');
   });
 
   it('translates wait stages instead of raw codes', () => {
