@@ -9,6 +9,8 @@ import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc'
 import type { ConversationItemType } from '@ant-design/x/es/conversations/interface'
 import { useTranslation } from 'react-i18next'
 import { useConversationStore, useProviderStore, useSettingsStore, useCategoryStore } from '@/stores'
+import { selectLiveStreamingConversationKey } from '@/stores/conversationStore'
+import { conversationIdsFromStreamingKey } from '@/stores/conversationRunRegistry'
 import { getShortcutBinding, formatShortcutForDisplay } from '@/lib/shortcuts'
 import type { ShortcutAction } from '@/lib/shortcuts'
 import type { Conversation, Message, ConversationCategory } from '@/types'
@@ -296,11 +298,9 @@ export function ChatSidebar() {
   const batchArchive = useConversationStore((s) => s.batchArchive)
   const batchMoveToCategory = useConversationStore((s) => s.batchMoveToCategory)
   const reorderConversations = useConversationStore((s) => s.reorderConversations)
-  const streamingConversationId = useConversationStore((s) => (
-    s.streaming
-      ? s.streamingConversationId
-      : (s.observedStream?.streaming ? s.observedStream.conversationId : s.streamingConversationId)
-  ))
+  const streamingConversationIds = conversationIdsFromStreamingKey(
+    useConversationStore(selectLiveStreamingConversationKey),
+  )
   const titleGeneratingConversationId = useConversationStore((s) => s.titleGeneratingConversationId)
   const regenerateTitle = useConversationStore((s) => s.regenerateTitle)
 
@@ -712,8 +712,8 @@ export function ChatSidebar() {
   }, [archivedSelectedIds, batchDelete, fetchArchivedConversations, modal, t])
 
   const buildIcon = useCallback((conv: Conversation) => {
-    return <ConversationIcon conv={conv} isStreaming={streamingConversationId === conv.id} />
-  }, [streamingConversationId])
+    return <ConversationIcon conv={conv} isStreaming={streamingConversationIds.includes(conv.id)} />
+  }, [streamingConversationIds])
 
   const directDeleteShortcutLabel = useMemo(() => getDirectDeleteShortcutLabel(), [])
   const directDeleteHint = t('chat.directDeleteHint', { shortcut: directDeleteShortcutLabel })

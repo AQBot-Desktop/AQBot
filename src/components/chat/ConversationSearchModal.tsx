@@ -3,6 +3,8 @@ import { Input, Spin, theme, Empty } from 'antd';
 import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore } from '@/stores';
+import { selectLiveStreamingConversationKey } from '@/stores/conversationStore';
+import { conversationIdsFromStreamingKey } from '@/stores/conversationRunRegistry';
 import type { ConversationSearchResult } from '@/types';
 import { highlightMatch } from '@/lib/highlightMatch';
 import { ConversationIcon } from './ConversationIcon';
@@ -19,7 +21,9 @@ export function ConversationSearchModal({ open, onClose }: ConversationSearchMod
   const { token } = theme.useToken();
   const searchConversations = useConversationStore((s) => s.searchConversations);
   const setActiveConversation = useConversationStore((s) => s.setActiveConversation);
-  const streamingConversationId = useConversationStore((s) => s.streamingConversationId);
+  const streamingConversationIds = conversationIdsFromStreamingKey(
+    useConversationStore(selectLiveStreamingConversationKey),
+  );
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ConversationSearchResult[]>([]);
@@ -317,7 +321,7 @@ export function ConversationSearchModal({ open, onClose }: ConversationSearchMod
                       <span style={{ marginTop: 1, flexShrink: 0, lineHeight: 0 }}>
                         <ConversationIcon
                           conv={result.conversation}
-                          isStreaming={streamingConversationId === result.conversation.id}
+                          isStreaming={streamingConversationIds.includes(result.conversation.id)}
                           size={20}
                         />
                       </span>

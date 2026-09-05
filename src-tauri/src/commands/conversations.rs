@@ -23,6 +23,7 @@ include!("conversations/stream_runtime.rs");
 include!("conversations/titles.rs");
 include!("conversations/search_query.rs");
 include!("conversations/rag.rs");
+include!("conversations/run_commands.rs");
 include!("conversations/message_streaming.rs");
 include!("conversations/multi_model_commands.rs");
 include!("conversations/message_versions.rs");

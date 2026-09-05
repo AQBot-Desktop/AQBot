@@ -13,7 +13,8 @@ import {
   type CloseTabsScope,
 } from '@/lib/conversationTabs';
 import { formatShortcutForDisplay, getShortcutBinding } from '@/lib/shortcuts';
-import { useConversationStore } from '@/stores/conversationStore';
+import { selectLiveStreamingConversationKey, useConversationStore } from '@/stores/conversationStore';
+import { conversationIdsFromStreamingKey } from '@/stores/conversationRunRegistry';
 import { useConversationTabsStore } from '@/stores/conversationTabsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { Conversation } from '@/types';
@@ -61,7 +62,9 @@ export function ConversationTabBar() {
   const activeConversationId = useConversationStore((state) => state.activeConversationId);
   const setActiveConversation = useConversationStore((state) => state.setActiveConversation);
   const setConversationTabPinned = useConversationStore((state) => state.setConversationTabPinned);
-  const streamingConversationId = useConversationStore((state) => state.streamingConversationId);
+  const streamingConversationIds = conversationIdsFromStreamingKey(
+    useConversationStore(selectLiveStreamingConversationKey),
+  );
   const openIds = useConversationTabsStore((state) => state.openIds);
   const dismissedIds = useConversationTabsStore((state) => state.dismissedIds);
   const settings = useSettingsStore((state) => state.settings);
@@ -225,7 +228,7 @@ export function ConversationTabBar() {
             {conversation && (
               <ConversationIcon
                 conv={conversation}
-                isStreaming={streamingConversationId === conversation.id}
+                isStreaming={streamingConversationIds.includes(conversation.id)}
                 size={14}
               />
             )}
@@ -236,7 +239,7 @@ export function ConversationTabBar() {
         ),
       };
     })
-  ), [streamingConversationId, t, tabsById]);
+  ), [streamingConversationIds, t, tabsById]);
 
   const buttonStyle: React.CSSProperties = {
     width: 22,
@@ -458,7 +461,7 @@ export function ConversationTabBar() {
               >
                 <ConversationIcon
                   conv={conversation}
-                  isStreaming={streamingConversationId === conversation.id}
+                  isStreaming={streamingConversationIds.includes(conversation.id)}
                   size={16}
                 />
                 <span

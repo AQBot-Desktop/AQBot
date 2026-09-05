@@ -39,8 +39,13 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 const conversationState = {
   streaming: false,
+  streamingConversationId: null as string | null,
   compressingConversationId: null as string | null,
   activeConversationId: 'conv-1' as string | null,
+  observedStream: null as null,
+  observedStreamsByConversation: {} as Record<string, unknown>,
+  runsByConversation: {} as Record<string, unknown>,
+  runWatermarksByConversation: {} as Record<string, unknown>,
   loading: false,
   error: null as string | null,
   submitChatMessage: sendMessage,
@@ -323,6 +328,7 @@ describe('InputArea', () => {
     conversationState.activeConversationId = 'conv-1';
     conversationState.loading = false;
     conversationState.streaming = false;
+    conversationState.streamingConversationId = null;
     conversationState.pendingPromptText = null;
     conversationState.multiModelTargets = [];
     conversationState.multiModelContinuationMode = 'selected';
@@ -506,7 +512,7 @@ describe('InputArea', () => {
 
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
-    expect(sendMessage).toHaveBeenCalledWith('search me', undefined, 'search-1');
+    expect(sendMessage).toHaveBeenCalledWith('search me', undefined, 'search-1', { conversationId: 'conv-1' });
     expect(textarea.value).toBe('search me');
 
     resolveSend({ kind: 'started', message: {} });
@@ -626,6 +632,7 @@ describe('InputArea', () => {
       'send immediately after create',
       undefined,
       'search-1',
+      expect.objectContaining({ conversationId: expect.any(String) }),
     ));
     await waitFor(() => expect(textarea).toHaveValue(''));
 
@@ -637,7 +644,7 @@ describe('InputArea', () => {
     expect(textarea).toHaveValue('');
   });
 
-  it('does not submit an attachment-backed draft into a conversation selected during conversion', async () => {
+  it('keeps submitting the original conversation after switching during attachment conversion', async () => {
     settingsState.settings.document_attachment_reading_enabled = true;
     let finishRead: (() => void) | undefined;
     const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL')
@@ -673,18 +680,12 @@ describe('InputArea', () => {
     await waitFor(() => expect(textarea).toHaveValue(''));
     finishRead?.();
 
-    expect(await screen.findByText('chat.inputQueue.conversationChanged')).toBeInTheDocument();
-    expect(sendMessage).not.toHaveBeenCalled();
-
-    conversationState.activeConversationId = 'conv-1';
-    view.rerender(
-      <App>
-        <InputArea />
-      </App>,
-    );
-    await waitFor(() => expect(textarea).toHaveValue('draft for conversation A'));
-    expect(screen.getByText('slow.txt')).toBeInTheDocument();
-    fireEvent.change(textarea, { target: { value: '' } });
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
+      'draft for conversation A',
+      [expect.objectContaining({ file_name: 'slow.txt' })],
+      'search-1',
+      { conversationId: 'conv-1' },
+    ));
     readSpy.mockRestore();
   });
 
@@ -817,8 +818,22 @@ describe('InputArea', () => {
     expect(screen.queryByText(/Pasted text #1/)).not.toBeInTheDocument();
   });
 
+  it('shows send instead of stop after switching away from a streaming conversation', () => {
+    conversationState.streaming = true;
+    conversationState.streamingConversationId = 'conv-2';
+    conversationState.activeConversationId = 'conv-1';
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+    expect(screen.getByLabelText('chat.sendMessage')).toBeInTheDocument();
+    expect(screen.queryByLabelText('common.stop')).not.toBeInTheDocument();
+  });
+
   it('queues a normal single-model message while keeping the stop control visible', async () => {
     conversationState.streaming = true;
+    conversationState.streamingConversationId = 'conv-1';
     sendMessage.mockResolvedValueOnce({ kind: 'queued', queueId: 'queue-1' });
 
     render(
@@ -837,6 +852,7 @@ describe('InputArea', () => {
       'queue this next',
       undefined,
       'search-1',
+      { conversationId: 'conv-1' },
     ));
     await waitFor(() => expect(textarea).toHaveValue(''));
     expect(screen.getByLabelText('common.stop')).toBeInTheDocument();
@@ -844,6 +860,7 @@ describe('InputArea', () => {
 
   it('queues an ordinary message with Enter while streaming', async () => {
     conversationState.streaming = true;
+    conversationState.streamingConversationId = 'conv-1';
     sendMessage.mockResolvedValueOnce({ kind: 'queued', queueId: 'queue-enter' });
     render(
       <App>
@@ -859,6 +876,7 @@ describe('InputArea', () => {
       'queue by enter',
       undefined,
       'search-1',
+      { conversationId: 'conv-1' },
     ));
     await waitFor(() => expect(textarea).toHaveValue(''));
     expect(screen.getByLabelText('common.stop')).toBeInTheDocument();
@@ -866,6 +884,7 @@ describe('InputArea', () => {
 
   it('does not submit a composing IME Enter keypress', async () => {
     conversationState.streaming = true;
+    conversationState.streamingConversationId = 'conv-1';
     render(
       <App>
         <InputArea />
@@ -916,6 +935,7 @@ describe('InputArea', () => {
     },
   ])('hides send during $mode streaming when queuing is unsupported', ({ mode, targets }) => {
     conversationState.streaming = true;
+    conversationState.streamingConversationId = 'conv-1';
     conversationState.conversations[0].mode = mode;
     conversationState.multiModelTargets = targets;
 
@@ -947,7 +967,7 @@ describe('InputArea', () => {
     await userEvent.click(screen.getByLabelText('chat.sendMessage'));
 
     await waitFor(() => {
-      expect(sendAgentMessage).toHaveBeenCalledWith('你好呀', undefined);
+      expect(sendAgentMessage).toHaveBeenCalledWith('你好呀', undefined, { conversationId: 'conv-1' });
     });
     expect(textarea).toHaveValue('');
 
@@ -1064,6 +1084,7 @@ describe('InputArea', () => {
       historyMode: 'per_model',
       attachments: undefined,
       searchProviderId: 'search-1',
+      conversationId: 'conv-1',
       onAccepted: expect.any(Function),
     }));
   });

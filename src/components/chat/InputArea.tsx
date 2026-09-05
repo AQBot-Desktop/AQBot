@@ -4,6 +4,7 @@ import type { MenuProps } from 'antd';
 import { Paperclip, Mic, Eraser, Scissors, Globe, Brain, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, Shrink, Upload, GitCompareArrows, BookOpen, GripHorizontal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore, useMemoryStore, useKnowledgeStore } from '@/stores';
+import { selectUiStreaming } from '@/stores/conversationStore';
 import { useUIStore } from '@/stores/uiStore';
 import { findModelByIds, supportsReasoning, supportsFunctionCalling, modelHasCapability } from '@/lib/modelCapabilities';
 import {
@@ -83,7 +84,7 @@ export function InputArea() {
     return convId ? _draftCache.get(convId) || '' : '';
   });
   const draftRevisionRef = useRef(0);
-  const submitInFlightRef = useRef(false);
+  const submitInFlightByConversationRef = useRef(new Set<string>());
   const updateDraftValue = useCallback((next: React.SetStateAction<string>) => {
     draftRevisionRef.current += 1;
     setValue(next);
@@ -154,9 +155,7 @@ export function InputArea() {
   const setMultiModelContinuationMode = useConversationStore((s) => s.setMultiModelContinuationMode);
 
   const { message: messageApi, modal } = App.useApp();
-  const streaming = useConversationStore((s) => s.streaming || Boolean(
-    s.observedStream?.streaming && s.observedStream.conversationId === s.activeConversationId,
-  ));
+  const streaming = useConversationStore(selectUiStreaming);
   const loading = useConversationStore((s) => s.loading);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);
@@ -1265,7 +1264,8 @@ export function InputArea() {
   }, [activeConversation, updateConversation, companionModels, setMultiModelTargets, messageApi, t]);
 
   const handleSend = useCallback(async () => {
-    if (loading || submitInFlightRef.current) return;
+    const submitLockKey = activeConversationId ?? '__creating__';
+    if (loading || submitInFlightByConversationRef.current.has(submitLockKey)) return;
 
     const submittedAttachments = attachedFiles;
     const submittedSnippets = pastedSnippets;
@@ -1302,9 +1302,9 @@ export function InputArea() {
       || submittedAttachments[0]?.file.name
       || 'New chat';
 
-    submitInFlightRef.current = true;
+    submitInFlightByConversationRef.current.add(submitLockKey);
+    let targetConversationId = activeConversationId;
     try {
-      let targetConversationId = activeConversationId;
       if (!targetConversationId) {
         let provider = settings.default_provider_id
           ? providers.find((p) => p.id === settings.default_provider_id && p.enabled)
@@ -1341,10 +1341,6 @@ export function InputArea() {
         attachments = await Promise.all(
           submittedAttachments.map((item) => fileToAttachmentInput(item.file)),
         );
-      }
-
-      if (useConversationStore.getState().activeConversationId !== targetConversationId) {
-        throw t('chat.inputQueue.conversationChanged');
       }
 
       const submittedAttachmentIds = new Set(
@@ -1403,7 +1399,7 @@ export function InputArea() {
       };
 
       if (currentMode === 'agent') {
-        await sendAgentMessage(finalContent, attachments);
+        await sendAgentMessage(finalContent, attachments, { conversationId: targetConversationId });
         acceptSubmittedDraft();
       } else if (latestTargets.length > 0) {
         await sendMultiModelMessage({
@@ -1412,6 +1408,7 @@ export function InputArea() {
           historyMode: latestHistoryMode,
           attachments,
           searchProviderId: searchEnabled ? searchProviderId : null,
+          conversationId: targetConversationId ?? undefined,
           onAccepted: acceptSubmittedDraft,
         });
       } else {
@@ -1419,6 +1416,7 @@ export function InputArea() {
           finalContent,
           attachments,
           searchEnabled ? searchProviderId : null,
+          { conversationId: targetConversationId ?? undefined },
         );
         if (result.kind === 'rejected') {
           let errorMessage = useConversationStore.getState().error || t('common.failed');
@@ -1438,7 +1436,10 @@ export function InputArea() {
       console.error('[handleSend] error:', e);
       messageApi.error(String(e));
     } finally {
-      submitInFlightRef.current = false;
+      submitInFlightByConversationRef.current.delete(submitLockKey);
+      if (targetConversationId) {
+        submitInFlightByConversationRef.current.delete(targetConversationId);
+      }
     }
   }, [value, attachedFiles, pastedSnippets, submitChatMessage, sendAgentMessage, sendMultiModelMessage, companionModels, multiModelHistoryMode, activeConversationId, providers, settings, createConversation, loading, messageApi, t, searchEnabled, searchProviderId, cleanupAcceptedCachedDraft, currentMode, detachAttachmentsById, streaming, updateDraftValue]);
 

@@ -1,4 +1,4 @@
-import { invoke } from '@/lib/invoke';
+import { invoke, isTauri } from '@/lib/invoke';
 import { applyRemovedConversationIds } from '@/lib/conversationTabsActions';
 import { emitConversationSync, notifyConversationChanged } from '@/lib/conversationSync';
 import {
@@ -20,6 +20,7 @@ import { perfNow, perfTrace, perfTraceDuration } from '@/lib/perfTrace';
 import { isResourceFresh } from '@/lib/resourceState';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCategoryStore } from './categoryStore';
+import { isLiveConversationRun, mirrorActiveStreamFields } from './conversationRunRegistry';
 import type {
   CompareResponsesResult,
   ContextUsage,
@@ -39,6 +40,8 @@ import {
   conversationPreferenceUpdateFromState,
   conversationRuntime as runtime,
   emptyConversationPreferenceUpdate,
+  getStreamBuffer,
+  setStreamBuffer,
   findResolvedVersionForPendingSelection,
   getMessageVersionGroupResourceKey,
   invalidateConversationMessageCache,
@@ -747,8 +750,9 @@ export function createConversationManagementActions(
       const startedAt = perfNow();
       const canSkipMessageFetch = conversation?.message_count === 0
         && !needsRefreshAfterStreamDone
+        && !isLiveConversationRun(get().runsByConversation[id])
         && get().streamingConversationId !== id
-        && runtime.streamBuffer?.conversationId !== id;
+        && !getStreamBuffer(id);
       const cachedCandidate = readCachedMessageState(id, conversation);
       const cached = conversation?.message_count === 0 && cachedCandidate?.fresh !== true
         ? null
@@ -764,7 +768,7 @@ export function createConversationManagementActions(
         skipMessageFetch: canSkipMessageFetch || canUseFreshCache,
         cacheHit: Boolean(cached),
       });
-      set({
+      set((state) => ({
         activeConversationId: id,
         messages: cached?.state.messages ?? (retainPreviousWindow ? previousState.messages : []),
         loading: !canSkipMessageFetch && !cached,
@@ -782,7 +786,8 @@ export function createConversationManagementActions(
           ?? (retainPreviousWindow ? previousState.newestLoadedMessageId : null),
         error: null,
         ...conversationPreferenceStateFromConversation(conversation),
-      });
+        ...mirrorActiveStreamFields({ ...state, activeConversationId: id }),
+      }));
       void migrateLegacyMultiModelPreferences(set, get, id);
       if (canUseFreshCache) {
         restoreActiveStreamBuffer(set, get, id);
@@ -801,32 +806,31 @@ export function createConversationManagementActions(
           return;
         }
         // If there's an active stream for this conversation, inject buffered content
-        if (runtime.streamBuffer && runtime.streamBuffer.conversationId === id && get().streaming) {
+        const switchedBuffer = getStreamBuffer(id);
+        if (switchedBuffer && (
+          isLiveConversationRun(get().runsByConversation[id])
+          || get().streamingConversationId === id
+          || Boolean(switchedBuffer.content)
+        )) {
           restoreActiveStreamBuffer(set, get, id);
-        } else if (runtime.streamBuffer && runtime.streamBuffer.conversationId === id && needsRefreshAfterStreamDone) {
-          // Stream completed while user was away — buffer still has final content.
-          // fetchMessages already loaded the completed message from DB, but inject
-          // buffer content in case the DB response is slightly behind.
-          const realId = runtime.streamBuffer.resolvedId ?? runtime.streamBuffer.messageId;
+        } else if (switchedBuffer && needsRefreshAfterStreamDone) {
+          const realId = switchedBuffer.resolvedId ?? switchedBuffer.messageId;
           set((s) => {
             const exists = s.messages.some((m) => m.id === realId);
             if (exists) {
               return {
                 messages: s.messages.map((m) =>
                   m.id === realId
-                    ? { ...m, content: runtime.streamBuffer!.content, thinking: runtime.streamBuffer!.thinking || null }
+                    ? { ...m, content: switchedBuffer.content, thinking: switchedBuffer.thinking || null }
                     : m,
                 ),
               };
             }
             return {};
           });
-          runtime.streamBuffer = null;
+          setStreamBuffer(id, null);
         } else if (needsRefreshAfterStreamDone) {
-          // Stream completed while away and buffer was already consumed — the
-          // fetchMessages above should have loaded the final message from DB.
-          // Clear any stale buffer reference.
-          runtime.streamBuffer = null;
+          setStreamBuffer(id, null);
         }
         if (get().error) {
           runtime.pendingConversationRefresh.add(id);
@@ -968,6 +972,25 @@ export function createConversationManagementActions(
     deleteConversation: async (id) => {
       try {
         const previous = get();
+        if (previous.chatQueueByConversation[id]) {
+          set((state) => {
+            const chatQueueByConversation = { ...state.chatQueueByConversation };
+            delete chatQueueByConversation[id];
+            return { chatQueueByConversation };
+          });
+        }
+        if (isLiveConversationRun(previous.runsByConversation[id])) {
+          get().cancelConversationRun({ conversationId: id });
+          if (isTauri() && isLiveConversationRun(get().runsByConversation[id])) {
+            try {
+              await invoke('cancel_stream', { conversationId: id, streamId: null });
+            } catch (error) {
+              const message = String(error);
+              set({ error: message });
+              throw new Error(message);
+            }
+          }
+        }
         await invoke('delete_conversation', { id });
         invalidateConversationMessageCache(id);
         runtime.pendingConversationRefresh.delete(id);

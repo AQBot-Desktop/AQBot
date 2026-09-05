@@ -54,11 +54,13 @@ pub struct AppState {
     /// Tray actions that must survive main-window webview destroy/restore.
     pub pending_tray_action: Arc<std::sync::Mutex<Option<tray::PendingTrayAction>>>,
     pub multi_model_runs: Arc<multi_model_run::MultiModelRunManager>,
+    pub conversation_runs: conversation_run::ConversationRunRegistry,
     pub tray_enabled: Arc<AtomicBool>,
     pub tray_available: Arc<AtomicBool>,
 }
 
 mod commands;
+mod conversation_run;
 mod context_manager;
 pub mod multi_model_run;
 mod conversation_popout;
@@ -317,6 +319,8 @@ pub fn run() {
         commands::conversations::branch_conversation,
         commands::conversations::search_conversations,
         commands::conversations::send_message,
+        commands::conversations::list_active_conversation_runs,
+        commands::conversations::get_conversation_run_snapshot,
         commands::conversations::toggle_pin_conversation,
         commands::conversations::set_conversation_tab_pinned,
         commands::conversations::toggle_archive_conversation,
@@ -951,6 +955,7 @@ pub fn run() {
                 selection_toolbar: Arc::new(selection_toolbar::SelectionToolbarRuntime::new()),
                 pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
                 multi_model_runs: Arc::new(multi_model_run::MultiModelRunManager::new()),
+                conversation_runs: conversation_run::ConversationRunRegistry::new(),
                 tray_enabled: Arc::new(AtomicBool::new(app_settings.tray_enabled)),
                 tray_available: Arc::new(AtomicBool::new(false)),
             });

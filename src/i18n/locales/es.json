@@ -179,6 +179,7 @@
       "enqueue": "Añadir a la cola",
       "unsupported": "La cola de mensajes solo está disponible en el chat normal de un solo modelo",
       "otherConversationBusy": "Otra conversación todavía está enviando un mensaje",
+      "deleteConversationRunFailed": "No se pudo detener la generación de esta conversación, así que no se eliminó",
       "conversationChanged": "La conversación cambió antes de enviar el mensaje; se conservó el borrador"
     },
     "attachFile": "Adjuntar archivo",

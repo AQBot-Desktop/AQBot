@@ -78,15 +78,16 @@ describe('conversationStore long pasted content', () => {
     await flushPromises();
 
     expect(sent?.content).toBe(payload);
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith(
+    const sendCalls = invokeMock.mock.calls.filter(([command]) => command === 'send_message');
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).toEqual([
       'send_message',
       expect.objectContaining({
         conversationId: 'conv-1',
         content: payload,
       }),
-    );
-    const forwarded = invokeMock.mock.calls[0][1] as { content: string };
+    ]);
+    const forwarded = sendCalls[0][1] as { content: string };
     expect(forwarded.content).toBe(payload);
     expect(forwarded.content.length).toBe(payload.length);
     expect(forwarded.content.endsWith('TAIL-END')).toBe(true);

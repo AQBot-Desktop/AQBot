@@ -189,6 +189,7 @@
       "enqueue": "加入队列",
       "unsupported": "仅普通单模型聊天支持消息排队",
       "otherConversationBusy": "其他会话正在发送消息，请稍后再试",
+      "deleteConversationRunFailed": "无法停止该会话的生成，会话未删除",
       "conversationChanged": "提交消息前会话已切换，草稿已保留"
     },
     "attachFile": "附加文件",

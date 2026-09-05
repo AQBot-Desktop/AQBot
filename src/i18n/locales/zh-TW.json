@@ -179,6 +179,7 @@
       "enqueue": "加入排隊",
       "unsupported": "僅一般單模型聊天支援訊息排隊",
       "otherConversationBusy": "其他會話正在傳送訊息，請稍後再試",
+      "deleteConversationRunFailed": "無法停止此會話的生成，因此未刪除會話",
       "conversationChanged": "提交訊息前會話已切換，草稿已保留"
     },
     "attachFile": "附加檔案",

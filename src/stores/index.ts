@@ -3,8 +3,11 @@ export { useProviderStore } from './providerStore';
 export {
   clearLiveStreamContent,
   getLiveStreamContent,
+  isConversationStreaming,
   isObservedStreamingFor,
   selectActiveChatQueue,
+  selectLiveStreamingConversationIds,
+  selectLiveStreamingConversationKey,
   selectChatQueueForConversation,
   selectQueuedChatMessagesForConversation,
   selectUiMultiModelDoneMessageIds,

@@ -240,6 +240,17 @@ async fn consume_stream(
                 }
 
                 if let Some(pre_persist_chunk) = pre_persist_stream_chunk(&emitted_chunk) {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        state.conversation_runs.update(
+                            conversation_id,
+                            stream_id,
+                            |snapshot| {
+                                snapshot.phase = crate::conversation_run::ConversationRunPhase::Streaming;
+                                snapshot.message_id = Some(message_id.to_string());
+                                snapshot.content = full_content.clone();
+                            },
+                        );
+                    }
                     let _ = app.emit(
                         "chat-stream-chunk",
                         ChatStreamEvent {

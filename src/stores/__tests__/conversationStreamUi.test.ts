@@ -18,6 +18,9 @@ function state(overrides: Partial<ConversationState>): ConversationState {
     pendingCompanionModels: [],
     multiModelDoneMessageIds: [],
     observedStream: null,
+    observedStreamsByConversation: {},
+    runsByConversation: {},
+    runWatermarksByConversation: {},
     ...overrides,
   } as ConversationState;
 }
@@ -40,6 +43,17 @@ describe('conversation stream UI overlay', () => {
     expect(selectUiStreaming(current)).toBe(true);
     expect(selectUiStreamingMessageId(current)).toBe('assistant-a');
     expect(selectUiMultiModelParentId(current)).toBe('user-1');
+  });
+
+  it('does not show the stop control for a different conversation\'s owned stream', () => {
+    const current = state({
+      activeConversationId: 'conv-1',
+      streaming: true,
+      streamingConversationId: 'conv-2',
+      streamingMessageId: 'assistant-b',
+    });
+    expect(selectUiStreaming(current)).toBe(false);
+    expect(selectUiStreamingMessageId(current)).toBeNull();
   });
 
   it('ignores observed stream from a different conversation', () => {
@@ -89,6 +103,7 @@ describe('conversation stream UI overlay', () => {
       multiModelDoneMessageIds: ['assistant-a'],
     }))).toEqual({
       streaming: true,
+      streamId: null,
       streamingMessageId: 'assistant-a',
       multiModelParentId: 'user-1',
       pendingCompanionModels: [{ providerId: 'p2', modelId: 'm2' }],

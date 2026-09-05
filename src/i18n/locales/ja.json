@@ -179,6 +179,7 @@
       "enqueue": "キューに追加",
       "unsupported": "メッセージキューは通常の単一モデルチャットでのみ利用できます",
       "otherConversationBusy": "別の会話がメッセージを送信中です",
+      "deleteConversationRunFailed": "この会話の生成を停止できなかったため、会話は削除されませんでした",
       "conversationChanged": "メッセージの送信前に会話が切り替わったため、下書きを保持しました"
     },
     "attachFile": "ファイルを添付",

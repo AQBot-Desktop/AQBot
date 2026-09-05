@@ -179,6 +179,7 @@
       "enqueue": "대기열에 추가",
       "unsupported": "메시지 대기열은 일반 단일 모델 채팅에서만 사용할 수 있습니다",
       "otherConversationBusy": "다른 대화에서 메시지를 보내고 있습니다",
+      "deleteConversationRunFailed": "이 대화의 생성을 중지하지 못해 대화를 삭제하지 않았습니다",
       "conversationChanged": "메시지를 제출하기 전에 대화가 전환되어 초안을 보관했습니다"
     },
     "attachFile": "파일 첨부",

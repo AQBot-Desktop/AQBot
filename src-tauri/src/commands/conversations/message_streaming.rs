@@ -44,6 +44,26 @@ fn spawn_stream_task(
     let (terminal_tx, terminal_rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
+        struct SpawnedRunRelease {
+            app: tauri::AppHandle,
+            conversation_id: String,
+            run_id: String,
+        }
+        impl Drop for SpawnedRunRelease {
+            fn drop(&mut self) {
+                if let Some(state) = self.app.try_state::<AppState>() {
+                    state
+                        .conversation_runs
+                        .release(&self.conversation_id, &self.run_id);
+                    emit_conversation_run_updated(&self.app, &self.conversation_id, None);
+                }
+            }
+        }
+        let _run_release = SpawnedRunRelease {
+            app: app.clone(),
+            conversation_id: conversation_id.clone(),
+            run_id: stream_id.clone(),
+        };
         let mut terminal_tx = Some(terminal_tx);
         let send_terminal =
             |tx: &mut Option<
@@ -832,11 +852,20 @@ pub async fn send_message(
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<Message, String> {
     let history_mode = history_mode.unwrap_or_default();
-    if has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id).await
-        || state.multi_model_runs.has_active(&conversation_id).await
-    {
+    if state.multi_model_runs.has_active(&conversation_id).await {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
     }
+    let mut conversation_run_guard = state.conversation_runs.admit(
+        &conversation_id,
+        &stream_id,
+        Some(&stream_id),
+        crate::conversation_run::ConversationRunMode::Chat,
+    )?;
+    emit_conversation_run_updated(
+        &app,
+        &conversation_id,
+        state.conversation_runs.snapshot(&conversation_id),
+    );
     if content_prefix
         .as_deref()
         .is_some_and(aqbot_core::inline_media::contains_inline_image_data)
@@ -1327,7 +1356,10 @@ pub async fn send_message(
     .await;
 
     match prepared_send {
-        Ok(message) => Ok(message),
+        Ok(message) => {
+            conversation_run_guard.defuse();
+            Ok(message)
+        }
         Err(error) => {
             let rollback_errors = rollback_counted_new_message(
                 &state.sea_db,
@@ -1384,10 +1416,17 @@ pub async fn regenerate_message(
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
     let history_mode = history_mode.unwrap_or_default();
-    if has_active_stream_for_conversation(state.stream_cancel_flags.clone(), &conversation_id).await
-    {
-        return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
-    }
+    let mut conversation_run_guard = state.conversation_runs.admit(
+        &conversation_id,
+        &stream_id,
+        Some(&stream_id),
+        crate::conversation_run::ConversationRunMode::Chat,
+    )?;
+    emit_conversation_run_updated(
+        &app,
+        &conversation_id,
+        state.conversation_runs.snapshot(&conversation_id),
+    );
 
     // 1. Get all active messages for the conversation
     let messages = aqbot_core::repo::message::list_messages(&state.sea_db, &conversation_id)
@@ -1835,6 +1874,7 @@ pub async fn regenerate_message(
         true,
     );
 
+    conversation_run_guard.defuse();
     Ok(())
 }
 

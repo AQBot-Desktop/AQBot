@@ -35,6 +35,7 @@ const MAX_AGENT_WORKSPACE_NAME_LEN: usize = 80;
 struct RunningAgentGuard {
     conversation_id: String,
     run_id: String,
+    conversation_runs: crate::conversation_run::ConversationRunRegistry,
 }
 
 impl Drop for RunningAgentGuard {
@@ -44,6 +45,8 @@ impl Drop for RunningAgentGuard {
                 running.remove(&self.conversation_id);
             }
         }
+        self.conversation_runs
+            .release(&self.conversation_id, &self.run_id);
     }
 }
 
@@ -827,6 +830,12 @@ pub async fn agent_query(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(aqbot_core::utils::gen_id);
+    let mut conversation_run_guard = state.conversation_runs.admit(
+        &conversation_id,
+        &run_id,
+        stream_id.as_deref(),
+        crate::conversation_run::ConversationRunMode::Agent,
+    )?;
     {
         let mut running = RUNNING_AGENTS.lock().unwrap();
         if running.contains_key(&conversation_id) {
@@ -837,7 +846,9 @@ pub async fn agent_query(
     let running_guard = RunningAgentGuard {
         conversation_id: conversation_id.clone(),
         run_id: run_id.clone(),
+        conversation_runs: state.conversation_runs.clone(),
     };
+    conversation_run_guard.defuse();
     let cancel_token = open_agent_sdk::CancellationToken::new();
     let stream_id = stream_id
         .map(|value| value.trim().to_string())

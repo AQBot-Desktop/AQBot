@@ -189,6 +189,7 @@
       "enqueue": "Add to queue",
       "unsupported": "Message queue is available only in ordinary single-model chat",
       "otherConversationBusy": "Another conversation is still sending a message",
+      "deleteConversationRunFailed": "Could not stop this conversation's generation, so it was not deleted",
       "conversationChanged": "Conversation changed before the message was submitted; the draft was kept"
     },
     "attachFile": "Attach file",

@@ -403,6 +403,29 @@ export interface MultiModelRunEnvelope {
   activeRun: MultiModelRunSnapshot | null;
 }
 
+export type ConversationRunMode = 'chat' | 'agent' | 'multi-model';
+export type ConversationRunPhase =
+  | 'preparing'
+  | 'streaming'
+  | 'stopping'
+  | 'complete'
+  | 'error'
+  | 'cancelled';
+
+export interface ConversationRunSnapshot {
+  conversationId: string;
+  runId: string;
+  streamId: string | null;
+  messageId: string | null;
+  mode: ConversationRunMode;
+  phase: ConversationRunPhase;
+  revision: number;
+  content: string;
+  thinking: string | null;
+  pendingPermission: import('./agent').PermissionRequestEvent | null;
+  pendingAsk: import('./agent').AskUserEvent | null;
+}
+
 export interface ConversationCategory {
   id: string;
   name: string;

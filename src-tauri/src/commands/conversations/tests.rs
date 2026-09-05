@@ -44,6 +44,7 @@ mod tests {
             selection_toolbar: Arc::new(crate::selection_toolbar::SelectionToolbarRuntime::new()),
             pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
             multi_model_runs: Arc::new(crate::multi_model_run::MultiModelRunManager::new()),
+            conversation_runs: crate::conversation_run::ConversationRunRegistry::new(),
             tray_enabled: Arc::new(AtomicBool::new(true)),
             tray_available: Arc::new(AtomicBool::new(true)),
         }
@@ -2817,6 +2818,7 @@ mod tests {
             selection_toolbar: Arc::new(crate::selection_toolbar::SelectionToolbarRuntime::new()),
             pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
             multi_model_runs: Arc::new(crate::multi_model_run::MultiModelRunManager::new()),
+            conversation_runs: crate::conversation_run::ConversationRunRegistry::new(),
             tray_enabled: Arc::new(AtomicBool::new(true)),
             tray_available: Arc::new(AtomicBool::new(true)),
         };

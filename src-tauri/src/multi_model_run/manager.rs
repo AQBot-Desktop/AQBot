@@ -59,22 +59,50 @@ impl MultiModelRunManager {
     ) -> Result<MultiModelRunEnvelope, String> {
         validate_start_input(&input)?;
         {
-            let inner = self.inner.lock().await;
-            if inner
-                .get(&input.conversation_id)
-                .is_some_and(|slot| slot.active.is_some())
-            {
+            let mut inner = self.inner.lock().await;
+            let slot = inner.entry(input.conversation_id.clone()).or_insert(ConversationSlot {
+                revision: 0,
+                active: None,
+            });
+            if slot.active.is_some() {
                 return Err(ACTIVE_RUN_EXISTS_ERROR.to_string());
             }
+            slot.revision += 1;
+            slot.active = Some(ActiveRun {
+                snapshot: MultiModelRunSnapshot {
+                    run_id: String::new(),
+                    conversation_id: input.conversation_id.clone(),
+                    parent_message_id: None,
+                    mode: input.execution_mode,
+                    interval_seconds: input.interval_seconds,
+                    phase: MultiModelRunPhase::Starting,
+                    next_start_at: None,
+                    targets: Vec::new(),
+                },
+                stop: StopSignal::new(),
+                skip_current: Arc::new(AtomicBool::new(false)),
+                completion: watch::channel(false).1,
+                task: tokio::spawn(async {}),
+            });
         }
 
-        let persisted = adapter
+        let persisted = match adapter
             .persist_user_turn(PersistUserTurnInput {
                 conversation_id: input.conversation_id.clone(),
                 content: input.content.clone(),
                 attachments: input.attachments.clone(),
             })
-            .await?;
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                let mut inner = self.inner.lock().await;
+                if let Some(slot) = inner.get_mut(&input.conversation_id) {
+                    slot.active = None;
+                }
+                return Err(error);
+            }
+        };
 
         let run_id = aqbot_core::utils::gen_id();
         let targets = input

@@ -1,5 +1,13 @@
 import { invoke, type UnlistenFn } from '@/lib/invoke';
 import type { ConversationStreamSyncState } from '@/lib/conversationSync';
+import type {
+  ConversationRun,
+  ConversationRunWatermark,
+} from './conversationRunRegistry';
+import {
+  getConversationRun,
+  isLiveConversationRun,
+} from './conversationRunRegistry';
 import { supportsReasoning, supportsFunctionCalling, findModelByIds } from '@/lib/modelCapabilities';
 import { coerceReasoningOptionKey, resolveReasoningProfile } from '@/lib/reasoningProfile';
 import { buildKnowledgeTag, buildMemoryTag, type RagContextRetrievedEvent } from '@/lib/memoryUtils';
@@ -47,7 +55,75 @@ export interface StreamBuffer {
   /** Accumulated thinking/reasoning content */
   thinking: string | null;
 }
-let _streamBuffer: StreamBuffer | null = null;
+
+export interface ConversationRunRuntime {
+  isMultiModelActive: boolean;
+  multiModelStreamIds: Set<string>;
+  agentCancel: (() => void) | null;
+  agentStreamSeq: number;
+  multiModelTotalRemaining: number;
+  multiModelDoneResolve: (() => void) | null;
+  multiModelRunId: number;
+  multiModelFirstTarget: MultiModelTarget | null;
+  multiModelFirstMessageId: string | null;
+  multiModelHistoryMode: MultiModelContinuationMode;
+  userManuallySelectedVersion: boolean;
+}
+
+export function getStreamBuffer(conversationId: string | null | undefined): StreamBuffer | null {
+  if (!conversationId) return null;
+  return _streamBuffers.get(conversationId) ?? null;
+}
+
+export function setStreamBuffer(conversationId: string, buffer: StreamBuffer | null): void {
+  if (buffer) _streamBuffers.set(conversationId, buffer);
+  else _streamBuffers.delete(conversationId);
+}
+
+export function getStreamPrefix(conversationId: string | null | undefined): string {
+  if (!conversationId) return _streamPrefix;
+  return _streamPrefixes.get(conversationId) ?? '';
+}
+
+export function setStreamPrefix(conversationId: string, prefix: string): void {
+  if (prefix) _streamPrefixes.set(conversationId, prefix);
+  else _streamPrefixes.delete(conversationId);
+  _streamPrefix = prefix;
+}
+
+export function getRunRuntime(conversationId: string | null | undefined): ConversationRunRuntime | undefined {
+  if (!conversationId) return undefined;
+  return _runRuntimes.get(conversationId);
+}
+
+export function getOrCreateRunRuntime(conversationId: string): ConversationRunRuntime {
+  const existing = _runRuntimes.get(conversationId);
+  if (existing) return existing;
+  const created: ConversationRunRuntime = {
+    isMultiModelActive: false,
+    multiModelStreamIds: new Set(),
+    agentCancel: null,
+    agentStreamSeq: 0,
+    multiModelTotalRemaining: 0,
+    multiModelDoneResolve: null,
+    multiModelRunId: 0,
+    multiModelFirstTarget: null,
+    multiModelFirstMessageId: null,
+    multiModelHistoryMode: 'selected',
+    userManuallySelectedVersion: false,
+  };
+  _runRuntimes.set(conversationId, created);
+  return created;
+}
+
+export function deleteRunRuntime(conversationId: string): void {
+  _runRuntimes.delete(conversationId);
+  _agentCancels.delete(conversationId);
+  _streamBuffers.delete(conversationId);
+  _streamPrefixes.delete(conversationId);
+}
+const _streamBuffers = new Map<string, StreamBuffer>();
+const _streamPrefixes = new Map<string, string>();
 // Prefix injected before streaming content (e.g., search result tags)
 let _streamPrefix = '';
 // Conversations whose stream completed while the user was viewing a different
@@ -80,6 +156,9 @@ const MESSAGE_CACHE_MAX_CONVERSATIONS = 8;
 const MESSAGE_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 let _agentStreamSeq = 0;
 let _activeAgentCancel: (() => void) | null = null;
+let _listenPromise: Promise<void> | null = null;
+const _agentCancels = new Map<string, () => void>();
+const _runRuntimes = new Map<string, ConversationRunRuntime>();
 let _conversationsRequest: { revision: number; promise: Promise<void> } | null = null;
 
 function mutateConversationsMeta(meta: ResourceMeta): ResourceMeta {
@@ -182,6 +261,34 @@ function cacheMessageState(state: ConversationState, conversationId: string) {
     if (!oldestConversationId) break;
     deleteCachedMessageState(oldestConversationId);
   }
+}
+
+export function getLoadedMessagesForConversation(
+  state: ConversationState,
+  conversationId: string,
+): Message[] {
+  if (state.activeConversationId === conversationId) return state.messages;
+  return readCachedMessageState(conversationId)?.state.messages ?? [];
+}
+
+export function appendCachedConversationMessages(
+  conversationId: string,
+  messages: Message[],
+): void {
+  const cached = _messageCache.get(conversationId);
+  if (!cached || messages.length === 0) return;
+  const existingIds = new Set(cached.messages.map((message) => message.id));
+  const nextMessages = [
+    ...cached.messages,
+    ...messages.filter((message) => !existingIds.has(message.id)),
+  ];
+  _messageCacheBytes -= cached.estimatedBytes;
+  const estimatedBytes = estimateMessageCacheBytes(nextMessages);
+  cached.messages = nextMessages;
+  cached.estimatedBytes = estimatedBytes;
+  cached.totalActiveCount += messages.filter((message) => !existingIds.has(message.id)).length;
+  cached.newestLoadedMessageId = nextMessages[nextMessages.length - 1]?.id ?? cached.newestLoadedMessageId;
+  _messageCacheBytes += estimatedBytes;
 }
 
 function readCachedMessageState(
@@ -393,15 +500,11 @@ function materializeLiveStreamContent(
 
 function restoreActiveStreamBuffer(
   set: ConversationStoreSet,
-  get: () => ConversationState,
+  _get: () => ConversationState,
   conversationId: string,
 ): boolean {
-  const buffer = _streamBuffer;
-  if (
-    !buffer
-    || buffer.conversationId !== conversationId
-    || !get().streaming
-  ) return false;
+  const buffer = getStreamBuffer(conversationId);
+  if (!buffer) return false;
 
   const realMessageId = buffer.resolvedId ?? buffer.messageId;
   if (buffer.messageId !== realMessageId) clearLiveStreamContent(buffer.messageId);
@@ -463,15 +566,40 @@ function isActiveStreamExistsError(error: string): boolean {
   return error.includes(ACTIVE_STREAM_EXISTS_ERROR_FRAGMENT);
 }
 
-function isCurrentStreamEvent(get: () => ConversationState, streamId?: string | null): boolean {
+function isCurrentStreamEvent(
+  get: () => ConversationState,
+  streamId?: string | null,
+  conversationId?: string | null,
+): boolean {
   if (!streamId) return true;
+  const state = get();
+  if (conversationId) {
+    const run = state.runsByConversation[conversationId];
+    const runRuntime = getRunRuntime(conversationId);
+    if (
+      run?.mode === 'multi-model'
+      || runRuntime?.isMultiModelActive
+      || (_isMultiModelActive && (
+        !state.streamingConversationId
+        || state.streamingConversationId === conversationId
+      ))
+    ) {
+      runRuntime?.multiModelStreamIds.add(streamId);
+      _multiModelStreamIds.add(streamId);
+      return true;
+    }
+    if (run?.streamId) return run.streamId === streamId;
+    if (getStreamBuffer(conversationId)) return true;
+    if (state.streamingConversationId === conversationId) {
+      return !state.activeStreamId || state.activeStreamId === streamId;
+    }
+    return false;
+  }
   if (_isMultiModelActive) {
-    // Sequential targets receive stream IDs only when they start. Accept every
-    // stream for the in-flight run so later models still render live.
     _multiModelStreamIds.add(streamId);
     return true;
   }
-  const activeStreamId = get().activeStreamId;
+  const activeStreamId = state.activeStreamId;
   return !activeStreamId || activeStreamId === streamId;
 }
 
@@ -1021,15 +1149,21 @@ function collectActiveStreamingMessageIds(
   state: ConversationState,
   conversationId: string | null | undefined = state.streamingConversationId,
 ): string[] {
-  if (!state.streaming || state.streamingConversationId !== conversationId) {
-    return [];
-  }
+  if (!conversationId) return [];
+  const run = state.runsByConversation?.[conversationId];
+  const buffer = getStreamBuffer(conversationId);
+  const ownsRun = isLiveConversationRun(run)
+    || (state.streaming && state.streamingConversationId === conversationId);
+  if (!ownsRun && !buffer) return [];
 
   return [
-    state.streamingMessageId,
-    _streamBuffer?.messageId,
-    _streamBuffer?.resolvedId,
-    ..._pendingUiChunks.keys(),
+    run?.streamingMessageId ?? null,
+    state.streamingConversationId === conversationId ? state.streamingMessageId : null,
+    buffer?.messageId,
+    buffer?.resolvedId,
+    ...[..._pendingUiChunks.values()]
+      .filter((chunk) => chunk.conversationId === conversationId)
+      .map((chunk) => chunk.messageId),
     ..._liveStreamContentByMessageId.keys(),
   ].filter((messageId): messageId is string => (
     typeof messageId === 'string' && messageId.length > 0 && !isTemporaryMessageId(messageId)
@@ -1344,6 +1478,9 @@ export interface ConversationState {
   streaming: boolean;
   /** Stream owned by another window of the same conversation. */
   observedStream: (ConversationStreamSyncState & { conversationId: string }) | null;
+  observedStreamsByConversation: Record<string, ConversationStreamSyncState>;
+  runsByConversation: Record<string, ConversationRun>;
+  runWatermarksByConversation: Record<string, ConversationRunWatermark>;
   compressingConversationId: string | null;
   /** Incremented to request ChatView open the compression summary modal. */
   openCompressionSummaryToken: number;
@@ -1432,11 +1569,17 @@ export interface ConversationState {
   batchDelete: (ids: string[]) => Promise<void>;
   batchArchive: (ids: string[]) => Promise<void>;
   batchMoveToCategory: (ids: string[], categoryId: string | null) => Promise<number>;
-  sendMessage: (content: string, attachments?: AttachmentInput[], searchProviderId?: string | null) => Promise<Message | null>;
+  sendMessage: (
+    content: string,
+    attachments?: AttachmentInput[],
+    searchProviderId?: string | null,
+    options?: { conversationId?: string },
+  ) => Promise<Message | null>;
   submitChatMessage: (
     content: string,
     attachments?: AttachmentInput[],
     searchProviderId?: string | null,
+    options?: { conversationId?: string },
   ) => Promise<SubmitChatMessageResult>;
   updateQueuedChatMessage: (
     conversationId: string,
@@ -1449,7 +1592,11 @@ export interface ConversationState {
   drainChatQueue: (conversationId: string) => Promise<Message | null>;
   handleChatStreamTerminal: (payload: ChatStreamTerminalEvent) => Promise<void>;
   /** Send a message in agent mode (non-streaming MVP) */
-  sendAgentMessage: (content: string, attachments?: AttachmentInput[]) => Promise<void>;
+  sendAgentMessage: (
+    content: string,
+    attachments?: AttachmentInput[],
+    options?: { conversationId?: string },
+  ) => Promise<void>;
   regenerateMessage: (targetMessageId?: string) => Promise<Message>;
   regenerateWithModel: (
     targetMessageId: string,
@@ -1466,6 +1613,11 @@ export interface ConversationState {
   startStreamListening: () => Promise<void>;
   stopStreamListening: () => void;
   cancelCurrentStream: (options?: { skipBackend?: boolean }) => void;
+  cancelConversationRun: (input: {
+    conversationId: string;
+    runId?: string | null;
+    skipBackend?: boolean;
+  }) => void;
   applyRemoteConversationSync: (payload: {
     originWindow: string;
     conversationId: string;
@@ -1518,80 +1670,19 @@ export interface ConversationState {
   setPendingPromptText: (text: string | null) => void;
 }
 
-export function isObservedStreamingFor(
-  state: Pick<ConversationState, 'observedStream' | 'activeConversationId'>,
-  conversationId: string | null = state.activeConversationId,
-): boolean {
-  return Boolean(
-    conversationId
-    && state.observedStream?.streaming
-    && state.observedStream.conversationId === conversationId
-  );
-}
-
-export function selectUiStreaming(
-  state: Pick<ConversationState, 'streaming' | 'observedStream' | 'activeConversationId'>,
-): boolean {
-  return state.streaming || isObservedStreamingFor(state);
-}
-
-export function selectUiStreamingMessageId(
-  state: Pick<ConversationState, 'streaming' | 'streamingMessageId' | 'observedStream' | 'activeConversationId'>,
-): string | null {
-  if (state.streaming) return state.streamingMessageId;
-  if (isObservedStreamingFor(state)) return state.observedStream?.streamingMessageId ?? null;
-  return state.streamingMessageId;
-}
-
-export function selectUiStreamingConversationId(
-  state: Pick<ConversationState, 'streaming' | 'streamingConversationId' | 'observedStream' | 'activeConversationId'>,
-): string | null {
-  if (state.streaming) return state.streamingConversationId;
-  if (isObservedStreamingFor(state)) return state.observedStream?.conversationId ?? null;
-  return state.streamingConversationId;
-}
-
-export function selectUiMultiModelParentId(
-  state: Pick<ConversationState, 'streaming' | 'multiModelParentId' | 'observedStream' | 'activeConversationId'>,
-): string | null {
-  if (state.streaming || !isObservedStreamingFor(state)) return state.multiModelParentId;
-  return state.observedStream?.multiModelParentId ?? state.multiModelParentId;
-}
-
-export function selectUiPendingCompanionModels(
-  state: Pick<ConversationState, 'streaming' | 'pendingCompanionModels' | 'observedStream' | 'activeConversationId'>,
-): ConversationState['pendingCompanionModels'] {
-  if (state.streaming || !isObservedStreamingFor(state)) return state.pendingCompanionModels;
-  return state.observedStream?.pendingCompanionModels ?? state.pendingCompanionModels;
-}
-
-export function selectUiMultiModelDoneMessageIds(
-  state: Pick<ConversationState, 'streaming' | 'multiModelDoneMessageIds' | 'observedStream' | 'activeConversationId'>,
-): string[] {
-  if (state.streaming || !isObservedStreamingFor(state)) return state.multiModelDoneMessageIds;
-  return state.observedStream?.multiModelDoneMessageIds ?? state.multiModelDoneMessageIds;
-}
-
-export function snapshotStreamSyncState(
-  state: Pick<
-    ConversationState,
-    | 'streaming'
-    | 'activeStreamId'
-    | 'streamingMessageId'
-    | 'multiModelParentId'
-    | 'pendingCompanionModels'
-    | 'multiModelDoneMessageIds'
-  >,
-): ConversationStreamSyncState {
-  return {
-    streaming: state.streaming,
-    streamId: state.activeStreamId,
-    streamingMessageId: state.streamingMessageId,
-    multiModelParentId: state.multiModelParentId,
-    pendingCompanionModels: [...state.pendingCompanionModels],
-    multiModelDoneMessageIds: [...state.multiModelDoneMessageIds],
-  };
-}
+export {
+  isConversationStreaming,
+  isObservedStreamingFor,
+  selectLiveStreamingConversationIds,
+  selectLiveStreamingConversationKey,
+  selectUiMultiModelDoneMessageIds,
+  selectUiMultiModelParentId,
+  selectUiPendingCompanionModels,
+  selectUiStreaming,
+  selectUiStreamingConversationId,
+  selectUiStreamingMessageId,
+  snapshotStreamSyncState,
+} from './conversationRunRegistry';
 
 export type { MultiModelTarget };
 
@@ -1624,16 +1715,29 @@ export interface SendMultiModelMessageInput {
   historyMode?: MultiModelContinuationMode;
   attachments?: AttachmentInput[];
   searchProviderId?: string | null;
+  conversationId?: string;
   /** Runs after the backend accepts the user turn, before model responses finish. */
   onAccepted?: () => void;
 }
 
-function resetPendingStreamUi() {
-  if (_streamUiFlushTimer !== null) {
+function resetPendingStreamUi(conversationId?: string | null) {
+  if (!conversationId) {
+    if (_streamUiFlushTimer !== null) {
+      clearTimeout(_streamUiFlushTimer);
+      _streamUiFlushTimer = null;
+    }
+    _pendingUiChunks.clear();
+    return;
+  }
+  for (const [messageId, chunk] of [..._pendingUiChunks.entries()]) {
+    if (chunk.conversationId === conversationId) {
+      _pendingUiChunks.delete(messageId);
+    }
+  }
+  if (_pendingUiChunks.size === 0 && _streamUiFlushTimer !== null) {
     clearTimeout(_streamUiFlushTimer);
     _streamUiFlushTimer = null;
   }
-  _pendingUiChunks.clear();
 }
 
 function scheduleStreamUiFlush(set: ConversationStoreSet, get: () => ConversationState) {
@@ -1656,18 +1760,34 @@ function appendStreamChunk(
   modelId?: string,
   providerId?: string,
 ) {
-  // Accumulate into stream buffer only in single-stream mode
-  // (parallel multi-model streams would corrupt the shared buffer)
-  if (!_isMultiModelActive && get().streaming) {
-    if (!_streamBuffer || _streamBuffer.conversationId !== conversationId) {
-      _streamBuffer = { messageId, conversationId, content: _streamPrefix, resolvedId: null, thinking: null };
-      _streamPrefix = ''; // consumed
+  // Accumulate into the conversation's stream buffer only in single-stream mode
+  // (parallel multi-model streams would corrupt a shared buffer)
+  const run = get().runsByConversation[conversationId];
+  const runRuntime = getRunRuntime(conversationId);
+  const multiModel = run?.mode === 'multi-model'
+    || runRuntime?.isMultiModelActive
+    || (_isMultiModelActive && get().streamingConversationId === conversationId);
+  const ownsRun = isLiveConversationRun(run)
+    || (get().streaming && get().streamingConversationId === conversationId)
+    || Boolean(getStreamBuffer(conversationId));
+  if (!multiModel && ownsRun) {
+    let buffer = getStreamBuffer(conversationId);
+    if (!buffer) {
+      buffer = {
+        messageId,
+        conversationId,
+        content: getStreamPrefix(conversationId) || _streamPrefix,
+        resolvedId: null,
+        thinking: null,
+      };
+      setStreamPrefix(conversationId, '');
+      _streamPrefix = '';
     }
-    _streamBuffer.content = mergeIncomingDisplayChunk(_streamBuffer.content, content ?? '');
-    // Track ID resolution (placeholder → real ID)
-    if (_streamBuffer.messageId !== messageId && !_streamBuffer.resolvedId) {
-      _streamBuffer.resolvedId = messageId;
+    buffer.content = mergeIncomingDisplayChunk(buffer.content, content ?? '');
+    if (buffer.messageId !== messageId && !buffer.resolvedId) {
+      buffer.resolvedId = messageId;
     }
+    setStreamBuffer(conversationId, buffer);
   }
 
   // Only update messages in UI if this is the active conversation
@@ -1828,8 +1948,10 @@ function applyPendingUiChunk(
 
   // 3. No placeholder found — create a new assistant message once, then keep
   // subsequent token content in the live stream store.
-  const isMultiModel = _isMultiModelActive;
-  const parentMessageId = isMultiModel ? state.multiModelParentId : null;
+  const isMultiModel = getRunRuntime(conversationId)?.isMultiModelActive || _isMultiModelActive;
+  const parentMessageId = isMultiModel
+    ? (getConversationRun(state, conversationId)?.multiModelParentId ?? state.multiModelParentId)
+    : null;
   const pendingSelection = parentMessageId ? _pendingLocalVersionSelections.get(parentMessageId) : null;
   const pendingPlaceholder = pendingSelection
     ? state.messages.find((message) =>
@@ -1840,11 +1962,11 @@ function applyPendingUiChunk(
         && (message.model_id ?? null) === (chunkModelId ?? null)
       )
     : null;
+  const streamBuffer = getStreamBuffer(conversationId);
   const bufferedContent = !isMultiModel
-    && _streamBuffer
-    && _streamBuffer.conversationId === conversationId
-    && (_streamBuffer.messageId === messageId || _streamBuffer.resolvedId === messageId)
-    ? _streamBuffer.content
+    && streamBuffer
+    && (streamBuffer.messageId === messageId || streamBuffer.resolvedId === messageId)
+    ? streamBuffer.content
     : undefined;
   const nextContent = bufferedContent
     ?? appendLiveStreamContent(messageId, content ?? '', pendingPlaceholder?.content ?? '');
@@ -1900,6 +2022,7 @@ function applyPendingUiChunk(
 export interface ConversationRuntime {
   unlisten: UnlistenFn | null;
   listenerGen: number;
+  listenPromise: Promise<void> | null;
   streamBuffer: StreamBuffer | null;
   streamPrefix: string;
   pendingConversationRefresh: Set<string>;
@@ -1936,8 +2059,21 @@ export const conversationRuntime: ConversationRuntime = {
   set unlisten(value) { _unlisten = value; },
   get listenerGen() { return _listenerGen; },
   set listenerGen(value) { _listenerGen = value; },
-  get streamBuffer() { return _streamBuffer; },
-  set streamBuffer(value) { _streamBuffer = value; },
+  get listenPromise() { return _listenPromise; },
+  set listenPromise(value) { _listenPromise = value; },
+  get streamBuffer() {
+    if (_streamBuffers.size === 1) {
+      return _streamBuffers.values().next().value ?? null;
+    }
+    return null;
+  },
+  set streamBuffer(value) {
+    if (!value) {
+      _streamBuffers.clear();
+      return;
+    }
+    _streamBuffers.set(value.conversationId, value);
+  },
   get streamPrefix() { return _streamPrefix; },
   set streamPrefix(value) { _streamPrefix = value; },
   pendingConversationRefresh: _pendingConversationRefresh,

@@ -9,6 +9,11 @@ import {
   type ConversationStoreSet,
   type QueuedChatMessage,
 } from './conversationStoreSupport';
+import {
+  clearConversationRun,
+  isLiveConversationRun,
+  upsertObservedStream,
+} from './conversationRunRegistry';
 
 type ConversationQueueActions = Pick<ConversationState,
   | 'submitChatMessage'
@@ -49,36 +54,29 @@ function cloneAttachments(attachments: AttachmentInput[]): AttachmentInput[] {
 function canUseOrdinaryChat(state: ConversationState, conversationId: string): boolean {
   const conversation = state.conversations.find((item) => item.id === conversationId)
     ?? state.archivedConversations.find((item) => item.id === conversationId);
+  const targets = state.activeConversationId === conversationId
+    ? state.multiModelTargets
+    : conversation?.multi_model_targets ?? [];
+  const run = state.runsByConversation?.[conversationId];
   return Boolean(
     conversation
     && conversation.mode !== 'agent'
-    && state.multiModelTargets.length === 0
-    && !runtime.isMultiModelActive,
+    && targets.length === 0
+    && run?.mode !== 'multi-model'
+    && !(runtime.isMultiModelActive && state.streamingConversationId === conversationId),
   );
 }
 
 function isQueueDispatchBusy(state: ConversationState, conversationId: string): boolean {
   const bucket = state.chatQueueByConversation[conversationId];
+  const run = state.runsByConversation?.[conversationId];
   return Boolean(
-    (state.streaming && state.streamingConversationId === conversationId)
+    isLiveConversationRun(run)
+    || (state.streaming && state.streamingConversationId === conversationId)
     || isObservedStreamingFor(state, conversationId)
     || bucket?.drainingMessageId
     || bucket?.drainingStreamId
     || bucket?.phase === 'waiting',
-  );
-}
-
-function isOtherConversationStreaming(state: ConversationState, conversationId: string): boolean {
-  return Boolean(
-    (
-      state.streaming
-      && state.streamingConversationId
-      && state.streamingConversationId !== conversationId
-    )
-    || (
-      state.observedStream?.streaming
-      && state.observedStream.conversationId !== conversationId
-    ),
   );
 }
 
@@ -151,20 +149,17 @@ export function createConversationQueueActions(
   get: () => ConversationState,
 ): ConversationQueueActions {
   return {
-    submitChatMessage: async (content, attachments = [], searchProviderId = null) => {
+    submitChatMessage: async (content, attachments = [], searchProviderId = null, options) => {
       const state = get();
-      const conversationId = state.activeConversationId;
+      const conversationId = options?.conversationId ?? state.activeConversationId;
       if (!conversationId) {
         return { kind: 'rejected', reason: 'no-active-conversation' };
       }
       if (!content.trim() && attachments.length === 0) {
         return { kind: 'rejected', reason: 'invalid-message' };
       }
-      if (state.loading) {
+      if (state.loading && state.activeConversationId === conversationId) {
         return { kind: 'rejected', reason: 'conversation-loading' };
-      }
-      if (isOtherConversationStreaming(state, conversationId)) {
-        return { kind: 'rejected', reason: 'other-conversation-busy' };
       }
       if (!canUseOrdinaryChat(state, conversationId)) {
         return { kind: 'rejected', reason: 'unsupported-mode' };
@@ -269,8 +264,6 @@ export function createConversationQueueActions(
 
     sendQueuedChatMessageNow: async (conversationId, messageId) => {
       const state = get();
-      if (state.activeConversationId !== conversationId) return false;
-      if (isOtherConversationStreaming(state, conversationId)) return false;
       const bucket = state.chatQueueByConversation[conversationId];
       const selected = bucket?.messages.find((message) => message.id === messageId);
       if (!bucket || !selected || bucket.drainingMessageId === messageId) return false;
@@ -352,10 +345,13 @@ export function createConversationQueueActions(
                 && latest.streamingConversationId === conversationId
               );
           if (cancellationStillPending && stillOwnsOriginalStream) {
-            latest.cancelCurrentStream({ skipBackend: true });
+            latest.cancelConversationRun({
+              conversationId,
+              skipBackend: true,
+            });
           }
         } else {
-          get().cancelCurrentStream();
+          get().cancelConversationRun({ conversationId });
         }
         if (!isTauri() && bucket.drainingMessageId) {
           await get().handleChatStreamTerminal(terminalPayload);
@@ -387,12 +383,12 @@ export function createConversationQueueActions(
         || bucket.messages.length === 0
         || bucket.paused
         || bucket.drainingMessageId
-        || state.activeConversationId !== conversationId
-        || state.loading
-        || state.streaming
-        || runtime.pendingConversationRefresh.has(conversationId)
+        || (state.loading && state.activeConversationId === conversationId)
+        || (
+          runtime.pendingConversationRefresh.has(conversationId)
+          && state.activeConversationId === conversationId
+        )
         || isQueueDispatchBusy(state, conversationId)
-        || isOtherConversationStreaming(state, conversationId)
         || !canUseOrdinaryChat(state, conversationId)
       ) {
         return null;
@@ -418,11 +414,13 @@ export function createConversationQueueActions(
           message.content,
           cloneAttachments(message.attachments),
           message.searchProviderId,
+          { conversationId },
         );
       } catch (error) {
         dispatch = Promise.reject(error);
       }
-      const streamId = get().activeStreamId;
+      const streamId = get().runsByConversation[conversationId]?.streamId
+        ?? (get().streamingConversationId === conversationId ? get().activeStreamId : null);
       setQueueBucket(set, conversationId, (current) => current.drainingMessageId === message.id
         ? { ...current, drainingStreamId: streamId }
         : current);
@@ -472,21 +470,29 @@ export function createConversationQueueActions(
       );
       if (!before && (differentActiveStream || differentObservedStream)) return;
 
-      if (get().activeStreamId === payload.stream_id) {
-        set({
-          streaming: false,
-          streamingMessageId: null,
-          streamingConversationId: null,
-          activeStreamId: null,
-          thinkingActiveMessageIds: new Set<string>(),
-        });
-      }
-      if (
-        get().observedStream?.conversationId === payload.conversation_id
-        && get().observedStream?.streamId === payload.stream_id
-      ) {
-        set({ observedStream: null });
-      }
+      set((state) => {
+        const matchingObserved = (
+          state.observedStreamsByConversation?.[payload.conversation_id]?.streamId === payload.stream_id
+          || state.observedStream?.conversationId === payload.conversation_id
+            && state.observedStream.streamId === payload.stream_id
+        );
+        const withoutRun = {
+          ...state,
+          ...clearConversationRun(state, payload.conversation_id, payload.stream_id || undefined),
+        };
+        const withoutObserved = matchingObserved
+          ? {
+            ...withoutRun,
+            ...upsertObservedStream(withoutRun, payload.conversation_id, null),
+          }
+          : withoutRun;
+        return {
+          ...withoutObserved,
+          thinkingActiveMessageIds: state.activeConversationId === payload.conversation_id
+            ? new Set<string>()
+            : state.thinkingActiveMessageIds,
+        };
+      });
       if (expectedStreamId && expectedStreamId !== payload.stream_id) return;
       const queueRelevant = Boolean(before && (
         before.drainingMessageId
@@ -512,10 +518,6 @@ export function createConversationQueueActions(
       }
 
       if (!before || !queueRelevant) {
-        const activeConversationId = get().activeConversationId;
-        if (activeConversationId && activeConversationId !== payload.conversation_id) {
-          void get().drainChatQueue(activeConversationId);
-        }
         return;
       }
 
@@ -573,22 +575,12 @@ export function createConversationQueueActions(
         };
       });
 
-      if (
-        isActiveConversation
-        && terminalSyncReady
-        && terminalClaimed
-        && get().activeConversationId === payload.conversation_id
-        && shouldContinueTerminalQueue
-      ) {
+      if (terminalClaimed && shouldContinueTerminalQueue && terminalSyncReady) {
         if (isTauri()) {
           await get().drainChatQueue(payload.conversation_id);
         } else {
           void get().drainChatQueue(payload.conversation_id);
         }
-      }
-      const activeConversationId = get().activeConversationId;
-      if (activeConversationId && activeConversationId !== payload.conversation_id) {
-        void get().drainChatQueue(activeConversationId);
       }
     },
   } satisfies ConversationQueueActions;

@@ -179,6 +179,7 @@
       "enqueue": "Zur Warteschlange hinzufügen",
       "unsupported": "Die Nachrichtenwarteschlange ist nur im normalen Einzelmodell-Chat verfügbar",
       "otherConversationBusy": "In einer anderen Unterhaltung wird noch eine Nachricht gesendet",
+      "deleteConversationRunFailed": "Die Generierung dieses Gesprächs konnte nicht gestoppt werden, daher wurde es nicht gelöscht",
       "conversationChanged": "Die Unterhaltung wurde vor dem Senden gewechselt; der Entwurf wurde behalten"
     },
     "attachFile": "Datei anhängen",

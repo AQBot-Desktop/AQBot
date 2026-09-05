@@ -108,6 +108,15 @@ impl MultiModelTurnAdapter for ConversationTurnAdapter {
     }
 
     async fn emit_envelope(&self, envelope: MultiModelRunEnvelope) {
+        if envelope.active_run.is_none() {
+            let state = self.state();
+            if let Some(snapshot) = state.conversation_runs.snapshot(&envelope.conversation_id) {
+                state
+                    .conversation_runs
+                    .release(&envelope.conversation_id, &snapshot.run_id);
+                emit_conversation_run_updated(&self.app, &envelope.conversation_id, None);
+            }
+        }
         let _ = self.app.emit("multi-model-run-updated", envelope);
     }
 }
@@ -189,7 +198,26 @@ pub async fn start_multi_model_run(
         interval_seconds: settings.multi_model_sequential_interval_seconds,
     };
     let adapter = ConversationTurnAdapter { app: app.clone() };
-    state.multi_model_runs.start(adapter, start_input).await
+    let run_id = aqbot_core::utils::gen_id();
+    let mut conversation_run_guard = state.conversation_runs.admit(
+        &start_input.conversation_id,
+        &run_id,
+        None,
+        crate::conversation_run::ConversationRunMode::MultiModel,
+    )?;
+    emit_conversation_run_updated(
+        &app,
+        &start_input.conversation_id,
+        state.conversation_runs.snapshot(&start_input.conversation_id),
+    );
+    let started = state.multi_model_runs.start(adapter, start_input).await;
+    match started {
+        Ok(envelope) => {
+            conversation_run_guard.defuse();
+            Ok(envelope)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]

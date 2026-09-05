@@ -58,6 +58,12 @@ describe('conversationStore chat queue', () => {
       };
     });
     invokeMock.mockImplementation((command: string, input?: Record<string, unknown>) => {
+      if (command === 'list_active_conversation_runs') {
+        return Promise.resolve([]);
+      }
+      if (command === 'get_conversation_run_snapshot') {
+        return Promise.resolve(null);
+      }
       if (command === 'get_multi_model_run_snapshot') {
         return Promise.resolve({
           conversationId: String(input?.conversationId ?? 'conv-a'),
@@ -103,6 +109,9 @@ describe('conversationStore chat queue', () => {
       streamingConversationId: null,
       activeStreamId: null,
       observedStream: null,
+      observedStreamsByConversation: {},
+      runsByConversation: {},
+      runWatermarksByConversation: {},
       multiModelTargets: [],
       chatQueueByConversation: {},
       error: null,
@@ -1182,81 +1191,35 @@ describe('conversationStore chat queue', () => {
     expect(sentContents()).toEqual(['wait for remote']);
   });
 
-  it('keeps inactive queues isolated and resumes them only after switching back and refreshing', async () => {
+  it('lets another conversation send while the first conversation keeps generating', async () => {
     const { useConversationStore } = await import('../conversationStore');
     await useConversationStore.getState().submitChatMessage('a-first');
     await useConversationStore.getState().submitChatMessage('a-second');
     const aStreamId = useConversationStore.getState().chatQueueByConversation['conv-a'].drainingStreamId;
 
     useConversationStore.setState({ activeConversationId: 'conv-b', messages: [] });
-    const rejected = await useConversationStore.getState().submitChatMessage('b-draft');
-    expect(rejected).toEqual({ kind: 'rejected', reason: 'other-conversation-busy' });
-    expect(useConversationStore.getState().chatQueueByConversation['conv-b']).toBeUndefined();
+    const startedB = await useConversationStore.getState().submitChatMessage('b-draft');
+    expect(startedB.kind).toBe('started');
+    expect(sentContents()).toEqual(['a-first', 'b-draft']);
+    expect(useConversationStore.getState().runsByConversation['conv-a']).toBeTruthy();
+    expect(useConversationStore.getState().runsByConversation['conv-b']).toBeTruthy();
 
-    useConversationStore.setState((state) => ({
-      chatQueueByConversation: {
-        ...state.chatQueueByConversation,
-        'conv-b': {
-          messages: [{
-            id: 'b-queued',
-            conversationId: 'conv-b',
-            content: 'b-existing',
-            attachments: [],
-            searchProviderId: null,
-            status: 'queued',
-            error: null,
-            createdAt: 1,
-            updatedAt: 1,
-          }],
-          phase: 'waiting',
-          paused: false,
-          pauseReason: null,
-          error: null,
-          drainingMessageId: null,
-          drainingStreamId: null,
-          sendNowMessageId: null,
-        },
-      },
-    }));
-    expect(await useConversationStore.getState().sendQueuedChatMessageNow('conv-b', 'b-queued')).toBe(false);
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'cancel_stream')).toHaveLength(0);
-
-    useConversationStore.setState({
-      streaming: false,
-      streamingMessageId: null,
-      streamingConversationId: null,
-      activeStreamId: null,
-    });
     await emitTerminal({
       conversation_id: 'conv-a',
       message_id: 'assistant-a',
       stream_id: aStreamId!,
       outcome: 'complete',
     });
-
-    expect(sentContents()).toEqual(['a-first']);
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_messages_page')).toHaveLength(0);
-    expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
-      phase: 'ready',
-      messages: [{ content: 'a-second', status: 'queued' }],
-    });
-
-    useConversationStore.setState({
-      streaming: true,
-      streamingMessageId: 'assistant-b',
-      streamingConversationId: 'conv-b',
-      activeStreamId: 'stream-b',
-    });
-    useConversationStore.getState().cancelCurrentStream();
-
-    useConversationStore.getState().setActiveConversation('conv-a');
     await flushPromises();
 
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'list_messages_page')).toHaveLength(1);
-    expect(sentContents()).toEqual(['a-first', 'a-second']);
+    expect(sentContents()).toEqual(['a-first', 'b-draft', 'a-second']);
+    expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
+      phase: 'dispatching',
+      messages: [{ content: 'a-second', status: 'dispatching' }],
+    });
   });
 
-  it('wakes the active ready queue when another conversation reaches terminal', async () => {
+  it('drains the visible conversation queue while another conversation is still generating', async () => {
     const { useConversationStore } = await import('../conversationStore');
     useConversationStore.setState({
       activeConversationId: 'conv-b',
@@ -1264,6 +1227,20 @@ describe('conversationStore chat queue', () => {
       streamingMessageId: 'assistant-a',
       streamingConversationId: 'conv-a',
       activeStreamId: 'stream-a',
+      runsByConversation: {
+        'conv-a': {
+          conversationId: 'conv-a',
+          runId: 'stream-a',
+          streamId: 'stream-a',
+          streamingMessageId: 'assistant-a',
+          phase: 'streaming',
+          mode: 'chat',
+          revision: 1,
+          multiModelParentId: null,
+          pendingCompanionModels: [],
+          multiModelDoneMessageIds: [],
+        },
+      },
       chatQueueByConversation: {
         'conv-b': {
           messages: [{
@@ -1288,12 +1265,7 @@ describe('conversationStore chat queue', () => {
       },
     });
 
-    await useConversationStore.getState().handleChatStreamTerminal({
-      conversation_id: 'conv-a',
-      message_id: 'assistant-a',
-      stream_id: 'stream-a',
-      outcome: 'complete',
-    });
+    await useConversationStore.getState().drainChatQueue('conv-b');
     await flushPromises();
 
     expect(sentContents()).toEqual(['b-ready-message']);
@@ -1303,7 +1275,7 @@ describe('conversationStore chat queue', () => {
     });
   });
 
-  it('keeps a ready queue blocked while another conversation is observed streaming', async () => {
+  it('does not block a ready queue because another conversation is observed streaming', async () => {
     const { useConversationStore } = await import('../conversationStore');
     useConversationStore.setState({
       activeConversationId: 'conv-b',
@@ -1341,16 +1313,6 @@ describe('conversationStore chat queue', () => {
     });
 
     await useConversationStore.getState().drainChatQueue('conv-b');
-    expect(sentContents()).toEqual([]);
-
-    await useConversationStore.getState().handleChatStreamTerminal({
-      conversation_id: 'conv-a',
-      message_id: 'remote-assistant-a',
-      stream_id: 'remote-a',
-      outcome: 'complete',
-    });
-    await flushPromises();
-
     expect(sentContents()).toEqual(['wait for remote a']);
   });
 
