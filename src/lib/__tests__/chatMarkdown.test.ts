@@ -109,6 +109,27 @@ UI -> App: 携带token访问
     expect(serialized).toContain('<html-render><div>draft');
   });
 
+  it('keeps a tool-call summary that ends with a Windows path backslash', () => {
+    const summary = 'C:\\';
+    const nodes = parseChatMarkdown(
+      `<tool-call data-aqbot="1" id="a" name="Bash">${summary}</tool-call>\n\n## 标题\n\n1. 内容`,
+    );
+
+    expect(nodes.some((node) => node.type === 'tool-call' && (node as { content?: string }).content === summary)).toBe(true);
+    expect(nodes.some((node) => node.type === 'heading' && (node as { text?: string }).text === '标题')).toBe(true);
+    expect(JSON.stringify(nodes)).toContain('内容');
+  });
+
+  it('does not treat dollar amounts in a market sentence as math', () => {
+    const nodes = parseChatMarkdown('本周从 $4,713高点回落约 **6%**，目前 $4,365');
+    const serialized = JSON.stringify(nodes);
+
+    expect(serialized).not.toContain('"type":"math_inline"');
+    expect(serialized).toContain('$4,713');
+    expect(serialized).toContain('$4,365');
+    expect(serialized).toContain('6%');
+  });
+
   it('strips think and aqbot-only tags when preparing export-safe transcript text', () => {
     const cleaned = stripAqbotTags(`Final answer
 <think>Hidden reasoning</think>

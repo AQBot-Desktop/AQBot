@@ -38,6 +38,22 @@ function getInlineToolIcon(toolName: string): React.ReactNode {
   return <Zap size={14} />;
 }
 
+function decodeXmlTextEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function summaryFromToolCallNode(node: { content?: string; children?: unknown }): string {
+  const raw = String(node.content ?? '');
+  if ('children' in node) return raw;
+  return decodeXmlTextEntities(raw);
+}
+
 const toolCallStatusColors: Record<string, string> = {
   queued: '#faad14',
   running: '#1890ff',
@@ -77,7 +93,7 @@ export function AcpToolCallNode(props: NodeComponentProps<{
   const [expanded, setExpanded] = useState(false);
 
   const toolName = getCustomAttr(node.attrs, 'name') ?? tc?.toolName ?? 'tool';
-  const summary = String(node.content ?? '');
+  const summary = summaryFromToolCallNode(node);
 
   // Legacy history can contain a marker without persisted tool metadata. Do
   // not claim success when the actual terminal state is unknown.
