@@ -170,4 +170,42 @@ describe('AcpToolCallNode', () => {
     expect(screen.getByText('拒绝回答')).toBeInTheDocument();
     expect(screen.queryByText('aqbot:questionnaire:declined')).not.toBeInTheDocument();
   });
+
+  it('decodes XML entities once for a raw block summary', () => {
+    const props = {
+      node: {
+        type: 'tool-call',
+        content: 'ls &amp;amp; echo &quot;ok&quot;',
+        attrs: { id: 'tool-7', message: 'assistant-1', name: 'terminal' },
+      },
+    } as unknown as ComponentProps<typeof AcpToolCallNode>;
+
+    render(
+      <App>
+        <AcpToolCallNode {...props} />
+      </App>,
+    );
+
+    expect(screen.getByText(/ls &amp; echo "ok"/)).toBeInTheDocument();
+  });
+
+  it('does not re-decode an inline summary that already has children', () => {
+    const props = {
+      node: {
+        type: 'tool-call',
+        content: 'ls &amp; echo',
+        children: [{ type: 'text', content: 'ls &amp; echo', raw: 'ls &amp; echo' }],
+        attrs: { id: 'tool-7', message: 'assistant-1', name: 'terminal' },
+      },
+    } as unknown as ComponentProps<typeof AcpToolCallNode>;
+
+    render(
+      <App>
+        <AcpToolCallNode {...props} />
+      </App>,
+    );
+
+    expect(screen.getByText(/ls &amp; echo/)).toBeInTheDocument();
+    expect(screen.queryByText(/ls & echo/)).not.toBeInTheDocument();
+  });
 });
