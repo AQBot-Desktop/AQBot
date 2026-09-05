@@ -255,12 +255,23 @@ export interface SelectionToolbarCaptureError {
 export type SelectionToolbarToolRunMode = 'new_tool' | 'follow_up' | 'regenerate';
 export type SelectionToolbarTerminalRunStatus = 'completed' | 'stopped' | 'error';
 
+export interface SelectionToolbarModelTarget {
+  provider_id: string;
+  model_id: string;
+}
+
+export interface SelectionToolbarRunReceipt {
+  request_id: string;
+  model_target: SelectionToolbarModelTarget;
+}
+
 export interface SelectionToolbarRunView {
   request_id: string;
   selection_id: string;
   tool_id: string;
   mode: SelectionToolbarToolRunMode;
   user_input: string | null;
+  model_target?: SelectionToolbarModelTarget | null;
   status: 'started' | 'streaming' | 'completed' | 'stopped' | 'error';
   output: string;
   error: string | null;
@@ -270,6 +281,7 @@ export interface SelectionToolbarHistoryItem {
   request_id: string;
   mode: SelectionToolbarToolRunMode;
   user_input: string | null;
+  model_target?: SelectionToolbarModelTarget | null;
   status: SelectionToolbarTerminalRunStatus;
   output: string;
   error: string | null;
@@ -291,6 +303,7 @@ export type SelectionToolbarRunEvent =
       tool_id: string;
       mode: SelectionToolbarToolRunMode;
       user_input: string | null;
+      model_target?: SelectionToolbarModelTarget | null;
     }
   | { kind: 'delta'; request_id: string; selection_id: string; delta: string }
   | { kind: 'completed'; request_id: string; selection_id: string; output?: string | null }

@@ -18,7 +18,10 @@ use tauri::{AppHandle, Emitter};
 
 use crate::AppState;
 
-use super::{SurfaceSize, ToolRunEvent, SELECTION_TOOLBAR_WINDOW_LABEL};
+use super::{
+    ModelTarget, SurfaceSize, ToolExecutionConfig, ToolRunEvent, ToolRunReceipt, ToolbarInputKind,
+    ToolbarInputView, SELECTION_TOOLBAR_WINDOW_LABEL,
+};
 
 /// Per-run overrides supplied by the toolbar UI (currently the translate
 /// panel's language pickers). All fields optional so older frontends and
@@ -37,6 +40,10 @@ pub struct ToolRunOptions {
     /// Instructions outside the source content, sent in the same first request.
     #[serde(default)]
     pub user_input: Option<String>,
+    /// Optional model override for this run only. Omitted requests keep the
+    /// tool default on first send, or the current transcript config later.
+    #[serde(default)]
+    pub model_target: Option<ModelTarget>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,7 +64,7 @@ pub async fn execute_tool(
     selection_id: &str,
     tool_id: &str,
     options: ToolRunOptions,
-) -> Result<String, String> {
+) -> Result<ToolRunReceipt, String> {
     let settings = settings_repo::get_settings(&state.sea_db)
         .await
         .map_err(|error| error.to_string())?;
@@ -65,15 +72,7 @@ pub async fn execute_tool(
     if !settings.selection_toolbar.enabled {
         return Err("Selection toolbar is disabled".into());
     }
-    let ai = settings
-        .selection_toolbar
-        .tools
-        .iter()
-        .find(|tool| tool.id() == tool_id)
-        .filter(|tool| tool.enabled())
-        .and_then(|tool| tool.ai())
-        .cloned()
-        .ok_or_else(|| "The requested selection toolbar AI tool is unavailable".to_string())?;
+    let ai = ai_config_for_tool(&settings, tool_id)?;
     let input = state.selection_toolbar.input(selection_id).await?;
     let selection = input.source_text(options.source_text.as_deref())?;
     let prompt = render_prompt(
@@ -81,16 +80,115 @@ pub async fn execute_tool(
         selection,
         &resolve_languages(&options, &settings),
     );
-    let (configured_provider_id, model_id) = match resolve_model_target(&ai, &settings)? {
-        Some(target) => target,
-        // No tool-level or global default model: inherit the model of the most
-        // recently active conversation instead of failing outright.
-        None => conversation_repo::most_recent_conversation_model(&state.sea_db)
-            .await
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| {
-                "No default Chat model is configured and there is no recent conversation to inherit one from".to_string()
-            })?,
+    let config = resolve_execution_config(
+        state,
+        &ai,
+        &settings,
+        options.model_target.as_ref(),
+        input.kind(),
+    )
+    .await?;
+    let prepared = state
+        .selection_toolbar
+        .begin_new_tool_run(
+            selection_id,
+            tool_id,
+            config,
+            super::InitialToolInput {
+                content: input.content(prompt),
+                user_input: options
+                    .user_input
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string),
+            },
+        )
+        .await?;
+    launch_run(app, state, prepared).await
+}
+
+fn validate_input_capability(
+    kind: ToolbarInputKind,
+    capabilities: &[ModelCapability],
+) -> Result<(), String> {
+    if kind == ToolbarInputKind::Screenshot && !capabilities.contains(&ModelCapability::Vision) {
+        return Err("selection_toolbar_vision_required".into());
+    }
+    Ok(())
+}
+
+fn ai_config_for_tool(
+    settings: &AppSettings,
+    tool_id: &str,
+) -> Result<SelectionToolbarAiConfig, String> {
+    settings
+        .selection_toolbar
+        .tools
+        .iter()
+        .find(|tool| tool.id() == tool_id)
+        .filter(|tool| tool.enabled())
+        .and_then(|tool| tool.ai())
+        .cloned()
+        .ok_or_else(|| "The requested selection toolbar AI tool is unavailable".to_string())
+}
+
+fn validate_model_target(target: &ModelTarget) -> Result<(), String> {
+    if target.provider_id.trim().is_empty() || target.model_id.trim().is_empty() {
+        return Err("Selection toolbar provider and model must be configured together".into());
+    }
+    Ok(())
+}
+
+fn chat_request_with_params(model_id: String, params: EffectiveParams) -> ChatRequest {
+    ChatRequest {
+        model: model_id,
+        messages: Vec::new(),
+        stream: true,
+        temperature: params.temperature,
+        top_p: params.top_p,
+        max_tokens: params.max_tokens,
+        tools: None,
+        thinking_budget: None,
+        thinking_level: params.thinking_level,
+        reasoning_profile: params.reasoning_profile,
+        use_max_completion_tokens: params.use_max_completion_tokens,
+        thinking_param_style: params.thinking_param_style,
+        extra_body: params.extra_body,
+    }
+}
+
+fn same_execution_model(left: &ToolExecutionConfig, right: &ToolExecutionConfig) -> bool {
+    left.provider_id == right.provider_id && left.request.model == right.request.model
+}
+
+fn input_kind_from_view(view: &ToolbarInputView) -> ToolbarInputKind {
+    match view {
+        ToolbarInputView::Text { .. } => ToolbarInputKind::Text,
+        ToolbarInputView::Screenshot { .. } => ToolbarInputKind::Screenshot,
+    }
+}
+
+async fn resolve_execution_config(
+    state: &AppState,
+    ai: &SelectionToolbarAiConfig,
+    settings: &AppSettings,
+    target: Option<&ModelTarget>,
+    input_kind: ToolbarInputKind,
+) -> Result<ToolExecutionConfig, String> {
+    let (configured_provider_id, model_id) = if let Some(target) = target {
+        validate_model_target(target)?;
+        (target.provider_id.clone(), target.model_id.clone())
+    } else {
+        match resolve_model_target(ai, settings)? {
+            Some(pair) => pair,
+            None => conversation_repo::most_recent_conversation_model(&state.sea_db)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    "No default Chat model is configured and there is no recent conversation to inherit one from".to_string()
+                })?,
+        }
     };
     let provider_id = provider::resolve_provider_id(&state.sea_db, &configured_provider_id)
         .await
@@ -110,61 +208,43 @@ pub async fn execute_tool(
     if model.model_type != ModelType::Chat {
         return Err(format!("Model {} does not support Chat", model.name));
     }
-    validate_input_capability(input.kind(), &model.capabilities)?;
+    validate_input_capability(input_kind, &model.capabilities)?;
     let params = resolve_effective_params(
-        &ai,
-        &settings,
+        ai,
+        settings,
         model.param_overrides.as_ref(),
         model.max_output_tokens,
     );
-    let request = ChatRequest {
-        model: model_id,
-        messages: Vec::new(),
-        stream: true,
-        temperature: params.temperature,
-        top_p: params.top_p,
-        max_tokens: params.max_tokens,
-        tools: None,
-        thinking_budget: None,
-        thinking_level: params.thinking_level,
-        reasoning_profile: params.reasoning_profile,
-        use_max_completion_tokens: params.use_max_completion_tokens,
-        thinking_param_style: params.thinking_param_style,
-        extra_body: params.extra_body,
-    };
-    let prepared = state
-        .selection_toolbar
-        .begin_new_tool_run(
-            selection_id,
-            tool_id,
-            super::ToolExecutionConfig {
-                provider_id,
-                request,
-            },
-            super::InitialToolInput {
-                content: input.content(prompt),
-                user_input: options
-                    .user_input
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string),
-            },
-        )
-        .await?;
-    launch_run(app, state, prepared).await
+    Ok(ToolExecutionConfig {
+        provider_id,
+        request: chat_request_with_params(model_id, params),
+    })
 }
 
-fn validate_input_capability(
-    kind: super::ToolbarInputKind,
-    capabilities: &[ModelCapability],
-) -> Result<(), String> {
-    if kind == super::ToolbarInputKind::Screenshot
-        && !capabilities.contains(&ModelCapability::Vision)
-    {
-        return Err("selection_toolbar_vision_required".into());
+async fn resolve_continued_config(
+    state: &AppState,
+    tool_id: &str,
+    current: &ToolExecutionConfig,
+    target: Option<&ModelTarget>,
+    input_kind: ToolbarInputKind,
+) -> Result<Option<ToolExecutionConfig>, String> {
+    let Some(target) = target else {
+        return Ok(None);
+    };
+    let settings = settings_repo::get_settings(&state.sea_db)
+        .await
+        .map_err(|error| error.to_string())?;
+    settings.selection_toolbar.validate()?;
+    if !settings.selection_toolbar.enabled {
+        return Err("Selection toolbar is disabled".into());
     }
-    Ok(())
+    let ai = ai_config_for_tool(&settings, tool_id)?;
+    let resolved =
+        resolve_execution_config(state, &ai, &settings, Some(target), input_kind).await?;
+    if same_execution_model(current, &resolved) {
+        return Ok(None);
+    }
+    Ok(Some(resolved))
 }
 
 pub async fn follow_up(
@@ -172,14 +252,33 @@ pub async fn follow_up(
     state: &AppState,
     selection_id: &str,
     text: &str,
-) -> Result<String, String> {
+    model_target: Option<ModelTarget>,
+) -> Result<ToolRunReceipt, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("Follow-up text cannot be empty".into());
     }
+    let kind = input_kind_from_view(&state.selection_toolbar.input_view(selection_id).await?);
+    let identity = state
+        .selection_toolbar
+        .transcript_run_state(selection_id)
+        .await?;
+    let config = resolve_continued_config(
+        state,
+        &identity.tool_id,
+        &identity.config,
+        model_target.as_ref(),
+        kind,
+    )
+    .await?;
     let prepared = state
         .selection_toolbar
-        .begin_follow_up_run(selection_id, text.to_string())
+        .begin_follow_up_run(
+            selection_id,
+            text.to_string(),
+            Some(identity.tool_id.as_str()),
+            config,
+        )
         .await?;
     launch_run(app, state, prepared).await
 }
@@ -189,10 +288,29 @@ pub async fn regenerate(
     state: &AppState,
     selection_id: &str,
     request_id: &str,
-) -> Result<String, String> {
+    model_target: Option<ModelTarget>,
+) -> Result<ToolRunReceipt, String> {
+    let kind = input_kind_from_view(&state.selection_toolbar.input_view(selection_id).await?);
+    let identity = state
+        .selection_toolbar
+        .transcript_run_state(selection_id)
+        .await?;
+    let config = resolve_continued_config(
+        state,
+        &identity.tool_id,
+        &identity.config,
+        model_target.as_ref(),
+        kind,
+    )
+    .await?;
     let prepared = state
         .selection_toolbar
-        .begin_regenerate_run(selection_id, request_id)
+        .begin_regenerate_run(
+            selection_id,
+            request_id,
+            Some(identity.tool_id.as_str()),
+            config,
+        )
         .await?;
     launch_run(app, state, prepared).await
 }
@@ -201,8 +319,9 @@ async fn launch_run(
     app: &AppHandle,
     state: &AppState,
     prepared: super::PreparedToolRun,
-) -> Result<String, String> {
+) -> Result<ToolRunReceipt, String> {
     let request_id = prepared.request_id.clone();
+    let model_target = ModelTarget::from_config(&prepared.config);
     if let Err(error) = state
         .selection_toolbar
         .set_surface(app, SurfaceSize::Result, None)
@@ -222,6 +341,7 @@ async fn launch_run(
             tool_id: prepared.tool_id.clone(),
             mode: prepared.mode,
             user_input: prepared.user_input.clone(),
+            model_target: Some(model_target.clone()),
         },
     );
     let selection_id = prepared.selection_id.clone();
@@ -243,7 +363,10 @@ async fn launch_run(
                 error,
             )
             .await;
-            return Ok(request_id);
+            return Ok(ToolRunReceipt {
+                request_id,
+                model_target,
+            });
         }
     };
 
@@ -356,7 +479,10 @@ async fn launch_run(
             complete_run(&app, &runtime, &request_id_for_task, &selection_id, &think).await;
         }
     });
-    Ok(request_id)
+    Ok(ToolRunReceipt {
+        request_id,
+        model_target,
+    })
 }
 
 async fn resolve_run_transport(
@@ -890,6 +1016,20 @@ mod tests {
 
         ai.provider_id = Some("provider-only".into());
         assert!(resolve_model_target(&ai, &settings).is_err());
+    }
+
+    #[test]
+    fn tool_run_options_accept_an_optional_model_target() {
+        let options: super::ToolRunOptions = serde_json::from_str(
+            r#"{"model_target":{"provider_id":"provider-b","model_id":"model-b"}}"#,
+        )
+        .unwrap();
+        let target = options.model_target.unwrap();
+        assert_eq!(target.provider_id, "provider-b");
+        assert_eq!(target.model_id, "model-b");
+
+        let empty: super::ToolRunOptions = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.model_target, None);
     }
 
     #[test]

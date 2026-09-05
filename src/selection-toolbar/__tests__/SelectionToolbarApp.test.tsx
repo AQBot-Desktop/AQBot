@@ -44,6 +44,11 @@ const tools = Array.from({ length: 7 }, (_, index) => ({
   icon: 'sparkles',
 }));
 
+vi.mock('../SelectionToolbarModelSelect', () => ({
+  SelectionToolbarModelSelect: () => <div data-testid="selection-toolbar-model-select" />,
+  SelectionToolbarTurnModel: () => null,
+}));
+
 vi.mock('@/stores/selectionToolbarStore', () => ({
   useSelectionToolbarStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector(storeState),
@@ -136,6 +141,8 @@ describe('SelectionToolbarApp', () => {
       error: null,
       pendingRequest: null,
       lastSubmission: null,
+      selectedModelTarget: null,
+      selectModelTarget: vi.fn(),
       captureError: null,
       translateSource: 'auto',
       translateTarget: null,
@@ -558,6 +565,7 @@ describe('SelectionToolbarApp', () => {
     const { container } = render(<SelectionToolbarApp />);
 
     const actions = container.querySelector('.selection-toolbar__result-actions');
+    expect(screen.getByTestId('selection-toolbar-model-select')).toBeInTheDocument();
     const stopButton = screen.getByRole('button', { name: 'chat.stop' });
     const closeButton = screen.getByRole('button', { name: 'common.close' });
     expect(actions).toContainElement(stopButton);

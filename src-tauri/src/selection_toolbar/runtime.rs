@@ -189,12 +189,35 @@ pub enum ToolRunMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelTarget {
+    pub provider_id: String,
+    pub model_id: String,
+}
+
+impl ModelTarget {
+    pub(crate) fn from_config(config: &ToolExecutionConfig) -> Self {
+        Self {
+            provider_id: config.provider_id.clone(),
+            model_id: config.request.model.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolRunReceipt {
+    pub request_id: String,
+    pub model_target: ModelTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolRunView {
     pub request_id: String,
     pub selection_id: String,
     pub tool_id: String,
     pub mode: ToolRunMode,
     pub user_input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_target: Option<ModelTarget>,
     pub status: ToolRunStatus,
     pub output: String,
     pub error: Option<String>,
@@ -213,6 +236,8 @@ pub struct ToolRunHistoryView {
     pub request_id: String,
     pub mode: ToolRunMode,
     pub user_input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_target: Option<ModelTarget>,
     pub status: ToolRunHistoryStatus,
     pub output: String,
     pub error: Option<String>,
@@ -246,6 +271,8 @@ pub enum ToolRunEvent {
         tool_id: String,
         mode: ToolRunMode,
         user_input: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model_target: Option<ModelTarget>,
     },
     Delta {
         request_id: String,
@@ -289,6 +316,12 @@ pub(crate) struct PreparedToolRun {
     pub config: ToolExecutionConfig,
     pub mode: ToolRunMode,
     pub user_input: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct TranscriptRunState {
+    pub tool_id: String,
+    pub config: ToolExecutionConfig,
 }
 
 struct ActiveSelection {
@@ -491,22 +524,55 @@ impl RuntimeStore {
         self.prepare_run(ToolRunMode::NewTool, initial.user_input, None)
     }
 
+    pub(crate) fn transcript_run_state(
+        &self,
+        selection_id: &str,
+    ) -> Result<TranscriptRunState, String> {
+        self.require_selection(selection_id)?;
+        self.require_idle_run()?;
+        let transcript = self.require_transcript(selection_id)?;
+        Ok(TranscriptRunState {
+            tool_id: transcript.tool_id.clone(),
+            config: transcript.config.clone(),
+        })
+    }
+
     pub(crate) fn begin_follow_up_run(
         &mut self,
         selection_id: &str,
         text: String,
     ) -> Result<PreparedToolRun, String> {
+        self.begin_follow_up_run_with_override(selection_id, text, None, None)
+    }
+
+    pub(crate) fn begin_follow_up_run_with_override(
+        &mut self,
+        selection_id: &str,
+        text: String,
+        expected_tool_id: Option<&str>,
+        config: Option<ToolExecutionConfig>,
+    ) -> Result<PreparedToolRun, String> {
         self.require_selection(selection_id)?;
         self.require_idle_run()?;
-        let transcript = self.require_transcript(selection_id)?;
-        let latest = transcript.turns.last().filter(|turn| {
-            matches!(
-                turn.view.status,
-                ToolRunHistoryStatus::Completed | ToolRunHistoryStatus::Stopped
-            ) && turn.context_output.is_some()
-        });
-        if latest.is_none() {
-            return Err("There is no completed selection toolbar answer to follow up".into());
+        {
+            let transcript = self.require_transcript(selection_id)?;
+            if expected_tool_id.is_some_and(|tool_id| transcript.tool_id != tool_id) {
+                return Err("The selection toolbar conversation changed".into());
+            }
+            let latest = transcript.turns.last().filter(|turn| {
+                matches!(
+                    turn.view.status,
+                    ToolRunHistoryStatus::Completed | ToolRunHistoryStatus::Stopped
+                ) && turn.context_output.is_some()
+            });
+            if latest.is_none() {
+                return Err("There is no completed selection toolbar answer to follow up".into());
+            }
+        }
+        if let Some(config) = config {
+            if let Some(transcript) = self.transcript.as_mut() {
+                transcript.config = config;
+            }
         }
         self.prepare_run(ToolRunMode::FollowUp, Some(text), None)
     }
@@ -516,23 +582,39 @@ impl RuntimeStore {
         selection_id: &str,
         request_id: &str,
     ) -> Result<PreparedToolRun, String> {
+        self.begin_regenerate_run_with_override(selection_id, request_id, None, None)
+    }
+
+    pub(crate) fn begin_regenerate_run_with_override(
+        &mut self,
+        selection_id: &str,
+        request_id: &str,
+        expected_tool_id: Option<&str>,
+        config: Option<ToolExecutionConfig>,
+    ) -> Result<PreparedToolRun, String> {
         self.require_selection(selection_id)?;
         self.require_idle_run()?;
-        let transcript = self.require_transcript(selection_id)?;
-        let last_index = transcript
-            .turns
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| "There is no selection toolbar answer to regenerate".to_string())?;
-        let turn = &transcript.turns[last_index];
-        if turn.view.request_id != request_id {
-            return Err("Only the latest selection toolbar answer can be regenerated".into());
+        let (user_input, last_index) = {
+            let transcript = self.require_transcript(selection_id)?;
+            if expected_tool_id.is_some_and(|tool_id| transcript.tool_id != tool_id) {
+                return Err("The selection toolbar conversation changed".into());
+            }
+            let last_index =
+                transcript.turns.len().checked_sub(1).ok_or_else(|| {
+                    "There is no selection toolbar answer to regenerate".to_string()
+                })?;
+            let turn = &transcript.turns[last_index];
+            if turn.view.request_id != request_id {
+                return Err("Only the latest selection toolbar answer can be regenerated".into());
+            }
+            (turn.view.user_input.clone(), last_index)
+        };
+        if let Some(config) = config {
+            if let Some(transcript) = self.transcript.as_mut() {
+                transcript.config = config;
+            }
         }
-        self.prepare_run(
-            ToolRunMode::Regenerate,
-            turn.view.user_input.clone(),
-            Some(last_index),
-        )
+        self.prepare_run(ToolRunMode::Regenerate, user_input, Some(last_index))
     }
 
     pub fn append_delta(&mut self, request_id: &str, delta: &str) -> bool {
@@ -713,6 +795,7 @@ impl RuntimeStore {
                 tool_id: transcript.tool_id.clone(),
                 mode,
                 user_input: user_input.clone(),
+                model_target: Some(ModelTarget::from_config(&config)),
                 status: ToolRunStatus::Started,
                 output: String::new(),
                 error: None,
@@ -783,6 +866,7 @@ impl RuntimeStore {
                 request_id: run.view.request_id.clone(),
                 mode: run.view.mode,
                 user_input: run.view.user_input.clone(),
+                model_target: run.view.model_target.clone(),
                 status,
                 output: run.view.output.clone(),
                 error: run.view.error.clone(),
@@ -1328,6 +1412,94 @@ mod tests {
         assert_eq!(history[1].status, ToolRunHistoryStatus::Completed);
         assert_eq!(history[1].user_input.as_deref(), Some("More detail"));
         assert_eq!(history[1].output, "new detail");
+        assert_eq!(
+            history[1]
+                .model_target
+                .as_ref()
+                .map(|target| target.model_id.as_str()),
+            Some("model-stable")
+        );
+    }
+
+    #[test]
+    fn follow_up_and_regenerate_can_replace_transcript_config_after_identity_check() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let selection_id = store.accept_selection(
+            selected("text"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Below,
+            false,
+        );
+        let first = begin_new(&mut store, &selection_id);
+        assert!(store.append_delta(&first.request_id, "first answer"));
+        assert!(store.complete_run(&first.request_id));
+        assert_eq!(
+            store
+                .snapshot()
+                .run
+                .as_ref()
+                .and_then(|run| run.model_target.as_ref())
+                .map(|target| target.model_id.as_str()),
+            Some("model-stable")
+        );
+
+        let switched = store
+            .begin_follow_up_run_with_override(
+                &selection_id,
+                "Why?".into(),
+                Some("summarize"),
+                Some(ToolExecutionConfig {
+                    provider_id: "provider-new".into(),
+                    request: ChatRequest {
+                        model: "model-new".into(),
+                        temperature: Some(0.1),
+                        ..execution_config().request
+                    },
+                }),
+            )
+            .unwrap();
+        assert_eq!(switched.config.provider_id, "provider-new");
+        assert_eq!(switched.config.request.model, "model-new");
+        assert_eq!(switched.config.request.temperature, Some(0.1));
+        assert_eq!(
+            switched.config.request.messages.last().map(message_text),
+            Some("Why?")
+        );
+        assert!(store.append_delta(&switched.request_id, "new model answer"));
+        assert!(store.complete_run(&switched.request_id));
+
+        let rejected = store.begin_follow_up_run_with_override(
+            &selection_id,
+            "stale".into(),
+            Some("translate"),
+            None,
+        );
+        assert!(rejected.is_err());
+
+        let regenerated = store
+            .begin_regenerate_run_with_override(
+                &selection_id,
+                &switched.request_id,
+                Some("summarize"),
+                Some(ToolExecutionConfig {
+                    provider_id: "provider-retry".into(),
+                    request: ChatRequest {
+                        model: "model-retry".into(),
+                        ..execution_config().request
+                    },
+                }),
+            )
+            .unwrap();
+        assert_eq!(regenerated.config.provider_id, "provider-retry");
+        assert_eq!(regenerated.config.request.model, "model-retry");
+        assert_eq!(
+            regenerated.config.request.messages.last().map(message_text),
+            Some("Why?")
+        );
     }
 
     #[test]

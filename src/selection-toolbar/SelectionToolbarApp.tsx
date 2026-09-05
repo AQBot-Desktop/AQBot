@@ -47,6 +47,10 @@ import {
   getChatCodeThemes,
 } from '@/components/chat/chatMarkdownShared';
 import { closeStreamingThinkBlock } from '@/components/chat/chatStreaming';
+import {
+  SelectionToolbarModelSelect,
+  SelectionToolbarTurnModel,
+} from './SelectionToolbarModelSelect';
 import './selectionToolbar.css';
 
 // Same registration shape as the chat window so <think> reasoning blocks
@@ -421,6 +425,7 @@ function ResultTurnContent({
           <div className="selection-toolbar__waiting">{t('chat.thinkingInProgress')}</div>
         )}
         {turn.error && <div className="selection-toolbar__error">{executionErrorMessage(turn.error, t)}</div>}
+        <SelectionToolbarTurnModel target={turn.model_target} />
       </div>
     </article>
   );
@@ -510,6 +515,7 @@ function ResultSurface() {
             {streaming && <Spin size="small" />}
             <span>{title}</span>
           </div>
+          <SelectionToolbarModelSelect />
           <div className="selection-toolbar__result-actions">
             <Button
               aria-label={pinLabel}

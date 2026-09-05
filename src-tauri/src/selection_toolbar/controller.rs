@@ -627,26 +627,41 @@ impl SelectionToolbarRuntime {
             .begin_new_tool_run(selection_id, tool_id, config, initial)
     }
 
+    pub(crate) async fn transcript_run_state(
+        &self,
+        selection_id: &str,
+    ) -> Result<super::TranscriptRunState, String> {
+        self.store.lock().await.transcript_run_state(selection_id)
+    }
+
     pub(crate) async fn begin_follow_up_run(
         &self,
         selection_id: &str,
         text: String,
+        expected_tool_id: Option<&str>,
+        config: Option<ToolExecutionConfig>,
     ) -> Result<PreparedToolRun, String> {
-        self.store
-            .lock()
-            .await
-            .begin_follow_up_run(selection_id, text)
+        self.store.lock().await.begin_follow_up_run_with_override(
+            selection_id,
+            text,
+            expected_tool_id,
+            config,
+        )
     }
 
     pub(crate) async fn begin_regenerate_run(
         &self,
         selection_id: &str,
         request_id: &str,
+        expected_tool_id: Option<&str>,
+        config: Option<ToolExecutionConfig>,
     ) -> Result<PreparedToolRun, String> {
-        self.store
-            .lock()
-            .await
-            .begin_regenerate_run(selection_id, request_id)
+        self.store.lock().await.begin_regenerate_run_with_override(
+            selection_id,
+            request_id,
+            expected_tool_id,
+            config,
+        )
     }
 
     pub async fn append_delta(&self, request_id: &str, delta: &str) -> bool {

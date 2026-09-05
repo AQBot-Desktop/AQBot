@@ -3,7 +3,7 @@ import { Select } from 'antd';
 import { ModelIcon } from '@lobehub/icons';
 import { useProviderStore } from '@/stores';
 import { SmartProviderIcon } from '@/lib/providerIcons';
-import type { ModelType } from '@/types';
+import type { ModelCapability, ModelType } from '@/types';
 
 /** Class applied to every model Select for shared alignment / open-state styles. */
 export const MODEL_SELECT_CLASS = 'aqbot-model-select';
@@ -17,13 +17,17 @@ export function parseModelValue(value: string | undefined) {
 }
 
 /** Hook: returns grouped Select options (Provider → Models) */
-export function useGroupedModelOptions(modelType?: ModelType) {
+export function useGroupedModelOptions(modelType?: ModelType, requiredCapability?: ModelCapability) {
   const providers = useProviderStore((s) => s.providers);
   return useMemo(() => {
     return providers
       .filter((p) => p.enabled)
       .map((p) => {
-        const models = p.models.filter((m) => m.enabled && (!modelType || m.model_type === modelType));
+        const models = p.models.filter((m) => (
+          m.enabled
+          && (!modelType || m.model_type === modelType)
+          && (!requiredCapability || m.capabilities.includes(requiredCapability))
+        ));
         if (models.length === 0) return null;
         return {
           label: (
@@ -42,7 +46,7 @@ export function useGroupedModelOptions(modelType?: ModelType) {
         };
       })
       .filter((option): option is NonNullable<typeof option> => option !== null);
-  }, [providers, modelType]);
+  }, [providers, modelType, requiredCapability]);
 }
 
 /** Hook: returns Map<providerId, providerName> */

@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { invoke, listen, type UnlistenFn } from '@/lib/invoke';
 import type {
   SelectionToolbarHistoryItem,
+  SelectionToolbarModelTarget,
   SelectionToolbarRunEvent,
+  SelectionToolbarRunReceipt,
   SelectionToolbarRunView,
   SelectionToolbarRuntimeStatus,
   SelectionToolbarSessionView,
@@ -12,6 +14,24 @@ import type {
   SelectionToolbarInput,
   SelectionToolbarCaptureError,
 } from '@/types';
+
+const FRONTEND_ERROR_PREFIX = 'frontend-error-';
+
+function isFrontendErrorRequestId(requestId: string): boolean {
+  return requestId.startsWith(FRONTEND_ERROR_PREFIX);
+}
+
+function sameModelTarget(
+  left: SelectionToolbarModelTarget | null | undefined,
+  right: SelectionToolbarModelTarget | null | undefined,
+): boolean {
+  return Boolean(
+    left
+    && right
+    && left.provider_id === right.provider_id
+    && left.model_id === right.model_id,
+  );
+}
 
 const EMPTY_RUNTIME: SelectionToolbarRuntimeStatus = {
   state: 'disabled',
@@ -67,6 +87,7 @@ interface SelectionToolbarState {
   error: string | null;
   pendingRequest: SelectionToolbarInitialRequest | null;
   lastSubmission: SelectionToolbarInitialRequest | null;
+  selectedModelTarget: SelectionToolbarModelTarget | null;
   captureError: SelectionToolbarCaptureError | null;
   /** Translate panel source language; 'auto' means auto-detect. */
   translateSource: string;
@@ -84,6 +105,7 @@ interface SelectionToolbarState {
   ) => Promise<boolean>;
   clearCaptureError: () => Promise<void>;
   setTranslateLanguages: (source: string, target: string) => Promise<void>;
+  selectModelTarget: (target: SelectionToolbarModelTarget) => void;
   followUp: (text: string) => Promise<boolean>;
   stop: () => Promise<void>;
   copyResult: () => Promise<void>;
@@ -105,6 +127,7 @@ function historyItemFromRun(run: SelectionToolbarRunView | null): SelectionToolb
     request_id: run.request_id,
     mode: run.mode,
     user_input: run.user_input,
+    model_target: run.model_target ?? null,
     status: run.status,
     output: run.output,
     error: run.error,
@@ -144,6 +167,7 @@ function startRun(
       tool_id: event.tool_id,
       mode: event.mode,
       user_input: event.user_input,
+      model_target: event.model_target ?? null,
       status: 'started',
       output: '',
       error: null,
@@ -152,6 +176,26 @@ function startRun(
     copied: false,
     error: null,
   };
+}
+
+function applyStartedReceipt(
+  state: SelectionToolbarState,
+  receipt: SelectionToolbarRunReceipt,
+  event: Extract<SelectionToolbarRunEvent, { kind: 'started' }>,
+): Partial<SelectionToolbarState> {
+  if (state.run?.request_id === receipt.request_id) {
+    return {
+      run: {
+        ...state.run,
+        model_target: state.run.model_target ?? receipt.model_target,
+      },
+    };
+  }
+  return startRun(state, { ...event, model_target: receipt.model_target });
+}
+
+function activeToolId(state: SelectionToolbarState): string | null {
+  return state.pendingRequest?.tool_id ?? state.run?.tool_id ?? null;
 }
 
 function applyRunEvent(
@@ -208,6 +252,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
   error: null,
   pendingRequest: null,
   lastSubmission: null,
+  selectedModelTarget: null,
   captureError: null,
   translateSource: 'auto',
   translateTarget: null,
@@ -239,6 +284,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
                   error: null,
                   pendingRequest: null,
                   lastSubmission: null,
+                  selectedModelTarget: null,
                   captureError: null,
                   translateSource: 'auto',
                   translateTarget: null,
@@ -262,6 +308,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
             error: null,
             pendingRequest: null,
             lastSubmission: null,
+            selectedModelTarget: null,
             captureError: null,
             translateSource: 'auto',
             translateTarget: null,
@@ -325,6 +372,12 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     // Running another tool must cancel a pending copy-close so the result
     // panel is not torn down ~700ms later.
     cancelCopyCloseTimer();
+    if (tool.kind === 'ai') {
+      const previousToolId = activeToolId(get());
+      if (previousToolId && previousToolId !== tool.id) {
+        set({ selectedModelTarget: null });
+      }
+    }
     if (tool.kind === 'ai' && tool.direct_send !== false) {
       const pending = get().pendingRequest;
       await get().submitInitial({
@@ -407,6 +460,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
           tool_id: tool.id,
           mode: 'new_tool',
           user_input: null,
+          model_target: null,
           status: 'error',
           output: '',
           error: message,
@@ -451,6 +505,10 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
       set({ error: 'selection_toolbar_source_text_required' });
       return false;
     }
+    const previousToolId = activeToolId(get());
+    if (previousToolId && previousToolId !== submission.tool_id) {
+      set({ selectedModelTarget: null });
+    }
     cancelCopyCloseTimer();
     const revision = ++operationRevision;
     const pendingBeforeSubmit = get().pendingRequest;
@@ -467,6 +525,8 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
       if (revision !== operationRevision) return false;
     }
     initialSubmission = sent;
+    set({ lastSubmission: sent });
+    const selectedModelTarget = get().selectedModelTarget;
     const tool = session.tools.find((candidate) => candidate.id === sent.tool_id);
     const languages = options ?? (tool && isTranslateTool(tool) ? {
       sourceLanguage: get().translateSource,
@@ -481,29 +541,46 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
         source_text: sent.input.kind === 'text' ? sent.input.text : null,
         user_input: sent.user_input || null,
       } : {}),
+      ...(selectedModelTarget ? { model_target: selectedModelTarget } : {}),
     };
+    const runIdBeforeInvoke = get().run?.request_id ?? null;
     try {
-      const requestId = await invoke<string>('selection_toolbar_execute_tool', {
+      const receipt = await invoke<SelectionToolbarRunReceipt>('selection_toolbar_execute_tool', {
         selectionId: sent.selection_id,
         toolId: sent.tool_id,
         options: Object.keys(payload).length ? payload : null,
       });
       if (revision !== operationRevision) return false;
-      if (get().run?.request_id !== requestId) {
-        set((state) => startRun(state, {
+      set((state) => ({
+        ...applyStartedReceipt(state, receipt, {
           kind: 'started',
-          request_id: requestId,
+          request_id: receipt.request_id,
           selection_id: sent.selection_id,
           tool_id: sent.tool_id,
           mode: 'new_tool',
           user_input: sent.user_input || null,
-        }));
-      }
-      set({ busy: false, lastSubmission: sent, pendingRequest: null });
+          model_target: receipt.model_target,
+        }),
+        busy: false,
+        lastSubmission: sent,
+        pendingRequest: null,
+      }));
       return true;
     } catch (error) {
       if (revision !== operationRevision) return false;
       const message = String(error);
+      const current = get().run;
+      if (
+        current
+        && current.request_id !== runIdBeforeInvoke
+        && current.selection_id === sent.selection_id
+        && current.tool_id === sent.tool_id
+        && current.mode === 'new_tool'
+        && !isFrontendErrorRequestId(current.request_id)
+      ) {
+        set({ error: message, busy: false });
+        return false;
+      }
       set({
         busy: false,
         error: message,
@@ -516,6 +593,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
             tool_id: sent.tool_id,
             mode: 'new_tool',
             user_input: sent.user_input || null,
+            model_target: null,
             status: 'error',
             output: '',
             error: message,
@@ -565,9 +643,16 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     await get().executeTool(tool, { sourceLanguage: source, targetLanguage: target });
   },
 
+  selectModelTarget: (target) => {
+    const { busy, run, selectedModelTarget } = get();
+    if (busy || run?.status === 'started' || run?.status === 'streaming') return;
+    if (sameModelTarget(selectedModelTarget, target)) return;
+    set({ selectedModelTarget: target });
+  },
+
   followUp: async (text) => {
     const question = text.trim();
-    const { busy, run, session } = get();
+    const { busy, run, session, selectedModelTarget } = get();
     if (!question || !session || !run || busy) return false;
     const canFollowUp = (run.status === 'completed' || run.status === 'stopped')
       && run.output.trim().length > 0;
@@ -575,22 +660,24 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
     const revision = ++operationRevision;
     set({ busy: true, error: null });
     try {
-      const requestId = await invoke<string>('selection_toolbar_follow_up', {
+      const receipt = await invoke<SelectionToolbarRunReceipt>('selection_toolbar_follow_up', {
         selectionId: session.selection_id,
         text: question,
+        ...(selectedModelTarget ? { modelTarget: selectedModelTarget } : {}),
       });
       if (revision !== operationRevision) return false;
-      if (!get().run || get().run?.request_id !== requestId) {
-        set((state) => startRun(state, {
+      set((state) => ({
+        ...applyStartedReceipt(state, receipt, {
           kind: 'started',
-          request_id: requestId,
+          request_id: receipt.request_id,
           selection_id: session.selection_id,
           tool_id: run.tool_id,
           mode: 'follow_up',
           user_input: question,
-        }));
-      }
-      set({ busy: false });
+          model_target: receipt.model_target,
+        }),
+        busy: false,
+      }));
       return true;
     } catch (error) {
       if (revision !== operationRevision) return false;
@@ -614,28 +701,40 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
   },
 
   regenerate: async () => {
-    const { run, session, busy } = get();
+    const { run, session, busy, lastSubmission, selectedModelTarget } = get();
     if (!run || !session || busy) return;
     if (run.status === 'started' || run.status === 'streaming') return;
+    if (isFrontendErrorRequestId(run.request_id)) {
+      if (
+        lastSubmission
+        && lastSubmission.selection_id === session.selection_id
+        && lastSubmission.tool_id === run.tool_id
+      ) {
+        await get().submitInitial(lastSubmission);
+      }
+      return;
+    }
     const revision = ++operationRevision;
     set({ busy: true, error: null });
     try {
-      const requestId = await invoke<string>('selection_toolbar_regenerate', {
+      const receipt = await invoke<SelectionToolbarRunReceipt>('selection_toolbar_regenerate', {
         selectionId: session.selection_id,
         requestId: run.request_id,
+        ...(selectedModelTarget ? { modelTarget: selectedModelTarget } : {}),
       });
       if (revision !== operationRevision) return;
-      if (!get().run || get().run?.request_id !== requestId) {
-        set((state) => startRun(state, {
+      set((state) => ({
+        ...applyStartedReceipt(state, receipt, {
           kind: 'started',
-          request_id: requestId,
+          request_id: receipt.request_id,
           selection_id: session.selection_id,
           tool_id: run.tool_id,
           mode: 'regenerate',
           user_input: run.user_input,
-        }));
-      }
-      set({ busy: false });
+          model_target: receipt.model_target,
+        }),
+        busy: false,
+      }));
     } catch (error) {
       if (revision !== operationRevision) return;
       set({ error: String(error), busy: false });
@@ -684,6 +783,7 @@ export const useSelectionToolbarStore = create<SelectionToolbarState>((set, get)
       error: null,
       pendingRequest: null,
       lastSubmission: null,
+      selectedModelTarget: null,
       captureError: null,
       translateSource: 'auto',
       translateTarget: null,

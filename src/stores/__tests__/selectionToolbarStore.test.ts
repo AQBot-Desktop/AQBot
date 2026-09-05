@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const invokeMock = vi.fn();
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
 
+function receipt(requestId: string, modelId = 'model-1') {
+  return { request_id: requestId, model_target: { provider_id: 'provider-1', model_id: modelId } };
+}
+
 vi.mock('@/lib/invoke', () => ({
   invoke: invokeMock,
   listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
@@ -363,7 +367,7 @@ describe('selection toolbar store', () => {
           run: null,
         };
       }
-      if (command === 'selection_toolbar_execute_tool') return 'request-9';
+      if (command === 'selection_toolbar_execute_tool') return receipt('request-9');
       return undefined;
     });
     const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
@@ -383,7 +387,7 @@ describe('selection toolbar store', () => {
     // A plain re-click on the translate tool keeps the chosen languages.
     invokeMock.mockClear();
     invokeMock.mockImplementation(async (command: string) =>
-      command === 'selection_toolbar_execute_tool' ? 'request-10' : undefined,
+      command === 'selection_toolbar_execute_tool' ? receipt('request-10') : undefined,
     );
     await useSelectionToolbarStore.getState().executeTool(translateTool);
     expect(invokeMock).toHaveBeenCalledWith('selection_toolbar_execute_tool', {
@@ -413,7 +417,7 @@ describe('selection toolbar store', () => {
           run: null,
         };
       }
-      if (command === 'selection_toolbar_execute_tool') return 'request-11';
+      if (command === 'selection_toolbar_execute_tool') return receipt('request-11');
       return undefined;
     });
     const { useSelectionToolbarStore } = await import('../selectionToolbarStore');
@@ -566,8 +570,8 @@ describe('selection toolbar store', () => {
           },
         };
       }
-      if (command === 'selection_toolbar_follow_up') return 'request-2';
-      if (command === 'selection_toolbar_regenerate') return 'request-3';
+      if (command === 'selection_toolbar_follow_up') return receipt('request-2');
+      if (command === 'selection_toolbar_regenerate') return receipt('request-3');
       if (command === 'selection_toolbar_set_pinned') return false;
       return undefined;
     });
@@ -719,7 +723,7 @@ describe('selection toolbar store', () => {
           },
         };
       }
-      if (command === 'selection_toolbar_follow_up') return 'request-2';
+      if (command === 'selection_toolbar_follow_up') return receipt('request-2');
       return undefined;
     });
     const { useSelectionToolbarStore } = await import('../selectionToolbarStore');

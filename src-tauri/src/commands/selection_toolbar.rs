@@ -246,7 +246,7 @@ pub async fn selection_toolbar_execute_tool(
     selection_id: String,
     tool_id: String,
     options: Option<crate::selection_toolbar::ToolRunOptions>,
-) -> Result<String, String> {
+) -> Result<crate::selection_toolbar::ToolRunReceipt, String> {
     state.selection_toolbar.lock_interaction();
     let result = crate::selection_toolbar::execute_ai_tool(
         &app,
@@ -268,11 +268,17 @@ pub async fn selection_toolbar_follow_up(
     state: State<'_, AppState>,
     selection_id: String,
     text: String,
-) -> Result<String, String> {
+    model_target: Option<crate::selection_toolbar::ModelTarget>,
+) -> Result<crate::selection_toolbar::ToolRunReceipt, String> {
     state.selection_toolbar.lock_interaction();
-    let result =
-        crate::selection_toolbar::follow_up_ai_tool(&app, state.inner(), &selection_id, &text)
-            .await;
+    let result = crate::selection_toolbar::follow_up_ai_tool(
+        &app,
+        state.inner(),
+        &selection_id,
+        &text,
+        model_target,
+    )
+    .await;
     if result.is_err() {
         state.selection_toolbar.unlock_interaction();
     }
@@ -285,13 +291,15 @@ pub async fn selection_toolbar_regenerate(
     state: State<'_, AppState>,
     selection_id: String,
     request_id: String,
-) -> Result<String, String> {
+    model_target: Option<crate::selection_toolbar::ModelTarget>,
+) -> Result<crate::selection_toolbar::ToolRunReceipt, String> {
     state.selection_toolbar.lock_interaction();
     let result = crate::selection_toolbar::regenerate_ai_tool(
         &app,
         state.inner(),
         &selection_id,
         &request_id,
+        model_target,
     )
     .await;
     if result.is_err() {

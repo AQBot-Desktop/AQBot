@@ -19,6 +19,10 @@ let input: SelectionToolbarInput;
 let snapshot: SelectionToolbarSnapshot;
 let requestNumber: number;
 
+function receipt(requestId: string) {
+  return { request_id: requestId, model_target: { provider_id: 'provider-1', model_id: 'model-1' } };
+}
+
 async function initializeStore() {
   const { useSelectionToolbarStore: store } = await import('../selectionToolbarStore');
   await store.getState().initialize();
@@ -43,7 +47,7 @@ describe('selection toolbar initial requests', () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'selection_toolbar_get_snapshot') return snapshot;
       if (command === 'selection_toolbar_get_input') return input;
-      if (command === 'selection_toolbar_execute_tool') return `request-${++requestNumber}`;
+      if (command === 'selection_toolbar_execute_tool') return receipt(`request-${++requestNumber}`);
       if (command === 'selection_toolbar_prepare_overflow') return 'below';
       return undefined;
     });
@@ -94,7 +98,11 @@ describe('selection toolbar initial requests', () => {
     const pending = store.getState().pendingRequest;
     invokeMock.mockRejectedValueOnce('selection_toolbar_vision_required');
     expect(await store.getState().submitInitial()).toBe(false);
-    expect(store.getState()).toMatchObject({ pendingRequest: pending, run: null, lastSubmission: null });
+    expect(store.getState()).toMatchObject({
+      pendingRequest: pending,
+      run: null,
+      lastSubmission: { user_input: 'Keep this instruction' },
+    });
     expect(store.getState().error).toBe('selection_toolbar_vision_required');
     expect(await store.getState().submitInitial()).toBe(true);
     expect(store.getState().pendingRequest).toBeNull();
@@ -212,7 +220,7 @@ describe('selection toolbar initial requests', () => {
       listeners.get('selection-toolbar://run')?.({ payload: {
         kind: 'delta', request_id: 'new-request', selection_id: 'selection', delta: 'Early text',
       } });
-      return 'new-request';
+      return receipt('new-request');
     });
     expect(await store.getState().submitInitial()).toBe(true);
     expect(store.getState().run?.output).toBe('Early text');
@@ -310,11 +318,11 @@ describe('selection toolbar initial requests', () => {
   it('does not restore a submitted request after the window is hidden', async () => {
     const store = await initializeStore();
     await store.getState().executeTool(tool);
-    let resolveRequest!: (value: string) => void;
+    let resolveRequest!: (value: unknown) => void;
     invokeMock.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve; }));
     const submitting = store.getState().submitInitial();
     listeners.get('selection-toolbar://hidden')?.({ payload: 'escape' });
-    resolveRequest('old-request');
+    resolveRequest(receipt('old-request'));
     expect(await submitting).toBe(false);
     expect(store.getState()).toMatchObject({ session: null, pendingRequest: null, lastSubmission: null, run: null });
   });
