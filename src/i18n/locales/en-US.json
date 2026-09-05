@@ -190,7 +190,9 @@
       "unsupported": "Message queue is available only in ordinary single-model chat",
       "otherConversationBusy": "Another conversation is still sending a message",
       "deleteConversationRunFailed": "Could not stop this conversation's generation, so it was not deleted",
-      "conversationChanged": "Conversation changed before the message was submitted; the draft was kept"
+      "conversationChanged": "Conversation changed before the message was submitted; the draft was kept",
+      "sendNowWaiting": "Sending now",
+      "deletingRoundFailed": "Could not delete this turn"
     },
     "attachFile": "Attach file",
     "imageInputNotConfiguredTitle": "Image input is not enabled",
@@ -477,7 +479,8 @@
     "summaryModel": "Model",
     "summaryTokens": "Summary tokens",
     "summaryBoundary": "Compressed through",
-    "contextTokenUsage": "Context tokens"
+    "contextTokenUsage": "Context tokens",
+    "stopping": "Stopping"
   },
   "gateway": {
     "title": "Gateway",

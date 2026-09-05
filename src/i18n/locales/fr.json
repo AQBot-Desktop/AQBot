@@ -180,7 +180,9 @@
       "unsupported": "La file d’attente est disponible uniquement dans le chat ordinaire à modèle unique",
       "otherConversationBusy": "Une autre conversation envoie encore un message",
       "deleteConversationRunFailed": "Impossible d'arrêter la génération de cette conversation, elle n'a donc pas été supprimée",
-      "conversationChanged": "La conversation a changé avant l’envoi du message ; le brouillon a été conservé"
+      "conversationChanged": "La conversation a changé avant l’envoi du message ; le brouillon a été conservé",
+      "sendNowWaiting": "Envoi immédiat",
+      "deletingRoundFailed": "Impossible de supprimer ce tour"
     },
     "attachFile": "Joindre un fichier",
     "imageInputNotConfiguredTitle": "L’entrée d’image n’est pas activée",
@@ -477,7 +479,8 @@
     "summaryModel": "Modèle",
     "summaryTokens": "Jetons récapitulatifs",
     "summaryBoundary": "Comprimé via",
-    "contextTokenUsage": "Jetons de contexte"
+    "contextTokenUsage": "Jetons de contexte",
+    "stopping": "Arrêt en cours"
   },
   "gateway": {
     "title": "Passerelle",

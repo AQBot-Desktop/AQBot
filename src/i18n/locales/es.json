@@ -180,7 +180,9 @@
       "unsupported": "La cola de mensajes solo está disponible en el chat normal de un solo modelo",
       "otherConversationBusy": "Otra conversación todavía está enviando un mensaje",
       "deleteConversationRunFailed": "No se pudo detener la generación de esta conversación, así que no se eliminó",
-      "conversationChanged": "La conversación cambió antes de enviar el mensaje; se conservó el borrador"
+      "conversationChanged": "La conversación cambió antes de enviar el mensaje; se conservó el borrador",
+      "sendNowWaiting": "Enviando ahora",
+      "deletingRoundFailed": "No se pudo eliminar este turno"
     },
     "attachFile": "Adjuntar archivo",
     "imageInputNotConfiguredTitle": "La entrada de imágenes no está habilitada",
@@ -477,7 +479,8 @@
     "summaryModel": "Modelo",
     "summaryTokens": "Fichas de resumen",
     "summaryBoundary": "Comprimido a través",
-    "contextTokenUsage": "Fichas de contexto"
+    "contextTokenUsage": "Fichas de contexto",
+    "stopping": "Deteniendo"
   },
   "gateway": {
     "title": "Pasarela",

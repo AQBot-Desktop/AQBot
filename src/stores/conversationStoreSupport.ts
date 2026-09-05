@@ -68,6 +68,12 @@ export interface ConversationRunRuntime {
   multiModelFirstMessageId: string | null;
   multiModelHistoryMode: MultiModelContinuationMode;
   userManuallySelectedVersion: boolean;
+  sendGeneration: number;
+  sendIpcPending: boolean;
+  sendIpcStarted: boolean;
+  inFlightStop: Promise<void> | null;
+  stopCompleted: Promise<void> | null;
+  resolveStopCompleted: (() => void) | null;
 }
 
 export function getStreamBuffer(conversationId: string | null | undefined): StreamBuffer | null {
@@ -111,16 +117,43 @@ export function getOrCreateRunRuntime(conversationId: string): ConversationRunRu
     multiModelFirstMessageId: null,
     multiModelHistoryMode: 'selected',
     userManuallySelectedVersion: false,
+    sendGeneration: 0,
+    sendIpcPending: false,
+    sendIpcStarted: false,
+    inFlightStop: null,
+    stopCompleted: null,
+    resolveStopCompleted: null,
   };
   _runRuntimes.set(conversationId, created);
   return created;
 }
 
 export function deleteRunRuntime(conversationId: string): void {
+  const runtime = _runRuntimes.get(conversationId);
+  runtime?.resolveStopCompleted?.();
   _runRuntimes.delete(conversationId);
   _agentCancels.delete(conversationId);
   _streamBuffers.delete(conversationId);
   _streamPrefixes.delete(conversationId);
+}
+
+export function ensureRunStopCompleted(conversationId: string): Promise<void> {
+  const runtime = getOrCreateRunRuntime(conversationId);
+  if (!runtime.stopCompleted) {
+    runtime.stopCompleted = new Promise<void>((resolve) => {
+      runtime.resolveStopCompleted = resolve;
+    });
+  }
+  return runtime.stopCompleted;
+}
+
+export function markRunStopCompleted(conversationId: string): void {
+  const runtime = getRunRuntime(conversationId);
+  if (!runtime) return;
+  runtime.resolveStopCompleted?.();
+  runtime.resolveStopCompleted = null;
+  runtime.stopCompleted = null;
+  runtime.inFlightStop = null;
 }
 const _streamBuffers = new Map<string, StreamBuffer>();
 const _streamPrefixes = new Map<string, string>();
@@ -1437,6 +1470,8 @@ export interface ChatQueueBucket {
   drainingMessageId: string | null;
   drainingStreamId: string | null;
   sendNowMessageId: string | null;
+  resumeAfterCancel: boolean;
+  deletingRound: boolean;
 }
 
 export type SubmitChatMessageRejectedReason =
@@ -1612,12 +1647,12 @@ export interface ConversationState {
   searchConversations: (query: string) => Promise<ConversationSearchResult[]>;
   startStreamListening: () => Promise<void>;
   stopStreamListening: () => void;
-  cancelCurrentStream: (options?: { skipBackend?: boolean }) => void;
+  cancelCurrentStream: (options?: { skipBackend?: boolean }) => Promise<void>;
   cancelConversationRun: (input: {
     conversationId: string;
     runId?: string | null;
     skipBackend?: boolean;
-  }) => void;
+  }) => Promise<void>;
   applyRemoteConversationSync: (payload: {
     originWindow: string;
     conversationId: string;
@@ -1678,6 +1713,7 @@ export {
   selectUiMultiModelDoneMessageIds,
   selectUiMultiModelParentId,
   selectUiPendingCompanionModels,
+  selectUiRunPhase,
   selectUiStreaming,
   selectUiStreamingConversationId,
   selectUiStreamingMessageId,

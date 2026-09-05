@@ -35,6 +35,7 @@ export {
   selectUiMultiModelDoneMessageIds,
   selectUiMultiModelParentId,
   selectUiPendingCompanionModels,
+  selectUiRunPhase,
   selectUiStreaming,
   selectUiStreamingConversationId,
   selectUiStreamingMessageId,

@@ -153,6 +153,17 @@ async fn wait_for_cancel(cancel_flag: &AtomicBool) {
     }
 }
 
+async fn run_unless_cancelled<T>(
+    future: impl Future<Output = T>,
+    cancel_flag: &AtomicBool,
+) -> Result<T, ()> {
+    tokio::select! {
+        biased;
+        _ = wait_for_cancel(cancel_flag) => Err(()),
+        result = future => Ok(result),
+    }
+}
+
 async fn collect_rag_context_with_timeout<F>(
     future: F,
     timeout: Duration,

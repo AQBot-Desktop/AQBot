@@ -95,6 +95,7 @@ describe('conversationStore chat queue', () => {
         return Promise.resolve(undefined);
       }
       if (command === 'cancel_stream') return Promise.resolve(undefined);
+      if (command === 'delete_message_group') return Promise.resolve(undefined);
       throw new Error(`unexpected command: ${command}`);
     });
 
@@ -604,7 +605,8 @@ describe('conversationStore chat queue', () => {
       content: 'second edited',
     })).toBe(true);
     expect(useConversationStore.getState().removeQueuedChatMessage('conv-a', second.queueId)).toBe(true);
-    expect(await useConversationStore.getState().sendQueuedChatMessageNow('conv-a', third.queueId)).toBe(true);
+    const sendNow = useConversationStore.getState().sendQueuedChatMessageNow('conv-a', third.queueId);
+    await flushPromises();
     expect(sentContents()).toEqual(['first']);
     expect(invokeMock).toHaveBeenCalledWith('cancel_stream', expect.objectContaining({
       conversationId: 'conv-a',
@@ -617,6 +619,7 @@ describe('conversationStore chat queue', () => {
       stream_id: bucket.drainingStreamId!,
       outcome: 'cancelled',
     });
+    expect(await sendNow).toBe(true);
 
     expect(sentContents()).toEqual(['first', 'third']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
@@ -714,9 +717,11 @@ describe('conversationStore chat queue', () => {
     if (third.kind !== 'queued') return;
     const oldStreamId = useConversationStore.getState().chatQueueByConversation['conv-a'].drainingStreamId!;
 
-    useConversationStore.getState().cancelCurrentStream();
-    expect(useConversationStore.getState().streaming).toBe(false);
-    expect(await useConversationStore.getState().sendQueuedChatMessageNow('conv-a', third.queueId)).toBe(true);
+    await useConversationStore.getState().cancelCurrentStream();
+    expect(useConversationStore.getState().runsByConversation['conv-a']?.phase).toBe('stopping');
+    expect(useConversationStore.getState().streaming).toBe(true);
+    const sendNow = useConversationStore.getState().sendQueuedChatMessageNow('conv-a', third.queueId);
+    await flushPromises();
     expect(sentContents()).toEqual(['first']);
 
     await emitTerminal({
@@ -725,6 +730,7 @@ describe('conversationStore chat queue', () => {
       stream_id: oldStreamId,
       outcome: 'cancelled',
     });
+    expect(await sendNow).toBe(true);
 
     expect(sentContents()).toEqual(['first', 'third']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
@@ -746,7 +752,7 @@ describe('conversationStore chat queue', () => {
       chatQueueByConversation: {},
     });
 
-    useConversationStore.getState().cancelCurrentStream();
+    await useConversationStore.getState().cancelCurrentStream();
     const result = await useConversationStore.getState().submitChatMessage('submitted after stop');
 
     expect(result.kind).toBe('queued');
@@ -755,6 +761,7 @@ describe('conversationStore chat queue', () => {
       phase: 'waiting',
       drainingMessageId: null,
       drainingStreamId: 'direct-stream',
+      resumeAfterCancel: true,
       messages: [{ content: 'submitted after stop', status: 'queued' }],
     });
 
@@ -766,11 +773,11 @@ describe('conversationStore chat queue', () => {
     });
     await flushPromises();
 
-    expect(sentContents()).toEqual([]);
+    expect(sentContents()).toEqual(['submitted after stop']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
-      phase: 'paused',
-      pauseReason: 'cancelled',
-      messages: [{ content: 'submitted after stop', status: 'queued' }],
+      phase: 'dispatching',
+      paused: false,
+      messages: [{ content: 'submitted after stop', status: 'dispatching' }],
     });
   });
 
@@ -783,13 +790,14 @@ describe('conversationStore chat queue', () => {
       activeStreamId: 'direct-stream',
     });
 
-    useConversationStore.getState().cancelCurrentStream();
+    await useConversationStore.getState().cancelCurrentStream();
     const firstQueued = await useConversationStore.getState().submitChatMessage('delete me');
     if (firstQueued.kind !== 'queued') return;
     expect(useConversationStore.getState().removeQueuedChatMessage('conv-a', firstQueued.queueId)).toBe(true);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
       phase: 'waiting',
       drainingStreamId: 'direct-stream',
+      resumeAfterCancel: true,
       messages: [],
     });
 
@@ -804,11 +812,11 @@ describe('conversationStore chat queue', () => {
       outcome: 'cancelled',
     });
     await flushPromises();
-    expect(sentContents()).toEqual([]);
+    expect(sentContents()).toEqual(['must still wait']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
-      phase: 'paused',
-      pauseReason: 'cancelled',
-      messages: [{ content: 'must still wait', status: 'queued' }],
+      phase: 'dispatching',
+      paused: false,
+      messages: [{ content: 'must still wait', status: 'dispatching' }],
     });
   });
 
@@ -968,14 +976,16 @@ describe('conversationStore chat queue', () => {
       outcome: 'complete',
     });
     await flushPromises();
-    expect(await useConversationStore.getState().sendQueuedChatMessageNow(
+    const sendNow = useConversationStore.getState().sendQueuedChatMessageNow(
       'conv-a',
       second.queueId,
-    )).toBe(true);
+    );
+    await flushPromises();
     expect(invokeMock.mock.calls.filter(([command]) => command === 'cancel_stream')).toHaveLength(0);
 
     resolveFinalSync(makePage([], false));
     await terminal;
+    expect(await sendNow).toBe(true);
     expect(sentContents()).toEqual(['first', 'second']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
       phase: 'dispatching',
@@ -1091,7 +1101,8 @@ describe('conversationStore chat queue', () => {
     const second = await useConversationStore.getState().submitChatMessage('second');
     if (second.kind !== 'queued') return;
 
-    await useConversationStore.getState().sendQueuedChatMessageNow('conv-a', second.queueId);
+    const sendNow = useConversationStore.getState().sendQueuedChatMessageNow('conv-a', second.queueId);
+    await flushPromises();
     const bucket = useConversationStore.getState().chatQueueByConversation['conv-a'];
     await emitTerminal({
       conversation_id: 'conv-a',
@@ -1100,6 +1111,7 @@ describe('conversationStore chat queue', () => {
       outcome: 'error',
       error: 'cancel raced with provider error',
     });
+    expect(await sendNow).toBe(false);
 
     expect(sentContents()).toEqual(['first']);
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
@@ -1173,7 +1185,8 @@ describe('conversationStore chat queue', () => {
       messages: [{ content: 'wait for remote', status: 'queued' }],
     });
     if (result.kind !== 'queued') return;
-    expect(await useConversationStore.getState().sendQueuedChatMessageNow('conv-a', result.queueId)).toBe(true);
+    const sendNow = useConversationStore.getState().sendQueuedChatMessageNow('conv-a', result.queueId);
+    await flushPromises();
     expect(invokeMock).toHaveBeenCalledWith('cancel_stream', {
       conversationId: 'conv-a',
       streamId: 'remote-stream',
@@ -1185,6 +1198,7 @@ describe('conversationStore chat queue', () => {
       stream_id: 'remote-stream',
       outcome: 'complete',
     });
+    expect(await sendNow).toBe(true);
     await flushPromises();
 
     expect(useConversationStore.getState().observedStream).toBeNull();
@@ -1261,6 +1275,8 @@ describe('conversationStore chat queue', () => {
           drainingMessageId: null,
           drainingStreamId: null,
           sendNowMessageId: null,
+          resumeAfterCancel: false,
+          deletingRound: false,
         },
       },
     });
@@ -1308,6 +1324,8 @@ describe('conversationStore chat queue', () => {
           drainingMessageId: null,
           drainingStreamId: null,
           sendNowMessageId: null,
+          resumeAfterCancel: false,
+          deletingRound: false,
         },
       },
     });
@@ -1335,5 +1353,84 @@ describe('conversationStore chat queue', () => {
     await flushPromises();
     expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toBeUndefined();
     vi.useRealTimers();
+  });
+
+  it('pauses messages that were already queued before Stop', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    await useConversationStore.getState().submitChatMessage('first');
+    await useConversationStore.getState().submitChatMessage('second');
+    const streamId = useConversationStore.getState().chatQueueByConversation['conv-a'].drainingStreamId!;
+
+    await useConversationStore.getState().cancelCurrentStream();
+    expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
+      phase: 'paused',
+      paused: true,
+      pauseReason: 'cancelled',
+      resumeAfterCancel: false,
+      messages: [
+        { content: 'first', status: 'dispatching' },
+        { content: 'second', status: 'queued' },
+      ],
+    });
+
+    const third = await useConversationStore.getState().submitChatMessage('third after stop');
+    expect(third.kind).toBe('queued');
+    expect(sentContents()).toEqual(['first']);
+
+    await emitTerminal({
+      conversation_id: 'conv-a',
+      message_id: 'assistant-1',
+      stream_id: streamId,
+      outcome: 'cancelled',
+    });
+    expect(sentContents()).toEqual(['first']);
+    expect(useConversationStore.getState().chatQueueByConversation['conv-a']).toMatchObject({
+      phase: 'paused',
+      pauseReason: 'cancelled',
+      messages: [
+        { content: 'second', status: 'queued' },
+        { content: 'third after stop', status: 'queued' },
+      ],
+    });
+  });
+
+  it('sends a new message after stop and deleting the current turn without another click', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const userMessage = { ...makeMessage(1, 'conv-a'), content: 'first' };
+    const assistantMessage = {
+      ...makeMessage(2, 'conv-a'),
+      parent_message_id: userMessage.id,
+      content: 'partial',
+      status: 'partial' as const,
+    };
+    await useConversationStore.getState().submitChatMessage('first');
+    const streamId = useConversationStore.getState().chatQueueByConversation['conv-a'].drainingStreamId!;
+    useConversationStore.setState({
+      messages: [userMessage, assistantMessage],
+    });
+
+    await useConversationStore.getState().cancelCurrentStream();
+    const deletion = useConversationStore.getState().deleteMessageGroup('conv-a', userMessage.id);
+    await flushPromises();
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      'delete_message_group',
+      expect.anything(),
+    );
+
+    await emitTerminal({
+      conversation_id: 'conv-a',
+      message_id: assistantMessage.id,
+      stream_id: streamId,
+      outcome: 'cancelled',
+    });
+    await deletion;
+    expect(invokeMock).toHaveBeenCalledWith('delete_message_group', {
+      conversationId: 'conv-a',
+      userMessageId: userMessage.id,
+    });
+
+    const next = await useConversationStore.getState().submitChatMessage('second after delete');
+    expect(next.kind).toBe('started');
+    expect(sentContents()).toEqual(['first', 'second after delete']);
   });
 });

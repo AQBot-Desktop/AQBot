@@ -270,4 +270,22 @@ mod tests {
         drop(guard);
         assert!(registry.snapshot("conv-a").is_none());
     }
+
+    #[test]
+    fn releasing_a_run_allows_a_new_admit_before_later_work_finishes() {
+        let registry = ConversationRunRegistry::new();
+        let mut first = registry
+            .admit("conv-a", "run-1", Some("stream-1"), ConversationRunMode::Chat)
+            .unwrap();
+        assert!(first.release());
+        let second = registry
+            .admit("conv-a", "run-2", Some("stream-2"), ConversationRunMode::Chat)
+            .unwrap();
+        assert_eq!(second.run_id(), "run-2");
+        drop(first);
+        assert_eq!(
+            registry.snapshot("conv-a").unwrap().run_id,
+            "run-2"
+        );
+    }
 }

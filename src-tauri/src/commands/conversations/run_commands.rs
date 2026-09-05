@@ -18,6 +18,19 @@ pub fn emit_conversation_run_updated(
     );
 }
 
+fn release_conversation_run_guard(
+    app: &tauri::AppHandle,
+    guard: &mut Option<crate::conversation_run::ConversationRunGuard>,
+) {
+    let Some(run_guard) = guard.as_mut() else {
+        return;
+    };
+    let conversation_id = run_guard.conversation_id().to_string();
+    if run_guard.release() {
+        emit_conversation_run_updated(app, &conversation_id, None);
+    }
+}
+
 #[tauri::command]
 pub async fn list_active_conversation_runs(
     state: State<'_, AppState>,

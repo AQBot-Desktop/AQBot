@@ -180,7 +180,9 @@
       "unsupported": "Die Nachrichtenwarteschlange ist nur im normalen Einzelmodell-Chat verfügbar",
       "otherConversationBusy": "In einer anderen Unterhaltung wird noch eine Nachricht gesendet",
       "deleteConversationRunFailed": "Die Generierung dieses Gesprächs konnte nicht gestoppt werden, daher wurde es nicht gelöscht",
-      "conversationChanged": "Die Unterhaltung wurde vor dem Senden gewechselt; der Entwurf wurde behalten"
+      "conversationChanged": "Die Unterhaltung wurde vor dem Senden gewechselt; der Entwurf wurde behalten",
+      "sendNowWaiting": "Wird jetzt gesendet",
+      "deletingRoundFailed": "Dieser Durchgang konnte nicht gelöscht werden"
     },
     "attachFile": "Datei anhängen",
     "imageInputNotConfiguredTitle": "Bildeingabe ist nicht aktiviert",
@@ -477,7 +479,8 @@
     "summaryModel": "Modell",
     "summaryTokens": "Zusammenfassungstoken",
     "summaryBoundary": "Durchkomprimiert",
-    "contextTokenUsage": "Kontext-Tokens"
+    "contextTokenUsage": "Kontext-Tokens",
+    "stopping": "Wird gestoppt"
   },
   "gateway": {
     "title": "Gateway",

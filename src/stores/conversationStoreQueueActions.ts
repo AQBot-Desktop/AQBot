@@ -1,8 +1,10 @@
-import { invoke, isTauri } from '@/lib/invoke';
+import { isTauri } from '@/lib/invoke';
 import type { AttachmentInput, Message } from '@/types';
 import {
   conversationRuntime as runtime,
+  deleteRunRuntime,
   isObservedStreamingFor,
+  markRunStopCompleted,
   type ChatQueueBucket,
   type ChatStreamTerminalEvent,
   type ConversationState,
@@ -44,6 +46,8 @@ export function createEmptyChatQueueBucket(): ChatQueueBucket {
     drainingMessageId: null,
     drainingStreamId: null,
     sendNowMessageId: null,
+    resumeAfterCancel: false,
+    deletingRound: false,
   };
 }
 
@@ -76,7 +80,8 @@ function isQueueDispatchBusy(state: ConversationState, conversationId: string): 
     || isObservedStreamingFor(state, conversationId)
     || bucket?.drainingMessageId
     || bucket?.drainingStreamId
-    || bucket?.phase === 'waiting',
+    || bucket?.phase === 'waiting'
+    || bucket?.deletingRound,
   );
 }
 
@@ -85,9 +90,11 @@ function setQueueBucket(
   conversationId: string,
   update: (bucket: ChatQueueBucket) => ChatQueueBucket | null,
 ): void {
+  let nextBucket: ChatQueueBucket | null = null;
   set((state) => {
     const current = state.chatQueueByConversation[conversationId] ?? createEmptyChatQueueBucket();
     const next = update(current);
+    nextBucket = next;
     const chatQueueByConversation = { ...state.chatQueueByConversation };
     if (next) {
       chatQueueByConversation[conversationId] = next;
@@ -96,6 +103,7 @@ function setQueueBucket(
     }
     return { chatQueueByConversation };
   });
+  resolveSendNowWaiter(conversationId, nextBucket);
 }
 
 export function bindWaitingChatQueueToStream(
@@ -141,6 +149,111 @@ export function ensureChatQueueStreamBlocker(
         },
       },
     };
+  });
+}
+
+export function armQueueForStop(
+  set: ConversationStoreSet,
+  conversationId: string,
+  streamId: string | null,
+): void {
+  setQueueBucket(set, conversationId, (bucket) => {
+    const pendingCount = bucket.messages.filter(
+      (message) => message.id !== bucket.drainingMessageId,
+    ).length;
+    if (pendingCount > 0 && !bucket.sendNowMessageId) {
+      return {
+        ...bucket,
+        phase: 'paused',
+        paused: true,
+        pauseReason: bucket.pauseReason === 'cancel-error' ? 'cancel-error' : 'cancelled',
+        resumeAfterCancel: false,
+        drainingStreamId: streamId ?? bucket.drainingStreamId,
+      };
+    }
+    return {
+      ...bucket,
+      resumeAfterCancel: true,
+      paused: false,
+      pauseReason: bucket.pauseReason === 'cancel-error' ? bucket.pauseReason : null,
+      drainingStreamId: streamId ?? bucket.drainingStreamId,
+      phase: bucket.drainingMessageId ? 'dispatching' : 'waiting',
+    };
+  });
+}
+
+export function setChatQueueDeletingRound(
+  set: ConversationStoreSet,
+  conversationId: string,
+  deletingRound: boolean,
+): void {
+  setQueueBucket(set, conversationId, (bucket) => ({
+    ...bucket,
+    deletingRound,
+  }));
+}
+
+export function markChatQueueCancelError(
+  set: ConversationStoreSet,
+  conversationId: string,
+  error: string,
+  expectedDrainingMessageId: string | null,
+  expectedDrainingStreamId: string | null,
+): void {
+  setQueueBucket(set, conversationId, (bucket) => {
+    if (
+      bucket.drainingMessageId !== expectedDrainingMessageId
+      || bucket.drainingStreamId !== expectedDrainingStreamId
+    ) return bucket;
+    return {
+      ...bucket,
+      phase: 'paused',
+      paused: true,
+      pauseReason: 'cancel-error',
+      error,
+      resumeAfterCancel: false,
+    };
+  });
+}
+
+const sendNowWaiters = new Map<string, {
+  messageId: string;
+  resolve: (ok: boolean) => void;
+}>();
+
+function resolveSendNowWaiter(conversationId: string, bucket: ChatQueueBucket | null | undefined): void {
+  const waiter = sendNowWaiters.get(conversationId);
+  if (!waiter) return;
+  if (bucket?.drainingMessageId === waiter.messageId) {
+    sendNowWaiters.delete(conversationId);
+    waiter.resolve(true);
+    return;
+  }
+  const stillQueued = Boolean(bucket?.messages.some((message) => message.id === waiter.messageId));
+  if (bucket?.paused || !stillQueued) {
+    sendNowWaiters.delete(conversationId);
+    waiter.resolve(false);
+  }
+}
+
+function waitForSendNowDispatch(
+  get: () => ConversationState,
+  conversationId: string,
+  messageId: string,
+): Promise<boolean> {
+  const bucket = get().chatQueueByConversation[conversationId];
+  if (bucket?.drainingMessageId === messageId) return Promise.resolve(true);
+  if (
+    bucket?.paused
+    && bucket.pauseReason === 'cancel-error'
+    && bucket.sendNowMessageId === messageId
+  ) {
+    return Promise.resolve(false);
+  }
+  const previous = sendNowWaiters.get(conversationId);
+  previous?.resolve(false);
+  return new Promise((resolve) => {
+    sendNowWaiters.set(conversationId, { messageId, resolve });
   });
 }
 
@@ -293,14 +406,16 @@ export function createConversationQueueActions(
 
       if (!busy) {
         await get().drainChatQueue(conversationId);
-        return true;
+        return get().chatQueueByConversation[conversationId]?.drainingMessageId === messageId;
       }
 
-      if (
+      const liveRun = Boolean(
         state.streaming
         || isObservedStreamingFor(state, conversationId)
+        || isLiveConversationRun(state.runsByConversation?.[conversationId])
         || Boolean(expectedStreamId && bucket.pauseReason === 'cancel-error')
-      ) {
+      );
+      if (liveRun) {
         const terminalPayload: ChatStreamTerminalEvent = {
           conversation_id: state.streamingConversationId ?? conversationId,
           message_id: state.streamingMessageId ?? '',
@@ -308,56 +423,12 @@ export function createConversationQueueActions(
           outcome: 'cancelled',
           error: null,
         };
-        if (isTauri()) {
-          try {
-            await invoke('cancel_stream', {
-              conversationId: terminalPayload.conversation_id,
-              streamId: terminalPayload.stream_id || null,
-            });
-          } catch (error) {
-            const latestBucket = get().chatQueueByConversation[conversationId];
-            const cancellationStillPending = Boolean(
-              latestBucket?.sendNowMessageId === messageId
-              && latestBucket.drainingMessageId === expectedDrainingMessageId,
-            );
-            if (!cancellationStillPending) return true;
-            const cancellationError = String(error);
-            setQueueBucket(set, conversationId, (current) => ({
-              ...current,
-              phase: 'paused',
-              paused: true,
-              pauseReason: 'cancel-error',
-              error: cancellationError,
-            }));
-            return false;
-          }
-          const latest = get();
-          const latestBucket = latest.chatQueueByConversation[conversationId];
-          const cancellationStillPending = Boolean(
-            latestBucket?.sendNowMessageId === messageId
-            && latestBucket.drainingMessageId === expectedDrainingMessageId,
-          );
-          const stillOwnsOriginalStream = expectedStreamId
-            ? latest.activeStreamId === expectedStreamId
-            : latest.observedStream?.conversationId === conversationId
-              || (
-                latest.streaming
-                && latest.streamingConversationId === conversationId
-              );
-          if (cancellationStillPending && stillOwnsOriginalStream) {
-            latest.cancelConversationRun({
-              conversationId,
-              skipBackend: true,
-            });
-          }
-        } else {
-          get().cancelConversationRun({ conversationId });
-        }
-        if (!isTauri() && bucket.drainingMessageId) {
+        await get().cancelConversationRun({ conversationId });
+        if (!isTauri() && expectedDrainingMessageId) {
           await get().handleChatStreamTerminal(terminalPayload);
         }
       }
-      return true;
+      return waitForSendNowDispatch(get, conversationId, messageId);
     },
 
     resumeChatQueue: async (conversationId) => {
@@ -493,6 +564,10 @@ export function createConversationQueueActions(
             : state.thinkingActiveMessageIds,
         };
       });
+      markRunStopCompleted(payload.conversation_id);
+      if (!isLiveConversationRun(get().runsByConversation[payload.conversation_id])) {
+        deleteRunRuntime(payload.conversation_id);
+      }
       if (expectedStreamId && expectedStreamId !== payload.stream_id) return;
       const queueRelevant = Boolean(before && (
         before.drainingMessageId
@@ -544,7 +619,10 @@ export function createConversationQueueActions(
           (
             payload.outcome === 'complete'
             && (!cancellationFailed || sendNowRequested)
-          ) || (payload.outcome === 'cancelled' && sendNowRequested)
+          ) || (
+            payload.outcome === 'cancelled'
+            && (sendNowRequested || bucket.resumeAfterCancel)
+          )
         );
         const paused = !shouldContinueTerminalQueue;
         const pauseReason = paused
@@ -572,6 +650,7 @@ export function createConversationQueueActions(
           drainingMessageId: null,
           drainingStreamId: null,
           sendNowMessageId: null,
+          resumeAfterCancel: false,
         };
       });
 

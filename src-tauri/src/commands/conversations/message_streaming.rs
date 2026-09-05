@@ -36,6 +36,7 @@ fn spawn_stream_task(
     content_prefix: String,
     create_inactive: bool,
     skip_placeholder_create: bool,
+    mut conversation_run_guard: Option<crate::conversation_run::ConversationRunGuard>,
 ) -> crate::multi_model_run::StreamHandle {
     let model_id = conversation.model_id.clone();
     let mcp_stdio_clients = app.state::<AppState>().mcp_stdio_clients.clone();
@@ -44,26 +45,6 @@ fn spawn_stream_task(
     let (terminal_tx, terminal_rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
-        struct SpawnedRunRelease {
-            app: tauri::AppHandle,
-            conversation_id: String,
-            run_id: String,
-        }
-        impl Drop for SpawnedRunRelease {
-            fn drop(&mut self) {
-                if let Some(state) = self.app.try_state::<AppState>() {
-                    state
-                        .conversation_runs
-                        .release(&self.conversation_id, &self.run_id);
-                    emit_conversation_run_updated(&self.app, &self.conversation_id, None);
-                }
-            }
-        }
-        let _run_release = SpawnedRunRelease {
-            app: app.clone(),
-            conversation_id: conversation_id.clone(),
-            run_id: stream_id.clone(),
-        };
         let mut terminal_tx = Some(terminal_tx);
         let send_terminal =
             |tx: &mut Option<
@@ -730,6 +711,7 @@ fn spawn_stream_task(
                 },
             )
             .await;
+        release_conversation_run_guard(&app, &mut conversation_run_guard);
 
         // Auto-title: if this is the first user message, set conversation title
         if should_auto_generate_title(is_first_message, &conversation.mode) {
@@ -855,12 +837,21 @@ pub async fn send_message(
     if state.multi_model_runs.has_active(&conversation_id).await {
         return Err(ACTIVE_STREAM_EXISTS_ERROR.to_string());
     }
-    let mut conversation_run_guard = state.conversation_runs.admit(
+    let mut conversation_run_guard = Some(state.conversation_runs.admit(
         &conversation_id,
         &stream_id,
         Some(&stream_id),
         crate::conversation_run::ConversationRunMode::Chat,
-    )?;
+    )?);
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let mut stream_guard = RegisteredStreamGuard::register(
+        state.stream_cancel_flags.clone(),
+        &conversation_id,
+        &stream_id,
+        cancel_flag.clone(),
+        false,
+    )
+    .await?;
     emit_conversation_run_updated(
         &app,
         &conversation_id,
@@ -875,7 +866,6 @@ pub async fn send_message(
     let prepared_inline_media =
         aqbot_core::inline_media::prepare_message_inline_images(&content)
             .map_err(|error| format!("Message content rejected before persistence: {error}"))?;
-    let cancel_flag = Arc::new(AtomicBool::new(false));
 
     let persisted_attachments = persist_attachments(&state, &conversation_id, &attachments)
         .await
@@ -1044,14 +1034,6 @@ pub async fn send_message(
     // 5. Generate assistant message ID upfront so early RAG events can target
     // the same assistant row that the stream will later update.
     let assistant_message_id = aqbot_core::utils::gen_id();
-    let mut stream_guard = RegisteredStreamGuard::register(
-        state.stream_cancel_flags.clone(),
-        &conversation_id,
-        &stream_id,
-        cancel_flag.clone(),
-        false,
-    )
-    .await?;
     let setup_failure = StreamSetupFailure::ReleaseOnly;
 
     let user_query_content = strip_search_enrichment(&user_message.content);
@@ -1126,6 +1108,7 @@ pub async fn send_message(
                 None,
             )
         };
+        release_conversation_run_guard(&app, &mut conversation_run_guard);
         stream_guard
             .release_then_finalize(
                 (persistence_error_event, terminal_event),
@@ -1225,40 +1208,107 @@ pub async fn send_message(
 
     // Message-count limiting happens inside the shared preparation path before
     // it decides whether smart summary needs a persistent compression update.
-    let context_result = prepare_context_with_auto_summary(AutoSummaryContextParams {
-        app: &app,
-        db: &state.sea_db,
-        master_key: &state.master_key,
-        conversation_id: &conversation_id,
-        conversation: &conversation,
-        settings: &global_settings,
-        strategy: context_strategy,
-        db_messages: &db_messages,
-        file_store: &file_store,
-        history: full_history,
-        base_messages: &chat_messages,
-        current_user_message_id: &user_message.id,
-        stop_after_message_id: None,
-        context_boundary,
-        existing_summary: effective_existing_summary,
-        document_attachment_reading_enabled,
-        model_context_window,
-        input_budget,
-        provider: &provider,
-        decrypted_key: &decrypted_key,
-        key_id: &key_row.id,
-        proxy_config: &resolved_proxy,
-        model_id: &conversation.model_id,
-        use_max_completion_tokens,
-        persist_generated_summary: should_persist_generated_summary(history_mode),
-    })
-    .await;
-    let context_result = settle_registered_stream_setup(
-        &mut stream_guard,
-        context_result,
-        setup_failure,
+    let context_result = match run_unless_cancelled(
+        prepare_context_with_auto_summary(AutoSummaryContextParams {
+            app: &app,
+            db: &state.sea_db,
+            master_key: &state.master_key,
+            conversation_id: &conversation_id,
+            conversation: &conversation,
+            settings: &global_settings,
+            strategy: context_strategy,
+            db_messages: &db_messages,
+            file_store: &file_store,
+            history: full_history,
+            base_messages: &chat_messages,
+            current_user_message_id: &user_message.id,
+            stop_after_message_id: None,
+            context_boundary,
+            existing_summary: effective_existing_summary,
+            document_attachment_reading_enabled,
+            model_context_window,
+            input_budget,
+            provider: &provider,
+            decrypted_key: &decrypted_key,
+            key_id: &key_row.id,
+            proxy_config: &resolved_proxy,
+            model_id: &conversation.model_id,
+            use_max_completion_tokens,
+            persist_generated_summary: should_persist_generated_summary(history_mode),
+        }),
+        &cancel_flag,
     )
-    .await?;
+    .await
+    {
+        Ok(result) => settle_registered_stream_setup(
+            &mut stream_guard,
+            result,
+            setup_failure,
+        )
+        .await?,
+        Err(()) => {
+            let persistence_error_event = persist_assistant_placeholder(
+                &state.sea_db,
+                AssistantPlaceholderPersistence {
+                    conversation_id: &conversation_id,
+                    message_id: &assistant_message_id,
+                    parent_message_id: &user_message.id,
+                    provider_id: &provider.id,
+                    model_id: &conversation.model_id,
+                    content: &assistant_content_prefix,
+                    version_index: 0,
+                    created_at: user_message.created_at + 1,
+                    deactivate_existing_versions: false,
+                    increment_message_count: true,
+                    is_active: true,
+                },
+            )
+            .await
+            .err()
+            .map(|error| {
+                build_stream_error_event(
+                    &conversation_id,
+                    &assistant_message_id,
+                    &stream_id,
+                    &conversation.model_id,
+                    &provider.id,
+                    error,
+                    "message_persistence_error",
+                    None,
+                )
+            });
+            let terminal_event = if let Some(error_event) = persistence_error_event.as_ref() {
+                build_stream_terminal_event(
+                    &conversation_id,
+                    &assistant_message_id,
+                    &stream_id,
+                    ChatStreamTerminalOutcome::Error,
+                    Some(error_event.error.clone()),
+                )
+            } else {
+                build_stream_terminal_event(
+                    &conversation_id,
+                    &assistant_message_id,
+                    &stream_id,
+                    ChatStreamTerminalOutcome::Cancelled,
+                    None,
+                )
+            };
+            release_conversation_run_guard(&app, &mut conversation_run_guard);
+            stream_guard
+                .release_then_finalize(
+                    (persistence_error_event, terminal_event),
+                    |(persistence_error_event, terminal_event)| {
+                        if let Some(error_event) = persistence_error_event {
+                            emit_stream_error(&app, error_event);
+                        }
+                        emit_stream_terminal(&app, terminal_event);
+                    },
+                )
+                .await;
+            return Ok(user_message);
+        }
+    };
 
     if context_result.overflow {
         return settle_registered_stream_setup(
@@ -1348,6 +1398,7 @@ pub async fn send_message(
         assistant_content_prefix,
         false,
         false,
+        conversation_run_guard.take(),
     );
 
         // Return the user message immediately
@@ -1356,10 +1407,7 @@ pub async fn send_message(
     .await;
 
     match prepared_send {
-        Ok(message) => {
-            conversation_run_guard.defuse();
-            Ok(message)
-        }
+        Ok(message) => Ok(message),
         Err(error) => {
             let rollback_errors = rollback_counted_new_message(
                 &state.sea_db,
@@ -1416,12 +1464,21 @@ pub async fn regenerate_message(
     enabled_memory_namespace_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
     let history_mode = history_mode.unwrap_or_default();
-    let mut conversation_run_guard = state.conversation_runs.admit(
+    let mut conversation_run_guard = Some(state.conversation_runs.admit(
         &conversation_id,
         &stream_id,
         Some(&stream_id),
         crate::conversation_run::ConversationRunMode::Chat,
-    )?;
+    )?);
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let mut stream_guard = RegisteredStreamGuard::register(
+        state.stream_cancel_flags.clone(),
+        &conversation_id,
+        &stream_id,
+        cancel_flag.clone(),
+        false,
+    )
+    .await?;
     emit_conversation_run_updated(
         &app,
         &conversation_id,
@@ -1546,15 +1603,6 @@ pub async fn regenerate_message(
 
     // 7. Spawn streaming with new version
     let assistant_message_id = aqbot_core::utils::gen_id();
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    let mut stream_guard = RegisteredStreamGuard::register(
-        state.stream_cancel_flags.clone(),
-        &conversation_id,
-        &stream_id,
-        cancel_flag.clone(),
-        false,
-    )
-    .await?;
     let target_user_content = strip_search_enrichment(&last_user_msg.content);
 
     // RAG retrieval for regeneration
@@ -1637,6 +1685,7 @@ pub async fn regenerate_message(
                     None,
                 )
             };
+            release_conversation_run_guard(&app, &mut conversation_run_guard);
             stream_guard
                 .release_then_finalize(
                     (persistence_error_event, terminal_event),
@@ -1763,36 +1812,60 @@ pub async fn regenerate_message(
         )
     });
     let resolved_proxy = ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
-    let context_result = prepare_context_with_auto_summary(AutoSummaryContextParams {
-        app: &app,
-        db: &state.sea_db,
-        master_key: &state.master_key,
-        conversation_id: &conversation_id,
-        conversation: &conversation,
-        settings: &global_settings,
-        strategy: context_strategy,
-        db_messages: &remaining_messages,
-        file_store: &file_store,
-        history: full_history,
-        base_messages: &chat_messages,
-        current_user_message_id: &last_user_msg.id,
-        stop_after_message_id: Some(&last_user_msg.id),
-        context_boundary,
-        existing_summary: effective_existing_summary,
-        document_attachment_reading_enabled,
-        model_context_window,
-        input_budget,
-        provider: &provider,
-        decrypted_key: &decrypted_key,
-        key_id: &key_row.id,
-        proxy_config: &resolved_proxy,
-        model_id: &conversation.model_id,
-        use_max_completion_tokens,
-        persist_generated_summary: should_persist_generated_summary(history_mode),
-    })
-    .await;
-    let context_result =
-        settle_registered_stream_setup(&mut stream_guard, context_result, setup_failure).await?;
+    let context_result = match run_unless_cancelled(
+        prepare_context_with_auto_summary(AutoSummaryContextParams {
+            app: &app,
+            db: &state.sea_db,
+            master_key: &state.master_key,
+            conversation_id: &conversation_id,
+            conversation: &conversation,
+            settings: &global_settings,
+            strategy: context_strategy,
+            db_messages: &remaining_messages,
+            file_store: &file_store,
+            history: full_history,
+            base_messages: &chat_messages,
+            current_user_message_id: &last_user_msg.id,
+            stop_after_message_id: Some(&last_user_msg.id),
+            context_boundary,
+            existing_summary: effective_existing_summary,
+            document_attachment_reading_enabled,
+            model_context_window,
+            input_budget,
+            provider: &provider,
+            decrypted_key: &decrypted_key,
+            key_id: &key_row.id,
+            proxy_config: &resolved_proxy,
+            model_id: &conversation.model_id,
+            use_max_completion_tokens,
+            persist_generated_summary: should_persist_generated_summary(history_mode),
+        }),
+        &cancel_flag,
+    )
+    .await
+    {
+        Ok(result) => {
+            settle_registered_stream_setup(&mut stream_guard, result, setup_failure).await?
+        }
+        Err(()) => {
+            release_conversation_run_guard(&app, &mut conversation_run_guard);
+            stream_guard
+                .release_then_finalize(
+                    build_stream_terminal_event(
+                        &conversation_id,
+                        &assistant_message_id,
+                        &stream_id,
+                        ChatStreamTerminalOutcome::Cancelled,
+                        None,
+                    ),
+                    |terminal_event| {
+                        emit_stream_terminal(&app, terminal_event);
+                    },
+                )
+                .await;
+            return Ok(());
+        }
+    };
     if context_result.overflow {
         let context_error = format!(
             "Context still exceeds the model input budget after applying {:?}: required {} tokens",
@@ -1872,9 +1945,9 @@ pub async fn regenerate_message(
         memory_tag,
         false,
         true,
+        conversation_run_guard.take(),
     );
 
-    conversation_run_guard.defuse();
     Ok(())
 }
 
@@ -2288,36 +2361,63 @@ async fn start_target_stream(
         )
     });
     let resolved_proxy = ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
-    let context_result = prepare_context_with_auto_summary(AutoSummaryContextParams {
-        app: &app,
-        db: &state.sea_db,
-        master_key: &state.master_key,
-        conversation_id: &conversation_id,
-        conversation: &conversation,
-        settings: &global_settings,
-        strategy: context_strategy,
-        db_messages: &remaining_messages,
-        file_store: &file_store,
-        history: full_history,
-        base_messages: &chat_messages,
-        current_user_message_id: &user_msg.id,
-        stop_after_message_id: Some(&user_msg.id),
-        context_boundary,
-        existing_summary: effective_existing_summary,
-        document_attachment_reading_enabled,
-        model_context_window,
-        input_budget,
-        provider: &provider,
-        decrypted_key: &decrypted_key,
-        key_id: &key_row.id,
-        proxy_config: &resolved_proxy,
-        model_id: &conversation.model_id,
-        use_max_completion_tokens,
-        persist_generated_summary: should_persist_generated_summary(history_mode),
-    })
-    .await;
-    let context_result =
-        settle_registered_stream_setup(&mut stream_guard, context_result, setup_failure).await?;
+    let context_result = match run_unless_cancelled(
+        prepare_context_with_auto_summary(AutoSummaryContextParams {
+            app: &app,
+            db: &state.sea_db,
+            master_key: &state.master_key,
+            conversation_id: &conversation_id,
+            conversation: &conversation,
+            settings: &global_settings,
+            strategy: context_strategy,
+            db_messages: &remaining_messages,
+            file_store: &file_store,
+            history: full_history,
+            base_messages: &chat_messages,
+            current_user_message_id: &user_msg.id,
+            stop_after_message_id: Some(&user_msg.id),
+            context_boundary,
+            existing_summary: effective_existing_summary,
+            document_attachment_reading_enabled,
+            model_context_window,
+            input_budget,
+            provider: &provider,
+            decrypted_key: &decrypted_key,
+            key_id: &key_row.id,
+            proxy_config: &resolved_proxy,
+            model_id: &conversation.model_id,
+            use_max_completion_tokens,
+            persist_generated_summary: should_persist_generated_summary(history_mode),
+        }),
+        &cancel_flag,
+    )
+    .await
+    {
+        Ok(result) => {
+            settle_registered_stream_setup(&mut stream_guard, result, setup_failure).await?
+        }
+        Err(()) => {
+            stream_guard
+                .release_then_finalize(
+                    build_stream_terminal_event(
+                        &conversation_id,
+                        &assistant_message_id,
+                        &stream_id,
+                        ChatStreamTerminalOutcome::Cancelled,
+                        None,
+                    ),
+                    |terminal_event| {
+                        emit_stream_terminal(&app, terminal_event);
+                    },
+                )
+                .await;
+            return Ok(crate::multi_model_run::StreamHandle::immediate(
+                stream_id,
+                assistant_message_id,
+                crate::multi_model_run::StreamTerminal::Cancelled,
+            ));
+        }
+    };
     if context_result.overflow {
         let context_error = format!(
             "Context still exceeds the target model input budget after applying {:?}: required {} tokens",
@@ -2411,6 +2511,7 @@ async fn start_target_stream(
         memory_tag,
         companion,
         true,
+        None,
     ))
 }
 

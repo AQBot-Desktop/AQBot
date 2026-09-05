@@ -180,7 +180,9 @@
       "unsupported": "Очередь сообщений доступна только в обычном чате с одной моделью",
       "otherConversationBusy": "В другом разговоре всё ещё отправляется сообщение",
       "deleteConversationRunFailed": "Не удалось остановить генерацию этого разговора, поэтому он не был удалён",
-      "conversationChanged": "Разговор сменился до отправки сообщения; черновик сохранён"
+      "conversationChanged": "Разговор сменился до отправки сообщения; черновик сохранён",
+      "sendNowWaiting": "Отправляется сейчас",
+      "deletingRoundFailed": "Не удалось удалить этот ход"
     },
     "attachFile": "Прикрепить файл",
     "imageInputNotConfiguredTitle": "Ввод изображений не включён",
@@ -477,7 +479,8 @@
     "summaryModel": "Модель",
     "summaryTokens": "Сводные токены",
     "summaryBoundary": "Сжатие",
-    "contextTokenUsage": "Токены контекста"
+    "contextTokenUsage": "Токены контекста",
+    "stopping": "Останавливается"
   },
   "gateway": {
     "title": "Шлюз",

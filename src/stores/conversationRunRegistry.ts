@@ -129,6 +129,13 @@ export function selectUiStreaming(state: ConversationRunStateSlice): boolean {
   return isConversationStreaming(state, state.activeConversationId);
 }
 
+export function selectUiRunPhase(
+  state: ConversationRunStateSlice,
+): ConversationRunPhase | null {
+  const run = getConversationRun(state, state.activeConversationId);
+  return isLiveConversationRun(run) ? run?.phase ?? null : null;
+}
+
 export function selectUiStreamingMessageId(state: ConversationRunStateSlice): string | null {
   const conversationId = state.activeConversationId;
   if (!conversationId) return null;

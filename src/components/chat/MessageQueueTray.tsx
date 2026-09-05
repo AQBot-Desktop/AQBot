@@ -25,6 +25,7 @@ export type MessageQueueTrayProps = {
   messages: MessageQueueTrayItem[];
   paused?: boolean;
   error?: string | null;
+  sendingNowId?: string | null;
   onEdit: (
     messageId: string,
     patch: { content: string; attachments: AttachmentInput[] },
@@ -43,6 +44,7 @@ export const MessageQueueTray = memo(function MessageQueueTray({
   messages,
   paused = false,
   error = null,
+  sendingNowId = null,
   onEdit,
   onSendNow,
   onDelete,
@@ -174,12 +176,14 @@ export const MessageQueueTray = memo(function MessageQueueTray({
                     onClick={() => openEditor(message)}
                   />
                 </Tooltip>
-                <Tooltip title={t('chat.inputQueue.sendNowHint')}>
+                <Tooltip title={sendingNowId === message.id ? t('chat.inputQueue.sendNowWaiting') : t('chat.inputQueue.sendNowHint')}>
                   <Button
                     type="text"
                     size="small"
+                    loading={sendingNowId === message.id}
+                    disabled={sendingNowId === message.id}
                     icon={<ArrowUp size={14} />}
-                    aria-label={t('chat.inputQueue.sendNow')}
+                    aria-label={sendingNowId === message.id ? t('chat.inputQueue.sendNowWaiting') : t('chat.inputQueue.sendNow')}
                     onClick={() => { void onSendNow(message.id); }}
                   />
                 </Tooltip>

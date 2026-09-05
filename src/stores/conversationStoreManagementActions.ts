@@ -21,6 +21,7 @@ import { isResourceFresh } from '@/lib/resourceState';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCategoryStore } from './categoryStore';
 import { isLiveConversationRun, mirrorActiveStreamFields } from './conversationRunRegistry';
+import { setChatQueueDeletingRound } from './conversationStoreQueueActions';
 import type {
   CompareResponsesResult,
   ContextUsage,
@@ -39,6 +40,7 @@ import {
   conversationPreferenceStateFromConversation,
   conversationPreferenceUpdateFromState,
   conversationRuntime as runtime,
+  getRunRuntime,
   emptyConversationPreferenceUpdate,
   getStreamBuffer,
   setStreamBuffer,
@@ -1568,7 +1570,12 @@ export function createConversationManagementActions(
         }));
         return;
       }
+      setChatQueueDeletingRound(set, conversationId, true);
       try {
+        if (isLiveConversationRun(get().runsByConversation[conversationId])) {
+          await get().cancelConversationRun({ conversationId });
+          await getRunRuntime(conversationId)?.stopCompleted;
+        }
         await invoke('delete_message_group', { conversationId, userMessageId });
         get().applyMessageVersionSnapshot(conversationId, userMessageId, []);
         invalidateConversationMessageCache(conversationId);
@@ -1580,7 +1587,11 @@ export function createConversationManagementActions(
         notifyConversationChanged(conversationId);
       } catch (e) {
         set({ error: String(e) });
+        return;
+      } finally {
+        setChatQueueDeletingRound(set, conversationId, false);
       }
+      await get().drainChatQueue(conversationId);
     },
     loadWorkspaceSnapshot: async (conversationId) => {
       try {

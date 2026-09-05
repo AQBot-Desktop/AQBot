@@ -180,7 +180,9 @@
       "unsupported": "メッセージキューは通常の単一モデルチャットでのみ利用できます",
       "otherConversationBusy": "別の会話がメッセージを送信中です",
       "deleteConversationRunFailed": "この会話の生成を停止できなかったため、会話は削除されませんでした",
-      "conversationChanged": "メッセージの送信前に会話が切り替わったため、下書きを保持しました"
+      "conversationChanged": "メッセージの送信前に会話が切り替わったため、下書きを保持しました",
+      "sendNowWaiting": "すぐに送信しています",
+      "deletingRoundFailed": "このやり取りを削除できませんでした"
     },
     "attachFile": "ファイルを添付",
     "imageInputNotConfiguredTitle": "画像入力が有効になっていません",
@@ -477,7 +479,8 @@
     "summaryModel": "モデル",
     "summaryTokens": "サマリートークン",
     "summaryBoundary": "圧縮",
-    "contextTokenUsage": "コンテキストトークン"
+    "contextTokenUsage": "コンテキストトークン",
+    "stopping": "停止しています"
   },
   "gateway": {
     "title": "ゲートウェイ",

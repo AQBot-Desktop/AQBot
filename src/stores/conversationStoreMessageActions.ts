@@ -4,6 +4,7 @@ import { snapshotStreamSyncState } from './conversationStoreSupport';
 import {
   clearConversationRun,
   createConversationRun,
+  isLiveConversationRun,
   upsertConversationRun,
   upsertObservedStream,
 } from './conversationRunRegistry';
@@ -56,7 +57,8 @@ import {
   conversationRuntime as runtime,
   createStreamActivity,
   createStreamId,
-  deleteRunRuntime,
+  ensureRunStopCompleted,
+  markRunStopCompleted,
   getLoadedMessagesForConversation,
   getOrCreateRunRuntime,
   getRunRuntime,
@@ -88,8 +90,9 @@ import {
   type ChatStreamTerminalEvent,
 } from './conversationStoreSupport';
 import {
+  armQueueForStop,
   bindWaitingChatQueueToStream,
-  ensureChatQueueStreamBlocker,
+  markChatQueueCancelError,
 } from './conversationStoreQueueActions';
 import { useAgentStore } from './agentStore';
 
@@ -448,6 +451,210 @@ function applyMultiModelEnvelope(
   }
 }
 
+async function cancelConversationRunNow(
+  set: ConversationStoreSet,
+  get: () => ConversationState,
+  input: {
+    conversationId: string;
+    runId?: string | null;
+    skipBackend?: boolean;
+  },
+): Promise<void> {
+  const { conversationId, skipBackend } = input;
+  const initialState = get();
+  const run = initialState.runsByConversation[conversationId];
+  const runRuntime = getOrCreateRunRuntime(conversationId);
+  runRuntime.sendGeneration += 1;
+  ensureRunStopCompleted(conversationId);
+  const ownsMultiModelRun = Boolean(
+    runRuntime.isMultiModelActive
+    || (runtime.isMultiModelActive && initialState.streamingConversationId === conversationId)
+  );
+  const observedStream = (
+    initialState.observedStreamsByConversation[conversationId]?.streaming
+      ? { conversationId, ...initialState.observedStreamsByConversation[conversationId] }
+      : initialState.observedStream?.streaming && initialState.observedStream.conversationId === conversationId
+        ? initialState.observedStream
+        : null
+  );
+  const streamId = input.runId
+    ?? run?.streamId
+    ?? (initialState.streamingConversationId === conversationId ? initialState.activeStreamId : null)
+    ?? observedStream?.streamId
+    ?? null;
+  const conversation = conversationId
+    ? initialState.conversations.find((item) => item.id === conversationId)
+      ?? initialState.archivedConversations.find((item) => item.id === conversationId)
+    : null;
+  const activeMultiModelRun = initialState.multiModelRun?.conversationId === conversationId
+    ? initialState.multiModelRun
+    : null;
+  const cancellingMultiModel = ownsMultiModelRun || Boolean(activeMultiModelRun);
+  if (
+    conversationId
+    && !cancellingMultiModel
+    && conversation?.mode !== 'agent'
+    && (run || initialState.streamingConversationId === conversationId || observedStream)
+  ) {
+    armQueueForStop(set, conversationId, streamId);
+  }
+  const cancellationBucket = get().chatQueueByConversation[conversationId];
+  const expectedDrainingMessageId = cancellationBucket?.drainingMessageId ?? null;
+  const expectedDrainingStreamId = cancellationBucket?.drainingStreamId ?? streamId;
+  const agentCancel = runRuntime.agentCancel ?? (
+    initialState.streamingConversationId === conversationId ? runtime.activeAgentCancel : null
+  );
+  if (agentCancel) {
+    agentCancel();
+  } else {
+    runRuntime.agentStreamSeq++;
+  }
+  flushPendingStreamChunk(set, get);
+  const buffer = getStreamBuffer(conversationId);
+  materializeLiveStreamContent(set, [
+    ...collectActiveStreamingMessageIds(get(), conversationId),
+    run?.streamingMessageId ?? null,
+    buffer?.messageId,
+    buffer?.resolvedId,
+  ]);
+  const streamMsgId = run?.streamingMessageId
+    ?? (initialState.streamingConversationId === conversationId ? initialState.streamingMessageId : null);
+
+  if (cancellingMultiModel) {
+    if (ownsMultiModelRun) multiModelCancelRequestedRunId = runtime.multiModelRunId;
+    if (isTauri() && !skipBackend) {
+      set((state) => ({
+        multiModelRun: state.multiModelRun
+          ? { ...state.multiModelRun, phase: 'stopping' }
+          : state.multiModelRun,
+      }));
+      if (activeMultiModelRun) {
+        await requestMultiModelStop(set, get, activeMultiModelRun.runId);
+      }
+      return;
+    }
+    if (ownsMultiModelRun) {
+      runtime.multiModelRunId++;
+      runtime.isMultiModelActive = false;
+      runtime.multiModelTotalRemaining = 0;
+      runtime.multiModelFirstTarget = null;
+      runtime.multiModelFirstMessageId = null;
+      runtime.multiModelHistoryMode = 'selected';
+      runtime.userManuallySelectedVersion = false;
+      runtime.multiModelStreamIds.clear();
+      if (runtime.multiModelDoneResolve) {
+        const r = runtime.multiModelDoneResolve;
+        runtime.multiModelDoneResolve = null;
+        r();
+      }
+    }
+    set({
+      multiModelRun: null,
+      pendingCompanionModels: [],
+      multiModelParentId: null,
+      multiModelDoneMessageIds: [],
+    });
+  }
+
+  if (run && isLiveConversationRun(run) && run.phase !== 'stopping') {
+    set((state) => ({
+      ...upsertConversationRun(state, {
+        ...run,
+        phase: 'stopping',
+        revision: run.revision + 1,
+      }),
+      messages: streamMsgId && state.activeConversationId === conversationId
+        ? state.messages.map((message) => (
+          message.id === streamMsgId ? { ...message, status: 'partial' as const } : message
+        ))
+        : state.messages,
+    }));
+  } else if (!run) {
+    set((state) => ({
+      messages: streamMsgId && state.activeConversationId === conversationId
+        ? state.messages.map((message) => (
+          message.id === streamMsgId ? { ...message, status: 'partial' as const } : message
+        ))
+        : state.messages,
+    }));
+  }
+
+  if (conversationId && isTauri() && !skipBackend && !cancellingMultiModel) {
+    try {
+      await invokeCancelStream(conversationId, streamId, runRuntime);
+    } catch (error) {
+      const cancellationError = String(error);
+      const latest = get();
+      const stillSameRun = Boolean(
+        latest.runsByConversation[conversationId]?.runId === (run?.runId ?? streamId)
+        || latest.chatQueueByConversation[conversationId]?.drainingStreamId === expectedDrainingStreamId
+      );
+      if (stillSameRun && runRuntime.sendIpcPending) {
+        try {
+          await invokeCancelStream(conversationId, streamId, runRuntime);
+        } catch (retryError) {
+          markChatQueueCancelError(
+            set,
+            conversationId,
+            String(retryError),
+            expectedDrainingMessageId,
+            expectedDrainingStreamId,
+          );
+        }
+      } else if (
+        stillSameRun
+        && !runRuntime.sendIpcStarted
+        && isNoMatchingStreamError(cancellationError)
+      ) {
+        // Local preparation was aborted before send IPC.
+      } else if (stillSameRun) {
+        markChatQueueCancelError(
+          set,
+          conversationId,
+          cancellationError,
+          expectedDrainingMessageId,
+          expectedDrainingStreamId,
+        );
+      }
+    }
+    if (conversation?.mode === 'agent') {
+      invoke('agent_cancel', {
+        conversationId,
+        streamId: streamId ?? initialState.activeStreamId,
+      }).catch(() => {});
+    }
+  } else if (conversationId && !isTauri() && !skipBackend && !cancellingMultiModel) {
+    await get().handleChatStreamTerminal({
+      conversation_id: conversationId,
+      message_id: streamMsgId ?? '',
+      stream_id: streamId ?? '',
+      outcome: 'cancelled',
+      error: null,
+    });
+  }
+}
+
+function isNoMatchingStreamError(error: string): boolean {
+  return error.includes('No active stream matched the cancellation request');
+}
+
+async function invokeCancelStream(
+  conversationId: string,
+  streamId: string | null,
+  runRuntime: ReturnType<typeof getOrCreateRunRuntime>,
+): Promise<void> {
+  try {
+    await invoke('cancel_stream', { conversationId, streamId });
+  } catch (error) {
+    const message = String(error);
+    if (!isNoMatchingStreamError(message) || !runRuntime.sendIpcPending) {
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await invoke('cancel_stream', { conversationId, streamId });
+  }
+}
+
 function requestMultiModelStop(
   set: ConversationStoreSet,
   get: () => ConversationState,
@@ -550,6 +757,9 @@ export function createConversationMessageActions(
         run: get().runsByConversation[conversationId] ?? null,
       };
       const runRuntime = getOrCreateRunRuntime(conversationId);
+      const sendGeneration = runRuntime.sendGeneration;
+      const isSendAborted = () => runRuntime.sendGeneration !== sendGeneration;
+      runRuntime.sendIpcStarted = false;
       if (runRuntime.isMultiModelActive || runtime.isMultiModelActive) {
         runRuntime.multiModelStreamIds.add(streamId);
         runtime.multiModelStreamIds.add(streamId);
@@ -625,6 +835,9 @@ export function createConversationMessageActions(
 
       try {
         await get().startStreamListening();
+        if (isSendAborted()) {
+          throw new Error('send-aborted-before-ipc');
+        }
 
         // If web search is enabled, execute search before sending to backend
         let finalContent = content;
@@ -739,21 +952,31 @@ export function createConversationMessageActions(
         });
         const thinkingBudget = getEffectiveThinkingBudget(get, conversationId);
         const thinkingLevel = getEffectiveThinkingLevel(get, conversationId);
-        const userMessage = await invoke<Message>('send_message', {
-          conversationId,
-          streamId,
-          content: finalContent,
-          contentPrefix: searchDisplayTag,
-          attachments,
-          enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
-          thinkingBudget,
-          thinkingLevel,
-          enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
-          enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
-          historyMode: runRuntime.isMultiModelActive
-            ? runRuntime.multiModelHistoryMode
-            : get().multiModelContinuationMode,
-        });
+        if (isSendAborted()) {
+          throw new Error('send-aborted-before-ipc');
+        }
+        runRuntime.sendIpcPending = true;
+        runRuntime.sendIpcStarted = true;
+        let userMessage: Message;
+        try {
+          userMessage = await invoke<Message>('send_message', {
+            conversationId,
+            streamId,
+            content: finalContent,
+            contentPrefix: searchDisplayTag,
+            attachments,
+            enabledMcpServerIds: mcpIds.length > 0 ? mcpIds : undefined,
+            thinkingBudget,
+            thinkingLevel,
+            enabledKnowledgeBaseIds: kbIds.length > 0 ? kbIds : undefined,
+            enabledMemoryNamespaceIds: memIds.length > 0 ? memIds : undefined,
+            historyMode: runRuntime.isMultiModelActive
+              ? runRuntime.multiModelHistoryMode
+              : get().multiModelContinuationMode,
+          });
+        } finally {
+          runRuntime.sendIpcPending = false;
+        }
 
         // Replace optimistic user msg with real one, update placeholder parent
         if (get().activeConversationId === conversationId) {
@@ -801,8 +1024,18 @@ export function createConversationMessageActions(
         }
         return userMessage;
       } catch (e) {
-        console.error('[sendMessage] error:', e);
         const errMsg = String(e);
+        const aborted = isSendAborted() || errMsg.includes('send-aborted-before-ipc');
+        const currentRun = get().runsByConversation[conversationId];
+        const stoppingThisRun = aborted
+          && currentRun?.phase === 'stopping'
+          && currentRun.runId === runId;
+        if (stoppingThisRun && !errMsg.includes('send-aborted-before-ipc')) {
+          return null;
+        }
+        if (!aborted) {
+          console.error('[sendMessage] error:', e);
+        }
         const staleBackendStream = isActiveStreamExistsError(errMsg);
         const restorePrevious = Boolean(
           previousStreamState.streaming
@@ -838,9 +1071,12 @@ export function createConversationMessageActions(
                 m.id !== optimisticUserMsg.id && m.id !== tempAssistantId
               ))
               : s.messages,
-            error: errMsg,
+            error: aborted ? null : errMsg,
           };
         });
+        if (aborted) {
+          markRunStopCompleted(conversationId);
+        }
         if (staleBackendStream) {
           resetPendingStreamUi(conversationId);
           setStreamBuffer(conversationId, null);
@@ -2659,164 +2895,33 @@ export function createConversationMessageActions(
       const preserveMessageIds = [...collectActiveStreamingMessageIds(get(), payload.conversationId)];
       await get().fetchMessages(payload.conversationId, preserveMessageIds, { setLoading: false });
     },
-    cancelCurrentStream: (options) => {
+    cancelCurrentStream: async (options) => {
       const conversationId = get().activeConversationId;
       if (!conversationId) return;
-      get().cancelConversationRun({
+      await get().cancelConversationRun({
         conversationId,
         skipBackend: options?.skipBackend,
       });
     },
-    cancelConversationRun: ({ conversationId, runId, skipBackend }) => {
-      const initialState = get();
-      const run = initialState.runsByConversation[conversationId];
-      const runRuntime = getRunRuntime(conversationId);
-      const ownsMultiModelRun = Boolean(
-        runRuntime?.isMultiModelActive || (runtime.isMultiModelActive && initialState.streamingConversationId === conversationId)
-      );
-      const observedStream = (
-        initialState.observedStreamsByConversation[conversationId]?.streaming
-          ? { conversationId, ...initialState.observedStreamsByConversation[conversationId] }
-          : initialState.observedStream?.streaming && initialState.observedStream.conversationId === conversationId
-            ? initialState.observedStream
-            : null
-      );
-      const streamId = runId
-        ?? run?.streamId
-        ?? (initialState.streamingConversationId === conversationId ? initialState.activeStreamId : null)
-        ?? observedStream?.streamId
-        ?? null;
-      const conversation = conversationId
-        ? initialState.conversations.find((item) => item.id === conversationId)
-          ?? initialState.archivedConversations.find((item) => item.id === conversationId)
-        : null;
-      const activeMultiModelRun = initialState.multiModelRun?.conversationId === conversationId
-        ? initialState.multiModelRun
-        : null;
-      const cancellingMultiModel = ownsMultiModelRun || Boolean(activeMultiModelRun);
-      if (
-        conversationId
-        && streamId
-        && !cancellingMultiModel
-        && conversation?.mode !== 'agent'
-        && (run || initialState.streamingConversationId === conversationId || observedStream)
-      ) {
-        ensureChatQueueStreamBlocker(set, conversationId, streamId);
+    cancelConversationRun: async ({ conversationId, runId, skipBackend }) => {
+      const runRuntime = getOrCreateRunRuntime(conversationId);
+      if (runRuntime.inFlightStop) {
+        await runRuntime.inFlightStop;
+        return;
       }
-      const cancellationBucket = conversationId
-        ? get().chatQueueByConversation[conversationId]
-        : null;
-      const expectedDrainingMessageId = cancellationBucket?.drainingMessageId ?? null;
-      const expectedDrainingStreamId = cancellationBucket?.drainingStreamId ?? null;
-      const agentCancel = runRuntime?.agentCancel ?? (
-        initialState.streamingConversationId === conversationId ? runtime.activeAgentCancel : null
-      );
-      if (agentCancel) {
-        agentCancel();
-      } else if (runRuntime) {
-        runRuntime.agentStreamSeq++;
-      }
-      flushPendingStreamChunk(set, get);
-      const buffer = getStreamBuffer(conversationId);
-      materializeLiveStreamContent(set, [
-        ...collectActiveStreamingMessageIds(get(), conversationId),
-        run?.streamingMessageId ?? null,
-        buffer?.messageId,
-        buffer?.resolvedId,
-      ]);
-      resetPendingStreamUi(conversationId);
-      setStreamBuffer(conversationId, null);
-      // Clean up multi-model state on cancel
-      if (cancellingMultiModel) {
-        if (ownsMultiModelRun) multiModelCancelRequestedRunId = runtime.multiModelRunId;
-        if (isTauri() && !skipBackend) {
-          set((state) => ({
-            multiModelRun: state.multiModelRun
-              ? { ...state.multiModelRun, phase: 'stopping' }
-              : state.multiModelRun,
-          }));
-          if (activeMultiModelRun) {
-            void requestMultiModelStop(set, get, activeMultiModelRun.runId);
-          }
-          return;
-        }
-        if (ownsMultiModelRun) {
-          runtime.multiModelRunId++;
-          runtime.isMultiModelActive = false;
-          runtime.multiModelTotalRemaining = 0;
-          runtime.multiModelFirstTarget = null;
-          runtime.multiModelFirstMessageId = null;
-          runtime.multiModelHistoryMode = 'selected';
-          runtime.userManuallySelectedVersion = false;
-          runtime.multiModelStreamIds.clear();
-          if (runtime.multiModelDoneResolve) {
-            const r = runtime.multiModelDoneResolve;
-            runtime.multiModelDoneResolve = null;
-            r();
-          }
-        }
-        set({
-          multiModelRun: null,
-          pendingCompanionModels: [],
-          multiModelParentId: null,
-          multiModelDoneMessageIds: [],
-        });
-      }
-      // Tell the backend to cancel the stream — fire and forget
-      if (conversationId && isTauri() && !skipBackend) {
-        if (!cancellingMultiModel) {
-          invoke('cancel_stream', {
-            conversationId,
-            streamId,
-          }).catch((error) => {
-            const cancellationError = String(error);
-            set((state) => {
-              const bucket = state.chatQueueByConversation[conversationId];
-              if (
-                !bucket
-                || bucket.drainingMessageId !== expectedDrainingMessageId
-                || bucket.drainingStreamId !== expectedDrainingStreamId
-              ) return {};
-              return {
-                chatQueueByConversation: {
-                  ...state.chatQueueByConversation,
-                  [conversationId]: {
-                    ...bucket,
-                    phase: 'paused',
-                    paused: true,
-                    pauseReason: 'cancel-error',
-                    error: cancellationError,
-                  },
-                },
-              };
-            });
-          });
-        }
-        // Also cancel the agent if in agent mode
-        if (conversation?.mode === 'agent') {
-          invoke('agent_cancel', {
-            conversationId,
-            streamId: streamId ?? initialState.activeStreamId,
-          }).catch(() => {});
+      const stopPromise = cancelConversationRunNow(set, get, {
+        conversationId,
+        runId,
+        skipBackend,
+      });
+      runRuntime.inFlightStop = stopPromise;
+      try {
+        await stopPromise;
+      } finally {
+        if (runRuntime.inFlightStop === stopPromise) {
+          runRuntime.inFlightStop = null;
         }
       }
-      // Mark the current streaming message as partial
-      const streamMsgId = run?.streamingMessageId
-        ?? (initialState.streamingConversationId === conversationId ? initialState.streamingMessageId : null);
-      set((s) => ({
-        ...clearConversationRun(s, conversationId, streamId),
-        streamActivityByMessageId: removeStreamActivities(
-          s.streamActivityByMessageId,
-          [streamMsgId],
-        ),
-        thinkingActiveMessageIds: s.activeConversationId === conversationId
-          ? new Set<string>()
-          : s.thinkingActiveMessageIds,
-        messages: streamMsgId && s.activeConversationId === conversationId
-          ? s.messages.map((m) => m.id === streamMsgId ? { ...m, status: 'partial' as const } : m)
-          : s.messages,
-      }));
-      deleteRunRuntime(conversationId);
     },
   };
 }

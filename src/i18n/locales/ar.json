@@ -180,7 +180,9 @@
       "unsupported": "قائمة انتظار الرسائل متاحة فقط في الدردشة العادية بنموذج واحد",
       "otherConversationBusy": "لا تزال محادثة أخرى ترسل رسالة",
       "deleteConversationRunFailed": "تعذر إيقاف توليد هذه المحادثة، لذلك لم تُحذف",
-      "conversationChanged": "تغيرت المحادثة قبل إرسال الرسالة؛ تم الاحتفاظ بالمسودة"
+      "conversationChanged": "تغيرت المحادثة قبل إرسال الرسالة؛ تم الاحتفاظ بالمسودة",
+      "sendNowWaiting": "جارٍ الإرسال الآن",
+      "deletingRoundFailed": "تعذر حذف هذا الدور"
     },
     "attachFile": "إرفاق ملف",
     "imageInputNotConfiguredTitle": "إدخال الصور غير مفعّل",
@@ -477,7 +479,8 @@
     "summaryModel": "نموذج",
     "summaryTokens": "ملخص الرموز",
     "summaryBoundary": "مضغوطة من خلال",
-    "contextTokenUsage": "رموز السياق"
+    "contextTokenUsage": "رموز السياق",
+    "stopping": "جارٍ الإيقاف"
   },
   "gateway": {
     "title": "البوابة",

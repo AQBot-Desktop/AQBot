@@ -1,5 +1,42 @@
 // Provider stream consumption and MCP tool execution.
 
+#[derive(Debug)]
+enum StreamWaitOutcome<T> {
+    Cancelled,
+    TimedOut,
+    Ready(T),
+}
+
+async fn await_next_stream_item<S>(
+    stream: &mut S,
+    cancel_flag: &AtomicBool,
+    timeout: Option<Duration>,
+) -> StreamWaitOutcome<Option<S::Item>>
+where
+    S: futures::Stream + Unpin,
+{
+    use futures::StreamExt;
+    match timeout {
+        Some(duration) => {
+            tokio::select! {
+                biased;
+                _ = wait_for_cancel(cancel_flag) => StreamWaitOutcome::Cancelled,
+                result = tokio::time::timeout(duration, stream.next()) => match result {
+                    Ok(item) => StreamWaitOutcome::Ready(item),
+                    Err(_) => StreamWaitOutcome::TimedOut,
+                },
+            }
+        }
+        None => {
+            tokio::select! {
+                biased;
+                _ = wait_for_cancel(cancel_flag) => StreamWaitOutcome::Cancelled,
+                item = stream.next() => StreamWaitOutcome::Ready(item),
+            }
+        }
+    }
+}
+
 async fn consume_stream(
     app: &tauri::AppHandle,
     stream: &mut std::pin::Pin<
@@ -22,7 +59,6 @@ async fn consume_stream(
     Option<i64>, // first_token_latency_ms
     Vec<aqbot_core::inline_media::CapturedInlineImage>,
 ) {
-    use futures::StreamExt;
     let mut full_content = String::new();
     let mut final_usage: Option<TokenUsage> = None;
     let mut final_tool_calls: Option<Vec<ToolCall>> = None;
@@ -45,26 +81,28 @@ async fn consume_stream(
         } else {
             stream_timeouts.first_packet
         };
-        let next_result = match current_timeout {
-            Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
-                Ok(result) => result,
-                Err(_) => {
-                    let error_event = build_stream_timeout_error_event(
-                        conversation_id,
-                        message_id,
-                        stream_id,
-                        model_id,
-                        provider_id,
-                        received_stream_packet,
-                        timeout,
-                    );
-                    let err_msg = error_event.error.clone();
-                    tracing::error!("[consume_stream] {}", err_msg);
-                    stream_error = Some(error_event);
-                    break;
-                }
-            },
-            None => stream.next().await,
+        let next_result = match await_next_stream_item(stream, cancel_flag, current_timeout).await {
+            StreamWaitOutcome::Cancelled => {
+                tracing::info!("[consume_stream] Cancelled by user");
+                break;
+            }
+            StreamWaitOutcome::TimedOut => {
+                let timeout = current_timeout.unwrap_or(Duration::from_secs(0));
+                let error_event = build_stream_timeout_error_event(
+                    conversation_id,
+                    message_id,
+                    stream_id,
+                    model_id,
+                    provider_id,
+                    received_stream_packet,
+                    timeout,
+                );
+                let err_msg = error_event.error.clone();
+                tracing::error!("[consume_stream] {}", err_msg);
+                stream_error = Some(error_event);
+                break;
+            }
+            StreamWaitOutcome::Ready(result) => result,
         };
         let Some(result) = next_result else {
             break;

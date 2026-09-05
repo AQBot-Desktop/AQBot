@@ -180,7 +180,9 @@
       "unsupported": "僅一般單模型聊天支援訊息排隊",
       "otherConversationBusy": "其他會話正在傳送訊息，請稍後再試",
       "deleteConversationRunFailed": "無法停止此會話的生成，因此未刪除會話",
-      "conversationChanged": "提交訊息前會話已切換，草稿已保留"
+      "conversationChanged": "提交訊息前會話已切換，草稿已保留",
+      "sendNowWaiting": "正在立即發送",
+      "deletingRoundFailed": "無法刪除本輪對話"
     },
     "attachFile": "附加檔案",
     "imageInputNotConfiguredTitle": "尚未啟用圖片輸入能力",
@@ -477,7 +479,8 @@
     "summaryModel": "模型",
     "summaryTokens": "摘要 tokens",
     "summaryBoundary": "壓縮到",
-    "contextTokenUsage": "上下文 tokens"
+    "contextTokenUsage": "上下文 tokens",
+    "stopping": "正在停止"
   },
   "gateway": {
     "title": "閘道",

@@ -4,7 +4,7 @@ import type { MenuProps } from 'antd';
 import { Paperclip, Mic, Eraser, Scissors, Globe, Brain, Plug, SlidersHorizontal, ArrowUp, Square, Check, Zap, Shrink, Upload, GitCompareArrows, BookOpen, GripHorizontal, Bot, MessageSquare, Shield, ShieldCheck, ShieldAlert, FolderOpen, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore, useProviderStore, useSettingsStore, useSearchStore, useMcpStore, useMemoryStore, useKnowledgeStore } from '@/stores';
-import { selectUiStreaming } from '@/stores/conversationStore';
+import { selectUiRunPhase, selectUiStreaming } from '@/stores/conversationStore';
 import { useUIStore } from '@/stores/uiStore';
 import { findModelByIds, supportsReasoning, supportsFunctionCalling, modelHasCapability } from '@/lib/modelCapabilities';
 import {
@@ -156,6 +156,8 @@ export function InputArea() {
 
   const { message: messageApi, modal } = App.useApp();
   const streaming = useConversationStore(selectUiStreaming);
+  const runPhase = useConversationStore(selectUiRunPhase);
+  const stopping = runPhase === 'stopping';
   const loading = useConversationStore((s) => s.loading);
   const compressingConversationId = useConversationStore((s) => s.compressingConversationId);
   const cancelCurrentStream = useConversationStore((s) => s.cancelCurrentStream);
@@ -1462,7 +1464,7 @@ export function InputArea() {
   }, [loading, messages, streaming, updateDraftValue]);
 
   const handleCancel = useCallback(() => {
-    cancelCurrentStream();
+    void cancelCurrentStream();
   }, [cancelCurrentStream]);
 
   const resizeTextareaToContent = useCallback(() => {
@@ -1738,6 +1740,7 @@ export function InputArea() {
             messages={activeChatQueue.messages}
             paused={activeChatQueue.phase === 'paused'}
             error={activeChatQueue.error}
+            sendingNowId={activeChatQueue.sendNowMessageId}
             onEdit={(messageId, patch) => {
               updateQueuedChatMessage(activeConversationId, messageId, patch);
             }}
@@ -2113,12 +2116,14 @@ export function InputArea() {
                     </Button>
                   </Tooltip>
                 )}
-                <Tooltip title={multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop')}>
+                <Tooltip title={stopping ? t('chat.stopping') : (multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop'))}>
                   <Button
                     shape="circle"
                     size="small"
                     danger
-                    aria-label={multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop')}
+                    loading={stopping}
+                    disabled={stopping}
+                    aria-label={stopping ? t('chat.stopping') : (multiModelRun ? t('chat.multiModel.stopRun') : t('common.stop'))}
                     icon={<Square size={14} />}
                     onClick={handleCancel}
                   />

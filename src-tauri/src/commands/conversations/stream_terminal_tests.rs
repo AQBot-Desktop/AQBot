@@ -462,4 +462,82 @@ mod stream_terminal_tests {
         assert_eq!(stored_message.content, "context setup failed");
         assert_eq!(stored_conversation.message_count, 1);
     }
+
+    fn pending_chat_stream() -> impl futures::Stream<Item = aqbot_core::error::Result<ChatStreamChunk>> + Unpin
+    {
+        futures::stream::pending()
+    }
+
+    fn sample_stream_chunk() -> ChatStreamChunk {
+        ChatStreamChunk {
+            content: Some("delta".to_string()),
+            thinking: None,
+            done: false,
+            is_final: None,
+            usage: None,
+            tool_calls: None,
+        }
+    }
+
+    async fn assert_cancel_wins_within_250ms<S>(
+        stream: &mut S,
+        cancel_flag: &Arc<AtomicBool>,
+        timeout: Option<Duration>,
+    ) where
+        S: futures::Stream<Item = aqbot_core::error::Result<ChatStreamChunk>> + Unpin,
+    {
+        let cancel = cancel_flag.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            cancel.store(true, Ordering::Relaxed);
+        });
+        let started = std::time::Instant::now();
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(250),
+            await_next_stream_item(stream, cancel_flag, timeout),
+        )
+        .await
+        .expect("cancel should exit the stream wait within 250ms");
+        assert!(matches!(outcome, StreamWaitOutcome::Cancelled));
+        assert!(started.elapsed() <= Duration::from_millis(250));
+    }
+
+    #[tokio::test]
+    async fn stream_wait_exits_on_cancel_before_first_packet() {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let mut stream = pending_chat_stream();
+        assert_cancel_wins_within_250ms(
+            &mut stream,
+            &cancel_flag,
+            Some(Duration::from_secs(30)),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn stream_wait_exits_on_cancel_between_packets() {
+        use futures::StreamExt;
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let mut stream = futures::stream::iter([Ok(sample_stream_chunk())]).chain(pending_chat_stream());
+        let first = await_next_stream_item(
+            &mut stream,
+            &cancel_flag,
+            Some(Duration::from_secs(5)),
+        )
+        .await;
+        assert!(matches!(first, StreamWaitOutcome::Ready(Some(Ok(_)))));
+        assert_cancel_wins_within_250ms(
+            &mut stream,
+            &cancel_flag,
+            Some(Duration::from_secs(30)),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn stream_wait_exits_on_cancel_when_timeouts_are_disabled() {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let mut stream = pending_chat_stream();
+        assert_cancel_wins_within_250ms(&mut stream, &cancel_flag, None).await;
+    }
 }
