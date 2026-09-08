@@ -8,8 +8,8 @@ use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 use crate::{
-    build_http_client, resolve_chat_url, resolve_models_url, ProviderAdapter,
-    ProviderRequestContext,
+    build_http_client, incomplete_stream_error, resolve_chat_url, resolve_models_url,
+    spawn_abortable_stream, ProviderAdapter, ProviderRequestContext,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -157,7 +157,7 @@ struct StreamOutputItem {
 
 #[derive(Deserialize)]
 struct StreamCompletedEvent {
-    response: Option<ResponsesResponse>,
+    response: ResponsesResponse,
 }
 
 // --- Models types (reuse OpenAI format) ---
@@ -504,6 +504,203 @@ fn parse_response_output(output: &[serde_json::Value]) -> (String, Option<Vec<To
     (text_parts.join(""), tool_calls)
 }
 
+#[derive(Default)]
+struct ResponsesStreamState {
+    // item_id -> (call_id, name, arguments)
+    tools: std::collections::BTreeMap<String, (String, String, String)>,
+    output_indices: std::collections::HashMap<usize, String>,
+    saw_text: bool,
+}
+
+fn parse_stream_event<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> Result<T> {
+    serde_json::from_value(value)
+        .map_err(|error| AQBotError::Provider(format!("Malformed Responses stream event: {error}")))
+}
+
+impl ResponsesStreamState {
+    fn apply(&mut self, event: crate::SseEvent) -> Result<Option<ChatStreamChunk>> {
+        let data = event.data.trim();
+        if data.is_empty() {
+            return Ok(None);
+        }
+        if data == "[DONE]" {
+            return Err(incomplete_stream_error());
+        }
+        let json: serde_json::Value = serde_json::from_str(data).map_err(|error| {
+            AQBotError::Provider(format!("Malformed Responses stream event: {error}"))
+        })?;
+        let event_type = if event.event.is_empty() {
+            json.get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+        } else {
+            event.event.as_str()
+        };
+        if event_type == "error"
+            || event_type == "response.failed"
+            || json.get("error").is_some_and(|error| !error.is_null())
+        {
+            let message = json
+                .pointer("/response/error/message")
+                .or_else(|| json.pointer("/response/status_details/error/message"))
+                .or_else(|| json.pointer("/error/message"))
+                .or_else(|| json.get("message"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("Responses stream error");
+            return Err(AQBotError::Provider(message.to_string()));
+        }
+        let chunk = match event_type {
+            "response.output_text.delta" => {
+                let evt: StreamTextDeltaEvent = parse_stream_event(json)?;
+                let content = evt
+                    .part
+                    .and_then(|part| part.delta)
+                    .or(evt.delta)
+                    .ok_or_else(|| AQBotError::Provider("Missing Responses text delta".into()))?;
+                self.saw_text |= !content.is_empty();
+                ChatStreamChunk {
+                    content: Some(content),
+                    thinking: None,
+                    done: false,
+                    is_final: None,
+                    usage: None,
+                    tool_calls: None,
+                    finish_reason: None,
+                }
+            }
+            "response.reasoning.delta" | "response.reasoning_summary_text.delta" => {
+                let evt: StreamReasoningDeltaEvent = parse_stream_event(json)?;
+                let thinking = evt.delta.ok_or_else(|| {
+                    AQBotError::Provider("Missing Responses reasoning delta".into())
+                })?;
+                ChatStreamChunk {
+                    content: None,
+                    thinking: Some(thinking),
+                    done: false,
+                    is_final: None,
+                    usage: None,
+                    tool_calls: None,
+                    finish_reason: None,
+                }
+            }
+            "response.output_item.added" => {
+                let evt: StreamOutputItemAdded = parse_stream_event(json)?;
+                let item = evt
+                    .item
+                    .ok_or_else(|| AQBotError::Provider("Missing Responses output item".into()))?;
+                if item.r#type.as_deref() == Some("function_call") {
+                    let item_id = item.id.ok_or_else(|| {
+                        AQBotError::Provider("Missing Responses tool item ID".into())
+                    })?;
+                    let call_id = item.call_id.unwrap_or_else(|| item_id.clone());
+                    let name = item.name.ok_or_else(|| {
+                        AQBotError::Provider("Missing Responses tool name".into())
+                    })?;
+                    if let Some(index) = evt.output_index {
+                        self.output_indices.insert(index, item_id.clone());
+                    }
+                    self.tools.insert(item_id, (call_id, name, String::new()));
+                }
+                return Ok(None);
+            }
+            "response.function_call_arguments.delta" => {
+                let evt: StreamFunctionCallArgsDelta = parse_stream_event(json)?;
+                let arguments = evt
+                    .delta
+                    .ok_or_else(|| AQBotError::Provider("Missing Responses tool delta".into()))?;
+                self.tool_mut(evt.item_id, evt.output_index)?
+                    .2
+                    .push_str(&arguments);
+                return Ok(None);
+            }
+            "response.function_call_arguments.done" => {
+                let evt: StreamFunctionCallArgsDone = parse_stream_event(json)?;
+                let arguments = evt.arguments.ok_or_else(|| {
+                    AQBotError::Provider("Missing Responses tool arguments".into())
+                })?;
+                self.tool_mut(evt.item_id, evt.output_index)?.2 = arguments;
+                return Ok(None);
+            }
+            "response.completed" | "response.incomplete" => {
+                let reason = if event_type == "response.completed" {
+                    ChatFinishReason::Stop
+                } else {
+                    match json
+                        .pointer("/response/incomplete_details/reason")
+                        .and_then(|value| value.as_str())
+                    {
+                        Some("max_output_tokens") => ChatFinishReason::OutputLimit,
+                        Some("content_filter") => ChatFinishReason::ContentFilter,
+                        _ => {
+                            return Err(AQBotError::Provider(
+                                "Unknown Responses incomplete reason".into(),
+                            ))
+                        }
+                    }
+                };
+                return self.finish(parse_stream_event(json)?, reason).map(Some);
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(chunk))
+    }
+
+    fn tool_mut(
+        &mut self,
+        item_id: Option<String>,
+        index: Option<usize>,
+    ) -> Result<&mut (String, String, String)> {
+        let id =
+            item_id.or_else(|| index.and_then(|index| self.output_indices.get(&index).cloned()));
+        id.as_ref()
+            .and_then(|id| self.tools.get_mut(id))
+            .ok_or_else(|| {
+                AQBotError::Provider("Responses tool arguments arrived before tool item".into())
+            })
+    }
+
+    fn finish(
+        &mut self,
+        event: StreamCompletedEvent,
+        reason: ChatFinishReason,
+    ) -> Result<ChatStreamChunk> {
+        let (text, final_tools) = parse_response_output(&event.response.output);
+        let mut tools: Vec<ToolCall> = std::mem::take(&mut self.tools)
+            .into_values()
+            .map(|(id, name, arguments)| ToolCall {
+                id,
+                call_type: "function".into(),
+                function: ToolCallFunction { name, arguments },
+            })
+            .collect();
+        for tool in final_tools.into_iter().flatten() {
+            if let Some(existing) = tools.iter_mut().find(|existing| existing.id == tool.id) {
+                *existing = tool;
+            } else {
+                tools.push(tool);
+            }
+        }
+        let finish_reason = if reason == ChatFinishReason::Stop && !tools.is_empty() {
+            ChatFinishReason::ToolCalls
+        } else {
+            reason
+        };
+        Ok(ChatStreamChunk {
+            content: (!self.saw_text && !text.is_empty()).then_some(text),
+            thinking: None,
+            done: true,
+            is_final: None,
+            usage: event.response.usage.map(|usage| TokenUsage {
+                prompt_tokens: usage.input_tokens,
+                completion_tokens: usage.output_tokens,
+                total_tokens: usage.total_tokens,
+            }),
+            tool_calls: (!tools.is_empty()).then_some(tools),
+            finish_reason: Some(finish_reason),
+        })
+    }
+}
+
 #[async_trait]
 impl ProviderAdapter for OpenAIResponsesAdapter {
     async fn chat(
@@ -568,15 +765,16 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk>> + Send>> {
-        let client = self.get_client(ctx).unwrap_or_else(|_| self.client.clone());
+        let client = match self.get_client(ctx) {
+            Ok(client) => client,
+            Err(error) => return Box::pin(futures::stream::once(async move { Err(error) })),
+        };
         let api_key = ctx.api_key.clone();
         let custom_headers = ctx.custom_headers.clone();
         let url = Self::chat_url(ctx);
         let body = build_request(&request, true);
 
-        let (tx, rx) = futures::channel::mpsc::unbounded();
-
-        tokio::spawn(async move {
+        spawn_abortable_stream(move |tx| async move {
             let resp = match crate::apply_stream_headers_to_request(
                 client
                     .post(&url)
@@ -603,354 +801,26 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
                 }
             };
 
-            let mut byte_stream = resp.bytes_stream();
-            let mut buf = String::new();
-            let mut current_event_type = String::new();
-            // Track function calls: item_id → (call_id, name, arguments)
-            let mut pending_tool_calls: std::collections::HashMap<
-                String,
-                (String, String, String),
-            > = std::collections::HashMap::new();
-            // Track output_index → item_id for fallback when item_id is missing from delta events
-            let mut index_to_item_id: std::collections::HashMap<usize, String> =
-                std::collections::HashMap::new();
-
-            while let Some(chunk) = byte_stream.next().await {
-                match chunk {
-                    Ok(bytes) => {
-                        buf.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(pos) = buf.find('\n') {
-                            let line = buf[..pos].trim_end().to_string();
-                            buf = buf[pos + 1..].to_string();
-
-                            if line.is_empty() {
-                                current_event_type.clear();
-                                continue;
-                            }
-
-                            if let Some(event_type) = line.strip_prefix("event: ") {
-                                current_event_type = event_type.trim().to_string();
-                                continue;
-                            }
-
-                            let data = if let Some(d) = line.strip_prefix("data: ") {
-                                d
-                            } else if let Some(d) = line.strip_prefix("data:") {
-                                d
-                            } else {
-                                continue;
-                            };
-
-                            if data.trim() == "[DONE]" {
-                                let tool_calls = if pending_tool_calls.is_empty() {
-                                    None
-                                } else {
-                                    Some(
-                                        pending_tool_calls
-                                            .values()
-                                            .map(|(call_id, name, args)| ToolCall {
-                                                id: call_id.clone(),
-                                                call_type: "function".to_string(),
-                                                function: ToolCallFunction {
-                                                    name: name.clone(),
-                                                    arguments: args.clone(),
-                                                },
-                                            })
-                                            .collect(),
-                                    )
-                                };
-                                let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                    content: None,
-                                    thinking: None,
-                                    done: true,
-                                    is_final: None,
-                                    usage: None,
-                                    tool_calls,
-                                }));
-                                return;
-                            }
-
-                            match current_event_type.as_str() {
-                                "response.output_text.delta" => {
-                                    if let Ok(evt) =
-                                        serde_json::from_str::<StreamTextDeltaEvent>(data)
-                                    {
-                                        let delta_text =
-                                            evt.part.and_then(|p| p.delta).or(evt.delta);
-                                        if delta_text.is_some() {
-                                            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                                content: delta_text,
-                                                thinking: None,
-                                                done: false,
-                                                is_final: None,
-                                                usage: None,
-                                                tool_calls: None,
-                                            }));
-                                        }
-                                    }
-                                }
-                                "response.reasoning.delta"
-                                | "response.reasoning_summary_text.delta" => {
-                                    if let Ok(evt) =
-                                        serde_json::from_str::<StreamReasoningDeltaEvent>(data)
-                                    {
-                                        if evt.delta.is_some() {
-                                            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                                content: None,
-                                                thinking: evt.delta,
-                                                done: false,
-                                                is_final: None,
-                                                usage: None,
-                                                tool_calls: None,
-                                            }));
-                                        }
-                                    }
-                                }
-                                "response.output_item.added" => {
-                                    if let Ok(evt) =
-                                        serde_json::from_str::<StreamOutputItemAdded>(data)
-                                    {
-                                        if let Some(item) = evt.item {
-                                            if item.r#type.as_deref() == Some("function_call") {
-                                                let item_id = item.id.unwrap_or_default();
-                                                let call_id =
-                                                    item.call_id.unwrap_or_else(|| item_id.clone());
-                                                let name = item.name.unwrap_or_default();
-                                                if let Some(idx) = evt.output_index {
-                                                    index_to_item_id.insert(idx, item_id.clone());
-                                                }
-                                                pending_tool_calls.insert(
-                                                    item_id,
-                                                    (call_id, name, String::new()),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                "response.function_call_arguments.delta" => {
-                                    if let Ok(evt) =
-                                        serde_json::from_str::<StreamFunctionCallArgsDelta>(data)
-                                    {
-                                        // Resolve item_id: prefer explicit, fallback to output_index mapping
-                                        let resolved_id = evt.item_id.clone().or_else(|| {
-                                            evt.output_index
-                                                .and_then(|idx| index_to_item_id.get(&idx).cloned())
-                                        });
-                                        if let Some(item_id) = &resolved_id {
-                                            if let Some(entry) = pending_tool_calls.get_mut(item_id)
-                                            {
-                                                if let Some(ref d) = evt.delta {
-                                                    entry.2.push_str(d);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                "response.function_call_arguments.done" => {
-                                    if let Ok(evt) =
-                                        serde_json::from_str::<StreamFunctionCallArgsDone>(data)
-                                    {
-                                        let resolved_id = evt.item_id.clone().or_else(|| {
-                                            evt.output_index
-                                                .and_then(|idx| index_to_item_id.get(&idx).cloned())
-                                        });
-                                        if let (Some(item_id), Some(args)) =
-                                            (&resolved_id, &evt.arguments)
-                                        {
-                                            if let Some(entry) = pending_tool_calls.get_mut(item_id)
-                                            {
-                                                entry.2 = args.clone();
-                                            }
-                                        }
-                                    }
-                                }
-                                "response.completed" => {
-                                    // Try full deserialization first
-                                    let (usage, mut extra_tool_calls) = if let Ok(evt) =
-                                        serde_json::from_str::<StreamCompletedEvent>(data)
-                                    {
-                                        let usage = evt
-                                            .response
-                                            .as_ref()
-                                            .and_then(|r| r.usage.as_ref())
-                                            .map(|u| TokenUsage {
-                                                prompt_tokens: u.input_tokens,
-                                                completion_tokens: u.output_tokens,
-                                                total_tokens: u.total_tokens,
-                                            });
-                                        // Extract function_call items from response.output as fallback
-                                        let fc_from_output: Vec<ToolCall> = evt
-                                            .response
-                                            .as_ref()
-                                            .map(|r| {
-                                                r.output
-                                                    .iter()
-                                                    .filter_map(|item| {
-                                                        let obj = item.as_object()?;
-                                                        if obj.get("type")?.as_str()?
-                                                            != "function_call"
-                                                        {
-                                                            return None;
-                                                        }
-                                                        let call_id = obj
-                                                            .get("call_id")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or_default()
-                                                            .to_string();
-                                                        let name = obj
-                                                            .get("name")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or_default()
-                                                            .to_string();
-                                                        let arguments = obj
-                                                            .get("arguments")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or_default()
-                                                            .to_string();
-                                                        Some(ToolCall {
-                                                            id: call_id,
-                                                            call_type: "function".to_string(),
-                                                            function: ToolCallFunction {
-                                                                name,
-                                                                arguments,
-                                                            },
-                                                        })
-                                                    })
-                                                    .collect()
-                                            })
-                                            .unwrap_or_default();
-                                        (usage, fc_from_output)
-                                    } else {
-                                        tracing::warn!(
-                                                "[responses] Failed to deserialize response.completed event"
-                                            );
-                                        (None, Vec::new())
-                                    };
-
-                                    // Merge: pending_tool_calls (from streaming) take priority,
-                                    // then fill from response.output for any missed ones
-                                    let tool_calls = if !pending_tool_calls.is_empty() {
-                                        let mut tcs: Vec<ToolCall> = pending_tool_calls
-                                            .drain()
-                                            .map(|(_, (call_id, name, args))| ToolCall {
-                                                id: call_id,
-                                                call_type: "function".to_string(),
-                                                function: ToolCallFunction {
-                                                    name,
-                                                    arguments: args,
-                                                },
-                                            })
-                                            .collect();
-                                        // Add any from response.output not already present
-                                        for fc in extra_tool_calls.drain(..) {
-                                            if !tcs.iter().any(|t| t.id == fc.id) {
-                                                tcs.push(fc);
-                                            }
-                                        }
-                                        Some(tcs)
-                                    } else if !extra_tool_calls.is_empty() {
-                                        Some(extra_tool_calls)
-                                    } else {
-                                        None
-                                    };
-
-                                    let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                        content: None,
-                                        thinking: None,
-                                        done: true,
-                                        is_final: None,
-                                        usage,
-                                        tool_calls,
-                                    }));
-                                    return;
-                                }
-                                "response.failed" | "response.incomplete" => {
-                                    // Extract error message if possible
-                                    let err_msg = serde_json::from_str::<serde_json::Value>(data)
-                                        .ok()
-                                        .and_then(|v| {
-                                            v.get("response")
-                                                .and_then(|r| r.get("status_details"))
-                                                .and_then(|sd| sd.get("error"))
-                                                .and_then(|e| e.get("message"))
-                                                .and_then(|m| m.as_str())
-                                                .map(|s| s.to_string())
-                                        })
-                                        .unwrap_or_else(|| {
-                                            format!(
-                                                "Response {}",
-                                                current_event_type.replace("response.", "")
-                                            )
-                                        });
-                                    tracing::error!(
-                                        "[responses] {}: {}",
-                                        current_event_type,
-                                        err_msg
-                                    );
-                                    let _ = tx.unbounded_send(Err(AQBotError::Provider(err_msg)));
-                                    return;
-                                }
-                                // Known event types we intentionally skip
-                                "response.created"
-                                | "response.in_progress"
-                                | "response.output_item.done"
-                                | "response.output_text.done"
-                                | "response.content_part.added"
-                                | "response.content_part.done"
-                                | "response.reasoning.done"
-                                | "response.reasoning_summary_text.done"
-                                | "response.reasoning_summary_part.added"
-                                | "response.reasoning_summary_part.done"
-                                | "response.function_call_arguments.delta.done" => {}
-                                _ => {
-                                    if !current_event_type.is_empty() {
-                                        tracing::debug!(
-                                            "[responses] Unhandled event type: {}",
-                                            current_event_type
-                                        );
-                                    }
-                                }
-                            }
+            let events = crate::sse::parse_sse_stream(resp.bytes_stream());
+            futures::pin_mut!(events);
+            let mut state = ResponsesStreamState::default();
+            while let Some(event) = events.next().await {
+                match event.and_then(|event| state.apply(event)) {
+                    Ok(Some(chunk)) => {
+                        let done = chunk.done;
+                        if tx.unbounded_send(Ok(chunk)).is_err() || done {
+                            return;
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.unbounded_send(Err(AQBotError::Provider(format!(
-                            "Stream error: {e}"
-                        ))));
+                    Ok(None) => {}
+                    Err(error) => {
+                        let _ = tx.unbounded_send(Err(error));
                         return;
                     }
                 }
             }
-
-            // Stream ended without explicit completion event
-            let tool_calls = if pending_tool_calls.is_empty() {
-                None
-            } else {
-                Some(
-                    pending_tool_calls
-                        .drain()
-                        .map(|(_, (call_id, name, args))| ToolCall {
-                            id: call_id,
-                            call_type: "function".to_string(),
-                            function: ToolCallFunction {
-                                name,
-                                arguments: args,
-                            },
-                        })
-                        .collect(),
-                )
-            };
-            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                content: None,
-                thinking: None,
-                done: true,
-                is_final: None,
-                usage: None,
-                tool_calls,
-            }));
-        });
-
-        Box::pin(rx)
+            let _ = tx.unbounded_send(Err(incomplete_stream_error()));
+        })
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {

@@ -43,3 +43,14 @@ it('does not undo a concurrent icon change when an unrelated settings write fail
   expect(useSettingsStore.getState().settings.use_tray_icon_as_app_icon).toBe(true);
   expect(useSettingsStore.getState().error).toContain('DB unavailable');
 });
+
+it('rethrows when throwOnError is set', async () => {
+  invoke.mockResolvedValueOnce({ language: 'zh-CN' });
+  const { useSettingsStore } = await import('../settingsStore');
+  await useSettingsStore.getState().fetchSettings();
+  invoke.mockRejectedValueOnce(new Error('save blocked'));
+  await expect(useSettingsStore.getState().saveSettings(
+    { model_test_prompt: 'ping' },
+    { throwOnError: true },
+  )).rejects.toThrow('save blocked');
+});

@@ -8,8 +8,8 @@ use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle};
 use crate::{
-    build_http_client, parse_base64_data_url, resolve_chat_url, resolve_models_url,
-    ProviderAdapter, ProviderRequestContext,
+    build_http_client, incomplete_stream_error, parse_base64_data_url, resolve_chat_url,
+    resolve_models_url, spawn_abortable_stream, ProviderAdapter, ProviderRequestContext,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
@@ -534,7 +534,10 @@ impl ProviderAdapter for AnthropicAdapter {
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk>> + Send>> {
-        let client = self.get_client(ctx).unwrap_or_else(|_| self.client.clone());
+        let client = match self.get_client(ctx) {
+            Ok(client) => client,
+            Err(error) => return Box::pin(futures::stream::once(async move { Err(error) })),
+        };
         let api_key = ctx.api_key.clone();
         let custom_headers = ctx.custom_headers.clone();
         let url = Self::chat_url(ctx);
@@ -542,9 +545,7 @@ impl ProviderAdapter for AnthropicAdapter {
         let (system, messages) = convert_messages(&request.messages);
         let body = build_request(&request, system, messages, Some(true));
 
-        let (tx, rx) = futures::channel::mpsc::unbounded();
-
-        tokio::spawn(async move {
+        spawn_abortable_stream(move |tx| async move {
             let resp = match crate::apply_stream_headers_to_request(
                 client
                     .post(&url)
@@ -573,8 +574,9 @@ impl ProviderAdapter for AnthropicAdapter {
                 }
             };
 
-            let mut byte_stream = resp.bytes_stream();
-            let mut buf = String::new();
+            let events = crate::sse::parse_sse_stream(resp.bytes_stream());
+            futures::pin_mut!(events);
+            let mut finish_reason = None;
 
             struct PendingToolUse {
                 id: String,
@@ -586,204 +588,196 @@ impl ProviderAdapter for AnthropicAdapter {
             let mut accumulated_prompt_tokens: u32 = 0;
             let mut accumulated_completion_tokens: u32 = 0;
 
-            while let Some(chunk) = byte_stream.next().await {
-                match chunk {
-                    Ok(bytes) => {
-                        buf.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(pos) = buf.find('\n') {
-                            let line = buf[..pos].trim_end().to_string();
-                            buf = buf[pos + 1..].to_string();
+            while let Some(event) = events.next().await {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(error) => {
+                        let _ = tx.unbounded_send(Err(error));
+                        return;
+                    }
+                };
+                let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
 
-                            if line.is_empty() || line.starts_with("event:") {
-                                continue;
-                            }
+                let json: serde_json::Value = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        let _ = tx.unbounded_send(Err(AQBotError::Provider(
+                            "Malformed stream event".into(),
+                        )));
+                        return;
+                    }
+                };
 
-                            let data = if let Some(d) = line.strip_prefix("data: ") {
-                                d
-                            } else if let Some(d) = line.strip_prefix("data:") {
-                                d
-                            } else {
-                                continue;
-                            };
+                let event_type = json
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or(&event.event);
 
-                            let json: serde_json::Value = match serde_json::from_str(data) {
-                                Ok(v) => v,
-                                Err(_) => continue,
-                            };
-
-                            let event_type =
-                                json.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-                            match event_type {
-                                "message_start" => {
-                                    if let Some(input) = json
-                                        .get("message")
-                                        .and_then(|m| m.get("usage"))
-                                        .and_then(|u| u.get("input_tokens"))
-                                        .and_then(|v| v.as_u64())
-                                    {
-                                        accumulated_prompt_tokens = input as u32;
-                                    }
-                                }
-                                "content_block_start" => {
-                                    if let Some(cb) = json.get("content_block") {
-                                        if cb.get("type").and_then(|t| t.as_str())
-                                            == Some("tool_use")
-                                        {
-                                            let id = cb
-                                                .get("id")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("")
-                                                .to_string();
-                                            let name = cb
-                                                .get("name")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("")
-                                                .to_string();
-                                            current_tool_use = Some(PendingToolUse {
-                                                id,
-                                                name,
-                                                arguments: String::new(),
-                                            });
-                                        }
-                                    }
-                                }
-                                "content_block_delta" => {
-                                    if let Some(delta) = json.get("delta") {
-                                        let dt = delta
-                                            .get("type")
-                                            .and_then(|t| t.as_str())
-                                            .unwrap_or("");
-                                        let chunk = match dt {
-                                            "text_delta" => ChatStreamChunk {
-                                                content: delta
-                                                    .get("text")
-                                                    .and_then(|v| v.as_str())
-                                                    .map(String::from),
-                                                thinking: None,
-                                                done: false,
-                                                is_final: None,
-                                                usage: None,
-                                                tool_calls: None,
-                                            },
-                                            "thinking_delta" => ChatStreamChunk {
-                                                content: None,
-                                                thinking: delta
-                                                    .get("thinking")
-                                                    .and_then(|v| v.as_str())
-                                                    .map(String::from),
-                                                done: false,
-                                                is_final: None,
-                                                usage: None,
-                                                tool_calls: None,
-                                            },
-                                            "input_json_delta" => {
-                                                if let Some(ref mut tu) = current_tool_use {
-                                                    if let Some(partial) = delta
-                                                        .get("partial_json")
-                                                        .and_then(|v| v.as_str())
-                                                    {
-                                                        tu.arguments.push_str(partial);
-                                                    }
-                                                }
-                                                continue; // Don't send a ChatStreamChunk for JSON delta
-                                            }
-                                            _ => continue,
-                                        };
-                                        let _ = tx.unbounded_send(Ok(chunk));
-                                    }
-                                }
-                                "content_block_stop" => {
-                                    if let Some(tu) = current_tool_use.take() {
-                                        pending_tool_uses.push(tu);
-                                    }
-                                }
-                                "message_delta" => {
-                                    if let Some(u) = json.get("usage") {
-                                        let out = u
-                                            .get("output_tokens")
-                                            .and_then(|v| v.as_u64())
-                                            .unwrap_or(0)
-                                            as u32;
-                                        accumulated_completion_tokens = out;
-                                        let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                            content: None,
-                                            thinking: None,
-                                            done: false,
-                                            is_final: None,
-                                            usage: Some(TokenUsage {
-                                                prompt_tokens: accumulated_prompt_tokens,
-                                                completion_tokens: out,
-                                                total_tokens: accumulated_prompt_tokens + out,
-                                            }),
-                                            tool_calls: None,
-                                        }));
-                                    }
-                                }
-                                "message_stop" => {
-                                    let tool_calls = if pending_tool_uses.is_empty() {
-                                        None
-                                    } else {
-                                        Some(
-                                            pending_tool_uses
-                                                .iter()
-                                                .map(|tu| aqbot_core::types::ToolCall {
-                                                    id: tu.id.clone(),
-                                                    call_type: "function".to_string(),
-                                                    function: aqbot_core::types::ToolCallFunction {
-                                                        name: tu.name.clone(),
-                                                        arguments: tu.arguments.clone(),
-                                                    },
-                                                })
-                                                .collect(),
-                                        )
-                                    };
-                                    let final_usage = if accumulated_prompt_tokens > 0
-                                        || accumulated_completion_tokens > 0
-                                    {
-                                        Some(TokenUsage {
-                                            prompt_tokens: accumulated_prompt_tokens,
-                                            completion_tokens: accumulated_completion_tokens,
-                                            total_tokens: accumulated_prompt_tokens
-                                                + accumulated_completion_tokens,
-                                        })
-                                    } else {
-                                        None
-                                    };
-                                    let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                        content: None,
-                                        thinking: None,
-                                        done: true,
-                                        is_final: None,
-                                        usage: final_usage,
-                                        tool_calls,
-                                    }));
-                                    return;
-                                }
-                                _ => {}
+                match event_type {
+                    "message_start" => {
+                        if let Some(input) = json
+                            .get("message")
+                            .and_then(|m| m.get("usage"))
+                            .and_then(|u| u.get("input_tokens"))
+                            .and_then(|v| v.as_u64())
+                        {
+                            accumulated_prompt_tokens = input as u32;
+                        }
+                    }
+                    "content_block_start" => {
+                        if let Some(cb) = json.get("content_block") {
+                            if cb.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                let id = cb
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = cb
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                current_tool_use = Some(PendingToolUse {
+                                    id,
+                                    name,
+                                    arguments: String::new(),
+                                });
                             }
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.unbounded_send(Err(AQBotError::Provider(format!(
-                            "Stream error: {e}"
-                        ))));
+                    "content_block_delta" => {
+                        if let Some(delta) = json.get("delta") {
+                            let dt = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let chunk = match dt {
+                                "text_delta" => ChatStreamChunk {
+                                    content: delta
+                                        .get("text")
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from),
+                                    thinking: None,
+                                    done: false,
+                                    is_final: None,
+                                    usage: None,
+                                    tool_calls: None,
+                                    finish_reason: None,
+                                },
+                                "thinking_delta" => ChatStreamChunk {
+                                    content: None,
+                                    thinking: delta
+                                        .get("thinking")
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from),
+                                    done: false,
+                                    is_final: None,
+                                    usage: None,
+                                    tool_calls: None,
+                                    finish_reason: None,
+                                },
+                                "input_json_delta" => {
+                                    if let Some(ref mut tu) = current_tool_use {
+                                        if let Some(partial) =
+                                            delta.get("partial_json").and_then(|v| v.as_str())
+                                        {
+                                            tu.arguments.push_str(partial);
+                                        }
+                                    }
+                                    continue; // Don't send a ChatStreamChunk for JSON delta
+                                }
+                                _ => continue,
+                            };
+                            let _ = tx.unbounded_send(Ok(chunk));
+                        }
+                    }
+                    "content_block_stop" => {
+                        if let Some(tu) = current_tool_use.take() {
+                            pending_tool_uses.push(tu);
+                        }
+                    }
+                    "message_delta" => {
+                        if let Some(reason) = json
+                            .get("delta")
+                            .and_then(|delta| delta.get("stop_reason"))
+                            .and_then(|value| value.as_str())
+                        {
+                            finish_reason = Some(ChatFinishReason::from_anthropic(reason));
+                        }
+                        if let Some(u) = json.get("usage") {
+                            let out =
+                                u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                            accumulated_completion_tokens = out;
+                            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
+                                content: None,
+                                thinking: None,
+                                done: false,
+                                is_final: None,
+                                usage: Some(TokenUsage {
+                                    prompt_tokens: accumulated_prompt_tokens,
+                                    completion_tokens: out,
+                                    total_tokens: accumulated_prompt_tokens + out,
+                                }),
+                                tool_calls: None,
+                                finish_reason: None,
+                            }));
+                        }
+                    }
+                    "message_stop" => {
+                        let tool_calls = if pending_tool_uses.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                pending_tool_uses
+                                    .iter()
+                                    .map(|tu| aqbot_core::types::ToolCall {
+                                        id: tu.id.clone(),
+                                        call_type: "function".to_string(),
+                                        function: aqbot_core::types::ToolCallFunction {
+                                            name: tu.name.clone(),
+                                            arguments: tu.arguments.clone(),
+                                        },
+                                    })
+                                    .collect(),
+                            )
+                        };
+                        let final_usage =
+                            if accumulated_prompt_tokens > 0 || accumulated_completion_tokens > 0 {
+                                Some(TokenUsage {
+                                    prompt_tokens: accumulated_prompt_tokens,
+                                    completion_tokens: accumulated_completion_tokens,
+                                    total_tokens: accumulated_prompt_tokens
+                                        + accumulated_completion_tokens,
+                                })
+                            } else {
+                                None
+                            };
+                        let _ = tx.unbounded_send(Ok(ChatStreamChunk {
+                            content: None,
+                            thinking: None,
+                            done: true,
+                            is_final: None,
+                            usage: final_usage,
+                            tool_calls,
+                            finish_reason,
+                        }));
                         return;
                     }
+                    "error" => {
+                        let message = json
+                            .get("error")
+                            .and_then(|error| error.get("message"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("Anthropic stream error");
+                        let _ = tx.unbounded_send(Err(AQBotError::Provider(message.to_string())));
+                        return;
+                    }
+                    _ => {}
                 }
             }
 
-            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                content: None,
-                thinking: None,
-                done: true,
-                is_final: None,
-                usage: None,
-                tool_calls: None,
-            }));
-        });
-
-        Box::pin(rx)
+            let _ = tx.unbounded_send(Err(incomplete_stream_error()));
+        })
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {

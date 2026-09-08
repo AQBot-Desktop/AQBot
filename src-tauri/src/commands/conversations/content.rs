@@ -58,93 +58,14 @@ fn extract_think_blocks(content: &str) -> Option<String> {
     }
 }
 
-#[derive(Default)]
-struct DisabledThinkingStripState {
-    in_think_block: bool,
-    trailing_fragment: String,
-}
-
-fn think_tag_partial_suffix_len(input: &str, tag: &str) -> usize {
-    let max_len = input.len().min(tag.len().saturating_sub(1));
-    for len in (1..=max_len).rev() {
-        if input.ends_with(&tag[..len]) {
-            return len;
-        }
-    }
-    0
-}
+type DisabledThinkingStripState = aqbot_core::think_tags::ThinkTagFilter;
 
 fn strip_disabled_thinking_content(content: &str) -> String {
     strip_think_tags(content)
 }
 
 fn strip_disabled_thinking_delta(delta: &str, state: &mut DisabledThinkingStripState) -> String {
-    if delta.is_empty() && state.trailing_fragment.is_empty() {
-        return String::new();
-    }
-
-    let mut combined = std::mem::take(&mut state.trailing_fragment);
-    combined.push_str(delta);
-
-    const THINK_OPEN: &str = "<think";
-    const THINK_CLOSE: &str = "</think>";
-
-    let mut stripped = String::with_capacity(combined.len());
-    let mut cursor = 0usize;
-
-    loop {
-        if cursor >= combined.len() {
-            return stripped;
-        }
-
-        if state.in_think_block {
-            if let Some(end_offset) = combined[cursor..].find(THINK_CLOSE) {
-                cursor += end_offset + THINK_CLOSE.len();
-                state.in_think_block = false;
-                continue;
-            }
-
-            let remaining = &combined[cursor..];
-            let suffix_len = think_tag_partial_suffix_len(remaining, THINK_CLOSE);
-            if suffix_len > 0 {
-                state.trailing_fragment = remaining[remaining.len() - suffix_len..].to_string();
-            }
-            return stripped;
-        }
-
-        if let Some(start_offset) = combined[cursor..].find(THINK_OPEN) {
-            let start = cursor + start_offset;
-            stripped.push_str(&combined[cursor..start]);
-
-            let after_tag = &combined[start + THINK_OPEN.len()..];
-            let is_tag = after_tag.starts_with('>') || after_tag.starts_with(' ');
-            if !is_tag {
-                stripped.push_str(THINK_OPEN);
-                cursor = start + THINK_OPEN.len();
-                continue;
-            }
-
-            if let Some(close_offset) = combined[start..].find('>') {
-                cursor = start + close_offset + 1;
-                state.in_think_block = true;
-                continue;
-            }
-
-            state.trailing_fragment = combined[start..].to_string();
-            return stripped;
-        }
-
-        let remaining = &combined[cursor..];
-        let suffix_len = think_tag_partial_suffix_len(remaining, THINK_OPEN);
-        if suffix_len > 0 {
-            let safe_len = remaining.len() - suffix_len;
-            stripped.push_str(&remaining[..safe_len]);
-            state.trailing_fragment = remaining[safe_len..].to_string();
-        } else {
-            stripped.push_str(remaining);
-        }
-        return stripped;
-    }
+    state.push_visible(delta)
 }
 
 const SEARCH_MARKER_START: &str = "<!-- search:";

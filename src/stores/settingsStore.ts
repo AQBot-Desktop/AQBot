@@ -171,6 +171,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   s3_sync_interval_minutes: 60,
   s3_max_remote_backups: 10,
   s3_include_documents: false,
+  model_test_prompt: null,
 };
 
 function normalizeSelectionToolbarTools(
@@ -237,7 +238,10 @@ interface SettingsState {
   ensureSettingsLoaded: (options?: EnsureLoadedOptions) => Promise<void>;
   invalidateSettings: (reason: ResourceInvalidationReason) => void;
   fetchSettings: () => Promise<void>;
-  saveSettings: (settings: Partial<AppSettings>) => Promise<string[]>;
+  saveSettings: (
+    settings: Partial<AppSettings>,
+    options?: { throwOnError?: boolean },
+  ) => Promise<string[]>;
   setGlobalShortcutStatus: (status: GlobalShortcutStatus) => void;
 }
 
@@ -355,11 +359,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   fetchSettings: () => get().ensureSettingsLoaded({ force: true }),
 
-  saveSettings: async (partial) => {
+  saveSettings: async (partial, options) => {
     if (!get()._loaded) {
       await get().ensureSettingsLoaded();
       if (get().settingsMeta.status !== 'ready') {
         console.error('[settingsStore] saveSettings failed: settings could not be loaded');
+        if (options?.throwOnError) {
+          throw new Error('settings could not be loaded');
+        }
         return [];
       }
     }
@@ -409,6 +416,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           revision: state.settingsMeta.revision + 1,
         },
       }));
+      if (options?.throwOnError) throw e;
       return [];
     }
   },

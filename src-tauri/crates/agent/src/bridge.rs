@@ -10,8 +10,8 @@ use open_agent_sdk::{
 };
 
 use aqbot_core::types::{
-    ChatContent, ChatMessage, ChatRequest, ChatTool, ChatToolFunction, ContentPart, ImageUrl,
-    ModelParamOverrides, TokenUsage, ToolCall, ToolCallFunction,
+    ChatContent, ChatFinishReason, ChatMessage, ChatRequest, ChatTool, ChatToolFunction,
+    ContentPart, ImageUrl, ModelParamOverrides, TokenUsage, ToolCall, ToolCallFunction,
 };
 use aqbot_providers::{ProviderAdapter, ProviderRequestContext};
 use serde_json::Value;
@@ -120,6 +120,7 @@ impl LLMProvider for AQBotProviderBridge {
         let mut final_tool_calls: Option<Vec<ToolCall>> = None;
         let mut final_usage: Option<TokenUsage> = None;
         let mut emitted_delta = false;
+        let mut finish_reason = None;
 
         if let Some(ref tx) = stream_tx {
             let _ = tx.try_send(SDKMessage::Stage {
@@ -155,6 +156,9 @@ impl LLMProvider for AQBotProviderBridge {
 
             match next {
                 Some(Ok(chunk)) => {
+                    if chunk.finish_reason.is_some() {
+                        finish_reason = chunk.finish_reason;
+                    }
                     let mut chunk_has_delta = false;
                     if let Some(ref text) = chunk.content {
                         if !text.is_empty() {
@@ -180,7 +184,11 @@ impl LLMProvider for AQBotProviderBridge {
                         }
                     }
 
-                    if chunk.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) {
+                    if chunk
+                        .tool_calls
+                        .as_ref()
+                        .is_some_and(|calls| !calls.is_empty())
+                    {
                         chunk_has_delta = true;
                         final_tool_calls.clone_from(&chunk.tool_calls);
                     }
@@ -201,6 +209,20 @@ impl LLMProvider for AQBotProviderBridge {
                     }
 
                     if chunk.done {
+                        if finish_reason == Some(ChatFinishReason::OutputLimit)
+                            && final_tool_calls
+                                .as_ref()
+                                .is_some_and(|calls| !calls.is_empty())
+                        {
+                            return Err(ApiError::StreamInterrupted(
+                                "Output limit reached before tool calls completed".into(),
+                            ));
+                        }
+                        if finish_reason == Some(ChatFinishReason::ContentFilter) {
+                            return Err(ApiError::StreamInterrupted(
+                                "Provider filtered the response".into(),
+                            ));
+                        }
                         break;
                     }
                 }
@@ -210,7 +232,11 @@ impl LLMProvider for AQBotProviderBridge {
                     }
                     return Err(classify_provider_error(error));
                 }
-                None => break,
+                None => {
+                    return Err(ApiError::StreamInterrupted(
+                        "Stream ended without a protocol terminal event".into(),
+                    ))
+                }
             }
         }
 
@@ -233,7 +259,11 @@ impl LLMProvider for AQBotProviderBridge {
             tool_calls: final_tool_calls,
         };
 
-        Ok(convert_response(response))
+        let mut converted = convert_response(response);
+        if finish_reason == Some(ChatFinishReason::OutputLimit) {
+            converted.stop_reason = Some("max_tokens".into());
+        }
+        Ok(converted)
     }
 }
 
@@ -277,8 +307,7 @@ fn convert_request(
     let mut final_messages = Vec::new();
     if let Some(sys) = system_text {
         final_messages.push(ChatMessage {
-            role: if model_param_overrides
-                .and_then(|overrides| overrides.no_system_role)
+            role: if model_param_overrides.and_then(|overrides| overrides.no_system_role)
                 == Some(true)
             {
                 "user"
@@ -740,8 +769,9 @@ mod tests {
             _request: aqbot_core::types::ChatRequest,
         ) -> std::pin::Pin<
             Box<
-                dyn futures::Stream<Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>>
-                    + Send,
+                dyn futures::Stream<
+                        Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>,
+                    > + Send,
             >,
         > {
             Box::pin(futures::stream::pending())
@@ -763,10 +793,14 @@ mod tests {
         }
     }
 
-    struct PartialThenErrorAdapter;
+    struct ScriptedAdapter {
+        finish_reason: Option<ChatFinishReason>,
+        fail_after_text: bool,
+        tool_calls: bool,
+    }
 
     #[async_trait::async_trait]
-    impl aqbot_providers::ProviderAdapter for PartialThenErrorAdapter {
+    impl aqbot_providers::ProviderAdapter for ScriptedAdapter {
         async fn chat(
             &self,
             _ctx: &aqbot_providers::ProviderRequestContext,
@@ -781,21 +815,45 @@ mod tests {
             _request: aqbot_core::types::ChatRequest,
         ) -> std::pin::Pin<
             Box<
-                dyn futures::Stream<Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>>
-                    + Send,
+                dyn futures::Stream<
+                        Item = aqbot_core::error::Result<aqbot_core::types::ChatStreamChunk>,
+                    > + Send,
             >,
         > {
-            Box::pin(futures::stream::iter([
-                Ok(aqbot_core::types::ChatStreamChunk {
-                    content: Some("partial".to_string()),
-                    thinking: None,
-                    done: false,
-                    is_final: None,
-                    usage: None,
-                    tool_calls: None,
-                }),
-                Err(aqbot_core::error::AQBotError::Provider("boom".into())),
-            ]))
+            let mut chunks = vec![Ok(aqbot_core::types::ChatStreamChunk {
+                content: Some("partial".to_string()),
+                thinking: None,
+                done: false,
+                is_final: None,
+                usage: None,
+                tool_calls: None,
+                finish_reason: None,
+            })];
+            if self.fail_after_text {
+                chunks.push(Err(aqbot_core::error::AQBotError::Provider("boom".into())));
+            } else if let Some(reason) = self.finish_reason {
+                chunks.push(Ok(aqbot_core::types::ChatStreamChunk {
+                    done: true,
+                    finish_reason: Some(reason),
+                    tool_calls: self.tool_calls.then(|| {
+                        vec![ToolCall {
+                            id: "call_1".into(),
+                            call_type: "function".into(),
+                            function: ToolCallFunction {
+                                name: "tool".into(),
+                                arguments: "{\"incomplete\":".into(),
+                            },
+                        }]
+                    }),
+                    usage: Some(TokenUsage {
+                        prompt_tokens: 3,
+                        completion_tokens: 4,
+                        total_tokens: 7,
+                    }),
+                    ..Default::default()
+                }));
+            }
+            Box::pin(futures::stream::iter(chunks))
         }
 
         async fn list_models(
@@ -840,9 +898,13 @@ mod tests {
 
     #[tokio::test]
     async fn first_packet_timeout_is_not_retryable() {
-        let bridge = AQBotProviderBridge::new(std::sync::Arc::new(PendingAdapter), dummy_ctx(), "openai")
-            .unwrap()
-            .with_stream_timeouts(Some(Duration::from_millis(50)), Some(Duration::from_secs(1)));
+        let bridge =
+            AQBotProviderBridge::new(std::sync::Arc::new(PendingAdapter), dummy_ctx(), "openai")
+                .unwrap()
+                .with_stream_timeouts(
+                    Some(Duration::from_millis(50)),
+                    Some(Duration::from_secs(1)),
+                );
         let messages = vec![Message {
             role: MessageRole::User,
             content: vec![ContentBlock::Text {
@@ -863,7 +925,11 @@ mod tests {
     #[tokio::test]
     async fn provider_error_after_delta_is_stream_interrupted() {
         let bridge = AQBotProviderBridge::new(
-            std::sync::Arc::new(PartialThenErrorAdapter),
+            std::sync::Arc::new(ScriptedAdapter {
+                finish_reason: None,
+                fail_after_text: true,
+                tool_calls: false,
+            }),
             dummy_ctx(),
             "openai",
         )
@@ -880,6 +946,69 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, ApiError::StreamInterrupted(_)));
+        assert!(!open_agent_sdk::utils::retry::is_retryable(&error));
+    }
+
+    #[tokio::test]
+    async fn stream_output_limit_preserves_content_and_usage_while_filter_or_eof_fails() {
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".into(),
+            }],
+        }];
+        for reason in [
+            Some(ChatFinishReason::OutputLimit),
+            Some(ChatFinishReason::ContentFilter),
+            None,
+        ] {
+            let bridge = AQBotProviderBridge::new(
+                std::sync::Arc::new(ScriptedAdapter {
+                    finish_reason: reason,
+                    fail_after_text: false,
+                    tool_calls: false,
+                }),
+                dummy_ctx(),
+                "openai",
+            )
+            .unwrap()
+            .with_stream_timeouts(None, None);
+            let result = bridge.create_message(user_request(&messages), None).await;
+            if reason == Some(ChatFinishReason::OutputLimit) {
+                let response = result.unwrap();
+                assert_eq!(response.stop_reason.as_deref(), Some("max_tokens"));
+                assert_eq!(response.usage.input_tokens, 3);
+                assert_eq!(response.usage.output_tokens, 4);
+                assert!(
+                    matches!(&response.message.content[0], ContentBlock::Text { text } if text == "partial")
+                );
+            } else {
+                let error = result.unwrap_err();
+                assert!(matches!(error, ApiError::StreamInterrupted(_)));
+                assert!(!open_agent_sdk::utils::retry::is_retryable(&error));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn output_limit_cannot_publish_incomplete_tool_calls_to_the_agent() {
+        let bridge = AQBotProviderBridge::new(
+            std::sync::Arc::new(ScriptedAdapter {
+                finish_reason: Some(ChatFinishReason::OutputLimit),
+                fail_after_text: false,
+                tool_calls: true,
+            }),
+            dummy_ctx(),
+            "openai",
+        )
+        .unwrap()
+        .with_stream_timeouts(None, None);
+        let error = bridge
+            .create_message(user_request(&[]), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::StreamInterrupted(_)));
+        assert!(error.to_string().contains("tool calls completed"));
         assert!(!open_agent_sdk::utils::retry::is_retryable(&error));
     }
 }

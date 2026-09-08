@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle};
-use crate::{build_http_client, parse_base64_data_url, ProviderAdapter, ProviderRequestContext};
+use crate::{
+    build_http_client, incomplete_stream_error, parse_base64_data_url, spawn_abortable_stream,
+    ProviderAdapter, ProviderRequestContext,
+};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -64,6 +67,8 @@ struct GeminiPart {
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    thought: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     inline_data: Option<GeminiInlineData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     function_call: Option<GeminiFunctionCall>,
@@ -117,6 +122,8 @@ struct GeminiThinkingConfig {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiResponse {
+    error: Option<serde_json::Value>,
+    prompt_feedback: Option<serde_json::Value>,
     candidates: Option<Vec<GeminiCandidate>>,
     usage_metadata: Option<GeminiUsageMetadata>,
 }
@@ -124,6 +131,8 @@ struct GeminiResponse {
 #[derive(Deserialize)]
 struct GeminiCandidate {
     content: Option<GeminiContent>,
+    #[serde(default, rename = "finishReason")]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +218,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
         if msg.role == "system" {
             let parts = match &msg.content {
                 ChatContent::Text(text) => vec![GeminiPart {
+                    thought: None,
                     text: Some(text.clone()),
                     inline_data: None,
                     function_call: None,
@@ -219,6 +229,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                     .filter_map(|p| {
                         if let Some(text) = &p.text {
                             Some(GeminiPart {
+                                thought: None,
                                 text: Some(text.clone()),
                                 inline_data: None,
                                 function_call: None,
@@ -226,6 +237,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                             })
                         } else if let Some(img) = &p.image_url {
                             parse_base64_data_url(&img.url).map(|(mime_type, data)| GeminiPart {
+                                thought: None,
                                 text: None,
                                 inline_data: Some(GeminiInlineData { mime_type, data }),
                                 function_call: None,
@@ -257,6 +269,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                 contents.push(GeminiContent {
                     role: Some("user".to_string()),
                     parts: vec![GeminiPart {
+                        thought: None,
                         text: None,
                         inline_data: None,
                         function_call: None,
@@ -272,6 +285,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                 let text = extract_text_content(&msg.content);
                 if !text.is_empty() {
                     parts.push(GeminiPart {
+                        thought: None,
                         text: Some(text),
                         inline_data: None,
                         function_call: None,
@@ -283,6 +297,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                         let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
                             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                         parts.push(GeminiPart {
+                            thought: None,
                             text: None,
                             inline_data: None,
                             function_call: Some(GeminiFunctionCall {
@@ -301,6 +316,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
             _ => {
                 let parts = match &msg.content {
                     ChatContent::Text(text) => vec![GeminiPart {
+                        thought: None,
                         text: Some(text.clone()),
                         inline_data: None,
                         function_call: None,
@@ -311,6 +327,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                         .filter_map(|p| {
                             if let Some(text) = &p.text {
                                 Some(GeminiPart {
+                                    thought: None,
                                     text: Some(text.clone()),
                                     inline_data: None,
                                     function_call: None,
@@ -319,6 +336,7 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<Gem
                             } else if let Some(img) = &p.image_url {
                                 parse_base64_data_url(&img.url).map(|(mime_type, data)| {
                                     GeminiPart {
+                                        thought: None,
                                         text: None,
                                         inline_data: Some(GeminiInlineData { mime_type, data }),
                                         function_call: None,
@@ -572,7 +590,10 @@ impl ProviderAdapter for GeminiAdapter {
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk>> + Send>> {
-        let client = self.get_client(ctx).unwrap_or_else(|_| self.client.clone());
+        let client = match self.get_client(ctx) {
+            Ok(client) => client,
+            Err(error) => return Box::pin(futures::stream::once(async move { Err(error) })),
+        };
         let api_key = ctx.api_key.clone();
         let custom_headers = ctx.custom_headers.clone();
         let base_url = Self::base_url(ctx);
@@ -589,9 +610,7 @@ impl ProviderAdapter for GeminiAdapter {
             tools: convert_tools_to_gemini(&request.tools),
         };
 
-        let (tx, rx) = futures::channel::mpsc::unbounded();
-
-        tokio::spawn(async move {
+        spawn_abortable_stream(move |tx| async move {
             let resp = match crate::apply_stream_headers_to_request(
                 client.post(&url).json(&body),
                 &custom_headers,
@@ -609,115 +628,128 @@ impl ProviderAdapter for GeminiAdapter {
                     return;
                 }
                 Err(e) => {
-                    let _ = tx
-                        .unbounded_send(Err(AQBotError::Provider(format!("Request failed: {e}"))));
+                    let _ = tx.unbounded_send(Err(AQBotError::Provider(format!(
+                        "Request failed: {}",
+                        e.without_url()
+                    ))));
                     return;
                 }
             };
 
-            let mut byte_stream = resp.bytes_stream();
-            let mut buf = String::new();
+            let events = crate::sse::parse_sse_stream(resp.bytes_stream());
+            futures::pin_mut!(events);
+            let mut finish_reason = None;
+            let mut latest_usage: Option<TokenUsage> = None;
 
-            while let Some(chunk) = byte_stream.next().await {
-                match chunk {
-                    Ok(bytes) => {
-                        buf.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(pos) = buf.find('\n') {
-                            let line = buf[..pos].trim_end().to_string();
-                            buf = buf[pos + 1..].to_string();
-
-                            if line.is_empty() || line.starts_with("event:") {
-                                continue;
-                            }
-
-                            let data = if let Some(d) = line.strip_prefix("data: ") {
-                                d
-                            } else if let Some(d) = line.strip_prefix("data:") {
-                                d
-                            } else {
-                                continue;
-                            };
-
-                            if let Ok(gr) = serde_json::from_str::<GeminiResponse>(data) {
-                                let parts = gr
-                                    .candidates
-                                    .as_ref()
-                                    .and_then(|c| c.first())
-                                    .and_then(|c| c.content.as_ref())
-                                    .map(|c| &c.parts);
-
-                                let mut content: Option<String> = None;
-                                let mut tool_calls_vec: Vec<aqbot_core::types::ToolCall> =
-                                    Vec::new();
-
-                                if let Some(parts) = parts {
-                                    for part in parts {
-                                        if let Some(ref text) = part.text {
-                                            content = Some(text.clone());
-                                        }
-                                        if let Some(ref fc) = part.function_call {
-                                            tool_calls_vec.push(aqbot_core::types::ToolCall {
-                                                id: format!(
-                                                    "gemini_{}",
-                                                    std::time::SystemTime::now()
-                                                        .duration_since(std::time::UNIX_EPOCH)
-                                                        .map(|d| d.as_nanos())
-                                                        .unwrap_or(0)
-                                                ),
-                                                call_type: "function".to_string(),
-                                                function: aqbot_core::types::ToolCallFunction {
-                                                    name: fc.name.clone(),
-                                                    arguments: serde_json::to_string(&fc.args)
-                                                        .unwrap_or_default(),
-                                                },
-                                            });
-                                        }
-                                    }
-                                }
-
-                                let tool_calls = if tool_calls_vec.is_empty() {
-                                    None
-                                } else {
-                                    Some(tool_calls_vec)
-                                };
-
-                                let usage = gr.usage_metadata.map(|u| TokenUsage {
-                                    prompt_tokens: u.prompt_token_count.unwrap_or(0),
-                                    completion_tokens: u.candidates_token_count.unwrap_or(0),
-                                    total_tokens: u.total_token_count.unwrap_or(0),
-                                });
-
-                                let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                                    content,
-                                    thinking: None,
-                                    done: false,
-                                    is_final: None,
-                                    usage,
-                                    tool_calls,
-                                }));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.unbounded_send(Err(AQBotError::Provider(format!(
-                            "Stream error: {e}"
-                        ))));
+            while let Some(event) = events.next().await {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(error) => {
+                        let _ = tx.unbounded_send(Err(error));
                         return;
                     }
+                };
+                let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
                 }
+                let gr = match serde_json::from_str::<GeminiResponse>(data) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        let _ = tx.unbounded_send(Err(AQBotError::Provider(
+                            "Malformed stream event".into(),
+                        )));
+                        return;
+                    }
+                };
+                if let Some(error) = &gr.error {
+                    let message = error
+                        .get("message")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("Gemini stream error");
+                    let _ = tx.unbounded_send(Err(AQBotError::Provider(message.to_string())));
+                    return;
+                }
+                if gr
+                    .prompt_feedback
+                    .as_ref()
+                    .and_then(|feedback| feedback.get("blockReason"))
+                    .and_then(|reason| reason.as_str())
+                    .is_some_and(|reason| {
+                        !reason.is_empty() && reason != "BLOCK_REASON_UNSPECIFIED"
+                    })
+                {
+                    finish_reason = Some(ChatFinishReason::ContentFilter);
+                }
+                let candidate = gr.candidates.as_ref().and_then(|c| c.first());
+                if let Some(reason) = candidate.and_then(|c| c.finish_reason.as_deref()) {
+                    finish_reason = Some(ChatFinishReason::from_gemini(reason));
+                }
+                let parts = candidate.and_then(|c| c.content.as_ref()).map(|c| &c.parts);
+                let mut content = String::new();
+                let mut thinking = String::new();
+                let mut tool_calls_vec: Vec<aqbot_core::types::ToolCall> = Vec::new();
+
+                if let Some(parts) = parts {
+                    for part in parts {
+                        if let Some(ref text) = part.text {
+                            if part.thought == Some(true) {
+                                thinking.push_str(text);
+                            } else {
+                                content.push_str(text);
+                            }
+                        }
+                        if let Some(ref fc) = part.function_call {
+                            tool_calls_vec.push(aqbot_core::types::ToolCall {
+                                id: format!(
+                                    "gemini_{}",
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_nanos())
+                                        .unwrap_or(0)
+                                ),
+                                call_type: "function".to_string(),
+                                function: aqbot_core::types::ToolCallFunction {
+                                    name: fc.name.clone(),
+                                    arguments: serde_json::to_string(&fc.args).unwrap_or_default(),
+                                },
+                            });
+                        }
+                    }
+                }
+
+                let tool_calls = (!tool_calls_vec.is_empty()).then_some(tool_calls_vec);
+                let usage = gr.usage_metadata.map(|u| TokenUsage {
+                    prompt_tokens: u.prompt_token_count.unwrap_or(0),
+                    completion_tokens: u.candidates_token_count.unwrap_or(0),
+                    total_tokens: u.total_token_count.unwrap_or(0),
+                });
+                latest_usage = usage.clone().or(latest_usage);
+                let _ = tx.unbounded_send(Ok(ChatStreamChunk {
+                    content: (!content.is_empty()).then_some(content),
+                    thinking: (!thinking.is_empty()).then_some(thinking),
+                    done: false,
+                    is_final: None,
+                    usage,
+                    tool_calls,
+                    finish_reason: None,
+                }));
             }
 
-            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                content: None,
-                thinking: None,
-                done: true,
-                is_final: None,
-                usage: None,
-                tool_calls: None,
-            }));
-        });
-
-        Box::pin(rx)
+            if finish_reason.is_some() {
+                let _ = tx.unbounded_send(Ok(ChatStreamChunk {
+                    content: None,
+                    thinking: None,
+                    done: true,
+                    is_final: None,
+                    usage: latest_usage,
+                    tool_calls: None,
+                    finish_reason,
+                }));
+                return;
+            }
+            let _ = tx.unbounded_send(Err(incomplete_stream_error()));
+        })
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {

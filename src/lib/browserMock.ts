@@ -2708,6 +2708,17 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       await new Promise(r => setTimeout(r, 500));
       return { ok: true, latency_ms: 120 + Math.floor(Math.random() * 200) } as T;
     }
+    case 'get_model_test_config':
+      return {
+        default_prompt: 'Say 1',
+        max_prompt_chars: 2000,
+        timeout_secs: 120,
+        adapter_kinds: [],
+      } as T;
+    case 'test_model':
+      throw new Error('Browser preview cannot run real model tests');
+    case 'cancel_model_test':
+      return undefined as T;
 
     // ── Skills ────────────────────────────────────────────────────────
     case 'inspect_skills':

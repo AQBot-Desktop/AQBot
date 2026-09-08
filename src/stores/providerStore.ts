@@ -86,7 +86,6 @@ interface ProviderState {
     automaticFields?: string[],
   ) => Promise<Model>;
   resetModelMetadata: (providerId: string, modelIds: string[], fields?: string[]) => Promise<Model[]>;
-  testModel: (providerId: string, modelId: string) => Promise<number>;
 }
 
 export const useProviderStore = create<ProviderState>((set, get) => ({
@@ -622,7 +621,4 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     return models;
   },
 
-  testModel: async (providerId, modelId) => {
-    return await invoke<number>('test_model', { providerId, modelId });
-  },
 }));

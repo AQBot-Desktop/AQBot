@@ -2,7 +2,6 @@ use crate::AppState;
 use aqbot_core::repo::provider_import::{ProviderImportBatchResult, ProviderImportCandidate};
 use aqbot_core::types::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
 use tauri::State;
 
 fn provider_registry_key(provider_type: &ProviderType) -> &'static str {
@@ -912,100 +911,6 @@ mod model_metadata_tests {
             .context_window = ModelMetadataSource::Catalog;
         assert!(validate_metadata_field_updates(&model, &[], &["context_window".into()],).is_ok());
     }
-}
-
-/// Test a single model's availability by sending the minimal native request.
-/// Returns latency in milliseconds on success.
-#[tauri::command]
-pub async fn test_model(
-    state: State<'_, AppState>,
-    provider_id: String,
-    model_id: String,
-) -> Result<u64, String> {
-    let real_id = aqbot_core::repo::provider::resolve_provider_id(&state.sea_db, &provider_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let provider = aqbot_core::repo::provider::get_provider(&state.sea_db, &real_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let key_row = aqbot_core::repo::provider::get_active_key(&state.sea_db, &real_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let decrypted = aqbot_core::crypto::decrypt_key(&key_row.key_encrypted, &state.master_key)
-        .map_err(|e| e.to_string())?;
-    let registry = aqbot_providers::registry::ProviderRegistry::create_default();
-    let provider_type_str = provider_registry_key(&provider.provider_type);
-    let adapter = registry
-        .get(provider_type_str)
-        .ok_or_else(|| format!("No adapter for provider type: {}", provider_type_str))?;
-    let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
-        .await
-        .unwrap_or_default();
-    let resolved_proxy =
-        aqbot_core::types::ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
-    let ctx = aqbot_providers::ProviderRequestContext {
-        api_key: decrypted,
-        key_id: key_row.id.clone(),
-        provider_id: provider.id.clone(),
-        base_url: Some(aqbot_providers::resolve_base_url_for_type(
-            &provider.api_host,
-            &provider.provider_type,
-        )),
-        api_path: provider.api_path.clone(),
-        aws_region: provider.aws_region.clone(),
-        proxy_config: resolved_proxy,
-        custom_headers: provider
-            .custom_headers
-            .as_ref()
-            .and_then(|s| serde_json::from_str(s).ok()),
-    };
-    let model_type = provider
-        .models
-        .iter()
-        .find(|model| model.model_id == model_id)
-        .map(|model| &model.model_type);
-    let start = Instant::now();
-    if model_type.is_some_and(|model_type| *model_type == ModelType::Rerank) {
-        adapter
-            .rerank(
-                &ctx,
-                RerankRequest {
-                    model: model_id,
-                    query: "test".into(),
-                    documents: vec!["test".into()],
-                    top_n: 1,
-                },
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-    } else {
-        let request = ChatRequest {
-            model: model_id,
-            messages: vec![ChatMessage {
-                role: "user".into(),
-                content: ChatContent::Text("hi".into()),
-                reasoning_content: None,
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            stream: false,
-            temperature: None,
-            top_p: None,
-            max_tokens: Some(1),
-            tools: None,
-            thinking_budget: None,
-            thinking_level: None,
-            reasoning_profile: None,
-            use_max_completion_tokens: None,
-            thinking_param_style: None,
-            extra_body: None,
-        };
-        adapter
-            .chat(&ctx, request)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(start.elapsed().as_millis() as u64)
 }
 
 #[tauri::command]

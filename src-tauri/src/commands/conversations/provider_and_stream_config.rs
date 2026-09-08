@@ -254,13 +254,6 @@ async fn resolve_system_prompt(
     Ok(settings.default_system_prompt.filter(|s| !s.is_empty()))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct EffectiveChatModelParams {
-    temperature: Option<f64>,
-    top_p: Option<f64>,
-    max_tokens: Option<u32>,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct StreamContextPolicy {
     strategy: ContextStrategy,
@@ -809,6 +802,7 @@ fn build_stream_done_event(
             is_final: Some(true),
             usage,
             tool_calls: None,
+            finish_reason: None,
         },
     }
 }
@@ -904,53 +898,16 @@ fn resolve_chat_model_params(
     _use_max_completion_tokens: Option<bool>,
     force_max_tokens: Option<bool>,
     max_output_tokens: Option<u32>,
-) -> EffectiveChatModelParams {
-    let omit_sampling_params = model_param_overrides
-        .and_then(|params| params.omit_sampling_params)
-        .unwrap_or(false);
-    let temperature = (!omit_sampling_params)
-        .then(|| {
-            conversation
-                .temperature
-                .or_else(|| model_param_overrides.and_then(|params| params.temperature))
-                .or(settings.default_temperature)
-                .map(|value| value as f64)
-        })
-        .flatten();
-    let top_p = (!omit_sampling_params)
-        .then(|| {
-            conversation
-                .top_p
-                .or_else(|| model_param_overrides.and_then(|params| params.top_p))
-                .or(settings.default_top_p)
-                .map(|value| value as f64)
-        })
-        .flatten();
-    let configured_max_tokens = match conversation.max_tokens {
-        Some(max_tokens) => Some(max_tokens),
-        None if force_max_tokens == Some(true) => model_param_overrides
-            .and_then(|p| p.max_tokens)
-            .or(settings.default_max_tokens)
-            .or(Some(4096)),
-        None => settings.default_max_tokens,
-    };
-    let max_tokens = match (configured_max_tokens, max_output_tokens) {
-        (Some(configured), Some(limit)) if configured > limit => {
-            tracing::warn!(
-                configured_max_tokens = configured,
-                model_max_output_tokens = limit,
-                "Clamped chat output tokens to the model metadata limit"
-            );
-            Some(limit)
-        }
-        (configured, _) => configured,
-    };
-
-    EffectiveChatModelParams {
-        temperature,
-        top_p,
-        max_tokens,
-    }
+) -> crate::chat_params::EffectiveChatModelParams {
+    crate::chat_params::resolve_chat_model_params(crate::chat_params::ChatParamInputs {
+        conversation_temperature: conversation.temperature,
+        conversation_top_p: conversation.top_p,
+        conversation_max_tokens: conversation.max_tokens,
+        model_param_overrides,
+        settings,
+        force_max_tokens,
+        max_output_tokens,
+    })
 }
 
 fn resolved_context_output_reserve(

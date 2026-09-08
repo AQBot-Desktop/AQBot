@@ -12,9 +12,12 @@ pub mod openai;
 pub mod openai_compat;
 pub mod openai_images;
 pub mod openai_responses;
+pub mod probe_capability;
 pub mod reasoning;
 pub mod registry;
 pub mod siliconflow;
+pub mod sse;
+pub mod stream_task;
 pub mod voyage;
 pub mod xai;
 
@@ -74,6 +77,12 @@ pub struct ProviderRequestContext {
     pub proxy_config: Option<ProviderProxyConfig>,
     pub custom_headers: Option<std::collections::HashMap<String, String>>,
 }
+
+pub use probe_capability::{
+    adapter_supports_kind, adapter_test_kinds, all_adapter_test_kinds, registry_key_for_type,
+};
+pub use sse::{SseEvent, SseParser};
+pub use stream_task::{incomplete_stream_error, spawn_abortable_stream};
 
 /// Default version path for a given provider type.
 pub fn default_version_for_type(provider_type: &ProviderType) -> &'static str {
@@ -199,15 +208,22 @@ mod tests {
     #[test]
     fn resolve_models_url_uses_resolved_base_url() {
         let base = resolve_base_url_for_type("https://api.openai.com", &ProviderType::OpenAI);
-        assert_eq!(resolve_models_url(&base), "https://api.openai.com/v1/models");
+        assert_eq!(
+            resolve_models_url(&base),
+            "https://api.openai.com/v1/models"
+        );
 
         let base = resolve_base_url_for_type("https://api.openai.com/v1", &ProviderType::OpenAI);
-        assert_eq!(resolve_models_url(&base), "https://api.openai.com/v1/models");
+        assert_eq!(
+            resolve_models_url(&base),
+            "https://api.openai.com/v1/models"
+        );
 
         let base = resolve_base_url_for_type("https://api.example.com!", &ProviderType::OpenAI);
         assert_eq!(resolve_models_url(&base), "https://api.example.com/models");
 
-        let base = resolve_base_url_for_type("https://open.bigmodel.cn/api/paas", &ProviderType::GLM);
+        let base =
+            resolve_base_url_for_type("https://open.bigmodel.cn/api/paas", &ProviderType::GLM);
         assert_eq!(
             resolve_models_url(&base),
             "https://open.bigmodel.cn/api/paas/v4/models"

@@ -25,6 +25,9 @@ pub async fn get_settings(db: &DatabaseConnection) -> Result<AppSettings> {
 }
 
 pub async fn save_settings(db: &DatabaseConnection, settings: &AppSettings) -> Result<()> {
+    let model_test_prompt =
+        crate::types::normalize_model_test_prompt(settings.model_test_prompt.as_deref())
+            .map_err(AQBotError::Validation)?;
     if settings
         .default_compression_keep_last_n
         .is_some_and(|value| value > MAX_COMPRESSION_KEEP_LAST_N)
@@ -42,6 +45,10 @@ pub async fn save_settings(db: &DatabaseConnection, settings: &AppSettings) -> R
             "Application settings must serialize to an object".to_string(),
         ));
     };
+    map.insert(
+        "model_test_prompt".into(),
+        serde_json::json!(model_test_prompt),
+    );
     map.remove(super::multi_model_column_layout::MAIN_WIDTH_MODE_KEY);
     map.remove(super::multi_model_column_layout::POPOUT_WIDTH_MODE_KEY);
     // Only the transactional tray-image commands may change these keys.
@@ -52,6 +59,7 @@ pub async fn save_settings(db: &DatabaseConnection, settings: &AppSettings) -> R
         Box::pin(async move {
             for (key, val) in map {
                 let val_str = match &val {
+                    _ if key == "model_test_prompt" => val.to_string(),
                     serde_json::Value::String(s) => s.clone(),
                     other => other.to_string(),
                 };
@@ -102,6 +110,45 @@ pub async fn set_setting(db: &DatabaseConnection, key: &str, value: &str) -> Res
 mod tests {
     use super::*;
     use crate::db::create_test_pool;
+
+    #[tokio::test]
+    async fn model_test_prompt_is_normalized_validated_and_roundtrips_json_like_text() {
+        let h = create_test_pool().await.unwrap();
+        for value in ["  123  ", "null", "\"question\"", "你好"] {
+            let settings = AppSettings {
+                model_test_prompt: Some(value.into()),
+                ..Default::default()
+            };
+            save_settings(&h.conn, &settings).await.unwrap();
+            assert_eq!(
+                get_settings(&h.conn)
+                    .await
+                    .unwrap()
+                    .model_test_prompt
+                    .as_deref(),
+                Some(value.trim())
+            );
+        }
+        let settings = AppSettings {
+            model_test_prompt: Some("测".repeat(crate::types::MODEL_TEST_MAX_PROMPT_CHARS + 1)),
+            ..Default::default()
+        };
+        assert!(save_settings(&h.conn, &settings).await.is_err());
+        assert_eq!(
+            get_settings(&h.conn)
+                .await
+                .unwrap()
+                .model_test_prompt
+                .as_deref(),
+            Some("你好")
+        );
+        let settings = AppSettings {
+            model_test_prompt: Some(" \n ".into()),
+            ..Default::default()
+        };
+        save_settings(&h.conn, &settings).await.unwrap();
+        assert_eq!(get_settings(&h.conn).await.unwrap().model_test_prompt, None);
+    }
 
     #[tokio::test]
     async fn save_settings_enforces_compression_keep_last_n_limit() {

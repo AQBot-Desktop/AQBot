@@ -105,6 +105,16 @@ async fn consume_stream(
             StreamWaitOutcome::Ready(result) => result,
         };
         let Some(result) = next_result else {
+            stream_error = Some(build_stream_error_event(
+                conversation_id,
+                message_id,
+                stream_id,
+                model_id,
+                provider_id,
+                "Stream ended without a protocol terminal event".into(),
+                "incomplete_stream",
+                None,
+            ));
             break;
         };
         received_stream_packet = true;
@@ -235,6 +245,38 @@ async fn consume_stream(
                     final_tool_calls.clone_from(&chunk.tool_calls);
                 }
 
+                if chunk.done
+                    && chunk.finish_reason == Some(ChatFinishReason::OutputLimit)
+                    && final_tool_calls
+                        .as_ref()
+                        .is_some_and(|calls| !calls.is_empty())
+                {
+                    stream_error = Some(build_stream_error_event(
+                        conversation_id,
+                        message_id,
+                        stream_id,
+                        model_id,
+                        provider_id,
+                        "Output limit reached before tool calls completed".into(),
+                        "incomplete_tool_calls",
+                        None,
+                    ));
+                    break;
+                }
+                if chunk.done && chunk.finish_reason == Some(ChatFinishReason::ContentFilter) {
+                    stream_error = Some(build_stream_error_event(
+                        conversation_id,
+                        message_id,
+                        stream_id,
+                        model_id,
+                        provider_id,
+                        "Provider filtered the response".into(),
+                        "content_filter",
+                        None,
+                    ));
+                    break;
+                }
+
                 // Detect empty response
                 if is_done
                     && full_content.is_empty()
@@ -267,6 +309,7 @@ async fn consume_stream(
                     is_final: None,
                     usage: chunk.usage.clone(),
                     tool_calls: filter_tool_calls_for_event(chunk.tool_calls.as_deref()),
+                    finish_reason: chunk.finish_reason,
                 };
                 if emitted_chunk.done && emitted_chunk.is_final.is_none() {
                     emitted_chunk.is_final = Some(
@@ -279,15 +322,14 @@ async fn consume_stream(
 
                 if let Some(pre_persist_chunk) = pre_persist_stream_chunk(&emitted_chunk) {
                     if let Some(state) = app.try_state::<AppState>() {
-                        state.conversation_runs.update(
-                            conversation_id,
-                            stream_id,
-                            |snapshot| {
-                                snapshot.phase = crate::conversation_run::ConversationRunPhase::Streaming;
+                        state
+                            .conversation_runs
+                            .update(conversation_id, stream_id, |snapshot| {
+                                snapshot.phase =
+                                    crate::conversation_run::ConversationRunPhase::Streaming;
                                 snapshot.message_id = Some(message_id.to_string());
                                 snapshot.content = full_content.clone();
-                            },
-                        );
+                            });
                     }
                     let _ = app.emit(
                         "chat-stream-chunk",
@@ -347,6 +389,7 @@ async fn consume_stream(
                                 is_final: None,
                                 usage: None,
                                 tool_calls: None,
+                                finish_reason: None,
                             },
                         },
                     );
@@ -388,12 +431,8 @@ async fn consume_stream(
         full_content.push_str("\n</think>\n\n");
     }
 
-    if suppress_thinking
-        && !disabled_thinking_strip_state.in_think_block
-        && !disabled_thinking_strip_state.trailing_fragment.is_empty()
-        && !"<think".starts_with(&disabled_thinking_strip_state.trailing_fragment)
-    {
-        full_content.push_str(&disabled_thinking_strip_state.trailing_fragment);
+    if suppress_thinking {
+        full_content.push_str(&disabled_thinking_strip_state.finish_visible());
     }
 
     // Post-process: replace each <think data-aq> with <think totalMs="N">

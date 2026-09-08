@@ -836,6 +836,9 @@ pub struct AppSettings {
     /// The settings icon cannot be hidden and is not stored here.
     #[serde(default)]
     pub titlebar_icon_visibility: std::collections::HashMap<String, bool>,
+    /// Custom prompt for model availability tests. None or blank uses the official default.
+    #[serde(default)]
+    pub model_test_prompt: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -992,6 +995,7 @@ impl Default for AppSettings {
             agent_allowed_tools: super::default_agent_allowed_tools(),
             selection_toolbar: SelectionToolbarSettings::default(),
             titlebar_icon_visibility: std::collections::HashMap::new(),
+            model_test_prompt: None,
         }
     }
 }

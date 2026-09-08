@@ -37,6 +37,19 @@ fn release_webview_on_tray_defaults_to_disabled() {
 }
 
 #[test]
+fn model_test_prompt_defaults_to_none_and_roundtrips() {
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert_eq!(settings.model_test_prompt, None);
+
+    let settings: AppSettings = serde_json::from_value(json!({
+        "model_test_prompt": "ping"
+    }))
+    .expect("settings should deserialize");
+    assert_eq!(settings.model_test_prompt.as_deref(), Some("ping"));
+}
+
+#[test]
 fn confirm_on_quit_defaults_to_enabled_and_roundtrips() {
     let settings: AppSettings =
         serde_json::from_value(json!({})).expect("settings should default missing fields");

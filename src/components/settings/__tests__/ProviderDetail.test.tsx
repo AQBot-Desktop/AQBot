@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   testModel: vi.fn(),
   modelParamSliders: vi.fn(),
+  ensureSettingsLoaded: vi.fn().mockResolvedValue(undefined),
+  saveSettings: vi.fn().mockResolvedValue([]),
 }));
 
 vi.setConfig({ testTimeout: 15000 });
@@ -149,10 +151,13 @@ vi.mock('@/lib/providerIcons', () => ({
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: mocks.invoke,
+  Channel: class {
+    onmessage: ((event: unknown) => void) | null = null;
+  },
 }));
 
 vi.mock('@/stores', () => ({
-  useProviderStore: (selector: (state: Record<string, unknown>) => unknown) =>
+  useProviderStore: Object.assign((selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       providers: [provider],
       toggleProvider: mocks.toggleProvider,
@@ -174,11 +179,17 @@ vi.mock('@/stores', () => ({
       updateModelMetadata: mocks.updateModelMetadata,
       resetModelMetadata: mocks.resetModelMetadata,
       testModel: mocks.testModel,
-    }),
+    }), { getState: () => ({ providers: [provider] }) }),
   useUIStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       setSelectedProviderId: mocks.setSelectedProviderId,
     }),
+  useSettingsStore: Object.assign((selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      settings: { model_test_prompt: null },
+      saveSettings: mocks.saveSettings,
+      ensureSettingsLoaded: mocks.ensureSettingsLoaded,
+    }), { getState: () => ({ settings: { model_test_prompt: null }, settingsMeta: { status: 'ready' } }) }),
 }));
 
 describe('ProviderDetail', () => {
@@ -186,6 +197,7 @@ describe('ProviderDetail', () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     provider = createProviderFixture();
+    mocks.updateProvider.mockResolvedValue(undefined);
     mocks.saveModels.mockResolvedValue(undefined);
     mocks.applyModelSync.mockResolvedValue(undefined);
     mocks.updateModelMetadata.mockImplementation(async (_providerId, model) => model);
@@ -266,7 +278,7 @@ describe('ProviderDetail', () => {
     );
 
     expect(
-      screen.getByText('模型列表为空。请先配置 API 密钥，然后点击「同步模型」从上游拉取模型。'),
+      screen.getByText('settings.emptyModelsHint'),
     ).toBeInTheDocument();
     // API Keys card + empty models empty-state both expose "add key"
     expect(screen.getAllByRole('button', { name: 'settings.addKey' }).length).toBeGreaterThanOrEqual(1);
@@ -319,7 +331,7 @@ describe('ProviderDetail', () => {
       </App>,
     );
 
-    expect(screen.getByRole('button', { name: '官网' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.website' })).toBeInTheDocument();
   });
 
   it('hides official website link for custom providers', () => {
@@ -331,7 +343,7 @@ describe('ProviderDetail', () => {
       </App>,
     );
 
-    expect(screen.queryByRole('button', { name: '官网' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.website' })).not.toBeInTheDocument();
   });
 
   it('shows model sync request preview from the resolved base URL', () => {
@@ -948,7 +960,7 @@ describe('ProviderDetail', () => {
     );
 
     const dialog = await openFirstModelSettings();
-    expect(within(dialog).getByText('图片协议')).toBeInTheDocument();
+    expect(within(dialog).getByText('imageProtocol.title')).toBeInTheDocument();
     expect(within(dialog).queryByText('settings.modelParams')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('settings.contextWindow')).not.toBeInTheDocument();
     expect(mocks.modelParamSliders).not.toHaveBeenCalled();

@@ -476,6 +476,7 @@ mod stream_terminal_tests {
             is_final: None,
             usage: None,
             tool_calls: None,
+            finish_reason: None,
         }
     }
 

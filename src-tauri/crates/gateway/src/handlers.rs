@@ -173,11 +173,10 @@ pub async fn chat_completions(
         .unwrap_or_default();
     let auto_routing = global_settings.gateway_auto_model_routing;
 
-    let targets =
-        match resolve_route_targets(&providers, &public_id_map, &parsed, auto_routing) {
-            Ok(t) => t,
-            Err(resp) => return resp,
-        };
+    let targets = match resolve_route_targets(&providers, &public_id_map, &parsed, auto_routing) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
 
     let registry = aqbot_providers::registry::ProviderRegistry::create_default();
     let pinned = parsed.provider_hint.is_some() || targets.len() == 1 || !auto_routing;
@@ -208,8 +207,7 @@ pub async fn chat_completions(
         };
 
         let provider_type_str = provider_type_to_str(&provider.provider_type);
-        let resolved_proxy =
-            ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
+        let resolved_proxy = ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
 
         let ctx = ProviderRequestContext {
             api_key,
@@ -412,26 +410,26 @@ async fn handle_stream(
     tokio::spawn(async move {
         let mut total_prompt = 0u32;
         let mut total_completion = 0u32;
+        let mut total_tokens = 0u32;
         let mut stream_error: Option<String> = None;
 
-        while let Some(chunk_result) = stream.next().await {
+        loop {
+            let chunk_result = tokio::select! {
+                _ = tx.closed() => break,
+                result = stream.next() => result,
+            };
+            let Some(chunk_result) = chunk_result else {
+                stream_error = Some("Stream ended without a protocol terminal event".into());
+                let data = json!({"error": {"message": stream_error.as_deref()}});
+                let _ = tx.send(Ok(Event::default().data(data.to_string()))).await;
+                break;
+            };
             match chunk_result {
                 Ok(chunk) => {
                     if let Some(usage) = &chunk.usage {
                         total_prompt = usage.prompt_tokens;
                         total_completion = usage.completion_tokens;
-                    }
-
-                    if chunk.done {
-                        // Send final chunk
-                        let data = build_stream_final_response_body(
-                            &model_str,
-                            total_prompt,
-                            total_completion,
-                        );
-                        let _ = tx.send(Ok(Event::default().data(data.to_string()))).await;
-                        let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
-                        break;
+                        total_tokens = usage.total_tokens;
                     }
 
                     if let Some(data) = build_stream_chunk_response_body(&model_str, &chunk) {
@@ -442,6 +440,30 @@ async fn handle_stream(
                         {
                             break;
                         }
+                    }
+
+                    if chunk.done {
+                        // Send final chunk
+                        let data = match build_stream_final_response_body(
+                            &model_str,
+                            &TokenUsage {
+                                prompt_tokens: total_prompt,
+                                completion_tokens: total_completion,
+                                total_tokens,
+                            },
+                            chunk.finish_reason,
+                        ) {
+                            Ok(data) => data,
+                            Err(error) => {
+                                stream_error = Some(error.into());
+                                let data = json!({"error": {"message": error}});
+                                let _ = tx.send(Ok(Event::default().data(data.to_string()))).await;
+                                break;
+                            }
+                        };
+                        let _ = tx.send(Ok(Event::default().data(data.to_string()))).await;
+                        let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+                        break;
                     }
                 }
                 Err(e) => {
@@ -454,6 +476,7 @@ async fn handle_stream(
                 }
             }
         }
+        drop(stream);
 
         // Record usage
         let _ = aqbot_core::repo::gateway::record_usage(
@@ -533,6 +556,11 @@ fn build_stream_chunk_response_body(
     if let Some(reasoning) = chunk.thinking.as_deref().filter(|value| !value.is_empty()) {
         delta.insert("reasoning_content".to_string(), json!(reasoning));
     }
+    if let Some(calls) = chunk.tool_calls.as_ref().filter(|calls| !calls.is_empty()) {
+        delta.insert("tool_calls".into(), json!(calls.iter().enumerate().map(|(index, call)| {
+            json!({"index": index, "id": call.id, "type": call.call_type, "function": call.function})
+        }).collect::<Vec<_>>()));
+    }
 
     if delta.is_empty() {
         None
@@ -552,24 +580,28 @@ fn build_stream_chunk_response_body(
 
 fn build_stream_final_response_body(
     model: &str,
-    prompt_tokens: u32,
-    completion_tokens: u32,
-) -> serde_json::Value {
-    json!({
+    usage: &TokenUsage,
+    finish_reason: Option<ChatFinishReason>,
+) -> Result<serde_json::Value, &'static str> {
+    let finish_reason = finish_reason
+        .unwrap_or(ChatFinishReason::Stop)
+        .as_openai_str()
+        .ok_or("Provider returned an unknown finish reason")?;
+    Ok(json!({
         "id": "chatcmpl-gateway",
         "object": "chat.completion.chunk",
         "model": model,
         "choices": [{
             "index": 0,
             "delta": {},
-            "finish_reason": "stop",
+            "finish_reason": finish_reason,
         }],
         "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens,
         }
-    })
+    }))
 }
 
 // ── Model-name helpers ────────────────────────────────────────────────────────
@@ -1242,7 +1274,9 @@ mod tests {
         let on = build_gateway_model_list(&providers, true);
         let on_ids: Vec<&str> = on.iter().filter_map(|v| v["id"].as_str()).collect();
         assert!(on_ids.contains(&"gpt-5.5"));
-        assert!(on_ids.iter().any(|id| id.contains("gpt-5.5") && id.contains('/')));
+        assert!(on_ids
+            .iter()
+            .any(|id| id.contains("gpt-5.5") && id.contains('/')));
         let bare = on
             .iter()
             .find(|v| v["id"] == "gpt-5.5")
@@ -1282,6 +1316,7 @@ mod tests {
                 is_final: None,
                 usage: None,
                 tool_calls: None,
+                finish_reason: None,
             },
         )
         .expect("chunk payload");
@@ -1289,6 +1324,49 @@ mod tests {
         assert_eq!(
             payload["choices"][0]["delta"]["reasoning_content"],
             json!("step-by-step")
+        );
+    }
+
+    #[test]
+    fn stream_final_payload_preserves_finish_reason_usage_and_tool_calls() {
+        let usage = TokenUsage {
+            prompt_tokens: 3,
+            completion_tokens: 4,
+            total_tokens: 7,
+        };
+        for (reason, expected) in [
+            (ChatFinishReason::Stop, "stop"),
+            (ChatFinishReason::OutputLimit, "length"),
+            (ChatFinishReason::ToolCalls, "tool_calls"),
+            (ChatFinishReason::ContentFilter, "content_filter"),
+        ] {
+            let payload = build_stream_final_response_body("model", &usage, Some(reason)).unwrap();
+            assert_eq!(payload["choices"][0]["finish_reason"], expected);
+            assert_eq!(payload["usage"]["total_tokens"], 7);
+        }
+        assert!(
+            build_stream_final_response_body("model", &usage, Some(ChatFinishReason::Other))
+                .is_err()
+        );
+        let payload = build_stream_chunk_response_body(
+            "model",
+            &ChatStreamChunk {
+                done: true,
+                tool_calls: Some(vec![aqbot_core::types::ToolCall {
+                    id: "call_1".into(),
+                    call_type: "function".into(),
+                    function: aqbot_core::types::ToolCallFunction {
+                        name: "weather".into(),
+                        arguments: "{}".into(),
+                    },
+                }]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            payload["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+            "weather"
         );
     }
 

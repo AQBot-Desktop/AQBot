@@ -57,9 +57,11 @@ pub struct AppState {
     pub conversation_runs: conversation_run::ConversationRunRegistry,
     pub tray_enabled: Arc<AtomicBool>,
     pub tray_available: Arc<AtomicBool>,
+    pub model_test_registry: Arc<Mutex<commands::model_test::ModelTestRegistry>>,
 }
 
 mod app_icon;
+mod chat_params;
 mod commands;
 mod context_manager;
 mod conversation_popout;
@@ -298,7 +300,9 @@ pub fn run() {
         commands::providers::apply_model_sync,
         commands::providers::update_model_metadata,
         commands::providers::reset_model_metadata,
-        commands::providers::test_model,
+        commands::model_test::get_model_test_config,
+        commands::model_test::test_model,
+        commands::model_test::cancel_model_test,
         commands::providers::reorder_providers,
         // drawing
         commands::drawing::list_drawing_targets,
@@ -960,6 +964,7 @@ pub fn run() {
                 conversation_runs: conversation_run::ConversationRunRegistry::new(),
                 tray_enabled: Arc::new(AtomicBool::new(app_settings.tray_enabled)),
                 tray_available: Arc::new(AtomicBool::new(false)),
+                model_test_registry: Arc::new(Mutex::new(commands::model_test::ModelTestRegistry::default())),
             });
 
             {

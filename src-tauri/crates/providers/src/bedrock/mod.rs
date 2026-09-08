@@ -6,8 +6,8 @@ use std::pin::Pin;
 
 use aqbot_core::error::{AQBotError, Result};
 use aqbot_core::types::{
-    ChatRequest, ChatResponse, ChatStreamChunk, EmbedRequest, EmbedResponse, Model, TokenUsage,
-    ToolCall, ToolCallFunction,
+    ChatFinishReason, ChatRequest, ChatResponse, ChatStreamChunk, EmbedRequest, EmbedResponse,
+    Model, TokenUsage, ToolCall, ToolCallFunction,
 };
 use async_trait::async_trait;
 use aws_sdk_bedrockruntime::types::{
@@ -18,13 +18,25 @@ use futures::Stream;
 
 use self::client::BedrockClients;
 use self::convert::{convert_request, foundation_model, parse_response_content, usage};
-use crate::{ProviderAdapter, ProviderRequestContext};
+use crate::{
+    incomplete_stream_error, spawn_abortable_stream, ProviderAdapter, ProviderRequestContext,
+};
 
-pub struct BedrockAdapter;
+pub struct BedrockAdapter {
+    disable_retries: bool,
+}
 
 impl BedrockAdapter {
     pub fn new() -> Self {
-        Self
+        Self {
+            disable_retries: false,
+        }
+    }
+
+    pub fn without_retries() -> Self {
+        Self {
+            disable_retries: true,
+        }
     }
 }
 
@@ -41,7 +53,7 @@ impl ProviderAdapter for BedrockAdapter {
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Result<ChatResponse> {
-        let clients = BedrockClients::from_context(ctx).await?;
+        let clients = BedrockClients::from_context(ctx, self.disable_retries).await?;
         let converted = convert_request(&request)?;
         let response = clients
             .runtime
@@ -62,18 +74,17 @@ impl ProviderAdapter for BedrockAdapter {
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk>> + Send>> {
-        let (tx, rx) = mpsc::unbounded();
         let ctx = ctx.clone();
-        tokio::spawn(async move {
-            if let Err(error) = run_stream(ctx, request, &tx).await {
+        let disable_retries = self.disable_retries;
+        spawn_abortable_stream(move |tx| async move {
+            if let Err(error) = run_stream(ctx, request, &tx, disable_retries).await {
                 let _ = tx.unbounded_send(Err(error));
             }
-        });
-        Box::pin(rx)
+        })
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {
-        let clients = BedrockClients::from_context(ctx).await?;
+        let clients = BedrockClients::from_context(ctx, self.disable_retries).await?;
         let response = clients
             .control
             .list_foundation_models()
@@ -102,8 +113,9 @@ async fn run_stream(
     ctx: ProviderRequestContext,
     request: ChatRequest,
     tx: &mpsc::UnboundedSender<Result<ChatStreamChunk>>,
+    disable_retries: bool,
 ) -> Result<()> {
-    let clients = BedrockClients::from_context(&ctx).await?;
+    let clients = BedrockClients::from_context(&ctx, disable_retries).await?;
     let converted = convert_request(&request)?;
     let mut response = clients
         .runtime
@@ -155,6 +167,8 @@ fn response_to_chat(
 struct StreamAccumulator {
     tools: BTreeMap<i32, PendingTool>,
     usage: Option<TokenUsage>,
+    saw_message_stop: bool,
+    finish_reason: Option<ChatFinishReason>,
 }
 
 struct PendingTool {
@@ -174,12 +188,20 @@ impl StreamAccumulator {
                 self.delta(event.content_block_index(), event.delta())
             }
             ConverseStreamOutput::Metadata(event) => {
-                self.usage = event.usage().map(|value| usage(Some(value)));
+                if let Some(value) = event.usage() {
+                    self.usage = Some(usage(Some(value)));
+                }
                 Ok(None)
             }
-            ConverseStreamOutput::ContentBlockStop(_)
-            | ConverseStreamOutput::MessageStart(_)
-            | ConverseStreamOutput::MessageStop(_) => Ok(None),
+            ConverseStreamOutput::MessageStop(event) => {
+                self.saw_message_stop = true;
+                self.finish_reason =
+                    Some(ChatFinishReason::from_bedrock(event.stop_reason().as_str()));
+                Ok(None)
+            }
+            ConverseStreamOutput::ContentBlockStop(_) | ConverseStreamOutput::MessageStart(_) => {
+                Ok(None)
+            }
             _ => Err(AQBotError::Provider(
                 "Bedrock returned an unknown stream event".into(),
             )),
@@ -219,6 +241,7 @@ impl StreamAccumulator {
                 is_final: None,
                 usage: None,
                 tool_calls: None,
+                finish_reason: None,
             })),
             Some(ContentBlockDelta::ToolUse(tool)) => {
                 let pending = self.tools.get_mut(&index).ok_or_else(|| {
@@ -238,6 +261,9 @@ impl StreamAccumulator {
     }
 
     fn finish(self) -> Result<ChatStreamChunk> {
+        if !self.saw_message_stop {
+            return Err(incomplete_stream_error());
+        }
         let tool_calls = self
             .tools
             .into_values()
@@ -266,6 +292,7 @@ impl StreamAccumulator {
             is_final: None,
             usage: self.usage,
             tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
+            finish_reason: self.finish_reason,
         })
     }
 }
@@ -320,11 +347,55 @@ mod tests {
                 .unwrap();
         }
 
+        let stop = aws_sdk_bedrockruntime::types::MessageStopEvent::builder()
+            .stop_reason(aws_sdk_bedrockruntime::types::StopReason::ToolUse)
+            .build()
+            .unwrap();
+        accumulator
+            .apply(ConverseStreamOutput::MessageStop(stop))
+            .unwrap();
         let final_chunk = accumulator.finish().unwrap();
         assert!(final_chunk.done);
         let tool_call = &final_chunk.tool_calls.unwrap()[0];
         assert_eq!(tool_call.id, "tool-1");
         assert_eq!(tool_call.function.arguments, r#"{"city":"Tokyo"}"#);
+    }
+
+    #[test]
+    fn stream_accumulator_requires_stop_and_keeps_metadata_after_stop() {
+        assert!(StreamAccumulator::default()
+            .finish()
+            .unwrap_err()
+            .to_string()
+            .contains("terminal event"));
+        let mut accumulator = StreamAccumulator::default();
+        let stop = aws_sdk_bedrockruntime::types::MessageStopEvent::builder()
+            .stop_reason(aws_sdk_bedrockruntime::types::StopReason::EndTurn)
+            .build()
+            .unwrap();
+        accumulator
+            .apply(ConverseStreamOutput::MessageStop(stop))
+            .unwrap();
+        let token_usage = aws_sdk_bedrockruntime::types::TokenUsage::builder()
+            .input_tokens(3)
+            .output_tokens(2)
+            .total_tokens(5)
+            .build()
+            .unwrap();
+        let metadata = aws_sdk_bedrockruntime::types::ConverseStreamMetadataEvent::builder()
+            .usage(token_usage)
+            .build();
+        accumulator
+            .apply(ConverseStreamOutput::Metadata(metadata))
+            .unwrap();
+        accumulator
+            .apply(ConverseStreamOutput::Metadata(
+                aws_sdk_bedrockruntime::types::ConverseStreamMetadataEvent::builder().build(),
+            ))
+            .unwrap();
+        let final_chunk = accumulator.finish().unwrap();
+        assert_eq!(final_chunk.finish_reason, Some(ChatFinishReason::Stop));
+        assert_eq!(final_chunk.usage.unwrap().total_tokens, 5);
     }
 
     #[test]

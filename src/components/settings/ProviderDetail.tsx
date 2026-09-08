@@ -12,7 +12,6 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
-  Popover,
   Select,
   Slider,
   Space,
@@ -45,6 +44,7 @@ import type {
   ModelParamOverrides,
   ProviderType,
   BedrockCredentialInput,
+  UpdateProviderInput,
 } from '@/types';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { CopyButton } from '@/components/common/CopyButton';
@@ -80,6 +80,9 @@ import {
   parseExtraBodyInput,
   sameCapabilities,
 } from './providerDetailModel';
+import { ModelTestPanel } from './modelTest/ModelTestPanel';
+import { ModelTestResult } from './modelTest/ModelTestResult';
+import { useModelTestQueue } from '@/hooks/useModelTestQueue';
 
 const { Text, Title } = Typography;
 
@@ -156,7 +159,6 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const applyModelSync = useProviderStore((s) => s.applyModelSync);
   const updateModelMetadata = useProviderStore((s) => s.updateModelMetadata);
   const resetModelMetadata = useProviderStore((s) => s.resetModelMetadata);
-  const testModel = useProviderStore((s) => s.testModel);
 
   const [keyModalOpen, setKeyModalOpen] = useState(false);
   const [keyModalMode, setKeyModalMode] = useState<KeyModalMode>('add');
@@ -224,12 +226,35 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const apiHostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const apiPathTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const awsRegionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [testingModels, setTestingModels] = useState<Set<string>>(new Set());
-  const [testResults, setTestResults] = useState<Map<string, { latencyMs?: number; error?: string }>>(new Map());
-  const [singleTestModalOpen, setSingleTestModalOpen] = useState(false);
-  const [singleTestModelId, setSingleTestModelId] = useState<string>('');
-  const [singleTestResult, setSingleTestResult] = useState<{ latencyMs?: number; error?: string } | null>(null);
-  const [singleTestLoading, setSingleTestLoading] = useState(false);
+  const pendingProviderSaves = useRef(new Set<Promise<void>>());
+  const persistProviderEdits = useCallback((input: UpdateProviderInput) => {
+    const promise = updateProvider(providerId, input);
+    pendingProviderSaves.current.add(promise);
+    void promise.then(
+      () => { pendingProviderSaves.current.delete(promise); },
+      (error) => {
+        pendingProviderSaves.current.delete(promise);
+        message.error(`${t('error.saveFailed')}: ${String(error)}`);
+      },
+    );
+    return promise;
+  }, [providerId, updateProvider, message, t]);
+  const parseHeaders = useCallback(() => {
+    const headers: Record<string, string> = {};
+    for (const line of customHeadersLocal.split('\n').filter((item) => item.trim())) {
+      const idx = line.indexOf('=');
+      if (idx < 1 || !line.slice(0, idx).trim()) throw new Error(t('settings.modelTest.headersInvalid'));
+      headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+    return Object.keys(headers).length ? JSON.stringify(headers) : null;
+  }, [customHeadersLocal, t]);
+  useEffect(() => () => {
+    if (apiHostTimerRef.current) clearTimeout(apiHostTimerRef.current);
+    if (apiPathTimerRef.current) clearTimeout(apiPathTimerRef.current);
+    if (awsRegionTimerRef.current) clearTimeout(awsRegionTimerRef.current);
+  }, [providerId]);
+
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerModels, setPickerModels] = useState<ModelSyncEntry[]>([]);
   const [pickerCatalog, setPickerCatalog] = useState<ModelCatalogStatus | null>(null);
@@ -600,56 +625,34 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     setPickerOpen(false);
   }, [providerId, applyModelSync, message, t]);
 
-  const handleTestSingleModel = useCallback(async () => {
-    if (!singleTestModelId) return;
-    setSingleTestLoading(true);
-    setSingleTestResult(null);
-    try {
-      const latencyMs = await testModel(providerId, singleTestModelId);
-      setSingleTestResult({ latencyMs });
-    } catch (e) {
-      setSingleTestResult({ error: String(e) });
-    } finally {
-      setSingleTestLoading(false);
+  const flushPendingEdits = useCallback(async () => {
+    if (apiHostTimerRef.current) {
+      clearTimeout(apiHostTimerRef.current);
+      apiHostTimerRef.current = null;
     }
-  }, [providerId, singleTestModelId, testModel]);
+    if (apiPathTimerRef.current) {
+      clearTimeout(apiPathTimerRef.current);
+      apiPathTimerRef.current = null;
+    }
+    if (awsRegionTimerRef.current) {
+      clearTimeout(awsRegionTimerRef.current);
+      awsRegionTimerRef.current = null;
+    }
+    const customHeaders = parseHeaders();
+    await Promise.all([...pendingProviderSaves.current]);
+    await persistProviderEdits({
+      api_host: apiHostLocal,
+      api_path: apiPathLocal || null,
+      aws_region: awsRegionLocal.trim() || null,
+      custom_headers: customHeaders,
+    });
+  }, [apiHostLocal, apiPathLocal, awsRegionLocal, parseHeaders, persistProviderEdits]);
 
-  const handleTestInlineModel = useCallback(async (modelId: string) => {
-    setTestingModels((prev) => new Set(prev).add(modelId));
-    try {
-      const latencyMs = await testModel(providerId, modelId);
-      setTestResults((prev) => new Map(prev).set(modelId, { latencyMs }));
-    } catch (e) {
-      setTestResults((prev) => new Map(prev).set(modelId, { error: String(e) }));
-    } finally {
-      setTestingModels((prev) => {
-        const next = new Set(prev);
-        next.delete(modelId);
-        return next;
-      });
-    }
-  }, [providerId, testModel]);
-
-  const handleTestAllModels = useCallback(async () => {
-    const models = provider?.models ?? [];
-    if (models.length === 0) return;
-    setTestResults(new Map());
-    setTestingModels(new Set(models.map((m) => m.model_id)));
-    for (const model of models) {
-      try {
-        const latencyMs = await testModel(providerId, model.model_id);
-        setTestResults((prev) => new Map(prev).set(model.model_id, { latencyMs }));
-      } catch (e) {
-        setTestResults((prev) => new Map(prev).set(model.model_id, { error: String(e) }));
-      } finally {
-        setTestingModels((prev) => {
-          const next = new Set(prev);
-          next.delete(model.model_id);
-          return next;
-        });
-      }
-    }
-  }, [provider?.models, providerId, testModel]);
+  const modelTest = useModelTestQueue({
+    providerId,
+    provider,
+    flushPendingEdits,
+  });
 
   const handleAddModel = useCallback(async () => {
     const nextModelId = addModelId.trim();
@@ -929,7 +932,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setApiHostLocal(value);
       if (apiHostTimerRef.current) clearTimeout(apiHostTimerRef.current);
       apiHostTimerRef.current = setTimeout(() => {
-        updateProvider(providerId, { api_host: value });
+        persistProviderEdits({ api_host: value });
       }, 500);
     },
     [providerId, updateProvider],
@@ -940,7 +943,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setApiPathLocal(value);
       if (apiPathTimerRef.current) clearTimeout(apiPathTimerRef.current);
       apiPathTimerRef.current = setTimeout(() => {
-        updateProvider(providerId, { api_path: value || null });
+        persistProviderEdits({ api_path: value || null });
       }, 500);
     },
     [providerId, updateProvider],
@@ -952,7 +955,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       if (awsRegionTimerRef.current) clearTimeout(awsRegionTimerRef.current);
       if (!value.trim()) return;
       awsRegionTimerRef.current = setTimeout(() => {
-        updateProvider(providerId, { aws_region: value.trim() });
+        persistProviderEdits({ aws_region: value.trim() });
       }, 500);
     },
     [providerId, updateProvider],
@@ -1243,7 +1246,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
             iconType={parseProviderIcon(provider.icon)?.type ?? null}
             iconValue={parseProviderIcon(provider.icon)?.value ?? null}
             onChange={(type, value) => {
-              updateProvider(providerId, { icon: encodeProviderIcon(type, value) });
+              persistProviderEdits({ icon: encodeProviderIcon(type, value) });
             }}
             size={40}
             shape="square"
@@ -1456,7 +1459,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 onClick={() => {
                   const defaultHost = getProviderDefaultHost(provider);
                   setApiHostLocal(defaultHost);
-                  updateProvider(providerId, { api_host: defaultHost });
+                  persistProviderEdits({ api_host: defaultHost });
                 }}
               >
                 {t('settings.resetDefault')}
@@ -1619,19 +1622,16 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   ],
                   onClick: ({ key }) => {
                     if (key === 'single') {
-                      setSingleTestModelId('');
-                      setSingleTestResult(null);
-                      setSingleTestLoading(false);
-                      setSingleTestModalOpen(true);
+                      modelTest.openPanel('single');
                     } else {
-                      handleTestAllModels();
+                      modelTest.openPanel('all');
                     }
                   },
                 }}
                 trigger={['click']}
               >
                 <Tooltip title={t('settings.testModels')}>
-                  <Button type="text" size="small" icon={<Heart size={14} />} />
+                  <Button type="text" size="small" aria-label={t('settings.testModels')} disabled={modelTest.running} icon={<Heart size={14} />} />
                 </Tooltip>
               </Dropdown>
             <Tooltip title={allExpanded ? t('common.collapseAll') : t('common.expandAll')}>
@@ -1781,12 +1781,9 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                               size="small"
                               type="text"
                               icon={<Heart size={14} />}
-                              loading={models.some((m) => testingModels.has(m.model_id))}
-                              onClick={() => {
-                                for (const m of models) {
-                                  handleTestInlineModel(m.model_id);
-                                }
-                              }}
+                              loading={models.some((m) => modelTest.activeIds.has(m.model_id))}
+                              disabled={modelTest.running || modelTest.preparing || !modelTest.config}
+                              onClick={() => modelTest.openPanel('group', models)}
                             />
                           </Tooltip>
                         )}
@@ -1872,24 +1869,18 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
-                      {!batchMode && testingModels.has(model.model_id) && <Spin size="small" />}
-                      {!batchMode && !testingModels.has(model.model_id) && testResults.has(model.model_id) && (() => {
-                        const result = testResults.get(model.model_id)!;
-                        if (result.latencyMs != null) {
-                          return <span style={{ fontSize: 11, color: token.colorSuccess }}>{(result.latencyMs / 1000).toFixed(1)}s</span>;
-                        }
-                        return (
-                          <Popover content={<div style={{ maxWidth: 300, wordBreak: 'break-all' }}>{result.error}</div>} title={t('common.errorDetail')} trigger="click">
-                            <span style={{ fontSize: 11, color: token.colorError, cursor: 'pointer' }}>{t('common.failed')}</span>
-                          </Popover>
-                        );
-                      })()}
+                      {!batchMode && (modelTest.activeIds.has(model.model_id) || modelTest.results.has(model.model_id)) && (
+                        <ModelTestResult compact result={modelTest.results.get(model.model_id)}
+                          status={modelTest.runningModelIds.has(model.model_id) ? 'running'
+                            : modelTest.activeIds.has(model.model_id) ? 'queued' : undefined}
+                          firstTextMs={modelTest.firstTextTimes.get(model.model_id)} />
+                      )}
                       <Switch size="small" checked={model.enabled} onChange={(checked) => toggleModel(providerId, model.model_id, checked)} />
                       {!batchMode && (
                         <>
                           <Button type="text" size="small" icon={<Settings size={14} />} onClick={() => handleOpenSettings(model)} />
                           <Tooltip title={t('settings.testModels')}>
-                            <Button type="text" size="small" icon={<Heart size={14} />} loading={testingModels.has(model.model_id)} onClick={() => handleTestInlineModel(model.model_id)} />
+                            <Button type="text" size="small" aria-label={t('settings.testModels')} icon={<Heart size={14} />} loading={modelTest.activeIds.has(model.model_id)} disabled={modelTest.running || modelTest.preparing || !modelTest.config} onClick={() => modelTest.testInline(model)} />
                           </Tooltip>
                           <Button type="text" size="small" danger icon={<Trash2 size={14} />} onClick={() => handleRemoveModel(model.model_id)} />
                         </>
@@ -1915,16 +1906,11 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                 value={customHeadersLocal}
                 onChange={(e) => setCustomHeadersLocal(e.target.value)}
                 onBlur={() => {
-                  const lines = customHeadersLocal.split('\n').filter((l) => l.trim());
-                  const obj: Record<string, string> = {};
-                  for (const line of lines) {
-                    const idx = line.indexOf('=');
-                    if (idx > 0) {
-                      obj[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-                    }
+                  try {
+                    void persistProviderEdits({ custom_headers: parseHeaders() });
+                  } catch (error) {
+                    message.error(String(error));
                   }
-                  const json = Object.keys(obj).length > 0 ? JSON.stringify(obj) : null;
-                  updateProvider(providerId, { custom_headers: json });
                 }}
                 placeholder={t('settings.customHeadersPlaceholder')}
                 autoSize={{ minRows: 2, maxRows: 8 }}
@@ -1947,7 +1933,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     value={proxyTypeValue}
                     onChange={(val) => {
                       if (val === 'follow') {
-                        updateProvider(providerId, {
+                        persistProviderEdits({
                           proxy_config: {
                             proxy_type: null,
                             proxy_address: null,
@@ -1957,7 +1943,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                         return;
                       }
                       if (val === 'none' || val === 'system') {
-                        updateProvider(providerId, {
+                        persistProviderEdits({
                           proxy_config: {
                             proxy_type: val,
                             proxy_address: null,
@@ -1966,7 +1952,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                         });
                         return;
                       }
-                      updateProvider(providerId, {
+                      persistProviderEdits({
                         proxy_config: {
                           proxy_type: val,
                           proxy_address: provider.proxy_config?.proxy_address ?? null,
@@ -1987,7 +1973,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <Input
                     value={provider.proxy_config?.proxy_address ?? ''}
                     onChange={(e) =>
-                      updateProvider(providerId, {
+                      persistProviderEdits({
                         proxy_config: {
                           ...provider.proxy_config,
                           proxy_type: provider.proxy_config?.proxy_type ?? null,
@@ -2004,7 +1990,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                   <InputNumber
                     value={provider.proxy_config?.proxy_port}
                     onChange={(val) =>
-                      updateProvider(providerId, {
+                      persistProviderEdits({
                         proxy_config: {
                           ...provider.proxy_config,
                           proxy_type: provider.proxy_config?.proxy_type ?? null,
@@ -2808,58 +2794,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         </div>
       </Modal>
 
-      {/* Single Model Test Modal */}
-      <Modal
-        title={t('settings.testSingleModel')}
-        open={singleTestModalOpen}
-        onCancel={() => setSingleTestModalOpen(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setSingleTestModalOpen(false)}>
-            {t('common.cancel')}
-          </Button>,
-          <Button
-            key="test"
-            type="primary"
-            loading={singleTestLoading}
-            disabled={!singleTestModelId}
-            onClick={handleTestSingleModel}
-          >
-            {t('settings.startTest')}
-          </Button>,
-        ]}
-      >
-        <Form layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item label={t('settings.selectModel')}>
-            <Select
-              showSearch
-              value={singleTestModelId || undefined}
-              onChange={setSingleTestModelId}
-              placeholder={t('settings.selectModel')}
-              optionFilterProp="label"
-              options={(provider?.models ?? []).map((m) => ({
-                label: m.name || m.model_id,
-                value: m.model_id,
-              }))}
-            />
-          </Form.Item>
-        </Form>
-        {singleTestResult && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, background: token.colorBgLayout }}>
-            {singleTestResult.latencyMs != null ? (
-              <span style={{ color: token.colorSuccess }}>
-                ✓ {t('settings.testSuccess')} — {(singleTestResult.latencyMs / 1000).toFixed(2)}s
-              </span>
-            ) : (
-              <div>
-                <span style={{ color: token.colorError }}>✗ {t('common.failed')}</span>
-                <div style={{ marginTop: 4, fontSize: 12, color: token.colorTextSecondary, wordBreak: 'break-all' }}>
-                  {singleTestResult.error}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <ModelTestPanel queue={modelTest} />
 
       {/* Model picker modal */}
       <ModelSyncPickerModal
@@ -2895,7 +2830,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
             updates.api_host = DEFAULT_HOSTS[editProviderType];
           }
           if (Object.keys(updates).length > 0) {
-            updateProvider(providerId, updates);
+            persistProviderEdits(updates);
           }
           setProviderEditModalOpen(false);
         }}

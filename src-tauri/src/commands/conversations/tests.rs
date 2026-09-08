@@ -47,6 +47,9 @@ mod tests {
             conversation_runs: crate::conversation_run::ConversationRunRegistry::new(),
             tray_enabled: Arc::new(AtomicBool::new(true)),
             tray_available: Arc::new(AtomicBool::new(true)),
+            model_test_registry: Arc::new(Mutex::new(
+                crate::commands::model_test::ModelTestRegistry::default(),
+            )),
         }
     }
 
@@ -703,6 +706,7 @@ mod tests {
             is_final: None,
             usage: None,
             tool_calls: None,
+            finish_reason: None,
         };
 
         let emitted = pre_persist_stream_chunk(&provider_chunk).expect("chunk emitted");
@@ -2786,42 +2790,7 @@ mod tests {
         .await
         .unwrap();
 
-        let vector_store = Arc::new(aqbot_core::vector_store::VectorStore::new(db.clone()));
-        let state = crate::AppState {
-            sea_db: db.clone(),
-            master_key: [0; 32],
-            mcp_stdio_clients: Arc::new(aqbot_core::mcp_client::StdioClientManager::new()),
-            gateway: Arc::new(Mutex::new(None)),
-            close_to_tray: Arc::new(AtomicBool::new(false)),
-            release_webview_on_tray: Arc::new(AtomicBool::new(false)),
-            main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
-            main_window_restoring: Arc::new(AtomicBool::new(false)),
-            is_quitting: Arc::new(AtomicBool::new(false)),
-            model_catalog: Arc::new(crate::model_catalog::ModelCatalogService::new(
-                temp_dir.join("model_metadata"),
-                crate::model_catalog::ModelCatalogConfig::default(),
-            )),
-            app_data_dir: temp_dir.clone(),
-            db_path: "sqlite::memory:".to_string(),
-            auto_backup_handle: Arc::new(Mutex::new(None)),
-            webdav_sync_handle: Arc::new(Mutex::new(None)),
-            s3_sync_handle: Arc::new(Mutex::new(None)),
-            vector_store,
-            knowledge_index_scheduler: Arc::new(
-                crate::knowledge_index_scheduler::KnowledgeIndexScheduler::default(),
-            ),
-            stream_cancel_flags: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            agent_cancel_tokens: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            agent_permission_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            agent_ask_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            agent_always_allowed: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            selection_toolbar: Arc::new(crate::selection_toolbar::SelectionToolbarRuntime::new()),
-            pending_tray_action: Arc::new(std::sync::Mutex::new(None)),
-            multi_model_runs: Arc::new(crate::multi_model_run::MultiModelRunManager::new()),
-            conversation_runs: crate::conversation_run::ConversationRunRegistry::new(),
-            tray_enabled: Arc::new(AtomicBool::new(true)),
-            tray_available: Arc::new(AtomicBool::new(true)),
-        };
+        let state = test_app_state(db.clone());
 
         let attachments = vec![AttachmentInput {
             file_name: "screen.png".to_string(),

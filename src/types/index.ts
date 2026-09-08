@@ -977,7 +977,48 @@ export interface AppSettings {
    * The settings icon cannot be hidden and is not stored here.
    */
   titlebar_icon_visibility?: TitlebarIconVisibility;
+  /** Custom prompt for model availability tests. null/blank uses the official default. */
+  model_test_prompt?: string | null;
 }
+
+export type ModelTestKind = 'chat' | 'embedding' | 'rerank';
+export type ModelTestStatus =
+  | 'passed'
+  | 'incomplete'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+  | 'unsupported';
+
+export interface AdapterTestKinds {
+  provider_type: string;
+  kinds: ModelTestKind[];
+}
+
+export interface ModelTestConfig {
+  default_prompt: string;
+  max_prompt_chars: number;
+  timeout_secs: number;
+  adapter_kinds: AdapterTestKinds[];
+}
+
+export interface ModelTestResult {
+  test_id: string;
+  provider_id: string;
+  model_id: string;
+  status: ModelTestStatus;
+  first_text_ms: number | null;
+  total_ms: number | null;
+  checked_at: number;
+  response_preview: string | null;
+  error_code: string | null;
+  error_detail: string | null;
+}
+
+export type ModelTestProgressEvent =
+  | { type: 'registered'; test_id: string }
+  | { type: 'request_started'; test_id: string }
+  | { type: 'first_text'; test_id: string; first_text_ms: number };
 
 // === Streaming ===
 export interface ChatStreamChunk {

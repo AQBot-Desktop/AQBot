@@ -9,8 +9,8 @@ use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle, ResolvedReasoning};
 use crate::{
-    build_http_client, resolve_chat_url, resolve_models_url, ProviderAdapter,
-    ProviderRequestContext,
+    build_http_client, incomplete_stream_error, resolve_chat_url, resolve_models_url,
+    spawn_abortable_stream, ProviderAdapter, ProviderRequestContext,
 };
 
 pub(crate) trait OpenAICompatPolicy: Clone + Send + Sync + 'static {
@@ -176,6 +176,7 @@ struct OpenAIResponse {
 struct OpenAIChoice {
     message: Option<OpenAIMessageResp>,
     delta: Option<OpenAIDelta>,
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -316,39 +317,59 @@ fn extract_primary_content(
 
 fn extract_gemini_compat_chunk(data: &str) -> Option<ChatStreamChunk> {
     let parsed = serde_json::from_str::<GeminiCompatChunk>(data).ok()?;
-    let content = parsed
+    let candidate = parsed
         .candidates
         .as_ref()
-        .and_then(|candidates| candidates.first())
-        .and_then(|candidate| candidate.content.as_ref())
-        .map(|content| {
-            content
-                .parts
-                .iter()
-                .filter_map(|part| part.text.as_ref())
-                .cloned()
-                .collect::<String>()
-        })
-        .filter(|text| !text.is_empty());
+        .and_then(|candidates| candidates.first())?;
+    let mut content = String::new();
+    let mut thinking = String::new();
+    if let Some(parts) = candidate.content.as_ref().map(|content| &content.parts) {
+        for part in parts {
+            let Some(text) = part.text.as_ref() else {
+                continue;
+            };
+            if part.thought == Some(true) {
+                thinking.push_str(text);
+            } else {
+                content.push_str(text);
+            }
+        }
+    }
 
     let usage = parsed.usage_metadata.map(|usage| TokenUsage {
         prompt_tokens: usage.prompt_token_count.unwrap_or(0),
         completion_tokens: usage.candidates_token_count.unwrap_or(0),
         total_tokens: usage.total_token_count.unwrap_or(0),
     });
+    let finish_reason = candidate
+        .finish_reason
+        .as_deref()
+        .map(ChatFinishReason::from_gemini);
 
-    if content.is_none() && usage.is_none() {
+    if content.is_empty() && thinking.is_empty() && usage.is_none() && finish_reason.is_none() {
         return None;
     }
 
     Some(ChatStreamChunk {
-        content,
-        thinking: None,
+        content: (!content.is_empty()).then_some(content),
+        thinking: (!thinking.is_empty()).then_some(thinking),
         done: false,
         is_final: None,
         usage,
         tool_calls: None,
+        finish_reason,
     })
+}
+
+fn openai_stream_error_message(data: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    let error = value.get("error").filter(|error| !error.is_null())?;
+    error
+        .get("message")
+        .and_then(|value| value.as_str())
+        .or_else(|| error.as_str())
+        .map(|message| message.to_string())
+        .or_else(|| Some(error.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -402,8 +423,10 @@ struct GeminiCompatChunk {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiCompatCandidate {
     content: Option<GeminiCompatContent>,
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -415,6 +438,7 @@ struct GeminiCompatContent {
 #[serde(rename_all = "camelCase")]
 struct GeminiCompatPart {
     text: Option<String>,
+    thought: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1608,16 +1632,17 @@ where
         ctx: &ProviderRequestContext,
         request: ChatRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk>> + Send>> {
-        let client = self.get_client(ctx).unwrap_or_else(|_| self.client.clone());
+        let client = match self.get_client(ctx) {
+            Ok(client) => client,
+            Err(error) => return Box::pin(futures::stream::once(async move { Err(error) })),
+        };
         let api_key = ctx.api_key.clone();
         let custom_headers = ctx.custom_headers.clone();
         let url = self.chat_url(ctx);
         let body = build_request(&self.policy, &request, &request.messages, true);
         let policy = self.policy.clone();
 
-        let (tx, rx) = futures::channel::mpsc::unbounded();
-
-        tokio::spawn(async move {
+        spawn_abortable_stream(move |tx| async move {
             let resp = match crate::apply_stream_headers_to_request(
                 client
                     .post(&url)
@@ -1643,38 +1668,86 @@ where
                 }
             };
 
-            let mut byte_stream = resp.bytes_stream();
-            let mut buf = String::new();
+            let events = crate::sse::parse_sse_stream(resp.bytes_stream());
+            futures::pin_mut!(events);
             let mut pending_tool_calls: Vec<(String, String, String, String)> = Vec::new();
-            let mut event_data_lines: Vec<String> = Vec::new();
-            // (id, type, name, arguments) — indexed by position
+            let mut finish_reason = None;
+            let mut latest_usage: Option<TokenUsage> = None;
 
-            let mut process_event = |data: &str| -> bool {
-                if data.trim() == "[DONE]" {
-                    let tool_calls = match normalize_stream_tool_calls(&pending_tool_calls) {
-                        Ok(tool_calls) => tool_calls,
+            let emit_done = |pending: &[(String, String, String, String)],
+                             reason: Option<ChatFinishReason>,
+                             usage: Option<TokenUsage>|
+             -> Result<bool> {
+                let tool_calls = normalize_stream_tool_calls(pending)?;
+                let _ = tx.unbounded_send(Ok(ChatStreamChunk {
+                    content: None,
+                    thinking: None,
+                    done: true,
+                    is_final: None,
+                    usage,
+                    tool_calls,
+                    finish_reason: reason,
+                }));
+                Ok(true)
+            };
+
+            while let Some(event) = events.next().await {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(error) => {
+                        let _ = tx.unbounded_send(Err(error));
+                        return;
+                    }
+                };
+                let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
+                if data == "[DONE]" {
+                    match emit_done(&pending_tool_calls, finish_reason, latest_usage.clone()) {
+                        Ok(_) => return,
                         Err(err) => {
                             let _ = tx.unbounded_send(Err(err));
-                            return true;
+                            return;
                         }
-                    };
-                    let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                        content: None,
-                        thinking: None,
-                        done: true,
-                        is_final: None,
-                        usage: None,
-                        tool_calls,
-                    }));
-                    return true;
+                    }
                 }
-
+                if let Some(message) = openai_stream_error_message(data) {
+                    let _ = tx.unbounded_send(Err(AQBotError::Provider(message)));
+                    return;
+                }
                 let parsed = match serde_json::from_str::<OpenAIResponse>(data) {
                     Ok(value) => value,
-                    Err(_) => return false,
+                    Err(_) => {
+                        if let Some(mut chunk) = extract_gemini_compat_chunk(data) {
+                            if let Some(reason) = chunk.finish_reason {
+                                finish_reason = Some(reason);
+                            }
+                            latest_usage = chunk.usage.clone().or(latest_usage);
+                            chunk.finish_reason = None;
+                            let _ = tx.unbounded_send(Ok(chunk));
+                            continue;
+                        }
+                        let _ = tx.unbounded_send(Err(AQBotError::Provider(
+                            "Malformed stream event".into(),
+                        )));
+                        return;
+                    }
                 };
 
+                latest_usage = parsed
+                    .usage
+                    .as_ref()
+                    .map(|usage| TokenUsage {
+                        prompt_tokens: usage.prompt_tokens,
+                        completion_tokens: usage.completion_tokens,
+                        total_tokens: usage.total_tokens,
+                    })
+                    .or(latest_usage);
                 if let Some(choice) = parsed.choices.first() {
+                    if let Some(reason) = choice.finish_reason.as_deref() {
+                        finish_reason = Some(ChatFinishReason::from_openai(reason));
+                    }
                     let tool_call_deltas = choice
                         .delta
                         .as_ref()
@@ -1725,7 +1798,11 @@ where
                             })
                         });
 
-                    if content.is_some() || thinking.is_some() || usage.is_some() {
+                    if content.is_some()
+                        || thinking.is_some()
+                        || usage.is_some()
+                        || finish_reason.is_some()
+                    {
                         let _ = tx.unbounded_send(Ok(ChatStreamChunk {
                             content,
                             thinking,
@@ -1733,9 +1810,10 @@ where
                             is_final: None,
                             usage,
                             tool_calls: None,
+                            finish_reason: None,
                         }));
                     }
-                    return false;
+                    continue;
                 }
 
                 if let Some(u) = parsed.usage {
@@ -1750,82 +1828,30 @@ where
                             total_tokens: u.total_tokens,
                         }),
                         tool_calls: None,
+                        finish_reason: None,
                     }));
                 }
 
-                if let Some(chunk) = extract_gemini_compat_chunk(data) {
+                if let Some(mut chunk) = extract_gemini_compat_chunk(data) {
+                    if let Some(reason) = chunk.finish_reason {
+                        finish_reason = Some(reason);
+                    }
+                    latest_usage = chunk.usage.clone().or(latest_usage);
+                    chunk.finish_reason = None;
                     let _ = tx.unbounded_send(Ok(chunk));
                 }
-
-                false
-            };
-
-            while let Some(chunk) = byte_stream.next().await {
-                match chunk {
-                    Ok(bytes) => {
-                        buf.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(pos) = buf.find('\n') {
-                            let line = buf[..pos].trim_end_matches('\r').to_string();
-                            buf = buf[pos + 1..].to_string();
-
-                            if line.is_empty() {
-                                if event_data_lines.is_empty() {
-                                    continue;
-                                }
-                                let data = event_data_lines.join("\n");
-                                event_data_lines.clear();
-                                if process_event(&data) {
-                                    return;
-                                }
-                                continue;
-                            }
-
-                            if line.starts_with(':') {
-                                continue;
-                            }
-
-                            if let Some(d) = line.strip_prefix("data: ") {
-                                event_data_lines.push(d.to_string());
-                            } else if let Some(d) = line.strip_prefix("data:") {
-                                event_data_lines.push(d.to_string());
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.unbounded_send(Err(AQBotError::Provider(format!(
-                            "Stream error: {e}"
-                        ))));
-                        return;
+            }
+            if finish_reason.is_some() {
+                match emit_done(&pending_tool_calls, finish_reason, latest_usage.clone()) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        let _ = tx.unbounded_send(Err(err));
                     }
                 }
+                return;
             }
-
-            let trailing_line = buf.trim_end_matches('\r');
-            if let Some(d) = trailing_line.strip_prefix("data: ") {
-                event_data_lines.push(d.to_string());
-            } else if let Some(d) = trailing_line.strip_prefix("data:") {
-                event_data_lines.push(d.to_string());
-            }
-
-            if !event_data_lines.is_empty() {
-                let data = event_data_lines.join("\n");
-                if process_event(&data) {
-                    return;
-                }
-            }
-
-            // Stream ended without explicit [DONE]
-            let _ = tx.unbounded_send(Ok(ChatStreamChunk {
-                content: None,
-                thinking: None,
-                done: true,
-                is_final: None,
-                usage: None,
-                tool_calls: None,
-            }));
-        });
-
-        Box::pin(rx)
+            let _ = tx.unbounded_send(Err(incomplete_stream_error()));
+        })
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {

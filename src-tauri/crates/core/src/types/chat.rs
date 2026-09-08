@@ -117,10 +117,75 @@ pub struct TokenUsage {
     pub total_tokens: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatFinishReason {
+    Stop,
+    ToolCalls,
+    OutputLimit,
+    ContentFilter,
+    Other,
+}
+
+impl ChatFinishReason {
+    pub fn from_openai(reason: &str) -> Self {
+        match reason {
+            "stop" => Self::Stop,
+            "length" => Self::OutputLimit,
+            "content_filter" => Self::ContentFilter,
+            "tool_calls" | "function_call" => Self::ToolCalls,
+            _ => Self::Other,
+        }
+    }
+
+    pub fn from_gemini(reason: &str) -> Self {
+        match reason {
+            "STOP" => Self::Stop,
+            "MAX_TOKENS" => Self::OutputLimit,
+            "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "RECITATION" => {
+                Self::ContentFilter
+            }
+            _ => Self::Other,
+        }
+    }
+
+    pub fn from_anthropic(reason: &str) -> Self {
+        match reason {
+            "end_turn" | "stop_sequence" => Self::Stop,
+            "max_tokens" => Self::OutputLimit,
+            "tool_use" => Self::ToolCalls,
+            "refusal" => Self::ContentFilter,
+            _ => Self::Other,
+        }
+    }
+
+    pub fn from_bedrock(reason: &str) -> Self {
+        match reason {
+            "end_turn" | "stop_sequence" => Self::Stop,
+            "max_tokens" => Self::OutputLimit,
+            "tool_use" => Self::ToolCalls,
+            "content_filtered" | "guardrail_intervened" => Self::ContentFilter,
+            _ => Self::Other,
+        }
+    }
+
+    pub fn as_openai_str(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Stop => "stop",
+            Self::ToolCalls => "tool_calls",
+            Self::OutputLimit => "length",
+            Self::ContentFilter => "content_filter",
+            Self::Other => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChatStreamChunk {
     pub content: Option<String>,
     pub thinking: Option<String>,
+    /// The provider protocol terminated and trailing usage has been consumed.
+    /// Output limits still end the protocol; callers decide whether output is complete.
     pub done: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_final: Option<bool>,
@@ -128,6 +193,9 @@ pub struct ChatStreamChunk {
     /// Tool calls requested by the model (populated on the final content chunk or a dedicated chunk)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    /// Normalized provider reason, carried only by the terminal chunk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<ChatFinishReason>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

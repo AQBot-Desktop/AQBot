@@ -394,7 +394,8 @@ fn spawn_stream_task(
                             is_final: None,
                             usage: None,
                             tool_calls: None,
-                        },
+                            finish_reason: None,
+        },
                     },
                 );
 
@@ -470,7 +471,8 @@ fn spawn_stream_task(
                             is_final: None,
                             usage: None,
                             tool_calls: None,
-                        },
+                            finish_reason: None,
+        },
                     },
                 );
 
