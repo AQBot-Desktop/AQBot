@@ -299,19 +299,58 @@ fn extract_primary_content(
     content: &Option<String>,
     extra: &std::collections::BTreeMap<String, serde_json::Value>,
 ) -> Option<String> {
-    if content.is_some() {
-        return content.clone();
-    }
-
-    for key in ["text", "part", "parts", "value", "output_text"] {
-        if let Some(value) = extra.get(key) {
-            if let Some(text) = extract_text_from_json(value) {
-                return Some(text);
+    let mut combined = content.clone().or_else(|| {
+        for key in ["text", "part", "parts", "value", "output_text"] {
+            if let Some(value) = extra.get(key) {
+                if let Some(text) = extract_text_from_json(value) {
+                    return Some(text);
+                }
             }
         }
+
+        None
+    });
+
+    if let Some(images) = extract_response_images(extra) {
+        let text = combined.get_or_insert_with(String::new);
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(&images);
     }
 
-    None
+    combined.filter(|value| !value.is_empty())
+}
+
+fn extract_response_images(
+    extra: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Option<String> {
+    let images = extra.get("images")?.as_array()?;
+    let mut markdown = String::new();
+
+    for image in images {
+        let Some(image_url) = image.get("image_url") else {
+            continue;
+        };
+        let url = image_url
+            .as_str()
+            .or_else(|| image_url.get("url").and_then(serde_json::Value::as_str));
+        let Some(url) = url.filter(|url| {
+            url.get(.."data:image/".len())
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:image/"))
+        }) else {
+            continue;
+        };
+
+        if !markdown.is_empty() {
+            markdown.push_str("\n\n");
+        }
+        markdown.push_str("![image](");
+        markdown.push_str(url);
+        markdown.push(')');
+    }
+
+    (!markdown.is_empty()).then_some(markdown)
 }
 
 fn extract_gemini_compat_chunk(data: &str) -> Option<ChatStreamChunk> {
@@ -974,6 +1013,76 @@ mod tests {
                     "image_url": { "url": "data:image/png;base64,YWJj" }
                 }
             ]))
+        );
+    }
+
+    #[test]
+    fn extracts_streamed_images_from_openai_compatible_delta() {
+        let response: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "model": "gemini-3.1-flash-image",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "content": null,
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/jpeg;base64,/9j/2Q=="
+                        },
+                        "index": 0
+                    }]
+                }
+            }]
+        }))
+        .expect("valid OpenAI-compatible image chunk");
+        let delta = response.choices[0].delta.as_ref().expect("stream delta");
+
+        assert_eq!(
+            extract_primary_content(&delta.content, &delta.extra).as_deref(),
+            Some("![image](data:image/jpeg;base64,/9j/2Q==)")
+        );
+    }
+
+    #[test]
+    fn combines_non_streamed_text_and_openai_compatible_images() {
+        let response: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "model": "gemini-3.1-flash-image",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Generated image",
+                    "images": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgo="
+                            },
+                            "index": 0
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": "data:image/webp;base64,UklGRg==",
+                            "index": 1
+                        }
+                    ]
+                }
+            }]
+        }))
+        .expect("valid OpenAI-compatible image response");
+        let message = response.choices[0]
+            .message
+            .as_ref()
+            .expect("response message");
+
+        assert_eq!(
+            extract_primary_content(&message.content, &message.extra).as_deref(),
+            Some(
+                "Generated image\n\n![image](data:image/png;base64,iVBORw0KGgo=)\n\n![image](data:image/webp;base64,UklGRg==)"
+            )
         );
     }
 
