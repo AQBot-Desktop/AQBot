@@ -356,14 +356,14 @@ const ACTIVE_STREAM_EXISTS_ERROR: &str = "当前会话已有回复正在生成�
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
-enum ChatStreamTerminalOutcome {
+pub(crate) enum ChatStreamTerminalOutcome {
     Complete,
     Error,
     Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-struct ChatStreamTerminalEvent {
+pub(crate) struct ChatStreamTerminalEvent {
     conversation_id: String,
     message_id: String,
     stream_id: String,
@@ -371,7 +371,7 @@ struct ChatStreamTerminalEvent {
     error: Option<String>,
 }
 
-fn build_stream_terminal_event(
+pub(crate) fn build_stream_terminal_event(
     conversation_id: &str,
     message_id: &str,
     stream_id: &str,
@@ -388,7 +388,7 @@ fn build_stream_terminal_event(
     }
 }
 
-fn emit_stream_terminal(app: &tauri::AppHandle, event: ChatStreamTerminalEvent) {
+pub(crate) fn emit_stream_terminal(app: &tauri::AppHandle, event: ChatStreamTerminalEvent) {
     if let Err(error) = app.emit("chat-stream-terminal", event) {
         tracing::error!(error = %error, "Failed to emit chat stream terminal event");
     }
@@ -875,7 +875,7 @@ fn filter_tool_calls_for_event(tool_calls: Option<&[ToolCall]>) -> Option<Vec<To
 
 const STREAM_ERROR_CONTENT_MARKER: &str = "<!-- aqbot-stream-error -->";
 
-fn append_stream_error_to_content(content: &str, error: &str) -> String {
+pub(crate) fn append_stream_error_to_content(content: &str, error: &str) -> String {
     let trimmed_content = content.trim_end();
     let trimmed_error = error.trim();
     if trimmed_content.trim().is_empty() {

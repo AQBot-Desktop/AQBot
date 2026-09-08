@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod agent;
+pub(crate) mod agent_lifecycle;
 #[cfg(test)]
 mod agent_allowed_tools;
 pub(crate) mod agent_context;

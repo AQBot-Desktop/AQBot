@@ -1,10 +1,11 @@
-import { invoke, isTauri, listen, type UnlistenFn } from '@/lib/invoke';
+import { invoke, isTauri, listen } from '@/lib/invoke';
 import { listenConversationSync, notifyConversationChanged } from '@/lib/conversationSync';
 import { snapshotStreamSyncState } from './conversationStoreSupport';
 import {
   clearConversationRun,
   createConversationRun,
   isLiveConversationRun,
+  shouldApplyOwnedRunSnapshot,
   upsertConversationRun,
   upsertObservedStream,
 } from './conversationRunRegistry';
@@ -28,10 +29,6 @@ import {
 import { perfNow, perfTraceDuration } from '@/lib/perfTrace';
 import { useSearchStore } from '@/stores/searchStore';
 import type {
-  AgentDoneEvent,
-  AgentErrorEvent,
-  AgentStreamTextEvent,
-  AgentStreamThinkingEvent,
   ChatStreamErrorEvent,
   Attachment,
   AttachmentInput,
@@ -45,7 +42,6 @@ import type {
   MessageWindow,
 } from '@/types';
 import {
-  AGENT_STREAM_UI_FLUSH_INTERVAL_MS,
   MESSAGE_PAGE_SIZE,
   appendStreamChunk,
   boundMessageWindow,
@@ -94,11 +90,9 @@ import {
   bindWaitingChatQueueToStream,
   markChatQueueCancelError,
 } from './conversationStoreQueueActions';
-import { useAgentStore } from './agentStore';
 
 type ConversationMessageActions = Pick<ConversationState,
   | 'sendMessage'
-  | 'sendAgentMessage'
   | 'regenerateMessage'
   | 'regenerateWithModel'
   | 'sendMultiModelMessage'
@@ -463,6 +457,7 @@ async function cancelConversationRunNow(
   const { conversationId, skipBackend } = input;
   const initialState = get();
   const run = initialState.runsByConversation[conversationId];
+  if (input.runId && run && run.runId !== input.runId && run.streamId !== input.runId) return;
   const runRuntime = getOrCreateRunRuntime(conversationId);
   runRuntime.sendGeneration += 1;
   ensureRunStopCompleted(conversationId);
@@ -501,13 +496,16 @@ async function cancelConversationRunNow(
   const cancellationBucket = get().chatQueueByConversation[conversationId];
   const expectedDrainingMessageId = cancellationBucket?.drainingMessageId ?? null;
   const expectedDrainingStreamId = cancellationBucket?.drainingStreamId ?? streamId;
+  const isAgentRun = run?.mode === 'agent' || conversation?.mode === 'agent';
   const agentCancel = runRuntime.agentCancel ?? (
     initialState.streamingConversationId === conversationId ? runtime.activeAgentCancel : null
   );
-  if (agentCancel) {
-    agentCancel();
-  } else {
-    runRuntime.agentStreamSeq++;
+  if (!isAgentRun) {
+    if (agentCancel) {
+      agentCancel();
+    } else {
+      runRuntime.agentStreamSeq++;
+    }
   }
   flushPendingStreamChunk(set, get);
   const buffer = getStreamBuffer(conversationId);
@@ -579,6 +577,54 @@ async function cancelConversationRunNow(
     }));
   }
 
+  if (conversationId && isAgentRun && !cancellingMultiModel) {
+    const terminalPayload: ChatStreamTerminalEvent = {
+      conversation_id: conversationId,
+      message_id: streamMsgId ?? '',
+      stream_id: streamId ?? run?.runId ?? '',
+      outcome: 'cancelled',
+      error: null,
+    };
+    if (!isTauri() || skipBackend) {
+      runRuntime.agentCancel?.();
+      await get().handleChatStreamTerminal(terminalPayload);
+      return;
+    }
+    if (!runRuntime.sendIpcStarted && runRuntime.agentCancel) {
+      runRuntime.agentCancel();
+      return;
+    }
+    // Startup must settle before cancelling; an accepted request owns a token,
+    // while a rejected startup is finalized by sendAgentMessage itself.
+    if (runRuntime.agentStartCompleted) await runRuntime.agentStartCompleted;
+    if (run && get().runsByConversation[conversationId]?.runId !== run.runId) return;
+    try {
+      await invoke('agent_cancel', {
+        conversationId,
+        streamId: streamId ?? run?.runId ?? initialState.activeStreamId,
+      });
+    } catch (error) {
+      const cancellationError = String(error);
+      if (run && get().runsByConversation[conversationId]?.runId !== run.runId) return;
+      set((state) => {
+        const current = state.runsByConversation[conversationId];
+        return {
+          error: cancellationError,
+          ...(current ? upsertConversationRun(state, {
+            ...current,
+            phase: run?.phase === 'preparing' ? 'preparing' : 'streaming',
+            revision: current.revision + 1,
+          }) : {}),
+        };
+      });
+      markRunStopCompleted(conversationId);
+      throw error;
+    }
+    const stopDone = getRunRuntime(conversationId)?.stopCompleted;
+    if (stopDone) await stopDone;
+    return;
+  }
+
   if (conversationId && isTauri() && !skipBackend && !cancellingMultiModel) {
     try {
       await invokeCancelStream(conversationId, streamId, runRuntime);
@@ -616,12 +662,6 @@ async function cancelConversationRunNow(
           expectedDrainingStreamId,
         );
       }
-    }
-    if (conversation?.mode === 'agent') {
-      invoke('agent_cancel', {
-        conversationId,
-        streamId: streamId ?? initialState.activeStreamId,
-      }).catch(() => {});
     }
   } else if (conversationId && !isTauri() && !skipBackend && !cancellingMultiModel) {
     await get().handleChatStreamTerminal({
@@ -1096,412 +1136,6 @@ export function createConversationMessageActions(
         runtime.multiModelStreamIds.delete(streamId);
         runRuntime.multiModelStreamIds.delete(streamId);
         return null;
-      }
-    },
-    sendAgentMessage: async (content, attachments = [], options) => {
-      const conversationId = options?.conversationId ?? get().activeConversationId;
-      if (!conversationId) throw new Error('No active conversation');
-      if (get().loading && get().activeConversationId === conversationId) {
-        throw new Error('Conversation messages are still loading');
-      }
-
-      const runRuntime = getOrCreateRunRuntime(conversationId);
-      runRuntime.agentCancel?.();
-      runRuntime.agentCancel = null;
-      const agentRunSeq = ++runRuntime.agentStreamSeq;
-      const isCurrentAgentRun = () => agentRunSeq === runRuntime.agentStreamSeq;
-      runtime.agentStreamSeq = agentRunSeq;
-      runtime.activeAgentCancel = () => runRuntime.agentCancel?.();
-
-      const conversation = get().conversations.find((c) => c.id === conversationId);
-      if (!conversation) throw new Error('Conversation not found');
-
-      const providerId = conversation.provider_id;
-      const modelId = conversation.model_id;
-      const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
-      const mcpIds = getEffectiveMcpServerIds(get, {
-        providerId,
-        modelId,
-        mcpIds: capabilityIds.enabledMcpServerIds,
-      });
-
-      // Optimistic user message
-      const optimisticUserMsg: Message = {
-        id: `temp-user-${Date.now()}`,
-        conversation_id: conversationId,
-        role: 'user',
-        content,
-        provider_id: null,
-        model_id: null,
-        token_count: null,
-        attachments: attachments.map((a) => ({
-          id: `temp-att-${Date.now()}`,
-          file_name: a.file_name,
-          file_type: a.file_type,
-          file_path: '',
-          file_size: a.file_size,
-          data: a.data,
-        })),
-        thinking: null,
-        tool_calls_json: null,
-        tool_call_id: null,
-        created_at: Date.now(),
-        parent_message_id: null,
-        version_index: 0,
-        is_active: true,
-        status: 'complete',
-      };
-
-      // Placeholder assistant message
-      let currentMsgId = `temp-agent-${Date.now()}`;
-      const placeholderAssistant: Message = {
-        id: currentMsgId,
-        conversation_id: conversationId,
-        role: 'assistant',
-        content: '',
-        provider_id: providerId,
-        model_id: modelId,
-        token_count: null,
-        attachments: [],
-        thinking: null,
-        tool_calls_json: null,
-        tool_call_id: null,
-        created_at: Date.now(),
-        parent_message_id: optimisticUserMsg.id,
-        version_index: 0,
-        is_active: true,
-        status: 'partial',
-      };
-
-      const runId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `agent-run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const streamId = runId;
-      optimisticUserMsg.id = `temp-user-${runId}`;
-      currentMsgId = `temp-agent-${runId}`;
-      placeholderAssistant.id = currentMsgId;
-      placeholderAssistant.parent_message_id = optimisticUserMsg.id;
-      const agentRun = createConversationRun({
-        conversationId,
-        runId,
-        streamId,
-        streamingMessageId: currentMsgId,
-        mode: 'agent',
-        phase: 'streaming',
-        revision: (get().runWatermarksByConversation[conversationId]?.revision ?? 0) + 1,
-      });
-      if (get().activeConversationId === conversationId) {
-        set((s) => ({
-          messages: [...s.messages, optimisticUserMsg, placeholderAssistant],
-          streamActivityByMessageId: {
-            ...s.streamActivityByMessageId,
-            [currentMsgId]: createStreamActivity(
-              conversation?.provider_id,
-              conversation?.model_id,
-            ),
-          },
-          ...upsertConversationRun(s, agentRun),
-        }));
-      } else {
-        appendCachedConversationMessages(conversationId, [optimisticUserMsg, placeholderAssistant]);
-        set((s) => upsertConversationRun(s, agentRun));
-      }
-
-      // Set up event listeners BEFORE invoking to avoid race conditions
-      let unlistenDone: UnlistenFn | null = null;
-      let unlistenError: UnlistenFn | null = null;
-      let unlistenStreamText: UnlistenFn | null = null;
-      let unlistenStreamThinking: UnlistenFn | null = null;
-      let unlistenMessageId: UnlistenFn | null = null;
-      let cancelActiveRun: (() => void) | null = null;
-      let cleanedUp = false;
-
-      // ── Agent stream buffering (same pattern as Q&A pending stream UI) ──
-      let _agentPendingText = '';
-      let _agentPendingThinking = '';
-      let _agentFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const flushAgentStreamChunks = () => {
-        if (_agentFlushTimer !== null) {
-          clearTimeout(_agentFlushTimer);
-          _agentFlushTimer = null;
-        }
-        const textChunk = _agentPendingText;
-        const thinkingChunk = _agentPendingThinking;
-        _agentPendingText = '';
-        _agentPendingThinking = '';
-        if (!textChunk && !thinkingChunk) return;
-
-        set((s) => {
-          const wasThinking = s.thinkingActiveMessageIds.has(currentMsgId);
-          let nextThinkingIds = s.thinkingActiveMessageIds;
-
-          const updatedMessages = s.messages.map((m) => {
-            if (m.id !== currentMsgId) return m;
-
-            let content = m.content || '';
-            let thinking = m.thinking || '';
-
-            // 1. Process buffered thinking chunks first
-            if (thinkingChunk) {
-              if (!wasThinking) {
-                content += '<think data-aqbot="1">\n';
-              }
-              content += thinkingChunk;
-              thinking += thinkingChunk;
-              nextThinkingIds = new Set([...nextThinkingIds, currentMsgId]);
-            }
-
-            // 2. Process buffered text chunks (closes thinking block if needed)
-            if (textChunk) {
-              const isCurrentlyThinking = thinkingChunk ? true : wasThinking;
-              if (isCurrentlyThinking) {
-                content += '\n</think>\n\n';
-                const n = new Set(nextThinkingIds);
-                n.delete(currentMsgId);
-                nextThinkingIds = n;
-              }
-              content += textChunk;
-            }
-
-            return { ...m, content, thinking };
-          });
-
-          return {
-            thinkingActiveMessageIds: nextThinkingIds,
-            messages: updatedMessages,
-          };
-        });
-      };
-
-      const scheduleAgentFlush = () => {
-        if (_agentFlushTimer === null) {
-          _agentFlushTimer = setTimeout(flushAgentStreamChunks, AGENT_STREAM_UI_FLUSH_INTERVAL_MS);
-        }
-      };
-
-      const clearAgentStreamBuffer = () => {
-        if (_agentFlushTimer !== null) {
-          clearTimeout(_agentFlushTimer);
-          _agentFlushTimer = null;
-        }
-        _agentPendingText = '';
-        _agentPendingThinking = '';
-      };
-
-      const cleanup = () => {
-        cleanedUp = true;
-        clearAgentStreamBuffer();
-        unlistenStreamText?.();
-        unlistenStreamThinking?.();
-        unlistenDone?.();
-        unlistenError?.();
-        unlistenMessageId?.();
-        unlistenStreamText = null;
-        unlistenStreamThinking = null;
-        unlistenDone = null;
-        unlistenError = null;
-        unlistenMessageId = null;
-        if (runtime.activeAgentCancel === cancelActiveRun) {
-          runtime.activeAgentCancel = null;
-        }
-      };
-
-      const keepAgentUnlisten = (assign: (fn: UnlistenFn) => void) => (fn: UnlistenFn) => {
-        if (cleanedUp || !isCurrentAgentRun()) {
-          fn();
-          return;
-        }
-        assign(fn);
-      };
-
-      useAgentStore.getState().setActiveRun(conversationId, runId);
-      const matchesRun = (eventRunId?: string) => !eventRunId || eventRunId === runId;
-
-      try {
-        let resolveEvent: () => void = () => {};
-        let rejectEvent: (error: Error) => void = () => {};
-        const eventPromise = new Promise<void>((resolve, reject) => {
-          resolveEvent = resolve;
-          rejectEvent = reject;
-        });
-        cancelActiveRun = () => {
-          if (isCurrentAgentRun()) {
-            runtime.agentStreamSeq++;
-          }
-          cleanup();
-          resolveEvent();
-        };
-        runtime.activeAgentCancel = cancelActiveRun;
-
-        const [
-          messageIdUnlisten,
-          streamTextUnlisten,
-          streamThinkingUnlisten,
-          doneUnlisten,
-          errorUnlisten,
-        ] = await Promise.all([
-          listen<{ conversationId: string; assistantMessageId: string; runId?: string }>('agent-message-id', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
-            flushAgentStreamChunks();
-            const realId = event.payload.assistantMessageId;
-            const oldId = currentMsgId;
-            currentMsgId = realId;
-            set((s) => {
-              const ragDisplayByMessageId = { ...s.ragDisplayByMessageId };
-              if (Object.prototype.hasOwnProperty.call(ragDisplayByMessageId, oldId)) {
-                ragDisplayByMessageId[realId] = ragDisplayByMessageId[oldId];
-                delete ragDisplayByMessageId[oldId];
-              }
-              return {
-                streamingMessageId: realId,
-                ragDisplayByMessageId,
-                messages: s.messages.map((m) =>
-                  m.id === oldId ? { ...m, id: realId } : m
-                ),
-              };
-            });
-          }),
-          listen<AgentStreamTextEvent>('agent-stream-text', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
-            _agentPendingText += event.payload.text;
-            scheduleAgentFlush();
-          }),
-          listen<AgentStreamThinkingEvent>('agent-stream-thinking', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
-            _agentPendingThinking += event.payload.thinking;
-            scheduleAgentFlush();
-          }),
-          listen<AgentDoneEvent>('agent-done', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
-            clearAgentStreamBuffer();
-            const isActiveConversation = get().activeConversationId === conversationId;
-            const isStillStreaming = get().streaming && get().streamingMessageId === currentMsgId;
-            if (!isStillStreaming) {
-              if (!isActiveConversation) {
-                runtime.pendingConversationRefresh.add(conversationId);
-              }
-              cleanup();
-              resolveEvent();
-              return;
-            }
-
-            set((s) => ({
-              streaming: false,
-              streamingMessageId: null,
-              streamingConversationId: null,
-              activeStreamId: null,
-              thinkingActiveMessageIds: (() => {
-                const next = new Set(s.thinkingActiveMessageIds);
-                next.delete(currentMsgId);
-                return next;
-              })(),
-              messages: s.messages.map((m) => {
-                if (m.id === currentMsgId) {
-                  return {
-                    ...m,
-                    id: event.payload.assistantMessageId || m.id,
-                    content: event.payload.text,
-                    status: 'complete' as const,
-                    prompt_tokens: event.payload.usage?.input_tokens ?? null,
-                    completion_tokens: event.payload.usage?.output_tokens ?? null,
-                  };
-                }
-                return m;
-              }),
-            }));
-
-            cleanup();
-            if (isActiveConversation) {
-              get().fetchMessages(conversationId);
-            } else {
-              runtime.pendingConversationRefresh.add(conversationId);
-            }
-            resolveEvent();
-          }),
-          listen<AgentErrorEvent>('agent-error', (event) => {
-            if (event.payload.conversationId !== conversationId || !isCurrentAgentRun() || !matchesRun(event.payload.runId)) return;
-            clearAgentStreamBuffer();
-            const isStillStreaming = get().streaming && get().streamingMessageId === currentMsgId;
-            if (!isStillStreaming) {
-              cleanup();
-              resolveEvent();
-              return;
-            }
-
-            set((s) => ({
-              streaming: false,
-              streamingMessageId: null,
-              streamingConversationId: null,
-              activeStreamId: null,
-              thinkingActiveMessageIds: (() => {
-                const next = new Set(s.thinkingActiveMessageIds);
-                next.delete(currentMsgId);
-                return next;
-              })(),
-              messages: s.messages.map((m) => {
-                if (m.id === currentMsgId) {
-                  return {
-                    ...m,
-                    content: event.payload.message,
-                    status: 'error' as const,
-                  };
-                }
-                return m;
-              }),
-            }));
-
-            cleanup();
-            rejectEvent(new Error(event.payload.message));
-          }),
-        ]);
-
-        keepAgentUnlisten((fn) => { unlistenMessageId = fn; })(messageIdUnlisten);
-        keepAgentUnlisten((fn) => { unlistenStreamText = fn; })(streamTextUnlisten);
-        keepAgentUnlisten((fn) => { unlistenStreamThinking = fn; })(streamThinkingUnlisten);
-        keepAgentUnlisten((fn) => { unlistenDone = fn; })(doneUnlisten);
-        keepAgentUnlisten((fn) => { unlistenError = fn; })(errorUnlisten);
-
-        if (cleanedUp || !isCurrentAgentRun()) {
-          return;
-        }
-
-        await get().startStreamListening();
-        await invoke('agent_query', {
-          conversationId,
-          prompt: content,
-          providerId,
-          modelId,
-          attachments: attachments ?? [],
-          enabledMcpServerIds: mcpIds,
-          enabledKnowledgeBaseIds: capabilityIds.enabledKnowledgeBaseIds,
-          enabledMemoryNamespaceIds: capabilityIds.enabledMemoryNamespaceIds,
-          streamId,
-          runId,
-        });
-
-        void eventPromise.catch((error) => {
-          console.error('[sendAgentMessage] stream error:', error);
-        });
-      } catch (e) {
-        cleanup();
-        const errMsg = String(e);
-        console.error('[sendAgentMessage] error:', errMsg);
-        useAgentStore.getState().clearStatus(conversationId, runId);
-
-        if (get().streaming && (get().streamingMessageId === currentMsgId)) {
-          set((s) => ({
-            streaming: false,
-            streamingMessageId: null,
-            streamingConversationId: null,
-            activeStreamId: null,
-            messages: s.messages.map((m) =>
-              m.id === currentMsgId
-                ? { ...m, content: errMsg, status: 'error' as const }
-                : m
-            ),
-          }));
-        }
       }
     },
     regenerateMessage: async (targetMessageId?: string) => {
@@ -2371,18 +2005,25 @@ export function createConversationMessageActions(
             'list_active_conversation_runs',
           ).then((snapshots) => {
             for (const snapshot of snapshots) {
-              set((state) => upsertConversationRun(state, {
-                conversationId: snapshot.conversationId,
-                runId: snapshot.runId,
-                streamId: snapshot.streamId,
-                streamingMessageId: snapshot.messageId,
-                phase: snapshot.phase,
-                mode: snapshot.mode,
-                revision: snapshot.revision,
-                multiModelParentId: state.runsByConversation[snapshot.conversationId]?.multiModelParentId ?? null,
-                pendingCompanionModels: state.runsByConversation[snapshot.conversationId]?.pendingCompanionModels ?? [],
-                multiModelDoneMessageIds: state.runsByConversation[snapshot.conversationId]?.multiModelDoneMessageIds ?? [],
-              }));
+              if (!shouldApplyOwnedRunSnapshot(get(), snapshot)) continue;
+              set((state) => {
+                if (!shouldApplyOwnedRunSnapshot(state, snapshot)) return {};
+                const current = state.runsByConversation[snapshot.conversationId];
+                return upsertConversationRun(state, {
+                  conversationId: snapshot.conversationId,
+                  runId: snapshot.runId,
+                  streamId: snapshot.streamId,
+                  streamingMessageId: snapshot.messageId ?? current?.streamingMessageId ?? null,
+                  phase: snapshot.phase,
+                  mode: snapshot.mode,
+                  revision: snapshot.mode !== 'agent' ? snapshot.revision : (current?.revision
+                    ?? state.runWatermarksByConversation[snapshot.conversationId]?.revision
+                    ?? 0) + 1,
+                  multiModelParentId: current?.multiModelParentId ?? null,
+                  pendingCompanionModels: current?.pendingCompanionModels ?? [],
+                  multiModelDoneMessageIds: current?.multiModelDoneMessageIds ?? [],
+                });
+              });
               if (snapshot.content) {
                 setStreamBuffer(snapshot.conversationId, {
                   messageId: snapshot.messageId ?? `run-${snapshot.runId}`,
@@ -2723,7 +2364,7 @@ export function createConversationMessageActions(
       const terminalUnsub = await listen<ChatStreamTerminalEvent>('chat-stream-terminal', (event) => {
         if (runtime.listenerGen !== gen) return;
         if (
-          runtime.isMultiModelActive
+          get().runsByConversation[event.payload.conversation_id]?.mode === 'multi-model'
           || runtime.multiModelStreamIds.has(event.payload.stream_id)
         ) {
           return;

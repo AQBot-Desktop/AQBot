@@ -7,6 +7,7 @@ import {
   selectLiveStreamingConversationIds,
   selectUiStreaming,
   selectUiStreamingMessageId,
+  shouldApplyOwnedRunSnapshot,
   shouldApplyRunRevision,
   snapshotStreamSyncState,
   upsertConversationRun,
@@ -119,6 +120,55 @@ describe('conversation run registry', () => {
     } as ConversationRunStateSlice;
     expect(current.runsByConversation['conv-a']).toBeUndefined();
     expect(selectUiStreaming(current)).toBe(false);
+  });
+
+  it('does not let an agent preparing snapshot steal or resurrect a local run', () => {
+    let current = state({ activeConversationId: 'conv-a' });
+    current = {
+      ...current,
+      ...upsertConversationRun(current, createConversationRun({
+        conversationId: 'conv-a',
+        runId: 'run-local',
+        streamId: 'run-local',
+        streamingMessageId: 'temp-agent-1',
+        mode: 'agent',
+        phase: 'streaming',
+        revision: 2,
+      })),
+    } as ConversationRunStateSlice;
+
+    expect(shouldApplyOwnedRunSnapshot(current, {
+      conversationId: 'conv-a',
+      runId: 'run-local',
+      streamId: 'run-local',
+      messageId: null,
+      mode: 'agent',
+      phase: 'preparing',
+      revision: 9,
+      content: '',
+      thinking: null,
+      pendingPermission: null,
+      pendingAsk: null,
+    })).toBe(false);
+
+    current = {
+      ...current,
+      ...clearConversationRun(current, 'conv-a', 'run-local'),
+    } as ConversationRunStateSlice;
+
+    expect(shouldApplyOwnedRunSnapshot(current, {
+      conversationId: 'conv-a',
+      runId: 'run-local',
+      streamId: 'run-local',
+      messageId: null,
+      mode: 'agent',
+      phase: 'preparing',
+      revision: 10,
+      content: '',
+      thinking: null,
+      pendingPermission: null,
+      pendingAsk: null,
+    })).toBe(false);
   });
 
   it('tracks observed streams per conversation instead of a single slot', () => {

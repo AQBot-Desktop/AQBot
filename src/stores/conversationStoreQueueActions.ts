@@ -528,6 +528,10 @@ export function createConversationQueueActions(
 
     handleChatStreamTerminal: async (payload) => {
       const stateAtTerminal = get();
+      const ownedRun = stateAtTerminal.runsByConversation[payload.conversation_id];
+      if (ownedRun && ownedRun.runId !== payload.stream_id && ownedRun.streamId !== payload.stream_id) return;
+      const watermark = stateAtTerminal.runWatermarksByConversation[payload.conversation_id];
+      if (!ownedRun && watermark?.terminal && watermark.runId === payload.stream_id) return;
       const before = stateAtTerminal.chatQueueByConversation[payload.conversation_id];
       const expectedStreamId = before?.drainingStreamId ?? null;
       const differentActiveStream = Boolean(
@@ -559,6 +563,14 @@ export function createConversationQueueActions(
           : withoutRun;
         return {
           ...withoutObserved,
+          runWatermarksByConversation: {
+            ...withoutObserved.runWatermarksByConversation,
+            [payload.conversation_id]: {
+              runId: payload.stream_id,
+              revision: ownedRun?.revision ?? watermark?.revision ?? 0,
+              terminal: true,
+            },
+          },
           thinkingActiveMessageIds: state.activeConversationId === payload.conversation_id
             ? new Set<string>()
             : state.thinkingActiveMessageIds,

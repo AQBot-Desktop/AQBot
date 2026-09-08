@@ -71,6 +71,8 @@ export interface ConversationRunRuntime {
   sendGeneration: number;
   sendIpcPending: boolean;
   sendIpcStarted: boolean;
+  /** Resolves when Agent startup settles so a pre-admission stop cannot race it. */
+  agentStartCompleted: Promise<void> | null;
   inFlightStop: Promise<void> | null;
   stopCompleted: Promise<void> | null;
   resolveStopCompleted: (() => void) | null;
@@ -120,6 +122,7 @@ export function getOrCreateRunRuntime(conversationId: string): ConversationRunRu
     sendGeneration: 0,
     sendIpcPending: false,
     sendIpcStarted: false,
+    agentStartCompleted: null,
     inFlightStop: null,
     stopCompleted: null,
     resolveStopCompleted: null,
@@ -322,6 +325,21 @@ export function appendCachedConversationMessages(
   cached.totalActiveCount += messages.filter((message) => !existingIds.has(message.id)).length;
   cached.newestLoadedMessageId = nextMessages[nextMessages.length - 1]?.id ?? cached.newestLoadedMessageId;
   _messageCacheBytes += estimatedBytes;
+}
+
+export function mapCachedConversationMessages(
+  conversationId: string,
+  mapper: (messages: Message[]) => Message[],
+): void {
+  const cached = _messageCache.get(conversationId);
+  if (!cached) return;
+  const nextMessages = mapper(cached.messages);
+  _messageCacheBytes -= cached.estimatedBytes;
+  cached.messages = nextMessages;
+  cached.estimatedBytes = estimateMessageCacheBytes(nextMessages);
+  cached.newestLoadedMessageId = nextMessages[nextMessages.length - 1]?.id
+    ?? cached.newestLoadedMessageId;
+  _messageCacheBytes += cached.estimatedBytes;
 }
 
 function readCachedMessageState(

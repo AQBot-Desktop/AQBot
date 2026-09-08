@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createConversationAgentActions } from './conversationStoreAgentActions';
 import { createConversationManagementActions } from './conversationStoreManagementActions';
 import { createConversationMessageActions } from './conversationStoreMessageActions';
 import {
@@ -114,5 +115,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   workspaceSnapshot: null,
   ...createConversationManagementActions(set, get),
   ...createConversationMessageActions(set, get),
+  ...createConversationAgentActions(set, get),
   ...createConversationQueueActions(set, get),
 }));

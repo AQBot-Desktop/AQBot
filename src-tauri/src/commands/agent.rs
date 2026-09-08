@@ -18,37 +18,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::sync::RwLock;
 
-/// In-memory map of conversation IDs to actively running agent task IDs.
-/// Used as the source of truth for concurrency checks (more reliable than DB status).
-static RUNNING_AGENTS: LazyLock<Mutex<HashMap<String, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
 const DEFAULT_AGENT_WORKSPACE_DATETIME_FORMAT: &str = "YYYY-MM-DD-HH-mm-ss";
 const MAX_AGENT_WORKSPACE_NAME_LEN: usize = 80;
-
-/// RAII guard that removes a conversation ID from RUNNING_AGENTS on drop.
-/// Ensures cleanup even if the spawned task panics.
-struct RunningAgentGuard {
-    conversation_id: String,
-    run_id: String,
-    conversation_runs: crate::conversation_run::ConversationRunRegistry,
-}
-
-impl Drop for RunningAgentGuard {
-    fn drop(&mut self) {
-        if let Ok(mut running) = RUNNING_AGENTS.lock() {
-            if running.get(&self.conversation_id) == Some(&self.run_id) {
-                running.remove(&self.conversation_id);
-            }
-        }
-        self.conversation_runs
-            .release(&self.conversation_id, &self.run_id);
-    }
-}
 
 struct AgentCancelTokenGuard {
     conversation_id: String,
@@ -389,31 +364,6 @@ async fn create_agent_assistant_placeholder(
         }),
     );
     Ok(assist_msg.id)
-}
-
-async fn fail_agent_turn(
-    app: &tauri::AppHandle,
-    db: &sea_orm::DatabaseConnection,
-    session_id: &str,
-    conversation_id: &str,
-    assistant_message_id: &str,
-    run_id: &str,
-    message: &str,
-) -> Result<(), String> {
-    let safe_message = filter_complete_agent_event_text(message);
-    let _ = message::update_message_content(db, assistant_message_id, &safe_message).await;
-    let _ = message::update_message_status(db, assistant_message_id, "error").await;
-    let _ = agent_session::update_agent_session_status(db, session_id, "idle").await;
-    let _ = app.emit(
-        "agent-error",
-        AgentErrorPayload {
-            conversation_id: conversation_id.to_string(),
-            run_id: Some(run_id.to_string()),
-            assistant_message_id: Some(assistant_message_id.to_string()),
-            message: safe_message,
-        },
-    );
-    Ok(())
 }
 
 fn filtered_agent_stream_chunk(filter: &mut InlineDataStreamFilter, chunk: &str) -> Option<String> {
@@ -816,13 +766,6 @@ pub async fn agent_query(
     stream_id: Option<String>,
     run_id: Option<String>,
 ) -> Result<(), String> {
-    // 1. Get agent session (must exist)
-    let session =
-        agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or("Agent session not found. Please switch to Agent mode first.")?;
-
     ensure_agent_prompt_safe_for_persistence(&prompt)?;
     // 2. Atomically reserve this conversation before any persistence or SDK
     // initialization so concurrent queries cannot both pass a separate check.
@@ -830,25 +773,12 @@ pub async fn agent_query(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(aqbot_core::utils::gen_id);
-    let mut conversation_run_guard = state.conversation_runs.admit(
+    let running_guard = state.conversation_runs.admit(
         &conversation_id,
         &run_id,
         stream_id.as_deref(),
         crate::conversation_run::ConversationRunMode::Agent,
     )?;
-    {
-        let mut running = RUNNING_AGENTS.lock().unwrap();
-        if running.contains_key(&conversation_id) {
-            return Err("Agent is already running".to_string());
-        }
-        running.insert(conversation_id.clone(), run_id.clone());
-    }
-    let running_guard = RunningAgentGuard {
-        conversation_id: conversation_id.clone(),
-        run_id: run_id.clone(),
-        conversation_runs: state.conversation_runs.clone(),
-    };
-    conversation_run_guard.defuse();
     let cancel_token = open_agent_sdk::CancellationToken::new();
     let stream_id = stream_id
         .map(|value| value.trim().to_string())
@@ -866,6 +796,11 @@ pub async fn agent_query(
         run_id: run_id.clone(),
         tokens: state.agent_cancel_tokens.clone(),
     };
+    // Read resume state only after admission so a just-finished turn cannot be missed.
+    let session = agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or("Agent session not found. Please switch to Agent mode first.")?;
     super::agent_status::emit_agent_stage(
         &app,
         &conversation_id,
@@ -878,6 +813,9 @@ pub async fn agent_query(
         run_id.clone(),
     );
 
+    let mut running_guard = Some(running_guard);
+    let mut initial_assistant_id: Option<String> = None;
+    let preparation = async {
     let real_provider_id = resolve_agent_provider_id(&state.sea_db, &provider_id).await?;
     let pre_conv = conversation::get_conversation(&state.sea_db, &conversation_id)
         .await
@@ -1017,19 +955,11 @@ pub async fn agent_query(
         &run_id,
     )
     .await?;
+    initial_assistant_id = Some(assistant_message_id.clone());
     if let Some(diagnostic) =
         super::agent_context::first_blocking_diagnostic(&prepared_turn.diagnostics)
     {
-        return fail_agent_turn(
-            &app,
-            &state.sea_db,
-            &session.id,
-            &conversation_id,
-            &assistant_message_id,
-            &run_id,
-            &diagnostic.code,
-        )
-        .await;
+        return Err(diagnostic.code.clone());
     }
     let mut rag_result = aqbot_core::types::RagContextResult {
         context_parts: Vec::new(),
@@ -1050,16 +980,7 @@ pub async fn agent_query(
         .await
         {
             super::agent_context::AgentRagOutcome::Cancelled => {
-                return fail_agent_turn(
-                    &app,
-                    &state.sea_db,
-                    &session.id,
-                    &conversation_id,
-                    &assistant_message_id,
-                    &run_id,
-                    "已停止生成",
-                )
-                .await;
+                return Err("Agent cancelled".to_string());
             }
             super::agent_context::AgentRagOutcome::Ready(result) => rag_result = result,
         }
@@ -1085,16 +1006,7 @@ pub async fn agent_query(
             .first()
             .map(|error| error.message.clone())
             .unwrap_or_else(|| "检索失败".to_string());
-        return fail_agent_turn(
-            &app,
-            &state.sea_db,
-            &session.id,
-            &conversation_id,
-            &assistant_message_id,
-            &run_id,
-            &message,
-        )
-        .await;
+        return Err(message);
     }
     let append_system_prompt = super::agent_context::build_append_system_prompt(
         prepared_turn.l1_system_message.as_deref(),
@@ -1180,7 +1092,7 @@ pub async fn agent_query(
     .map_err(|error| format!("Failed to prepare skills: {error}"))?
     .map_err(|error| format!("Failed to prepare skills: {error}"))?;
     if cancel_token.is_cancelled() {
-        return Err("Agent cancelled during initialization".to_string());
+        return Err("Agent cancelled".to_string());
     }
     let skill_runtime = prepared_skills.runtime.clone().map(Arc::new);
 
@@ -1489,7 +1401,7 @@ pub async fn agent_query(
     // 10. All fallible initialization is complete. Mark the persisted and
     // in-memory runtime state immediately before spawning the background task.
     if cancel_token.is_cancelled() {
-        return Err("Agent cancelled during initialization".to_string());
+        return Err("Agent cancelled".to_string());
     }
     agent_session::update_agent_session_status(&state.sea_db, &session.id, "running")
         .await
@@ -1507,13 +1419,18 @@ pub async fn agent_query(
     let title_prompt = prompt.clone();
     let mcp_display_names_for_events = mcp_display_names;
     let run_id_for_task = run_id.clone();
+    let stream_id_for_task = stream_id.clone();
+    let cancel_token_for_task = cancel_token.clone();
+    let running_guard = running_guard.take().expect("Agent owns admission until spawn");
     status_clear_guard.disarm();
 
+    let app = app.clone();
     tokio::spawn(async move {
-        // RAII guard: ensures conv_id is removed from RUNNING_AGENTS on exit (even panic)
-        let _running_guard = running_guard;
+        let running_guard = running_guard;
         let _cancel_guard = cancel_guard;
         let run_id = run_id_for_task;
+        let stream_id = stream_id_for_task;
+        let cancel_token = cancel_token_for_task;
 
         tracing::info!(
             "[agent] Background task started for conversation {} run {}",
@@ -1533,6 +1450,7 @@ pub async fn agent_query(
         let mut has_streamed_deltas = false;
         let mut has_agent_content = false;
         let mut got_result_or_error = false;
+        let mut terminal_sdk_error: Option<String> = None;
         let mut text_ipc_filter = InlineDataStreamFilter::default();
         let mut thinking_ipc_filter = InlineDataStreamFilter::default();
         let mut inline_data_capture = InlineDataStreamCapture::default();
@@ -1949,27 +1867,8 @@ pub async fn agent_query(
                         &mut text_ipc_filter,
                         &mut thinking_ipc_filter,
                     );
-                    let _ = app.emit(
-                        "agent-error",
-                        AgentErrorPayload {
-                            conversation_id: conv_id.clone(),
-                            run_id: Some(run_id.clone()),
-                            assistant_message_id: current_assistant_msg_id.clone(),
-                            message: filter_complete_agent_event_text(&err_msg),
-                        },
-                    );
-                    if let Some(message_id) = current_assistant_msg_id.as_deref() {
-                        let failed_content =
-                            aqbot_core::inline_media::replace_pending_inline_media_tokens(
-                                &accumulated_text,
-                                "[图片接收失败]",
-                            );
-                        persist_agent_stream_snapshot(&db, message_id, &failed_content).await;
-                        let _ = message::update_message_status(&db, message_id, "error").await;
-                    }
-                    let _ =
-                        agent_session::update_agent_session_status(&db, &session_id, "idle").await;
-                    return;
+                    terminal_sdk_error = Some(filter_complete_agent_event_text(&err_msg));
+                    break 'agent_messages;
                 }
                 SDKMessage::ThinkingDelta { thinking } => {
                     // Real-time thinking token from API stream
@@ -2077,80 +1976,20 @@ pub async fn agent_query(
             }
         }
 
-        // Bug 4: panic protection — check if inner task panicked
-        match handle.await {
-            Ok(()) => {}
-            Err(join_err) => {
-                tracing::error!("[agent] Agent inner task failed: {}", join_err);
-                if !got_result_or_error {
-                    flush_agent_stream_filters(
-                        &app,
-                        &conv_id,
-                        &run_id,
-                        current_assistant_msg_id.as_deref(),
-                        &mut text_ipc_filter,
-                        &mut thinking_ipc_filter,
-                    );
-                    let _ = app.emit(
-                        "agent-error",
-                        AgentErrorPayload {
-                            conversation_id: conv_id.clone(),
-                            run_id: Some(run_id.clone()),
-                            assistant_message_id: current_assistant_msg_id.clone(),
-                            message: "Agent task crashed unexpectedly".to_string(),
-                        },
-                    );
-                    let _ =
-                        agent_session::update_agent_session_status(&db, &session_id, "idle").await;
-                    return;
-                }
-            }
+        let failed_early = terminal_sdk_error.is_some() || inline_capture_error.is_some();
+        let sdk_exit = if failed_early || !got_result_or_error {
+            super::agent_lifecycle::abort_agent_receiver(&mut rx, handle, &cancel_token).await
+        } else {
+            handle.await.map_err(|error| format!("Agent task crashed unexpectedly: {error}"))
+        };
+        if let Err(error) = sdk_exit {
+            terminal_sdk_error.get_or_insert(error);
         }
-
-        if let Some(error) = inline_capture_error {
-            let failed_content = aqbot_core::inline_media::replace_pending_inline_media_tokens(
-                &accumulated_text,
-                "[图片接收失败]",
-            );
-            if let Some(message_id) = current_assistant_msg_id.as_deref() {
-                persist_agent_stream_snapshot(&db, message_id, &failed_content).await;
-                let _ = message::update_message_status(&db, message_id, "error").await;
-            }
-            let _ = app.emit(
-                "agent-error",
-                AgentErrorPayload {
-                    conversation_id: conv_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: current_assistant_msg_id.clone(),
-                    message: format!("Failed to stage generated image: {error}"),
-                },
-            );
-            let _ = agent_session::update_agent_session_status(&db, &session_id, "idle").await;
-            return;
+        if let Some(error) = inline_capture_error.take() {
+            terminal_sdk_error.get_or_insert_with(|| format!("Failed to stage generated image: {error}"));
         }
-
-        // If channel closed without Result or Error, emit a fallback error
-        if !got_result_or_error {
-            tracing::error!("[agent] Channel closed without Result or Error");
-            flush_agent_stream_filters(
-                &app,
-                &conv_id,
-                &run_id,
-                current_assistant_msg_id.as_deref(),
-                &mut text_ipc_filter,
-                &mut thinking_ipc_filter,
-            );
-            let _ = app.emit(
-                "agent-error",
-                AgentErrorPayload {
-                    conversation_id: conv_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: current_assistant_msg_id.clone(),
-                    message: "Agent ended unexpectedly without producing a result".to_string(),
-                },
-            );
-            let _ = agent_session::update_agent_session_status(&db, &session_id, "idle").await;
-            return;
+        if terminal_sdk_error.is_none() && !got_result_or_error {
+            terminal_sdk_error = Some("Agent ended unexpectedly without producing a result".to_string());
         }
 
         flush_agent_stream_filters(
@@ -2163,7 +2002,10 @@ pub async fn agent_query(
         );
 
         let mut final_media_error: Option<String> = None;
-        if in_thinking_block {
+        let mut final_event_content = String::new();
+        if in_thinking_block && terminal_sdk_error.is_some() {
+            accumulated_text.push_str("\n</think>\n\n");
+        } else if in_thinking_block {
             if let Err(error) = append_captured_agent_text(
                 &mut inline_data_capture,
                 &mut accumulated_text,
@@ -2175,7 +2017,7 @@ pub async fn agent_query(
                 ));
             }
         }
-        let streamed_inline_images = if final_media_error.is_none() {
+        let streamed_inline_images = if terminal_sdk_error.is_none() && final_media_error.is_none() {
             match inline_data_capture.finish() {
                 Ok(trailing) => {
                     accumulated_text.push_str(&trailing.content);
@@ -2199,10 +2041,12 @@ pub async fn agent_query(
             );
         }
         let final_content = accumulated_text.clone();
-        let mut final_event_content = filter_complete_agent_event_text(&final_content);
+        if terminal_sdk_error.is_none() {
+            final_event_content = filter_complete_agent_event_text(&final_content);
+        }
 
         // Update assistant message with final content (including <think> blocks)
-        if !final_content.is_empty() {
+        if terminal_sdk_error.is_none() && !final_content.is_empty() {
             if let Some(ref mid) = current_assistant_msg_id {
                 let file_store = aqbot_core::file_store::FileStore::new();
                 let media_result = if streamed_inline_images.is_empty() {
@@ -2298,61 +2142,75 @@ pub async fn agent_query(
             }
         }
 
-        if final_media_error.is_some() {
-            if let Some(message_id) = current_assistant_msg_id.as_deref() {
-                if let Err(error) = message::update_message_status(&db, message_id, "error").await {
-                    tracing::error!(
-                        message_id,
-                        error = %error,
-                        "Failed to mark agent message after media persistence error"
-                    );
-                }
-            }
-        }
-
         let usage_payload = final_usage.as_ref().map(|u| AgentUsagePayload {
             input_tokens: u.input_tokens,
             output_tokens: u.output_tokens,
         });
 
-        // Persist token usage on the assistant message so the standard footer renders it
-        if let (Some(ref mid), Some(ref usage)) = (&current_assistant_msg_id, &final_usage) {
-            let _ = message::update_message_usage(
-                &db,
-                mid,
-                Some(usage.input_tokens as i64),
-                Some(usage.output_tokens as i64),
-            )
-            .await;
-        }
+        let sdk_error = terminal_sdk_error.as_deref().or(final_media_error.as_deref());
+        let failed_content = aqbot_core::inline_media::replace_pending_inline_media_tokens(
+            &final_content,
+            "[图片接收失败]",
+        );
+        let (outcome, terminal_error) = super::agent_lifecycle::persist_and_release_agent_run(
+            &db,
+            super::agent_lifecycle::AgentRunCompletion {
+                session_id: &session_id,
+                assistant_message_id: current_assistant_msg_id.as_deref(),
+                content: terminal_sdk_error.as_ref().map(|_| failed_content.as_str()),
+                sdk_context: sdk_messages.as_deref(),
+                usage: final_usage.as_ref(),
+                cost_usd,
+                cancelled: cancel_token.is_cancelled(),
+                error: sdk_error,
+            },
+            running_guard,
+        ).await;
 
-        if let Some(error) = final_media_error {
-            let _ = app.emit(
-                "agent-error",
-                AgentErrorPayload {
-                    conversation_id: conv_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: current_assistant_msg_id.clone(),
-                    message: filter_complete_agent_event_text(&error),
-                },
-            );
-        } else {
-            let _ = app.emit(
-                "agent-done",
-                AgentDonePayload {
-                    conversation_id: conv_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: current_assistant_msg_id.clone().unwrap_or_default(),
-                    text: final_event_content,
-                    usage: usage_payload,
-                    num_turns: Some(num_turns),
-                    cost_usd: Some(cost_usd),
-                },
-            );
+        match outcome {
+            super::conversations::ChatStreamTerminalOutcome::Complete => {
+                let _ = app.emit(
+                    "agent-done",
+                    AgentDonePayload {
+                        conversation_id: conv_id.clone(),
+                        run_id: Some(run_id.clone()),
+                        assistant_message_id: current_assistant_msg_id.clone().unwrap_or_default(),
+                        text: final_event_content,
+                        usage: usage_payload,
+                        num_turns: Some(num_turns),
+                        cost_usd: Some(cost_usd),
+                    },
+                );
+            }
+            super::conversations::ChatStreamTerminalOutcome::Error => {
+                let _ = app.emit(
+                    "agent-error",
+                    AgentErrorPayload {
+                        conversation_id: conv_id.clone(),
+                        run_id: Some(run_id.clone()),
+                        assistant_message_id: current_assistant_msg_id.clone(),
+                        message: filter_complete_agent_event_text(
+                            terminal_error.as_deref().unwrap_or("Agent run failed"),
+                        ),
+                    },
+                );
+            }
+            super::conversations::ChatStreamTerminalOutcome::Cancelled => {}
         }
+        super::agent_lifecycle::emit_agent_run_terminal(
+            &app,
+            &conv_id,
+            current_assistant_msg_id.as_deref().unwrap_or_default(),
+            &stream_id,
+            outcome,
+            terminal_error,
+        );
 
-        // Auto-title: generate AI title after agent completes (first message only)
-        if is_first_message {
+        // Auto-title: generate AI title after occupancy is released
+        if matches!(
+            outcome,
+            super::conversations::ChatStreamTerminalOutcome::Complete
+        ) && is_first_message {
             let _ = app.emit(
                 "conversation-title-generating",
                 aqbot_core::types::ConversationTitleGeneratingEvent {
@@ -2419,30 +2277,41 @@ pub async fn agent_query(
                 }
             }
         }
-
-        // Update session
-        let tokens_delta = final_usage
-            .as_ref()
-            .map(|u| (u.input_tokens + u.output_tokens) as i32)
-            .unwrap_or(0);
-        // Serialize SDK messages context for future resume
-        let sdk_context = sdk_messages
-            .as_ref()
-            .and_then(|msgs| serde_json::to_string(msgs).ok());
-        if let Err(e) = agent_session::update_agent_session_after_query(
-            &db,
-            &session_id,
-            "idle",
-            sdk_context.as_deref(),
-            tokens_delta,
-            cost_usd,
-        )
-        .await
-        {
-            tracing::error!("[agent] Failed to update session after query: {}", e);
-        }
     });
 
+    Ok::<(), String>(())
+    }.await;
+    if let Err(error) = preparation {
+        let safe_error = filter_complete_agent_event_text(&error);
+        let (outcome, terminal_error) = super::agent_lifecycle::persist_and_release_agent_run(
+            &state.sea_db,
+            super::agent_lifecycle::AgentRunCompletion {
+                session_id: &session.id,
+                assistant_message_id: initial_assistant_id.as_deref(),
+                cancelled: cancel_token.is_cancelled(),
+                error: Some(&safe_error),
+                ..Default::default()
+            },
+            running_guard.take().expect("Failed Agent initialization still owns admission"),
+        ).await;
+        // Before a persisted assistant exists, the IPC rejection owns the UI error;
+        // an empty terminal refresh would erase the optimistic error message.
+        if let Some(assistant_message_id) = initial_assistant_id.as_deref() {
+            if let Some(error) = terminal_error.as_ref() {
+                let _ = app.emit("agent-error", AgentErrorPayload {
+                    conversation_id: conversation_id.clone(),
+                    run_id: Some(run_id.clone()),
+                    assistant_message_id: Some(assistant_message_id.to_string()),
+                    message: filter_complete_agent_event_text(error),
+                });
+            }
+            super::agent_lifecycle::emit_agent_run_terminal(
+                &app, &conversation_id, assistant_message_id, &stream_id,
+                outcome, terminal_error.clone(),
+            );
+        }
+        return Err(terminal_error.unwrap_or(error));
+    }
     Ok(())
 }
 
@@ -2501,32 +2370,28 @@ pub async fn agent_cancel(
     conversation_id: String,
     stream_id: Option<String>,
 ) -> Result<(), String> {
-    let session =
+    let _session =
         agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
             .await
             .map_err(|e| e.to_string())?
             .ok_or("Agent session not found")?;
 
-    // Reset DB status to idle
-    agent_session::update_agent_session_status(&state.sea_db, &session.id, "idle")
-        .await
-        .map_err(|e| e.to_string())?;
-
     let tokens = state.agent_cancel_tokens.lock().await;
-    if let Some(entry) = tokens.get(&conversation_id) {
-        let matches_run = match stream_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            None => true,
-            Some(id) => id == entry.run_id,
-        };
-        if matches_run {
-            entry.token.cancel();
-        }
+    let Some(entry) = tokens.get(&conversation_id) else {
+        return Err("No active agent run matched the cancellation request".to_string());
+    };
+    let matches_run = match stream_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None => true,
+        Some(id) => id == entry.run_id,
+    };
+    if !matches_run {
+        return Err("No active agent run matched the cancellation request".to_string());
     }
-
+    entry.token.cancel();
     Ok(())
 }
 

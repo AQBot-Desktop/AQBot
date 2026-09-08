@@ -7,6 +7,7 @@ export type ConversationRunPhase = 'preparing' | 'streaming' | 'stopping' | 'com
 export interface ConversationRunWatermark {
   runId: string;
   revision: number;
+  terminal?: boolean;
 }
 
 export interface ConversationRun {
@@ -224,10 +225,34 @@ export function shouldApplyRunRevision(
   incoming: ConversationRunWatermark,
 ): boolean {
   if (!watermark) return true;
+  if (watermark.terminal && incoming.runId === watermark.runId) return false;
   if (incoming.revision !== watermark.revision) {
     return incoming.revision > watermark.revision;
   }
   return incoming.runId === watermark.runId;
+}
+
+export function shouldApplyOwnedRunSnapshot(
+  state: ConversationRunStateSlice,
+  snapshot: ConversationRunSnapshot,
+): boolean {
+  const current = getConversationRun(state, snapshot.conversationId);
+  const watermark = state.runWatermarksByConversation[snapshot.conversationId];
+  const isAgent = snapshot.mode === 'agent' || current?.mode === 'agent';
+  if (!isAgent) {
+    return shouldApplyRunRevision(watermark, {
+      runId: snapshot.runId,
+      revision: snapshot.revision,
+    });
+  }
+  if (current) {
+    if (current.runId !== snapshot.runId) return false;
+    if (snapshot.phase === 'preparing' && current.phase !== 'preparing') return false;
+    return true;
+  }
+  if (watermark?.runId === snapshot.runId) return false;
+  if (snapshot.phase === 'preparing') return false;
+  return isLiveConversationRun(snapshot);
 }
 
 export function upsertConversationRun(
@@ -247,7 +272,11 @@ export function upsertConversationRun(
     runsByConversation,
     runWatermarksByConversation: {
       ...state.runWatermarksByConversation,
-      [patch.conversationId]: { runId: patch.runId, revision: patch.revision },
+      [patch.conversationId]: {
+        runId: patch.runId,
+        revision: patch.revision,
+        terminal: !isLiveConversationRun(patch),
+      },
     },
   };
   return {
