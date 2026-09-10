@@ -568,7 +568,9 @@ impl ResponsesStreamState {
                     finish_reason: None,
                 }
             }
-            "response.reasoning.delta" | "response.reasoning_summary_text.delta" => {
+            "response.reasoning.delta"
+            | "response.reasoning_summary_text.delta"
+            | "response.reasoning_text.delta" => {
                 let evt: StreamReasoningDeltaEvent = parse_stream_event(json)?;
                 let thinking = evt.delta.ok_or_else(|| {
                     AQBotError::Provider("Missing Responses reasoning delta".into())
