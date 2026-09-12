@@ -2362,7 +2362,7 @@
     "permissionFullAccessWarning": "El agente tendrá acceso completo y podrá realizar cualquier operación de archivo sin restricciones de ruta. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
     "permissionFullAccessChatWarning": "El agente tendrá acceso completo y podrá ejecutar comandos de terminal, invocar las herramientas MCP seleccionadas y realizar operaciones de archivos sin restricciones de ruta ni confirmación para cada acción. Asegúrese de confiar en el modelo actual y en el mensaje del sistema.",
     "permissionAcceptEditsWarning": "El agente aprobará automáticamente las ediciones de archivos y las llamadas a las herramientas MCP seleccionadas sin confirmación individual. Los comandos de terminal seguirán requiriendo aprobación. Asegúrese de comprender los posibles riesgos de seguridad.",
-    "cwdIsProcessStart": "Directorio de trabajo inicial del proceso, no un entorno aislado del sistema de archivos",
+    "cwdIsProcessStart": "Los comandos se inician en este directorio; el directorio de trabajo no restringe el acceso a otras rutas. La aprobación sigue la configuración de permisos actual.",
     "stage": {
       "preparingResources": "Preparando recursos",
       "preparingSkills": "Preparando habilidades",

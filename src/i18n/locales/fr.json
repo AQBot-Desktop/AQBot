@@ -2362,7 +2362,7 @@
     "permissionFullAccessWarning": "L'agent aura un accès complet et pourra effectuer n'importe quelle opération sur les fichiers sans restrictions de chemin. Assurez-vous de faire confiance au modèle actuel et à l'invite système.",
     "permissionFullAccessChatWarning": "L’agent disposera d’un accès complet et pourra exécuter des commandes de terminal, appeler les outils MCP sélectionnés et effectuer des opérations sur les fichiers sans restriction de chemin ni confirmation pour chaque action. Assurez-vous de faire confiance au modèle actuel et à l’invite système.",
     "permissionAcceptEditsWarning": "L’agent approuvera automatiquement les modifications de fichiers et les appels aux outils MCP sélectionnés sans confirmation individuelle. Les commandes du terminal nécessiteront toujours une approbation. Assurez-vous de comprendre les risques de sécurité potentiels.",
-    "cwdIsProcessStart": "Répertoire de travail de départ du processus, pas un bac à sable du système de fichiers",
+    "cwdIsProcessStart": "Les commandes démarrent dans ce répertoire ; le répertoire de travail ne limite pas l’accès aux autres chemins. L’approbation suit les paramètres d’autorisation actuels.",
     "stage": {
       "preparingResources": "Préparation des ressources",
       "preparingSkills": "Préparation des compétences",

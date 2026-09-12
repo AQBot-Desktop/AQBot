@@ -2362,7 +2362,7 @@
     "permissionFullAccessWarning": "Der Agent hat vollen Zugriff und kann jeden Dateivorgang ohne Pfadbeschränkungen ausführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und der Systemaufforderung vertrauen.",
     "permissionFullAccessChatWarning": "Der Agent erhält vollständigen Zugriff und kann Terminalbefehle ausführen, ausgewählte MCP-Tools aufrufen und Dateioperationen ohne Pfadbeschränkungen oder Bestätigung jeder einzelnen Aktion durchführen. Stellen Sie sicher, dass Sie dem aktuellen Modell und dem System-Prompt vertrauen.",
     "permissionAcceptEditsWarning": "Der Agent genehmigt Dateiänderungen und Aufrufe ausgewählter MCP-Tools automatisch ohne individuelle Bestätigung. Terminalbefehle müssen weiterhin genehmigt werden. Stellen Sie sicher, dass Sie die potenziellen Sicherheitsrisiken verstehen.",
-    "cwdIsProcessStart": "Startverzeichnis des Prozesses, kein Dateisystem-Sandkasten",
+    "cwdIsProcessStart": "Befehle starten in diesem Verzeichnis; das Arbeitsverzeichnis schränkt den Zugriff auf andere Pfade nicht ein. Die Genehmigung richtet sich nach den aktuellen Berechtigungseinstellungen.",
     "stage": {
       "preparingResources": "Ressourcen werden vorbereitet",
       "preparingSkills": "Skills werden vorbereitet",

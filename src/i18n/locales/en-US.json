@@ -2445,7 +2445,7 @@
     "permissionFullAccessWarning": "The agent will have full access and can perform any file operation without path restrictions. Make sure you trust the current model and System Prompt.",
     "permissionFullAccessChatWarning": "The agent will have full access and can run terminal commands, call selected MCP tools, and perform file operations without path restrictions or per-action confirmation. Make sure you trust the current model and System Prompt.",
     "permissionAcceptEditsWarning": "The agent will automatically approve file edits and calls to selected MCP tools without individual confirmation. Terminal commands will still require approval. Make sure you understand the potential security risks.",
-    "cwdIsProcessStart": "Process starting working directory, not a filesystem sandbox",
+    "cwdIsProcessStart": "Commands start in this directory; the working directory does not restrict access to other paths. Approval follows the current permission settings.",
     "stage": {
       "preparingResources": "Preparing resources",
       "preparingSkills": "Preparing skills",
