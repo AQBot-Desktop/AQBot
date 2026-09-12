@@ -1147,6 +1147,7 @@ function mergePreservedMessages(
         merged.set(messageId, {
           ...dbMessage,
           content: mergeDbRagDisplayPrefix(dbMessage.content, localMessage.content),
+          thinking: localMessage.thinking ?? dbMessage.thinking,
           status: localMessage.status,
         });
       } else {
@@ -1156,20 +1157,26 @@ function mergePreservedMessages(
   }
 
   return Array.from(merged.values()).sort(
-    (left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id),
+    // Stable sorting preserves the database's write order within the same second.
+    (left, right) => left.created_at - right.created_at,
   );
 }
 
-function mergeOlderPages(olderMessages: Message[], currentMessages: Message[]): Message[] {
-  const merged = new Map<string, Message>();
-  for (const message of olderMessages) {
-    merged.set(message.id, message);
-  }
+function mergeMessagePages(
+  pageMessages: Message[],
+  currentMessages: Message[],
+  direction: 'older' | 'newer',
+): Message[] {
+  const ordered = direction === 'older'
+    ? [...pageMessages, ...currentMessages]
+    : [...currentMessages, ...pageMessages];
+  const merged = new Map(ordered.map(message => [message.id, message]));
+  // Keep local content on overlaps without changing either page's insertion order.
   for (const message of currentMessages) {
     merged.set(message.id, message);
   }
   return Array.from(merged.values()).sort(
-    (left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id),
+    (left, right) => left.created_at - right.created_at,
   );
 }
 
@@ -2194,7 +2201,7 @@ export {
   materializeLiveStreamContent,
   mergeConversationCollections,
   mergeDbRagDisplayPrefix,
-  mergeOlderPages,
+  mergeMessagePages,
   mergePreservedMessages,
   mutateConversationsMeta,
   persistConversationPreferences,

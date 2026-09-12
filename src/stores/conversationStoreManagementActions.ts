@@ -20,7 +20,7 @@ import { perfNow, perfTrace, perfTraceDuration } from '@/lib/perfTrace';
 import { isResourceFresh } from '@/lib/resourceState';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCategoryStore } from './categoryStore';
-import { isLiveConversationRun, mirrorActiveStreamFields } from './conversationRunRegistry';
+import { isLiveConversationRun, mirrorActiveStreamFields, selectUiStreamingMessageId } from './conversationRunRegistry';
 import { setChatQueueDeletingRound } from './conversationStoreQueueActions';
 import type {
   CompareResponsesResult,
@@ -1212,7 +1212,8 @@ export function createConversationManagementActions(
       return successfulIds.size;
     },
     ensureMessageVersionGroupsLoaded: async (conversationId, parentMessageIds, options) => {
-      const uniqueParentIds = Array.from(new Set(parentMessageIds));
+      // Optimistic parents have no database versions until their real ID is known.
+      const uniqueParentIds = Array.from(new Set(parentMessageIds.filter(id => !isTemporaryMessageId(id))));
       const existingRequests: Promise<void>[] = [];
       const parentIdsToLoad: string[] = [];
 
@@ -1398,6 +1399,27 @@ export function createConversationManagementActions(
           }
           return resolved ?? s.streamingMessageId;
         })();
+
+        // A snapshot taken before a live reply was persisted cannot delete that reply.
+        // Use current run IDs, not the global live-content cache which can contain old versions.
+        const liveVersionIds = new Set([selectUiStreamingMessageId(s)]);
+        if (s.multiModelRun?.conversationId === conversationId
+          && s.multiModelRun.parentMessageId === parentMessageId) {
+          for (const target of s.multiModelRun.targets) {
+            if (target.messageId && ['queued', 'starting', 'streaming'].includes(target.state)) {
+              liveVersionIds.add(target.messageId);
+            }
+          }
+        }
+        const snapshotIds = new Set(versionsForMerge.map(version => version.id));
+        versionsForMerge = [...versionsForMerge, ...s.messages.filter(message => (
+          message.conversation_id === conversationId
+          && message.parent_message_id === parentMessageId
+          && message.role === 'assistant'
+          && !isTemporaryMessageId(message.id)
+          && liveVersionIds.has(message.id)
+          && !snapshotIds.has(message.id)
+        ))];
 
         const pendingSelection = runtime.pendingLocalVersionSelections.get(parentMessageId) ?? null;
         const resolvedPendingMessage = pendingSelection

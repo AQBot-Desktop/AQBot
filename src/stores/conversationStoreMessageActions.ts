@@ -74,7 +74,7 @@ import {
   isTemporaryMessageId,
   invalidateConversationMessageCache,
   materializeLiveStreamContent,
-  mergeOlderPages,
+  mergeMessagePages,
   mergePreservedMessages,
   mutateConversationsMeta,
   rekeyMessageDisplayMap,
@@ -1892,7 +1892,7 @@ export function createConversationMessageActions(
         }
 
         set((s) => {
-          const bounded = boundMessageWindow(mergeOlderPages(page.messages, s.messages), 'older');
+          const bounded = boundMessageWindow(mergeMessagePages(page.messages, s.messages, 'older'), 'older');
           const edges = getActiveMessageEdges(bounded.messages);
           return {
             messages: bounded.messages,
@@ -1932,7 +1932,7 @@ export function createConversationMessageActions(
         }
 
         set((s) => {
-          const bounded = boundMessageWindow(mergeOlderPages(page.messages, s.messages), 'newer');
+          const bounded = boundMessageWindow(mergeMessagePages(page.messages, s.messages, 'newer'), 'newer');
           const edges = getActiveMessageEdges(bounded.messages);
           return {
             messages: bounded.messages,
@@ -2444,9 +2444,7 @@ export function createConversationMessageActions(
         }
         set((s) => {
           if (s.messages.some((message) => message.id === marker_message.id)) return {};
-          const messages = [...s.messages, marker_message].sort((left, right) => (
-            left.created_at - right.created_at || left.id.localeCompare(right.id)
-          ));
+          const messages = mergeMessagePages([marker_message], s.messages, 'newer');
           return { messages };
         });
       });
