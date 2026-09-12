@@ -17,11 +17,12 @@ use super::{
     platform::{self, DismissReason, PlatformEvent, PlatformMonitorHandle},
     prefer_selection_observation,
     runtime::SessionView,
-    window, InitialToolInput, OverflowDirection, PermissionSettingsOutcome, PermissionState,
-    PreparedToolRun, RuntimeError, RuntimeSnapshot, RuntimeState, RuntimeStatus, RuntimeStore,
-    ScreenPoint, SelectionChange, SelectionDebouncer, SelectionObservation, SelectionPlatform,
-    SurfaceSize, ToolExecutionConfig, ToolbarInput, ToolbarInputKind, ToolbarInputView,
-    ToolbarToolView, OVERFLOW_SURFACE_MAX_HEIGHT, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
+    toolbar_position_for_rect, window, InitialToolInput, OverflowDirection,
+    PermissionSettingsOutcome, PermissionState, PreparedToolRun, ResultSize, RuntimeError,
+    RuntimeSnapshot, RuntimeState, RuntimeStatus, RuntimeStore, ScreenPoint, SelectionChange,
+    SelectionDebouncer, SelectionObservation, SelectionPlatform, SurfaceSize, ToolExecutionConfig,
+    ToolbarInput, ToolbarInputKind, ToolbarInputView, ToolbarToolView, OVERFLOW_SURFACE_MAX_HEIGHT,
+    TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
 };
 
 #[path = "controller_capture.rs"]
@@ -286,6 +287,10 @@ impl SelectionToolbarRuntime {
         app: &AppHandle,
         requested_height: f64,
     ) -> Result<OverflowDirection, String> {
+        let _presentation_guard = self.presentation_lock.lock().await;
+        if *self.surface.lock().await == SurfaceSize::Result {
+            self.remember_result_frame(app).await?;
+        }
         let toolbar_width = *self.toolbar_width.lock().await;
         let current_window = window::current_screen_position(app);
         let previous_window = *self.last_window_position.lock().await;
@@ -328,6 +333,10 @@ impl SelectionToolbarRuntime {
                 .map(ToolbarInput::anchor)
         };
         let previous_surface = *self.surface.lock().await;
+        if previous_surface == SurfaceSize::Result {
+            self.remember_result_frame(app).await?;
+        }
+        let result_size = self.store.lock().await.result_size;
         let current_position = window::current_screen_position(app);
         let previous_position = *self.last_window_position.lock().await;
         let mut toolbar_position = *self.last_toolbar_position.lock().await;
@@ -363,9 +372,14 @@ impl SelectionToolbarRuntime {
         } else {
             *self.overflow_height.lock().await
         };
-        let preferred_placement = *self.preferred_placement.lock().await;
+        let preferred_placement = if result_size.is_some() {
+            *self.resolved_placement.lock().await
+        } else {
+            *self.preferred_placement.lock().await
+        };
         let anchored_result = if surface == SurfaceSize::Result
             && !self.dragged_for_session.load(Ordering::Relaxed)
+            && result_size.is_none()
         {
             anchor
                 .map(|(anchor, kind)| {
@@ -411,6 +425,7 @@ impl SelectionToolbarRuntime {
                         toolbar_position,
                         SurfaceSize::Toolbar,
                         toolbar_width,
+                        None,
                     )?;
                     (Some(position), Some(position), None, None)
                 }
@@ -420,6 +435,7 @@ impl SelectionToolbarRuntime {
                         toolbar_position,
                         toolbar_width,
                         preferred_placement,
+                        result_size.unwrap_or_default(),
                     )?;
                     (
                         Some(placement.window_position),
@@ -547,6 +563,11 @@ impl SelectionToolbarRuntime {
         if active_selection_id != selection_id {
             return Err("The selection toolbar session is no longer active".into());
         }
+        if *self.surface.lock().await == SurfaceSize::Result {
+            self.remember_result_frame(app).await?;
+            self.dragged_for_session.store(true, Ordering::Relaxed);
+            return Ok(());
+        }
         let current = window::current_screen_position(app)
             .ok_or_else(|| "Selection toolbar position is unavailable".to_string())?;
         let previous = *self.last_window_position.lock().await;
@@ -568,6 +589,34 @@ impl SelectionToolbarRuntime {
             position_y = current.y,
             "selection toolbar drag ended"
         );
+        Ok(())
+    }
+
+    /// Called under presentation_lock before leaving/restoring a result. Sampling
+    /// native geometry also catches edge resizing that never sends a JS drag event.
+    async fn remember_result_frame(&self, app: &AppHandle) -> Result<(), String> {
+        let (rect, scale_factor) = window::current_frame(app)?;
+        let size = ResultSize {
+            width: rect.width / scale_factor,
+            height: rect.height / scale_factor,
+        };
+        let previous_size = self.store.lock().await.result_size.replace(size);
+        let position = ScreenPoint {
+            x: rect.x,
+            y: rect.y,
+        };
+        let previous_position = self.last_window_position.lock().await.replace(position);
+        if size != previous_size.unwrap_or_default()
+            || previous_position.is_some_and(|previous| position_changed(position, previous))
+        {
+            self.dragged_for_session.store(true, Ordering::Relaxed);
+        }
+        *self.last_toolbar_position.lock().await = Some(toolbar_position_for_rect(
+            rect,
+            *self.toolbar_width.lock().await,
+            scale_factor,
+            *self.resolved_placement.lock().await,
+        ));
         Ok(())
     }
 
@@ -1330,6 +1379,7 @@ impl SelectionToolbarRuntime {
                     centered_position,
                     SurfaceSize::Toolbar,
                     toolbar_width,
+                    None,
                 ) {
                     Ok(position) => {
                         *self.last_window_position.lock().await = Some(position);

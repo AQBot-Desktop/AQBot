@@ -1,17 +1,17 @@
 use aqbot_core::types::SelectionToolbarPlacement;
-use tauri::{
-    AppHandle, Manager, Monitor, Position, Size, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-};
 #[cfg(target_os = "macos")]
-use tauri::{LogicalPosition, LogicalSize};
+use tauri::LogicalPosition;
+use tauri::{
+    AppHandle, LogicalSize, Manager, Monitor, Position, Size, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 #[cfg(not(target_os = "macos"))]
 use tauri::{PhysicalPosition, PhysicalSize};
 
 use super::{
-    clamp_surface_position_with_toolbar_width, place_overflow_from_toolbar,
-    place_result_from_toolbar, place_surface_scaled_with_toolbar_width, OverflowPlacement,
-    ScreenPoint, ScreenRect, SelectionAnchorKind, SurfacePlacement, SurfaceSize, TOOLBAR_HEIGHT,
-    TOOLBAR_WIDTH,
+    clamp_position_to_work_area, place_overflow_from_toolbar, place_result_from_toolbar,
+    place_surface_scaled_with_toolbar_width, OverflowPlacement, ResultSize, ScreenPoint,
+    ScreenRect, SelectionAnchorKind, SurfacePlacement, SurfaceSize, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
 };
 
 pub const SELECTION_TOOLBAR_WINDOW_LABEL: &str = "selection-toolbar";
@@ -104,6 +104,7 @@ pub fn show_result_at_toolbar(
     toolbar_position: ScreenPoint,
     toolbar_width: f64,
     preferred_placement: SelectionToolbarPlacement,
+    result_size: ResultSize,
 ) -> Result<SurfacePlacement, String> {
     let window = ensure_window(app)?;
     let monitor = monitor_for_point(
@@ -120,14 +121,16 @@ pub fn show_result_at_toolbar(
         preferred_placement,
         work_area(&monitor),
         scale_factor,
+        result_size,
     );
-    set_window_surface(
+    set_window_frame(
         app,
         &window,
         placement.window_position,
         SurfaceSize::Result,
         scale_factor,
-        toolbar_width,
+        result_size.width,
+        result_size.height,
     )?;
     Ok(placement)
 }
@@ -137,24 +140,21 @@ pub fn show_surface_at_position(
     requested_position: ScreenPoint,
     surface: SurfaceSize,
     toolbar_width: f64,
+    result_size: Option<ResultSize>,
 ) -> Result<ScreenPoint, String> {
     let window = ensure_window(app)?;
     let monitor = monitor_for_point(app, requested_position)?;
-    let position = clamp_surface_position_with_toolbar_width(
+    let (width, height) = match (surface, result_size) {
+        (SurfaceSize::Result, Some(size)) => (size.width, size.height),
+        _ => surface.dimensions_with_toolbar_width(toolbar_width),
+    };
+    let scale_factor = coordinate_scale_factor(&monitor);
+    let position = clamp_position_to_work_area(
         requested_position,
         work_area(&monitor),
-        surface,
-        coordinate_scale_factor(&monitor),
-        toolbar_width,
+        (width * scale_factor, height * scale_factor),
     );
-    set_window_surface(
-        app,
-        &window,
-        position,
-        surface,
-        coordinate_scale_factor(&monitor),
-        toolbar_width,
-    )?;
+    set_window_frame(app, &window, position, surface, scale_factor, width, height)?;
     Ok(position)
 }
 
@@ -216,6 +216,29 @@ pub fn current_screen_position(app: &AppHandle) -> Option<ScreenPoint> {
     })
 }
 
+/// Bounds and scale in the platform's screen-coordinate space: logical on macOS,
+/// physical elsewhere. Keep errors visible when saving a user's result size.
+pub fn current_frame(app: &AppHandle) -> Result<(ScreenRect, f64), String> {
+    let window = app
+        .get_webview_window(SELECTION_TOOLBAR_WINDOW_LABEL)
+        .ok_or_else(|| "Selection toolbar window is unavailable".to_string())?;
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let size = window.inner_size().map_err(|error| error.to_string())?;
+    let scale_factor = window.scale_factor().map_err(|error| error.to_string())?;
+    let rect = coordinate_rect(
+        ScreenRect {
+            x: f64::from(position.x),
+            y: f64::from(position.y),
+            width: f64::from(size.width),
+            height: f64::from(size.height),
+        },
+        scale_factor,
+    );
+    #[cfg(target_os = "macos")]
+    let scale_factor = 1.0;
+    Ok((rect, scale_factor))
+}
+
 fn set_window_surface(
     app: &AppHandle,
     window: &WebviewWindow,
@@ -237,6 +260,19 @@ fn set_window_frame(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    // Clear result constraints before shrinking back to the fixed toolbar.
+    // Tauri/AppKit provide native edge/corner resizing for undecorated windows.
+    let resizable = matches!(_surface, SurfaceSize::Result);
+    let minimum = resizable.then(|| {
+        let size = ResultSize::default();
+        Size::Logical(LogicalSize::new(size.width, size.height))
+    });
+    window
+        .set_min_size(minimum)
+        .map_err(|error| error.to_string())?;
+    window
+        .set_resizable(resizable)
+        .map_err(|error| error.to_string())?;
     #[cfg(target_os = "macos")]
     super::macos_panel::set_result_interactive(matches!(_surface, SurfaceSize::Result));
     #[cfg(target_os = "macos")]

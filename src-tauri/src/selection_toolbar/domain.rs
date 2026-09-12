@@ -18,6 +18,22 @@ const POINTER_GAP_ABOVE: f64 = 10.0;
 const RESULT_PANEL_HEIGHT: f64 = 320.0;
 pub const RESULT_HEIGHT: f64 = TOOLBAR_HEIGHT + SURFACE_GAP + RESULT_PANEL_HEIGHT;
 
+/// Session-only result window dimensions, in logical pixels (including the strip).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResultSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+impl Default for ResultSize {
+    fn default() -> Self {
+        Self {
+            width: RESULT_WIDTH,
+            height: RESULT_HEIGHT,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct ScreenPoint {
     pub x: f64,
@@ -250,10 +266,10 @@ pub fn place_result_from_toolbar(
     preferred_placement: SelectionToolbarPlacement,
     monitor_work_area: ScreenRect,
     scale_factor: f64,
+    result_size: ResultSize,
 ) -> SurfacePlacement {
-    let (width, height) = SurfaceSize::Result.dimensions();
-    let width = width * scale_factor;
-    let height = height * scale_factor;
+    let width = result_size.width * scale_factor;
+    let height = result_size.height * scale_factor;
     let toolbar_height = TOOLBAR_HEIGHT * scale_factor;
     let extra_height = height - toolbar_height;
     let monitor_bottom = monitor_work_area.y + monitor_work_area.height;
@@ -277,9 +293,13 @@ pub fn place_result_from_toolbar(
     };
     SurfacePlacement {
         window_position,
-        toolbar_position: toolbar_position_for_surface(
-            window_position,
-            SurfaceSize::Result,
+        toolbar_position: toolbar_position_for_rect(
+            ScreenRect {
+                x: window_position.x,
+                y: window_position.y,
+                width,
+                height,
+            },
             toolbar_width,
             scale_factor,
             direction,
@@ -313,13 +333,32 @@ fn toolbar_position_for_surface(
     direction: SelectionToolbarPlacement,
 ) -> ScreenPoint {
     let (surface_width, surface_height) = surface.dimensions_with_toolbar_width(toolbar_width);
+    toolbar_position_for_rect(
+        ScreenRect {
+            x: window_position.x,
+            y: window_position.y,
+            width: surface_width * scale_factor,
+            height: surface_height * scale_factor,
+        },
+        toolbar_width,
+        scale_factor,
+        direction,
+    )
+}
+
+pub fn toolbar_position_for_rect(
+    rect: ScreenRect,
+    toolbar_width: f64,
+    scale_factor: f64,
+    direction: SelectionToolbarPlacement,
+) -> ScreenPoint {
     ScreenPoint {
-        x: window_position.x + (surface_width - toolbar_width) * scale_factor / 2.0,
+        x: rect.x + (rect.width - toolbar_width * scale_factor) / 2.0,
         y: match direction {
             SelectionToolbarPlacement::Above => {
-                window_position.y + (surface_height - TOOLBAR_HEIGHT) * scale_factor
+                rect.y + rect.height - TOOLBAR_HEIGHT * scale_factor
             }
-            SelectionToolbarPlacement::Below => window_position.y,
+            SelectionToolbarPlacement::Below => rect.y,
         },
     }
 }
@@ -340,6 +379,7 @@ pub fn clamp_surface_position(
     )
 }
 
+#[cfg(test)]
 pub fn clamp_surface_position_with_toolbar_width(
     position: ScreenPoint,
     monitor_work_area: ScreenRect,
@@ -348,10 +388,20 @@ pub fn clamp_surface_position_with_toolbar_width(
     toolbar_width: f64,
 ) -> ScreenPoint {
     let (width, height) = surface.dimensions_with_toolbar_width(toolbar_width);
-    let max_x = (monitor_work_area.x + monitor_work_area.width - width * scale_factor)
-        .max(monitor_work_area.x);
-    let max_y = (monitor_work_area.y + monitor_work_area.height - height * scale_factor)
-        .max(monitor_work_area.y);
+    clamp_position_to_work_area(
+        position,
+        monitor_work_area,
+        (width * scale_factor, height * scale_factor),
+    )
+}
+
+pub fn clamp_position_to_work_area(
+    position: ScreenPoint,
+    monitor_work_area: ScreenRect,
+    (width, height): (f64, f64),
+) -> ScreenPoint {
+    let max_x = (monitor_work_area.x + monitor_work_area.width - width).max(monitor_work_area.x);
+    let max_y = (monitor_work_area.y + monitor_work_area.height - height).max(monitor_work_area.y);
     ScreenPoint {
         x: position.x.clamp(monitor_work_area.x, max_x),
         y: position.y.clamp(monitor_work_area.y, max_y),
@@ -862,6 +912,7 @@ mod tests {
             SelectionToolbarPlacement::Below,
             monitor,
             1.0,
+            ResultSize::default(),
         );
         assert_eq!(below.window_position, ScreenPoint { x: 460.0, y: 400.0 });
         assert_eq!(below.toolbar_position, toolbar);
@@ -872,9 +923,105 @@ mod tests {
             SelectionToolbarPlacement::Above,
             monitor,
             1.0,
+            ResultSize::default(),
         );
         assert_eq!(above.window_position, ScreenPoint { x: 460.0, y: 72.0 });
         assert_eq!(above.toolbar_position, toolbar);
+    }
+
+    #[test]
+    fn resized_result_survives_an_overflow_round_trip_at_each_scale_and_placement() {
+        let size = ResultSize {
+            width: 700.0,
+            height: 600.0,
+        };
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let monitor = ScreenRect {
+                x: -1920.0 * scale,
+                y: 0.0,
+                width: 1920.0 * scale,
+                height: 1080.0 * scale,
+            };
+            let rect = ScreenRect {
+                x: -1500.0 * scale,
+                y: 100.0 * scale,
+                width: size.width * scale,
+                height: size.height * scale,
+            };
+            for direction in [
+                SelectionToolbarPlacement::Above,
+                SelectionToolbarPlacement::Below,
+            ] {
+                let toolbar = toolbar_position_for_rect(rect, 230.0, scale, direction);
+                assert_eq!(toolbar.x, -1265.0 * scale);
+                assert_eq!(
+                    toolbar.y,
+                    if direction == SelectionToolbarPlacement::Above {
+                        664.0 * scale
+                    } else {
+                        100.0 * scale
+                    }
+                );
+                let overflow = place_overflow_from_toolbar(toolbar, 230.0, 180.0, monitor, scale);
+                let restored = place_result_from_toolbar(
+                    overflow.toolbar_position,
+                    230.0,
+                    direction,
+                    monitor,
+                    scale,
+                    size,
+                );
+                assert_eq!(
+                    restored.window_position,
+                    ScreenPoint {
+                        x: rect.x,
+                        y: rect.y
+                    }
+                );
+                assert_eq!(restored.toolbar_position, toolbar);
+                assert_eq!(restored.direction, direction);
+            }
+        }
+    }
+
+    #[test]
+    fn restored_result_clamps_using_its_actual_size() {
+        let monitor = ScreenRect {
+            x: -1920.0,
+            y: 24.0,
+            width: 1920.0,
+            height: 1056.0,
+        };
+        let requested = ScreenPoint {
+            x: -300.0,
+            y: 900.0,
+        };
+        assert_eq!(
+            clamp_position_to_work_area(requested, monitor, (700.0, 600.0)),
+            ScreenPoint {
+                x: -700.0,
+                y: 480.0
+            },
+        );
+        let restored = place_result_from_toolbar(
+            requested,
+            TOOLBAR_WIDTH,
+            SelectionToolbarPlacement::Below,
+            monitor,
+            1.0,
+            ResultSize {
+                width: 700.0,
+                height: 600.0,
+            },
+        );
+        assert_eq!(restored.direction, SelectionToolbarPlacement::Above);
+        assert_eq!(
+            restored.window_position,
+            ScreenPoint {
+                x: -700.0,
+                y: 336.0
+            }
+        );
     }
 
     #[test]

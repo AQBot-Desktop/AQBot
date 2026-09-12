@@ -358,6 +358,8 @@ pub struct RuntimeStore {
     run: Option<ActiveRun>,
     transcript: Option<ActiveTranscript>,
     capture_error: Option<CaptureErrorView>,
+    /// Presentation state only, intentionally absent from RuntimeSnapshot/settings.
+    pub(super) result_size: Option<super::ResultSize>,
 }
 
 impl RuntimeStore {
@@ -368,6 +370,7 @@ impl RuntimeStore {
             run: None,
             transcript: None,
             capture_error: None,
+            result_size: None,
         }
     }
 
@@ -411,6 +414,7 @@ impl RuntimeStore {
         self.run = None;
         self.transcript = None;
         self.capture_error = None;
+        self.result_size = None;
         let selection_id = Uuid::new_v4().to_string();
         let view = SessionView {
             selection_id: selection_id.clone(),
@@ -747,6 +751,7 @@ impl RuntimeStore {
         self.run = None;
         self.transcript = None;
         self.capture_error = None;
+        self.result_size = None;
     }
 
     fn cancel_active_run(&mut self) {
@@ -960,6 +965,49 @@ mod tests {
     use crate::selection_toolbar::{ScreenRect, SelectionAnchorKind, SelectionObservation};
 
     #[test]
+    fn temporary_result_size_survives_run_changes_and_is_cleared_on_close() {
+        let mut store = RuntimeStore::new(SelectionPlatform::Macos);
+        let id = store.accept_selection(
+            selected("text"),
+            vec![],
+            "light",
+            "en-US",
+            SelectionToolbarDisplayMode::Full,
+            None,
+            SelectionToolbarPlacement::Above,
+            false,
+        );
+        let size = Some(super::super::ResultSize {
+            width: 700.0,
+            height: 600.0,
+        });
+        store.result_size = size;
+        let first = begin_new(&mut store, &id);
+        store.append_delta(&first.request_id, "answer");
+        assert_eq!(store.result_size, size);
+        store.complete_run(&first.request_id);
+        let next = store.begin_follow_up_run(&id, "Explain".into()).unwrap();
+        store.append_delta(&next.request_id, "details");
+        store.complete_run(&next.request_id);
+        let retry = store.begin_regenerate_run(&id, &next.request_id).unwrap();
+        store.stop_run(&retry.request_id);
+        begin_new(&mut store, &id);
+        store.set_capture_error(Some(CaptureErrorView {
+            code: "capture_failed".into(),
+            detail: "test error".into(),
+            language: "en-US".into(),
+            theme: "light".into(),
+        }));
+        store.set_capture_error(None);
+        assert_eq!(store.result_size, size);
+        assert!(!serde_json::to_string(&store.snapshot())
+            .unwrap()
+            .contains("result_size"));
+        store.clear();
+        assert_eq!(store.result_size, None);
+    }
+
+    #[test]
     fn manual_first_request_replays_instructions_once() {
         let mut store = RuntimeStore::new(SelectionPlatform::Macos);
         let id = store.accept_selection(
@@ -1035,6 +1083,10 @@ mod tests {
             false,
         );
         let old_view = store.snapshot().session.unwrap();
+        store.result_size = Some(super::super::ResultSize {
+            width: 700.0,
+            height: 600.0,
+        });
         let old_id = old_view.selection_id.clone();
         let input = ToolbarInput::Screenshot {
             png: Arc::from(&b"private image bytes"[..]),
@@ -1044,6 +1096,7 @@ mod tests {
         };
         let content = input.content("Describe the attached screenshot".into());
         let id = store.accept_input(input, old_view);
+        assert_eq!(store.result_size, None);
         assert!(store.input_view(&old_id).is_err());
         assert!(store.selection_text(&id).is_none());
         assert!(!store.reanchor_selection(&id, selected("unrelated selection")));
@@ -1232,6 +1285,10 @@ mod tests {
             false,
         );
         let cancel = begin_new(&mut store, &first).cancel;
+        store.result_size = Some(super::super::ResultSize {
+            width: 700.0,
+            height: 600.0,
+        });
         let second = store.accept_selection(
             selected("second"),
             vec![],
@@ -1245,6 +1302,7 @@ mod tests {
 
         assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
         assert_ne!(first, second);
+        assert_eq!(store.result_size, None);
         assert!(store.snapshot().run.is_none());
         assert!(store.snapshot().history.is_empty());
     }

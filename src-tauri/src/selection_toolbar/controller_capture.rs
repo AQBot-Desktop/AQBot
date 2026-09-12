@@ -62,9 +62,13 @@ impl SelectionToolbarRuntime {
                 )
                 .await;
         }
+        let was_visible = window::is_toolbar_visible_for_suppress(app);
+        if was_visible && *self.surface.lock().await == SurfaceSize::Result {
+            self.remember_result_frame(app).await?;
+        }
         let previous = CapturePresentation {
             generation: self.generation.fetch_add(1, Ordering::Relaxed) + 1,
-            was_visible: window::is_toolbar_visible_for_suppress(app),
+            was_visible,
             position: window::current_screen_position(app),
         };
         self.debouncer.lock().await.clear();
@@ -155,9 +159,11 @@ impl SelectionToolbarRuntime {
             position,
             surface,
             *self.toolbar_width.lock().await,
+            self.store.lock().await.result_size,
         )?;
         *self.last_window_position.lock().await = Some(position);
         if surface == SurfaceSize::Result {
+            self.remember_result_frame(app).await?;
             window::focus_surface(app)?;
         }
         Ok(())
@@ -173,6 +179,11 @@ impl SelectionToolbarRuntime {
         let _presentation_guard = self.presentation_lock.lock().await;
         if generation.is_some_and(|expected| self.generation.load(Ordering::Relaxed) != expected) {
             return Ok(());
+        }
+        if window::is_toolbar_visible_for_suppress(app)
+            && *self.surface.lock().await == SurfaceSize::Result
+        {
+            self.remember_result_frame(app).await?;
         }
         tracing::warn!(code = %error.code, detail = %error.detail, "Screenshot capture failed");
         let error = CaptureErrorView {
@@ -194,9 +205,11 @@ impl SelectionToolbarRuntime {
             position,
             SurfaceSize::Result,
             *self.toolbar_width.lock().await,
+            self.store.lock().await.result_size,
         )?;
         *self.surface.lock().await = SurfaceSize::Result;
         *self.last_window_position.lock().await = Some(position);
+        self.remember_result_frame(app).await?;
         window::focus_surface(app)?;
         app.emit_to(
             SELECTION_TOOLBAR_WINDOW_LABEL,
