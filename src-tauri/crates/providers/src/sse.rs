@@ -439,6 +439,49 @@ mod adapter_tests {
     }
 
     #[tokio::test]
+    async fn responses_deepseek_reasoning_text_delta_is_forwarded() {
+        let body = concat!(
+            "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"The user\"}\n\n",
+            "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"delta\":\" greets me.\"}\n\n",
+            "event: response.output_text.delta\ndata: {\"delta\":\"Hello\"}\n\n",
+            "event: response.completed\ndata: {\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5},\"output\":[]}}"
+        );
+        let results = collect("responses", body.as_bytes(), false).await;
+        let thinking: String = results
+            .iter()
+            .filter_map(|result| result.as_ref().ok())
+            .filter_map(|chunk| chunk.thinking.as_deref())
+            .collect();
+        assert_eq!(thinking, "The user greets me.");
+        let content: String = results
+            .iter()
+            .filter_map(|result| result.as_ref().ok())
+            .filter_map(|chunk| chunk.content.as_deref())
+            .collect();
+        assert_eq!(content, "Hello");
+        assert!(results.last().unwrap().as_ref().unwrap().done);
+    }
+
+    #[tokio::test]
+    async fn responses_reasoning_delta_variants_are_forwarded() {
+        for event in [
+            "response.reasoning.delta",
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_text.delta",
+        ] {
+            let body = format!(
+                "event: {event}\ndata: {{\"delta\":\"Think\"}}\n\nevent: response.completed\ndata: {{\"response\":{{\"output\":[]}}}}"
+            );
+            let results = collect("responses", body.as_bytes(), false).await;
+            assert_eq!(
+                results[0].as_ref().unwrap().thinking.as_deref(),
+                Some("Think"),
+                "{event}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn all_http_adapters_propagate_explicit_stream_errors() {
         for (name, event) in [
             ("openai", ""),
