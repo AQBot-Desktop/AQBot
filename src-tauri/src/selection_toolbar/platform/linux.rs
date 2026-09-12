@@ -1,4 +1,4 @@
-use std::thread;
+use std::{thread, time::Instant};
 
 use aqbot_core::types::SelectionToolbarSettings;
 use atspi::{
@@ -170,14 +170,39 @@ async fn handle_event(
     let Some(item) = item else {
         return;
     };
+    let started = Instant::now();
+    tracing::debug!(
+        platform = "linux",
+        "[selection-toolbar-diagnostics] native_read_started"
+    );
     match read_selection(connection, &item).await {
         Ok(Some(observation)) => {
+            tracing::debug!(
+                platform = "linux",
+                outcome = "success",
+                chars = observation.text.chars().count(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Selection(observation));
         }
         Ok(None) => {
+            tracing::debug!(
+                platform = "linux",
+                outcome = "empty",
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Clear);
         }
         Err(message) => {
+            tracing::debug!(
+                platform = "linux",
+                outcome = "failed",
+                stage = "selection",
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Error(RuntimeError {
                 code: "atspi_selection_failed".into(),
                 message,
@@ -200,7 +225,14 @@ async fn read_selection(
         .map_err(|error| error.to_string())?;
     let text_proxy = match proxies.text().await {
         Ok(proxy) => proxy,
-        Err(atspi::AtspiError::InterfaceNotAvailable(_)) => return Ok(None),
+        Err(atspi::AtspiError::InterfaceNotAvailable(_)) => {
+            tracing::debug!(
+                platform = "linux",
+                reason = "text_interface_unavailable",
+                "[selection-toolbar-diagnostics] native_read_skipped"
+            );
+            return Ok(None);
+        }
         Err(error) => return Err(error.to_string()),
     };
     if text_proxy
@@ -209,6 +241,11 @@ async fn read_selection(
         .map_err(|error| error.to_string())?
         < 1
     {
+        tracing::debug!(
+            platform = "linux",
+            reason = "no_selection_range",
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     }
     let (start, end) = text_proxy
@@ -216,13 +253,30 @@ async fn read_selection(
         .await
         .map_err(|error| error.to_string())?;
     if start < 0 || end <= start {
+        tracing::debug!(
+            platform = "linux",
+            reason = "invalid_selection_range",
+            start,
+            end,
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     }
     let text = text_proxy
         .get_text(start, end)
         .await
         .map_err(|error| error.to_string())?;
+    tracing::debug!(
+        platform = "linux",
+        chars = text.chars().count(),
+        "[selection-toolbar-diagnostics] native_text_received"
+    );
     if !is_actionable_selection_text(&text) {
+        tracing::debug!(
+            platform = "linux",
+            reason = "non_actionable_text",
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     }
     let (_, line_start, line_end) = text_proxy
@@ -235,6 +289,13 @@ async fn read_selection(
         .await
         .map_err(|error| error.to_string())?;
     if width <= 0 || height <= 0 {
+        tracing::debug!(
+            platform = "linux",
+            width,
+            height,
+            reason = "invalid_anchor",
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     }
     let source_app = application_name(connection, &accessible, item).await;

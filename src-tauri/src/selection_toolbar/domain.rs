@@ -511,6 +511,11 @@ impl SelectionDebouncer {
     pub fn take_ready(&mut self, now_ms: u64) -> Option<SelectionChange> {
         let (_, ready_at) = self.pending.as_ref()?;
         if now_ms < *ready_at {
+            tracing::debug!(
+                now_ms,
+                ready_at,
+                "[selection-toolbar-diagnostics] debounce_waiting"
+            );
             return None;
         }
         let (change, _) = self.pending.take()?;
@@ -524,6 +529,10 @@ impl SelectionDebouncer {
                     && now_ms.saturating_sub(*emitted_at) <= duplicate_window_ms
             })
         {
+            tracing::debug!(
+                reason = "duplicate",
+                "[selection-toolbar-diagnostics] debounce_ignored"
+            );
             return None;
         }
         self.last_emission = Some((fingerprint, now_ms));

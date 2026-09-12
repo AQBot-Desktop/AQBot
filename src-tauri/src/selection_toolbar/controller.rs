@@ -27,6 +27,10 @@ use super::{
 #[path = "controller_capture.rs"]
 mod capture_lifecycle;
 
+#[cfg(test)]
+#[path = "long_text_tests.rs"]
+mod long_text_tests;
+
 const SELECTION_OBSERVATION_RACE_MS: u64 = 200;
 
 #[derive(Debug, Clone)]
@@ -483,7 +487,15 @@ impl SelectionToolbarRuntime {
     }
 
     async fn hide_locked(&self, app: &AppHandle, reason: &str) -> Result<(), String> {
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        let generation = self
+            .generation
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        tracing::debug!(
+            generation,
+            reason,
+            "[selection-toolbar-diagnostics] selection_invalidated"
+        );
         self.debouncer.lock().await.clear();
         self.store.lock().await.clear();
         self.dragged_for_session.store(false, Ordering::Relaxed);
@@ -494,7 +506,10 @@ impl SelectionToolbarRuntime {
         *self.resolved_placement.lock().await = SelectionToolbarPlacement::Below;
         *self.pending_session.lock().await = None;
         window::hide(app)?;
-        tracing::debug!(reason, "selection toolbar hide");
+        tracing::debug!(
+            reason,
+            "[selection-toolbar-diagnostics] selection toolbar hide"
+        );
         let _ = app.emit_to(
             window::SELECTION_TOOLBAR_WINDOW_LABEL,
             "selection-toolbar://hidden",
@@ -567,16 +582,19 @@ impl SelectionToolbarRuntime {
     /// Called when the selection-toolbar webview has finished wiring event listeners.
     pub async fn mark_frontend_ready(&self, app: &AppHandle) {
         self.frontend_ready.store(true, Ordering::Relaxed);
+        tracing::debug!("[selection-toolbar-diagnostics] frontend_ready");
         if let Some(session) = self.pending_session.lock().await.take() {
             tracing::debug!(
                 selection_id = %session.selection_id,
-                "Flushing pending selection toolbar session after frontend ready"
+                "[selection-toolbar-diagnostics] Flushing pending selection toolbar session after frontend ready"
             );
-            let _ = app.emit_to(
+            if let Err(error) = app.emit_to(
                 window::SELECTION_TOOLBAR_WINDOW_LABEL,
                 "selection-toolbar://session",
                 session,
-            );
+            ) {
+                tracing::warn!(%error, "[selection-toolbar-diagnostics] session_emit_failed");
+            }
         }
     }
 
@@ -718,6 +736,10 @@ impl SelectionToolbarRuntime {
         // The capture UI owns pointer/Escape events until it returns; do not
         // let selection clearing destroy the previous editor while it is hidden.
         if self.capturing.load(Ordering::Acquire) {
+            tracing::debug!(
+                reason = "capture_active",
+                "[selection-toolbar-diagnostics] selection_presentation_suppressed"
+            );
             if let PlatformEvent::Error(error) = event {
                 tracing::warn!(code = %error.code, message = %error.message, "Selection monitor failed during screenshot capture");
                 self.set_runtime_state(
@@ -731,13 +753,14 @@ impl SelectionToolbarRuntime {
         }
         match event {
             PlatformEvent::Selection(observation) => {
-                tracing::debug!(
-                    source_app = %observation.source_app,
-                    text_len = observation.text.chars().count(),
-                    "selection event received"
-                );
                 self.remember_selection_candidate(&observation).await;
                 let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::debug!(
+                    generation,
+                    source_app = %observation.source_app,
+                    text_len = observation.text.chars().count(),
+                    "[selection-toolbar-diagnostics] selection event received"
+                );
                 self.debouncer
                     .lock()
                     .await
@@ -774,13 +797,25 @@ impl SelectionToolbarRuntime {
                                     let _ = runtime.hide_locked(&app, "selection_cleared").await;
                                 }
                             }
-                            None => {}
+                            None => tracing::debug!(
+                                generation,
+                                "[selection-toolbar-diagnostics] debounce_no_change"
+                            ),
                         }
+                    } else {
+                        tracing::debug!(
+                            generation,
+                            current_generation,
+                            "[selection-toolbar-diagnostics] debounce_superseded"
+                        );
                     }
                 });
             }
             PlatformEvent::Clear => {
-                tracing::debug!("clear event received");
+                tracing::debug!(
+                    generation = self.generation.load(Ordering::Relaxed),
+                    "[selection-toolbar-diagnostics] clear event received"
+                );
                 if self.should_suppress_clear(app) {
                     tracing::debug!(
                         "Suppressing platform Clear while toolbar interaction is active"
@@ -867,6 +902,10 @@ impl SelectionToolbarRuntime {
         observation: &SelectionObservation,
     ) -> SelectionPublishDecision {
         if self.capturing.load(Ordering::Acquire) {
+            tracing::debug!(
+                reason = "capture_active",
+                "[selection-toolbar-diagnostics] selection_ignored"
+            );
             return SelectionPublishDecision::Ignore;
         }
         let snapshot = self.store.lock().await.snapshot();
@@ -874,6 +913,10 @@ impl SelectionToolbarRuntime {
             .session
             .is_some_and(|session| session.input_kind == ToolbarInputKind::Screenshot)
         {
+            tracing::debug!(
+                reason = "screenshot_session",
+                "[selection-toolbar-diagnostics] selection_ignored"
+            );
             return SelectionPublishDecision::Ignore;
         }
         let live_selection = {
@@ -891,7 +934,7 @@ impl SelectionToolbarRuntime {
                 text_len = observation.text.chars().count(),
                 incoming_anchor_kind = ?observation.anchor_kind,
                 arbitration = ?SelectionPublishDecision::PublishNew,
-                "selection observation arbitration"
+                "[selection-toolbar-diagnostics] selection observation arbitration"
             );
             return SelectionPublishDecision::PublishNew;
         };
@@ -930,10 +973,11 @@ impl SelectionToolbarRuntime {
             incoming_anchor_width = observation.anchor.width,
             incoming_anchor_height = observation.anchor.height,
             ?surface,
+            duplicate,
             interaction_locked,
             dragged,
             arbitration = ?decision,
-            "selection observation arbitration"
+            "[selection-toolbar-diagnostics] selection observation arbitration"
         );
         decision
     }
@@ -1044,17 +1088,27 @@ impl SelectionToolbarRuntime {
         tracing::debug!(
             source_app = %observation.source_app,
             text_len = observation.text.chars().count(),
-            "publishing selection"
+            "[selection-toolbar-diagnostics] publishing selection"
         );
         let settings =
             match aqbot_core::repo::settings::get_settings(&app.state::<crate::AppState>().sea_db)
                 .await
             {
                 Ok(settings) if settings.selection_toolbar.enabled => settings,
-                _ => return,
+                Ok(_) => {
+                    tracing::debug!(
+                        reason = "disabled",
+                        "[selection-toolbar-diagnostics] selection_ignored"
+                    );
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "[selection-toolbar-diagnostics] settings_read_failed");
+                    return;
+                }
             };
         if settings.selection_toolbar.trigger_mode != SelectionToolbarTriggerMode::Selection {
-            tracing::debug!("selection cached until the configured shortcut is pressed");
+            tracing::debug!(reason = "shortcut_mode", "[selection-toolbar-diagnostics] selection cached until the configured shortcut is pressed");
             return;
         }
         if !settings
@@ -1064,11 +1118,13 @@ impl SelectionToolbarRuntime {
             tracing::debug!(
                 source_app = %observation.source_app,
                 mode = ?settings.selection_toolbar.app_filter_mode,
-                "selection ignored by app filter"
+                "[selection-toolbar-diagnostics] selection ignored by app filter"
             );
             return;
         }
-        let _ = self.show_selection(app, observation, &settings).await;
+        if let Err(error) = self.show_selection(app, observation, &settings).await {
+            tracing::warn!(%error, "[selection-toolbar-diagnostics] selection_show_failed");
+        }
     }
 
     async fn show_selection(
@@ -1108,6 +1164,10 @@ impl SelectionToolbarRuntime {
             if self.generation.load(Ordering::Relaxed) != generation
                 || !self.settings_tx.borrow().enabled
             {
+                tracing::debug!(
+                    reason = "stale_capture_or_disabled",
+                    "[selection-toolbar-diagnostics] show_input_ignored"
+                );
                 return Ok(());
             }
         } else {
@@ -1120,6 +1180,10 @@ impl SelectionToolbarRuntime {
                     .session
                     .is_some_and(|session| session.input_kind == ToolbarInputKind::Screenshot)
             {
+                tracing::debug!(
+                    reason = "screenshot_session_or_capture",
+                    "[selection-toolbar-diagnostics] show_input_ignored"
+                );
                 return Ok(());
             }
         }
@@ -1183,7 +1247,7 @@ impl SelectionToolbarRuntime {
             position_y = placement.window_position.y,
             resolved_placement = ?placement.direction,
             arbitration = "publish_new",
-            "selection toolbar placement resolved"
+            "[selection-toolbar-diagnostics] selection toolbar placement resolved"
         );
         tracing::info!(
             position_x = placement.window_position.x,
@@ -1196,14 +1260,16 @@ impl SelectionToolbarRuntime {
             tracing::debug!(
                 selection_id = %session.selection_id,
                 frontend_ready = self.frontend_ready.load(Ordering::Relaxed),
-                "selection toolbar show"
+                "[selection-toolbar-diagnostics] selection toolbar show"
             );
             if self.frontend_ready.load(Ordering::Relaxed) {
-                let _ = app.emit_to(
+                if let Err(error) = app.emit_to(
                     window::SELECTION_TOOLBAR_WINDOW_LABEL,
                     "selection-toolbar://session",
                     session,
-                );
+                ) {
+                    tracing::warn!(%error, "[selection-toolbar-diagnostics] session_emit_failed");
+                }
             } else {
                 *self.pending_session.lock().await = Some(session);
             }
@@ -1391,16 +1457,13 @@ mod tests {
         use aqbot_core::types::SelectionToolbarResultPinningMode;
 
         let mut settings = AppSettings::default();
-        settings.selection_toolbar.result_pinning_mode =
-            SelectionToolbarResultPinningMode::Custom;
+        settings.selection_toolbar.result_pinning_mode = SelectionToolbarResultPinningMode::Custom;
         settings.selection_toolbar.result_pinned_by_default = true;
-        if let SelectionToolbarTool::BuiltinAi { ai, .. } =
-            &mut settings.selection_toolbar.tools[0]
+        if let SelectionToolbarTool::BuiltinAi { ai, .. } = &mut settings.selection_toolbar.tools[0]
         {
             ai.result_pinned_by_default = Some(false);
         }
-        if let SelectionToolbarTool::BuiltinAi { ai, .. } =
-            &mut settings.selection_toolbar.tools[1]
+        if let SelectionToolbarTool::BuiltinAi { ai, .. } = &mut settings.selection_toolbar.tools[1]
         {
             ai.result_pinned_by_default = Some(true);
         }
@@ -1763,8 +1826,7 @@ fn toolbar_tool_views(
                     ToolbarInputKind::Text => ai.text_direct_send,
                     ToolbarInputKind::Screenshot => ai.screenshot_direct_send,
                 };
-                view.result_pinned =
-                    Some(settings.selection_toolbar.resolved_result_pinned(tool));
+                view.result_pinned = Some(settings.selection_toolbar.resolved_result_pinned(tool));
             }
             view
         })

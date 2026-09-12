@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axuielement::async_api::AXNotificationStream;
 use axuielement::ax_action::AX_PRESS_ACTION;
@@ -982,6 +982,16 @@ async fn wait_notification(stream: Option<&AXNotificationStream>) -> Option<AXOb
 }
 
 fn emit_current_selection(active: &ActiveApplication, sender: &UnboundedSender<PlatformEvent>) {
+    let _span = tracing::debug_span!(
+        "[selection-toolbar-diagnostics]",
+        platform = "macos",
+        entry_point = "focused_element",
+        pid = active.info.pid,
+        source_app = %active.info.source_app,
+    )
+    .entered();
+    tracing::debug!("[selection-toolbar-diagnostics] native_read_started");
+    let started = Instant::now();
     match active
         .element
         .element_attribute(AX_FOCUSED_UI_ELEMENT_ATTRIBUTE)
@@ -990,13 +1000,23 @@ fn emit_current_selection(active: &ActiveApplication, sender: &UnboundedSender<P
             emit_selection_from_candidates_with_pointer(active, [element], sender, None, true);
         }
         Ok(None) => {
+            tracing::debug!(
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "empty",
+                reason = "focused_element_missing",
+                action = "clear",
+                "[selection-toolbar-diagnostics] macOS focused selection unavailable"
+            );
             let _ = sender.send(PlatformEvent::Clear);
         }
         Err(error) => {
             tracing::debug!(
                 pid = active.info.pid,
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "error",
+                error_code = error.raw_code(),
                 %error,
-                "Could not read the focused macOS accessibility element"
+                "[selection-toolbar-diagnostics] macOS focused accessibility element read failed"
             );
         }
     }
@@ -1010,6 +1030,15 @@ fn emit_event_selection(
     let Some(active) = active else {
         return;
     };
+    let _span = tracing::debug_span!(
+        "[selection-toolbar-diagnostics]",
+        platform = "macos",
+        entry_point = "ax_notification",
+        pid = active.info.pid,
+        source_app = %active.info.source_app,
+    )
+    .entered();
+    tracing::debug!("[selection-toolbar-diagnostics] native_read_started");
     let focused = active
         .element
         .element_attribute(AX_FOCUSED_UI_ELEMENT_ATTRIBUTE)
@@ -1038,6 +1067,16 @@ fn probe_selection(
     mac_sender: &UnboundedSender<MacSignal>,
     settings_rx: &watch::Receiver<SelectionToolbarSettings>,
 ) {
+    let _span = tracing::debug_span!(
+        "[selection-toolbar-diagnostics]",
+        platform = "macos",
+        entry_point = "mouse_probe",
+        attempt = request.attempt,
+        source_pid = request.source_pid,
+    )
+    .entered();
+    tracing::debug!("[selection-toolbar-diagnostics] native_read_started");
+    let started = Instant::now();
     match system.element_at_position(request.point.x as f32, request.point.y as f32) {
         Ok(Some(element)) => {
             let hit_pid = element.pid().ok();
@@ -1091,7 +1130,9 @@ fn probe_selection(
             };
             tracing::debug!(
                 pid = active.info.pid,
-                "Reading macOS selection from mouse hit-test element"
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "success",
+                "[selection-toolbar-diagnostics] Reading macOS selection from mouse hit-test element"
             );
             // Prefer the mouse-up point so the toolbar appears near the user's hand,
             // not at the first glyph of a long selection (TextGO / pot pattern).
@@ -1123,8 +1164,12 @@ fn probe_selection(
             if is_last_probe_attempt(request.attempt) {
                 tracing::debug!(
                     pid = active.info.pid,
+                    elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                    outcome = "no_payload",
+                    reason = "probe_exhausted",
+                    action = "clear",
                     clipboard_fallback_eligible = request.clipboard_fallback_eligible,
-                    "macOS selection probe exhausted the allowed fallbacks"
+                    "[selection-toolbar-diagnostics] macOS selection probe exhausted the allowed fallbacks"
                 );
                 let _ = sender.send(PlatformEvent::Clear);
             } else {
@@ -1150,7 +1195,10 @@ fn probe_selection(
             tracing::debug!(
                 pid = active.as_ref().map(|value| value.info.pid),
                 attempt = request.attempt,
-                "macOS selection probe hit-test returned no element"
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "empty",
+                reason = "hit_element_missing",
+                "[selection-toolbar-diagnostics] macOS selection probe hit-test returned no element"
             );
             finish_probe_without_hit(active, request, sender, mac_sender, settings_rx);
         }
@@ -1158,8 +1206,11 @@ fn probe_selection(
             tracing::debug!(
                 pid = active.as_ref().map(|value| value.info.pid),
                 attempt = request.attempt,
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "error",
+                error_code = error.raw_code(),
                 %error,
-                "Could not hit-test the macOS selection endpoint"
+                "[selection-toolbar-diagnostics] macOS selection endpoint hit-test failed"
             );
             finish_probe_without_hit(active, request, sender, mac_sender, settings_rx);
         }
@@ -1183,6 +1234,12 @@ fn finish_probe_without_hit(
         }
     }
     if is_last_probe_attempt(request.attempt) {
+        tracing::debug!(
+            outcome = "no_payload",
+            reason = "probe_exhausted_without_hit",
+            action = "keep",
+            "[selection-toolbar-diagnostics] macOS selection probe finished without a hit"
+        );
         // Do not Clear: empty hit-tests often mean chrome/toolbar clicks, not
         // a real deselect. AX notifications still clear real deselections.
         return;
@@ -1251,6 +1308,7 @@ fn emit_selection_from_candidates_with_pointer(
     pointer: Option<ScreenPoint>,
     clear_on_empty: bool,
 ) -> bool {
+    let started = Instant::now();
     let payload = best_value_in_candidate_chains(
         candidates,
         MAX_SELECTION_ANCESTORS,
@@ -1267,6 +1325,8 @@ fn emit_selection_from_candidates_with_pointer(
         SelectionPayloadOutcome::Ready(payload) => {
             tracing::debug!(
                 pid = active.info.pid,
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "success",
                 text_len = payload.text.chars().count(),
                 candidate_source = ?payload.source,
                 anchor_kind = ?payload.anchor_kind,
@@ -1274,17 +1334,31 @@ fn emit_selection_from_candidates_with_pointer(
                 anchor_y = payload.anchor.y,
                 anchor_width = payload.anchor.width,
                 anchor_height = payload.anchor.height,
-                "macOS accessibility selection read succeeded"
+                "[selection-toolbar-diagnostics] macOS accessibility selection read succeeded"
             );
             let observation = selection_observation(active, payload);
             let _ = sender.send(PlatformEvent::Selection(observation));
             true
         }
-        SelectionPayloadOutcome::Unpositionable => true,
+        SelectionPayloadOutcome::Unpositionable => {
+            tracing::debug!(
+                pid = active.info.pid,
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "unpositionable",
+                reason = "bounds_and_pointer_missing",
+                action = "keep",
+                "[selection-toolbar-diagnostics] macOS selection text was not published"
+            );
+            true
+        }
         SelectionPayloadOutcome::Empty => {
             tracing::debug!(
                 pid = active.info.pid,
-                "macOS accessibility element did not expose a selection"
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "no_payload",
+                reason = "no_actionable_candidate",
+                action = if clear_on_empty { "clear" } else { "keep" },
+                "[selection-toolbar-diagnostics] macOS accessibility candidates yielded no selection payload"
             );
             // AX notification path may legitimately clear; the mouse probe only
             // clears on its final attempt when the hit element is the source app,
@@ -1335,7 +1409,9 @@ fn finalize_selection_payload(
         tracing::debug!(
             text_len = payload.text.chars().count(),
             candidate_source = ?payload.source,
-            "Ignoring macOS selection text without usable bounds or a pointer"
+            outcome = "unpositionable",
+            reason = "bounds_and_pointer_missing",
+            "[selection-toolbar-diagnostics] Ignoring macOS selection text without usable bounds or a pointer"
         );
         return None;
     }
@@ -1432,6 +1508,12 @@ fn resolve_selection_payload(
 fn read_range_selection(element: &AXUIElement) -> Option<SelectionPayload> {
     let text = read_string_attribute(element, AX_SELECTED_TEXT_ATTRIBUTE)?;
     if !is_actionable_selection_text(&text) {
+        tracing::debug!(
+            attribute = AX_SELECTED_TEXT_ATTRIBUTE,
+            text_len = text.chars().count(),
+            outcome = "not_actionable",
+            "[selection-toolbar-diagnostics] macOS selected text has no perceivable characters"
+        );
         return None;
     }
     // Prefer range + bounds when the app exposes them; WeChat and similar UIs
@@ -1488,6 +1570,12 @@ fn text_only_selection_payload(element: &AXUIElement, text: String) -> Selection
             SelectionPayloadSource::MissingBounds,
         ),
     };
+    tracing::debug!(
+        text_len = text.chars().count(),
+        candidate_source = ?source,
+        reason = "selection_bounds_unavailable",
+        "[selection-toolbar-diagnostics] macOS selection requires alternate positioning"
+    );
     SelectionPayload {
         text,
         range_signature: format!("text:{:016x}", hasher.finish()),
@@ -1521,26 +1609,61 @@ fn first_character_range(range: AXRange) -> Option<AXRange> {
 }
 
 fn read_marker_selection(element: &AXUIElement) -> Option<SelectionPayload> {
-    let selected_range =
-        match element.text_marker_range_attribute(AX_SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE) {
-            Ok(range) => range?,
-            Err(error) => {
-                trace_ax_read_error(element, AX_SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE, &error);
-                return None;
-            }
-        };
+    let started = Instant::now();
+    let range_result = element.text_marker_range_attribute(AX_SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE);
+    tracing::debug!(
+        attribute = AX_SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE,
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        outcome = match &range_result {
+            Ok(Some(_)) => "success",
+            Ok(None) => "empty",
+            Err(_) => "error",
+        },
+        "[selection-toolbar-diagnostics] macOS selection marker range read"
+    );
+    let selected_range = match range_result {
+        Ok(range) => range?,
+        Err(error) => {
+            trace_ax_read_error(element, AX_SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE, &error);
+            return None;
+        }
+    };
     let selected_range = ordered_marker_range(element, &selected_range).unwrap_or(selected_range);
     // Collapsed caret ranges are not selections; some apps still return a
     // non-empty string (often format-only) for equal start/end markers.
     if selected_range.start_marker().bytes() == selected_range.end_marker().bytes() {
+        tracing::debug!(
+            outcome = "empty",
+            reason = "collapsed_marker_range",
+            "[selection-toolbar-diagnostics] macOS selection marker range is collapsed"
+        );
         return None;
     }
     let selected_value = AXValue::from_text_marker_range(&selected_range)?;
-    let text = match element.parameterized_attribute(
-        AX_STRING_FOR_TEXT_MARKER_RANGE_PARAMETERIZED_ATTRIBUTE,
-        &selected_value,
-    ) {
-        Ok(value) => value?.as_string()?,
+    let started = Instant::now();
+    let text_result = element
+        .parameterized_attribute(
+            AX_STRING_FOR_TEXT_MARKER_RANGE_PARAMETERIZED_ATTRIBUTE,
+            &selected_value,
+        )
+        .map(|value| value.and_then(|value| value.as_string()));
+    tracing::debug!(
+        attribute = AX_STRING_FOR_TEXT_MARKER_RANGE_PARAMETERIZED_ATTRIBUTE,
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        outcome = match &text_result {
+            Ok(Some(_)) => "success",
+            Ok(None) => "empty",
+            Err(_) => "error",
+        },
+        text_len = text_result
+            .as_ref()
+            .ok()
+            .and_then(|text| text.as_ref())
+            .map(|text| text.chars().count()),
+        "[selection-toolbar-diagnostics] macOS selection marker text read"
+    );
+    let text = match text_result {
+        Ok(value) => value?,
         Err(error) => {
             trace_ax_read_error(
                 element,
@@ -1551,6 +1674,12 @@ fn read_marker_selection(element: &AXUIElement) -> Option<SelectionPayload> {
         }
     };
     if !is_actionable_selection_text(&text) {
+        tracing::debug!(
+            attribute = AX_STRING_FOR_TEXT_MARKER_RANGE_PARAMETERIZED_ATTRIBUTE,
+            text_len = text.chars().count(),
+            outcome = "not_actionable",
+            "[selection-toolbar-diagnostics] macOS selected marker text has no perceivable characters"
+        );
         return None;
     }
     let rect = first_marker_rect(element, &selected_range)
@@ -1583,17 +1712,32 @@ fn try_clipboard_selection_fallback(
     pointer: ScreenPoint,
     sender: &UnboundedSender<PlatformEvent>,
 ) -> bool {
+    let _span = tracing::debug_span!(
+        "[selection-toolbar-diagnostics]",
+        platform = "macos",
+        entry_point = "clipboard_fallback",
+        pid = active.info.pid,
+        source_app = %active.info.source_app,
+    )
+    .entered();
+    let started = Instant::now();
     if !is_copy_target_active(active.info.pid) {
         tracing::debug!(
             pid = active.info.pid,
-            "Skipping macOS clipboard fallback because the target is no longer frontmost"
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+            outcome = "skipped",
+            reason = "source_not_frontmost",
+            "[selection-toolbar-diagnostics] Skipping macOS clipboard fallback because the target is no longer frontmost"
         );
         return false;
     }
     let Some(snapshot) = snapshot_pasteboard() else {
         tracing::debug!(
             pid = active.info.pid,
-            "macOS clipboard fallback could not snapshot the pasteboard"
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+            outcome = "error",
+            reason = "pasteboard_snapshot_unavailable",
+            "[selection-toolbar-diagnostics] macOS clipboard fallback could not snapshot the pasteboard"
         );
         return false;
     };
@@ -1634,7 +1778,10 @@ fn try_clipboard_selection_fallback(
             restore_pasteboard(&snapshot);
             tracing::debug!(
                 pid = active.info.pid,
-                "macOS clipboard fallback failed to post Cmd+C"
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                outcome = "error",
+                reason = "copy_event_not_posted",
+                "[selection-toolbar-diagnostics] macOS clipboard fallback failed to post Cmd+C"
             );
             return false;
         }
@@ -1645,7 +1792,10 @@ fn try_clipboard_selection_fallback(
         restore_pasteboard(&snapshot);
         tracing::debug!(
             pid = active.info.pid,
-            "macOS clipboard fallback did not observe a pasteboard change"
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+            outcome = "no_payload",
+            reason = "no_actionable_pasteboard_text_before_deadline",
+            "[selection-toolbar-diagnostics] macOS clipboard fallback yielded no selection text"
         );
         return false;
     };
@@ -1655,6 +1805,8 @@ fn try_clipboard_selection_fallback(
     }
     tracing::debug!(
         pid = active.info.pid,
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        outcome = "success",
         text_len = text.chars().count(),
         candidate_source = ?SelectionPayloadSource::Clipboard,
         anchor_kind = ?SelectionAnchorKind::Pointer,
@@ -1662,7 +1814,7 @@ fn try_clipboard_selection_fallback(
         anchor_y = pointer.y,
         anchor_width = 1.0,
         anchor_height = 1.0,
-        "macOS clipboard selection fallback succeeded"
+        "[selection-toolbar-diagnostics] macOS clipboard selection fallback succeeded"
     );
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
@@ -1906,7 +2058,24 @@ fn marker_range_signature(range: &AXTextMarkerRange) -> String {
 }
 
 fn read_string_attribute(element: &AXUIElement, attribute: &str) -> Option<String> {
-    match element.string_attribute(attribute) {
+    let started = Instant::now();
+    let result = element.string_attribute(attribute);
+    tracing::debug!(
+        attribute,
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        outcome = match &result {
+            Ok(Some(_)) => "success",
+            Ok(None) => "empty",
+            Err(_) => "error",
+        },
+        text_len = result
+            .as_ref()
+            .ok()
+            .and_then(|text| text.as_ref())
+            .map(|text| text.chars().count()),
+        "[selection-toolbar-diagnostics] macOS selection text attribute read"
+    );
+    match result {
         Ok(value) => value,
         Err(error) => {
             trace_ax_read_error(element, attribute, &error);
@@ -1919,8 +2088,10 @@ fn trace_ax_read_error(element: &AXUIElement, attribute: &str, error: &axuieleme
     tracing::debug!(
         pid = element.pid().unwrap_or_default(),
         attribute,
+        outcome = "error",
+        error_code = error.raw_code(),
         %error,
-        "macOS accessibility selection attribute is unavailable"
+        "[selection-toolbar-diagnostics] macOS accessibility selection attribute read failed"
     );
 }
 

@@ -3,7 +3,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use aqbot_core::types::SelectionToolbarSettings;
@@ -257,8 +257,16 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
 
 fn schedule_selection_probe(sender: UnboundedSender<PlatformEvent>, point: ScreenPoint) {
     thread::spawn(move || {
+        let started = Instant::now();
         for (attempt, delay_ms) in SELECTION_PROBE_DELAYS_MS.iter().copied().enumerate() {
             thread::sleep(Duration::from_millis(delay_ms));
+            tracing::debug!(
+                platform = "windows",
+                attempt = attempt + 1,
+                delay_ms,
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] mouse_probe_attempt"
+            );
             match probe_selection_at(point) {
                 Some(observation) => {
                     let _ = sender.send(PlatformEvent::Selection(observation));
@@ -272,28 +280,96 @@ fn schedule_selection_probe(sender: UnboundedSender<PlatformEvent>, point: Scree
                     let escalate =
                         should_try_windows_clipboard_fallback(attempt, process_name.as_deref());
                     if escalate {
+                        let clipboard_started = Instant::now();
                         if let Some(observation) =
                             try_clipboard_selection_fallback(point, process_id.unwrap_or_default())
                         {
+                            tracing::debug!(
+                                platform = "windows",
+                                attempt = attempt + 1,
+                                outcome = "success",
+                                chars = observation.text.chars().count(),
+                                elapsed_ms = clipboard_started.elapsed().as_millis(),
+                                "[selection-toolbar-diagnostics] clipboard_read"
+                            );
                             let _ = sender.send(PlatformEvent::Selection(observation));
                             return;
                         }
+                        tracing::debug!(
+                            platform = "windows",
+                            attempt = attempt + 1,
+                            outcome = "empty",
+                            elapsed_ms = clipboard_started.elapsed().as_millis(),
+                            "[selection-toolbar-diagnostics] clipboard_read"
+                        );
                     }
                 }
             }
         }
+        tracing::debug!(
+            platform = "windows",
+            attempts = SELECTION_PROBE_DELAYS_MS.len(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "[selection-toolbar-diagnostics] mouse_probe_exhausted"
+        );
     });
 }
 
 fn probe_selection_at(point: ScreenPoint) -> Option<SelectionObservation> {
-    let automation = UIAutomation::new().ok()?;
+    let started = Instant::now();
+    let automation = UIAutomation::new()
+        .inspect_err(|error| {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "mouse",
+                outcome = "failed",
+                stage = "uia_init",
+                error_code = error.code(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
+        })
+        .ok()?;
     let element = automation
         .element_from_point(Point::new(point.x as i32, point.y as i32))
+        .inspect_err(|error| {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "mouse",
+                outcome = "failed",
+                stage = "element_at_pointer",
+                error_code = error.code(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
+        })
         .ok()?;
     match read_selection_with_pointer(&element, Some(point)) {
-        Ok(observation) => observation,
+        Ok(observation) => {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "mouse",
+                outcome = if observation.is_some() {
+                    "success"
+                } else {
+                    "empty"
+                },
+                chars = observation.as_ref().map(|value| value.text.chars().count()),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
+            observation
+        }
         Err(error) => {
-            tracing::debug!(%error, "Windows mouse selection probe failed");
+            tracing::debug!(
+                platform = "windows",
+                trigger = "mouse",
+                outcome = "failed",
+                stage = "selection",
+                error_code = error.code(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             None
         }
     }
@@ -312,14 +388,44 @@ pub fn request_permission() -> Result<PermissionState, String> {
 }
 
 fn publish_selection(element: &UIElement, sender: &UnboundedSender<PlatformEvent>) {
+    let started = Instant::now();
+    tracing::debug!(
+        platform = "windows",
+        trigger = "event",
+        "[selection-toolbar-diagnostics] native_read_started"
+    );
     match read_selection_with_pointer(element, None) {
         Ok(Some(observation)) => {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "event",
+                outcome = "success",
+                chars = observation.text.chars().count(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Selection(observation));
         }
         Ok(None) => {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "event",
+                outcome = "empty",
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Clear);
         }
         Err(error) => {
+            tracing::debug!(
+                platform = "windows",
+                trigger = "event",
+                outcome = "failed",
+                stage = "selection",
+                error_code = error.code(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[selection-toolbar-diagnostics] native_read"
+            );
             let _ = sender.send(PlatformEvent::Error(RuntimeError {
                 code: "uia_selection_failed".into(),
                 message: error.to_string(),
@@ -334,13 +440,35 @@ fn read_selection_with_pointer(
 ) -> uiautomation::Result<Option<SelectionObservation>> {
     let pattern = match element.get_pattern::<UITextPattern>() {
         Ok(pattern) => pattern,
-        Err(_) => return Ok(None),
+        Err(_) => {
+            tracing::debug!(
+                platform = "windows",
+                reason = "text_pattern_unavailable",
+                "[selection-toolbar-diagnostics] native_read_skipped"
+            );
+            return Ok(None);
+        }
     };
     let Some(range) = pattern.get_selection()?.into_iter().next() else {
+        tracing::debug!(
+            platform = "windows",
+            reason = "no_selection_range",
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     };
     let text = range.get_text(-1)?;
+    tracing::debug!(
+        platform = "windows",
+        chars = text.chars().count(),
+        "[selection-toolbar-diagnostics] native_text_received"
+    );
     if !is_actionable_selection_text(&text) {
+        tracing::debug!(
+            platform = "windows",
+            reason = "non_actionable_text",
+            "[selection-toolbar-diagnostics] native_read_skipped"
+        );
         return Ok(None);
     }
     // Prefer mouse-up pointer placement; otherwise use UIA bounds when present.
@@ -636,6 +764,16 @@ fn process_image_path(handle: HANDLE) -> Option<String> {
 fn first_bounding_rect(range: &UITextRange) -> uiautomation::Result<Option<ScreenRect>> {
     let raw = unsafe { range.as_ref().GetBoundingRectangles()? };
     let values: Vec<f64> = SafeArray::from(raw).into_vector(VT_R8)?;
+    tracing::debug!(
+        platform = "windows",
+        value_count = values.len(),
+        width = values.get(2).copied(),
+        height = values.get(3).copied(),
+        anchor_valid = values.chunks_exact(4).next().is_some_and(|rect| {
+            rect.iter().all(|value| value.is_finite()) && rect[2] > 0.0 && rect[3] > 0.0
+        }),
+        "[selection-toolbar-diagnostics] native_anchor"
+    );
     Ok(values.chunks_exact(4).next().and_then(|rect| {
         (rect[2] > 0.0 && rect[3] > 0.0).then_some(ScreenRect {
             x: rect[0],

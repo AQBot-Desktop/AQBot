@@ -921,6 +921,23 @@ mod tests {
     }
 
     #[test]
+    fn long_code_prompt_preserves_unicode_whitespace_and_literal_placeholders() {
+        let selection = format!(
+            "\n{}\n",
+            "    const value = \"长代码 🧪 {selection} {target_language}\";\n".repeat(1000)
+        );
+        let languages = PromptLanguages {
+            source: "English".into(),
+            target: "Japanese".into(),
+            app: "Simplified Chinese".into(),
+        };
+        assert_eq!(
+            render_prompt("Explain:\n{selection}", &selection, &languages),
+            format!("Explain:\n{selection}"),
+        );
+    }
+
+    #[test]
     fn prompt_renders_languages_without_rescanning_the_selection() {
         let languages = PromptLanguages {
             source: "English".into(),
