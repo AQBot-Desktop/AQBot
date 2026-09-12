@@ -745,24 +745,19 @@ function ToolEditor({
         }}
       />
       <Divider />
-      {([
-        ['text_direct_send', 'textDirectSend', 'textDirectSendHint'],
-        ['screenshot_direct_send', 'screenshotDirectSend', 'screenshotDirectSendHint'],
-      ] as const).map(([field, labelKey, hintKey]) => (
-        <div key={field} style={{ alignItems: 'center', display: 'flex', gap: 16, justifyContent: 'space-between', marginBottom: 16 }}>
-          <div>
-            <div>{t(`settings.selectionToolbar.${labelKey}`)}</div>
-            <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
-              {t(`settings.selectionToolbar.${hintKey}`)}
-            </div>
+      <div style={{ alignItems: 'center', display: 'flex', gap: 16, justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div>{t('settings.selectionToolbar.textDirectSend')}</div>
+          <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
+            {t('settings.selectionToolbar.textDirectSendHint')}
           </div>
-          <Switch
-            aria-label={t(`settings.selectionToolbar.${labelKey}`)}
-            checked={draft.ai[field]}
-            onChange={(checked) => setDraft({ ...draft, ai: { ...draft.ai, [field]: checked } })}
-          />
         </div>
-      ))}
+        <Switch
+          aria-label={t('settings.selectionToolbar.textDirectSend')}
+          checked={draft.ai.text_direct_send}
+          onChange={(checked) => setDraft({ ...draft, ai: { ...draft.ai, text_direct_send: checked } })}
+        />
+      </div>
       <ModelParamSliders
         values={{
           temperature: draft.ai.temperature,
@@ -819,14 +814,10 @@ function ToolbarPreview({
 }
 
 function ToolbarShortcutSetting({
-  kind,
   binding,
-  otherBinding,
   onChange,
 }: {
-  kind: 'triggerShortcut' | 'screenshotShortcut';
   binding: string;
-  otherBinding: string;
   onChange: (binding: string) => void;
 }) {
   const { t } = useTranslation();
@@ -839,12 +830,7 @@ function ToolbarShortcutSetting({
   const conflictAction = binding.trim() && GLOBAL_SHORTCUT_ACTIONS.find((action) =>
     toTauriAccelerator(getShortcutBinding(appSettings, action)).toLowerCase()
       === accelerator.toLowerCase());
-  const conflictLabel = conflictAction
-    ? SHORTCUT_ACTION_LABEL_KEYS[conflictAction]
-    : binding.trim() && otherBinding.trim()
-      && toTauriAccelerator(otherBinding).toLowerCase() === accelerator.toLowerCase()
-      ? `settings.selectionToolbar.${kind === 'triggerShortcut' ? 'screenshotShortcut' : 'triggerShortcut'}`
-      : null;
+  const conflictLabel = conflictAction ? SHORTCUT_ACTION_LABEL_KEYS[conflictAction] : null;
   const externalConflict = findExternalConflict(accelerator);
   const failure = binding.trim() && status?.failed.find((item) =>
     item.shortcut === accelerator || item.shortcut === '*');
@@ -859,17 +845,17 @@ function ToolbarShortcutSetting({
   };
 
   return (
-    <div aria-label={t(`settings.selectionToolbar.${kind}`)} role="group" style={{ padding: '12px 0' }}>
+    <div aria-label={t('settings.selectionToolbar.triggerShortcut')} role="group" style={{ padding: '12px 0' }}>
       <div style={{ alignItems: 'center', display: 'flex', gap: 12, justifyContent: 'space-between' }}>
         <div style={{ minWidth: 0 }}>
-          <div>{t(`settings.selectionToolbar.${kind}`)}</div>
+          <div>{t('settings.selectionToolbar.triggerShortcut')}</div>
           <div style={{ color: token.colorTextDescription, fontSize: 12 }}>
-            {t(`settings.selectionToolbar.${kind}Hint`)}
+            {t('settings.selectionToolbar.triggerShortcutHint')}
           </div>
         </div>
         <Space>
           <Input
-            aria-label={t(`settings.selectionToolbar.${kind}`)}
+            aria-label={t('settings.selectionToolbar.triggerShortcut')}
             readOnly
             ref={inputRef}
             status={conflictLabel ? 'error' : undefined}
@@ -886,13 +872,13 @@ function ToolbarShortcutSetting({
           <Button type={recording ? 'primary' : 'default'} onClick={() => setRecording(true)}>
             {t('settings.recordShortcut')}
           </Button>
-          <Tooltip title={t(kind === 'triggerShortcut' ? 'settings.resetShortcutSingle' : 'settings.clearShortcut')}>
+          <Tooltip title={t('settings.resetShortcutSingle')}>
             <Button
-              aria-label={t(kind === 'triggerShortcut' ? 'settings.resetShortcutSingle' : 'settings.clearShortcut')}
-              icon={kind === 'triggerShortcut' ? <RotateCcw size={14} /> : <Trash2 size={14} />}
+              aria-label={t('settings.resetShortcutSingle')}
+              icon={<RotateCcw size={14} />}
               size="small"
               type="text"
-              onClick={() => update(kind === 'triggerShortcut' ? SELECTION_TOOLBAR_DEFAULT_SHORTCUT : '')}
+              onClick={() => update(SELECTION_TOOLBAR_DEFAULT_SHORTCUT)}
             />
           </Tooltip>
         </Space>
@@ -953,7 +939,6 @@ export function SelectionToolbarSettings() {
   });
   const triggerMode: SelectionToolbarTriggerMode = settings.trigger_mode ?? 'selection';
   const triggerShortcut = settings.trigger_shortcut ?? SELECTION_TOOLBAR_DEFAULT_SHORTCUT;
-  const screenshotShortcut = settings.screenshot_shortcut ?? '';
 
   useEffect(() => {
     if (appFilterMode === 'off' || appFilter.length === 0) return;
@@ -1271,19 +1256,10 @@ export function SelectionToolbarSettings() {
             <Divider style={{ margin: 0 }} />
             <ToolbarShortcutSetting
               binding={triggerShortcut}
-              kind="triggerShortcut"
-              otherBinding={screenshotShortcut}
               onChange={(trigger_shortcut) => { void persist({ ...settings, trigger_shortcut }); }}
             />
           </>
         )}
-        <Divider style={{ margin: 0 }} />
-        <ToolbarShortcutSetting
-          binding={screenshotShortcut}
-          kind="screenshotShortcut"
-          otherBinding={triggerMode === 'shortcut' ? triggerShortcut : ''}
-          onChange={(screenshot_shortcut) => { void persist({ ...settings, screenshot_shortcut }); }}
-        />
         <Divider style={{ margin: 0 }} />
         <div style={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', padding: '12px 0' }}>
           <span>{t('settings.selectionToolbar.themeFollow')}</span>

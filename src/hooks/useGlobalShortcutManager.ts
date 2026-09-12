@@ -128,10 +128,6 @@ export function useGlobalShortcutManager() {
           action: ShortcutAction | 'selectionToolbar';
           binding: string;
           execute: () => Promise<void>;
-        } | {
-          action: 'selectionToolbarScreenshot';
-          binding: string;
-          execute?: never;
         }> = SHORTCUT_ACTIONS
           .filter(isGlobalShortcutAction)
           .map((action) => ({
@@ -147,12 +143,6 @@ export function useGlobalShortcutManager() {
             action: 'selectionToolbar',
             binding: settings.selection_toolbar.trigger_shortcut,
             execute: () => invoke('selection_toolbar_trigger'),
-          });
-        }
-        if (settings.selection_toolbar.enabled) {
-          registrations.push({
-            action: 'selectionToolbarScreenshot',
-            binding: settings.selection_toolbar.screenshot_shortcut,
           });
         }
 
@@ -185,45 +175,41 @@ export function useGlobalShortcutManager() {
             message: 'Attempting to register global shortcut.',
           });
           try {
-            if (action === 'selectionToolbarScreenshot') {
-              await invoke('selection_toolbar_register_screenshot_shortcut', { shortcut: accelerator });
-            } else {
-              await register(accelerator, async (event) => {
-                if (event.state !== 'Pressed') return;
+            await register(accelerator, async (event) => {
+              if (event.state !== 'Pressed') return;
+              pushDiagnostic({
+                phase: 'register',
+                level: 'info',
+                action,
+                shortcut: accelerator,
+                message: 'Global shortcut callback fired.',
+              });
+              console.info('[shortcut-global-hit]', {
+                action,
+                accelerator,
+                eventShortcut: event.shortcut,
+                state: event.state,
+              });
+              try {
+                await execute();
+              } catch (error) {
+                const reason = String(error);
                 pushDiagnostic({
-                  phase: 'register',
-                  level: 'info',
+                  phase: 'trigger',
+                  level: 'warn',
                   action,
                   shortcut: accelerator,
-                  message: 'Global shortcut callback fired.',
+                  reason,
+                  message: 'Global shortcut action failed.',
                 });
-                console.info('[shortcut-global-hit]', {
-                  action,
-                  accelerator,
-                  eventShortcut: event.shortcut,
-                  state: event.state,
+                updateStatus({
+                  enabled: true,
+                  registered: [...registered],
+                  failed: [...failed],
                 });
-                try {
-                  await execute();
-                } catch (error) {
-                  const reason = String(error);
-                  pushDiagnostic({
-                    phase: 'trigger',
-                    level: 'warn',
-                    action,
-                    shortcut: accelerator,
-                    reason,
-                    message: 'Global shortcut action failed.',
-                  });
-                  updateStatus({
-                    enabled: true,
-                    registered: [...registered],
-                    failed: [...failed],
-                  });
-                  console.warn(`Global shortcut action failed for ${action} (${accelerator}):`, error);
-                }
-              });
-            }
+                console.warn(`Global shortcut action failed for ${action} (${accelerator}):`, error);
+              }
+            });
             const verifyRegistered = await isRegistered(accelerator);
             if (!verifyRegistered) {
               const reason = 'register returned without error but isRegistered returned false';
