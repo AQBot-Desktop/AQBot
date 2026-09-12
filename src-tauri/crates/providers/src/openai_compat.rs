@@ -5,6 +5,7 @@ use futures::Stream;
 use futures::StreamExt;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 use std::pin::Pin;
 
 use crate::reasoning::{resolve_reasoning, ReasoningStyle, ResolvedReasoning};
@@ -300,6 +301,14 @@ fn extract_primary_content(
     content: &Option<String>,
     extra: &std::collections::BTreeMap<String, serde_json::Value>,
 ) -> Option<String> {
+    extract_primary_content_with_seen_images(content, extra, &mut HashSet::new())
+}
+
+fn extract_primary_content_with_seen_images(
+    content: &Option<String>,
+    extra: &std::collections::BTreeMap<String, serde_json::Value>,
+    seen_images: &mut HashSet<String>,
+) -> Option<String> {
     let mut combined = content.clone().or_else(|| {
         for key in ["text", "part", "parts", "value", "output_text"] {
             if let Some(value) = extra.get(key) {
@@ -312,7 +321,7 @@ fn extract_primary_content(
         None
     });
 
-    if let Some(images) = extract_response_images(extra) {
+    if let Some(images) = extract_response_images(extra, seen_images) {
         let text = combined.get_or_insert_with(String::new);
         if !text.is_empty() {
             text.push_str("\n\n");
@@ -325,6 +334,7 @@ fn extract_primary_content(
 
 fn extract_response_images(
     extra: &std::collections::BTreeMap<String, serde_json::Value>,
+    seen_images: &mut HashSet<String>,
 ) -> Option<String> {
     let images = extra.get("images")?.as_array()?;
     let mut markdown = String::new();
@@ -336,22 +346,57 @@ fn extract_response_images(
         let url = image_url
             .as_str()
             .or_else(|| image_url.get("url").and_then(serde_json::Value::as_str));
-        let Some(url) = url.filter(|url| {
-            url.get(.."data:image/".len())
-                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:image/"))
-        }) else {
+        let Some(url) = url.and_then(normalize_response_image_url) else {
             continue;
         };
+        if !seen_images.insert(url.clone()) {
+            continue;
+        }
 
         if !markdown.is_empty() {
             markdown.push_str("\n\n");
         }
         markdown.push_str("![image](");
-        markdown.push_str(url);
+        markdown.push_str(&url);
         markdown.push(')');
     }
 
     (!markdown.is_empty()).then_some(markdown)
+}
+
+fn normalize_response_image_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() || url.contains(')') || url.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return None;
+    }
+    if url.len() < 5 || !url.as_bytes()[..5].eq_ignore_ascii_case(b"data:") {
+        return None;
+    }
+    let (metadata, encoded) = url[5..].split_once(',')?;
+    if metadata.len() < 7
+        || !metadata.as_bytes()[metadata.len() - 7..].eq_ignore_ascii_case(b";base64")
+    {
+        return None;
+    }
+    let mut mime_type = metadata[..metadata.len() - 7].to_ascii_lowercase();
+    if mime_type == "image/jpg" {
+        mime_type = "image/jpeg".to_string();
+    }
+    if !matches!(
+        mime_type.as_str(),
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+    ) {
+        return None;
+    }
+    const MAX_ENCODED_LEN: usize = 32 * 1024 * 1024 * 4 / 3 + 4;
+    if encoded.len() > MAX_ENCODED_LEN
+        || !encoded
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    {
+        return None;
+    }
+    Some(format!("data:{mime_type};base64,{encoded}"))
 }
 
 fn extract_gemini_compat_chunk(data: &str) -> Option<ChatStreamChunk> {
@@ -1110,6 +1155,157 @@ mod tests {
         );
     }
 
+    #[test]
+    fn skips_unsupported_openai_compatible_response_images_and_keeps_text() {
+        let response: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Kept text",
+                    "images": [
+                        { "type": "image_url", "image_url": { "url": "https://example.com/x.png" } },
+                        { "type": "image_url", "image_url": { "url": "file:///tmp/x.png" } },
+                        { "type": "image_url", "image_url": "javascript:alert(1)" },
+                        {
+                            "type": "image_url",
+                            "image_url": { "url": "data:image/svg+xml;base64,PHN2Zz4=" }
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": { "url": "data:image/svg+xml;utf8,<svg><title>x)</title></svg>" }
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": { "url": "data:image/png;base64,AAA)BBB" }
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": { "url": "data:image/png;base64,iVBORw0KGgo=" }
+                        }
+                    ]
+                }
+            }]
+        }))
+        .expect("valid mixed image response");
+        let message = response.choices[0]
+            .message
+            .as_ref()
+            .expect("response message");
+
+        assert_eq!(
+            extract_primary_content(&message.content, &message.extra).as_deref(),
+            Some("Kept text\n\n![image](data:image/png;base64,iVBORw0KGgo=)")
+        );
+    }
+
+    #[test]
+    fn remaps_jpg_response_image_mime_to_jpeg() {
+        let response: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": null,
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": { "url": " DATA:IMAGE/JPG;BASE64,/9j/2Q== " }
+                    }]
+                }
+            }]
+        }))
+        .expect("valid jpg image chunk");
+        let delta = response.choices[0].delta.as_ref().expect("stream delta");
+
+        assert_eq!(
+            extract_primary_content(&delta.content, &delta.extra).as_deref(),
+            Some("![image](data:image/jpeg;base64,/9j/2Q==)")
+        );
+    }
+
+    #[test]
+    fn dedupes_repeated_openai_compatible_images_across_chunks() {
+        let first: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": null,
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": { "url": "data:image/jpeg;base64,/9j/2Q==" }
+                    }]
+                }
+            }]
+        }))
+        .expect("first image chunk");
+        let second: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": "caption",
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": { "url": "data:image/jpeg;base64,/9j/2Q==" }
+                    }]
+                }
+            }]
+        }))
+        .expect("repeated image chunk");
+        let fallback: OpenAIResponse = serde_json::from_value(json!({
+            "id": "image-response",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": { "url": "data:image/jpeg;base64,/9j/2Q==" }
+                    }]
+                }
+            }]
+        }))
+        .expect("message fallback chunk");
+
+        let mut seen_images = HashSet::new();
+        let first_delta = first.choices[0].delta.as_ref().expect("first delta");
+        let second_delta = second.choices[0].delta.as_ref().expect("second delta");
+        let fallback_message = fallback.choices[0]
+            .message
+            .as_ref()
+            .expect("fallback message");
+
+        assert_eq!(
+            extract_primary_content_with_seen_images(
+                &first_delta.content,
+                &first_delta.extra,
+                &mut seen_images
+            )
+            .as_deref(),
+            Some("![image](data:image/jpeg;base64,/9j/2Q==)")
+        );
+        assert_eq!(
+            extract_primary_content_with_seen_images(
+                &second_delta.content,
+                &second_delta.extra,
+                &mut seen_images
+            )
+            .as_deref(),
+            Some("caption")
+        );
+        assert_eq!(
+            extract_primary_content_with_seen_images(
+                &fallback_message.content,
+                &fallback_message.extra,
+                &mut seen_images
+            ),
+            None
+        );
+    }
+
     #[tokio::test]
     async fn list_models_uses_resolved_base_models_url() {
         let (addr, server) = spawn_models_response().await;
@@ -1780,6 +1976,7 @@ where
             let events = crate::sse::parse_sse_stream(resp.bytes_stream());
             futures::pin_mut!(events);
             let mut pending_tool_calls: Vec<(String, String, String, String)> = Vec::new();
+            let mut seen_response_images = HashSet::new();
             let mut finish_reason = None;
             let mut latest_usage: Option<TokenUsage> = None;
 
@@ -1881,10 +2078,20 @@ where
                     let content = choice
                         .delta
                         .as_ref()
-                        .and_then(|delta| extract_primary_content(&delta.content, &delta.extra))
+                        .and_then(|delta| {
+                            extract_primary_content_with_seen_images(
+                                &delta.content,
+                                &delta.extra,
+                                &mut seen_response_images,
+                            )
+                        })
                         .or_else(|| {
                             choice.message.as_ref().and_then(|message| {
-                                extract_primary_content(&message.content, &message.extra)
+                                extract_primary_content_with_seen_images(
+                                    &message.content,
+                                    &message.extra,
+                                    &mut seen_response_images,
+                                )
                             })
                         });
                     let thinking = choice
