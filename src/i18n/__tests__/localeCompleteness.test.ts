@@ -81,7 +81,7 @@ const localeScripts: Record<string, RegExp> = {
 
 const rawVisibleLiteralAllowlist = new Set([
   'AI', 'D2', 'tokens', 'tokens (', 'Beta', 'KB', 'v', 's', 'AQBot', 'WebDAV:',
-  'AGPL-3.0', 'GitHub', 'Codex', 'Claude', 'Agents', 'Tavily', 'Exa', 'Bocha',
+  'AGPL-3.0', 'GitHub', 'Codex', 'Claude', 'Agents', 'Tavily', 'Exa', 'Bocha', 'You.com',
   'SSE', 'StreamableHTTP', 'Stdio', 'Esc', 'npx', 'x-api-key', 'us-east-1',
   'AKIA...', 'sk-...', 'gpt-5.4-think', 'GPT 5.4 Think', 'my-aqbot-backups',
   'aqbot/', '/aqbot/', '/images/edits', '/tasks/{task_id}', '/tasks/{task_id}/cancel',

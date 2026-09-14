@@ -14,6 +14,8 @@ export function SearchProviderTypeIcon({ type, size = 20 }: { type: string; size
       return <img src="/icons/bocha.ico" alt="Bocha" style={{ width: size, height: size }} />;
     case 'exa':
       return <Exa.Color size={size} />;
+    case 'youcom':
+      return <SearchIcon size={size - 2} />;
     default:
       return <SearchIcon size={size - 2} />;
   }
@@ -24,4 +26,5 @@ export const PROVIDER_TYPE_LABELS: Record<string, string> = {
   zhipu: '智谱',
   bocha: '博查',
   exa: 'Exa',
+  youcom: 'You.com',
 };
