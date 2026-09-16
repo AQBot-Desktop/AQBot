@@ -2392,6 +2392,33 @@ describe('conversationStore pagination', () => {
     });
   });
 
+  it('persists search configuration as one atomic preference update', async () => {
+    invokeMock.mockResolvedValueOnce(makeConversation('conv-1', {
+      search_enabled: true,
+      search_provider_id: 'search-1',
+    }));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      searchEnabled: false,
+      searchProviderId: null,
+    });
+
+    useConversationStore.getState().setSearchConfig(true, 'search-1');
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('update_conversation', {
+      id: 'conv-1',
+      input: {
+        search_enabled: true,
+        search_provider_id: 'search-1',
+      },
+    });
+  });
+
   it('broadcasts the selected multi-model order to other windows', async () => {
     const selectedModels = [
       { providerId: 'provider-b', modelId: 'model-b' },
@@ -2739,6 +2766,68 @@ describe('conversationStore pagination', () => {
     });
     expect(useConversationStore.getState().thinkingLevel).toBe('high');
     expect(useConversationStore.getState().thinkingBudget).toBe(4096);
+  });
+
+  it('clears reasoning configuration as one atomic preference update', async () => {
+    invokeMock.mockResolvedValueOnce(makeConversation('conv-1', {
+      thinking_budget: null,
+      thinking_level: null,
+    }));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1', {
+        thinking_budget: 4096,
+        thinking_level: 'high',
+      })] as never[],
+      thinkingLevel: 'high',
+      thinkingBudget: 4096,
+    });
+
+    useConversationStore.getState().setThinkingConfig(null, null);
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('update_conversation', {
+      id: 'conv-1',
+      input: {
+        thinking_level: null,
+        thinking_budget: null,
+      },
+    });
+    expect(useConversationStore.getState().thinkingLevel).toBeNull();
+    expect(useConversationStore.getState().thinkingBudget).toBeNull();
+  });
+
+  it('serializes rapid preference saves for the same conversation', async () => {
+    const firstSave = deferred<ReturnType<typeof makeConversation>>();
+    const secondSave = deferred<ReturnType<typeof makeConversation>>();
+    invokeMock
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise);
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      thinkingLevel: null,
+      thinkingBudget: null,
+    });
+
+    useConversationStore.getState().setThinkingConfig('low', null);
+    useConversationStore.getState().setThinkingConfig('high', null);
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    firstSave.resolve(makeConversation('conv-1', { thinking_level: 'low' }));
+    await flushPromises();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+
+    secondSave.resolve(makeConversation('conv-1', { thinking_level: 'high' }));
+    await flushPromises();
+    expect(useConversationStore.getState().thinkingLevel).toBe('high');
   });
 
   it('rolls back optimistic MCP changes when persistence fails', async () => {

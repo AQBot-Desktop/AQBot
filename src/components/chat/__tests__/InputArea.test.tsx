@@ -17,6 +17,7 @@ const cancelCurrentStream = vi.fn();
 const setPendingPromptText = vi.fn();
 const setSearchEnabled = vi.fn();
 const setSearchProviderId = vi.fn();
+const setSearchConfig = vi.fn();
 const loadSearchProviders = vi.fn();
 const loadMcpServers = vi.fn();
 const toggleMcpServer = vi.fn();
@@ -26,6 +27,7 @@ const loadMemoryNamespaces = vi.fn();
 const toggleMemoryNamespace = vi.fn();
 const setThinkingBudget = vi.fn();
 const setThinkingLevel = vi.fn();
+const setThinkingConfig = vi.fn();
 const insertContextClear = vi.fn();
 const clearAllMessages = vi.fn();
 const clearFirstRounds = vi.fn();
@@ -74,6 +76,7 @@ const conversationState = {
   searchProviderId: 'search-1',
   setSearchEnabled,
   setSearchProviderId,
+  setSearchConfig,
   enabledMcpServerIds: [] as string[],
   toggleMcpServer,
   enabledKnowledgeBaseIds: [] as string[],
@@ -92,6 +95,7 @@ const conversationState = {
   },
   setThinkingBudget,
   setThinkingLevel,
+  setThinkingConfig,
   insertContextClear,
   clearAllMessages,
   clearFirstRounds,
@@ -1312,7 +1316,31 @@ describe('InputArea', () => {
     await userEvent.click(screen.getByLabelText('chat.thinkingIntensity'));
     await userEvent.click(await screen.findByText('Max'));
 
-    expect(setThinkingLevel).toHaveBeenCalledWith('max');
+    expect(setThinkingConfig).toHaveBeenCalledWith('max', null);
+    expect(setThinkingLevel).not.toHaveBeenCalled();
+    expect(setThinkingBudget).not.toHaveBeenCalled();
+  });
+
+  it('clears reasoning level and legacy budget in one action when selecting default', async () => {
+    providerState.providers[0].provider_type = 'openai';
+    providerState.providers[0].models[0].model_id = 'gpt-5.6-sol';
+    providerState.providers[0].models[0].name = 'GPT-5.6 Sol';
+    providerState.providers[0].models[0].capabilities = ['Reasoning'];
+    conversationState.conversations[0].model_id = 'gpt-5.6-sol';
+    conversationState.thinkingLevel = 'high';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.thinkingIntensity'));
+    await userEvent.click(await screen.findByText('Default'));
+
+    expect(setThinkingConfig).toHaveBeenCalledWith(null, null);
+    expect(setThinkingLevel).not.toHaveBeenCalled();
+    expect(setThinkingBudget).not.toHaveBeenCalled();
   });
 
   it('uses the backend dynamic input budget for context usage', async () => {

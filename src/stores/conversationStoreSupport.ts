@@ -182,6 +182,7 @@ const _liveStreamContentByMessageId = new Map<string, string>();
 const _liveStreamListenersByMessageId = new Map<string, Set<() => void>>();
 let _activeMessageLoadSeq = 0;
 const _conversationPreferenceSaveSeq = new Map<string, number>();
+const _conversationPreferenceSaveQueues = new Map<string, Promise<void>>();
 const _conversationDisplayModeMutations = new Map<string, ConversationDisplayModeMutation>();
 const _messageVersionGroupRequests = new Map<string, Promise<void>>();
 let _messageVersionGroupRevision = 0;
@@ -1363,44 +1364,52 @@ async function persistConversationPreferences(
   rollbackState: Partial<ConversationPreferenceState>,
 ) {
   const requestSeq = nextConversationPreferenceSaveSeq(conversationId);
-  try {
-    const updated = await invoke<Conversation>('update_conversation', { id: conversationId, input });
-    if (!isLatestConversationPreferenceSave(conversationId, requestSeq)) return;
+  const previousSave = _conversationPreferenceSaveQueues.get(conversationId) ?? Promise.resolve();
+  const queuedSave = previousSave.then(async () => {
+    try {
+      const updated = await invoke<Conversation>('update_conversation', { id: conversationId, input });
+      if (!isLatestConversationPreferenceSave(conversationId, requestSeq)) return;
 
-    set((state) => ({
-      ...mergeConversationCollections(state.conversations, state.archivedConversations, updated),
-      conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
-      ...(state.activeConversationId === conversationId
-        ? conversationPreferenceStateFromConversation(updated)
-        : {}),
-      error: null,
-    }));
-  } catch (error) {
-    if (!isLatestConversationPreferenceSave(conversationId, requestSeq)) return;
+      set((state) => ({
+        ...mergeConversationCollections(state.conversations, state.archivedConversations, updated),
+        conversationsMeta: mutateConversationsMeta(state.conversationsMeta),
+        ...(state.activeConversationId === conversationId
+          ? conversationPreferenceStateFromConversation(updated)
+          : {}),
+        error: null,
+      }));
+    } catch (error) {
+      if (!isLatestConversationPreferenceSave(conversationId, requestSeq)) return;
 
-    set((state) => {
-      if (
-        state.activeConversationId !== conversationId
-        || !preferenceStateMatches({
-          searchEnabled: state.searchEnabled,
-          searchProviderId: state.searchProviderId,
-          thinkingBudget: state.thinkingBudget,
-          thinkingLevel: state.thinkingLevel,
-          enabledMcpServerIds: state.enabledMcpServerIds,
-          enabledKnowledgeBaseIds: state.enabledKnowledgeBaseIds,
-          enabledMemoryNamespaceIds: state.enabledMemoryNamespaceIds,
-          multiModelTargets: state.multiModelTargets,
-          multiModelContinuationMode: state.multiModelContinuationMode,
-        }, optimisticState)
-      ) {
-        return { error: String(error) };
-      }
+      set((state) => {
+        if (
+          state.activeConversationId !== conversationId
+          || !preferenceStateMatches({
+            searchEnabled: state.searchEnabled,
+            searchProviderId: state.searchProviderId,
+            thinkingBudget: state.thinkingBudget,
+            thinkingLevel: state.thinkingLevel,
+            enabledMcpServerIds: state.enabledMcpServerIds,
+            enabledKnowledgeBaseIds: state.enabledKnowledgeBaseIds,
+            enabledMemoryNamespaceIds: state.enabledMemoryNamespaceIds,
+            multiModelTargets: state.multiModelTargets,
+            multiModelContinuationMode: state.multiModelContinuationMode,
+          }, optimisticState)
+        ) {
+          return { error: String(error) };
+        }
 
-      return {
-        ...rollbackState,
-        error: String(error),
-      };
-    });
+        return {
+          ...rollbackState,
+          error: String(error),
+        };
+      });
+    }
+  });
+  _conversationPreferenceSaveQueues.set(conversationId, queuedSave);
+  await queuedSave;
+  if (_conversationPreferenceSaveQueues.get(conversationId) === queuedSave) {
+    _conversationPreferenceSaveQueues.delete(conversationId);
   }
 }
 
@@ -1558,6 +1567,7 @@ export interface ConversationState {
   searchProviderId: string | null;
   setSearchEnabled: (enabled: boolean) => void;
   setSearchProviderId: (id: string | null) => void;
+  setSearchConfig: (enabled: boolean, providerId: string | null) => void;
   /** MCP servers enabled for the active conversation */
   enabledMcpServerIds: string[];
   setEnabledMcpServerIds: (ids: string[]) => void;
@@ -1568,6 +1578,7 @@ export interface ConversationState {
   /** Reasoning level key for model-specific reasoning profiles (null = provider default) */
   thinkingLevel: string | null;
   setThinkingLevel: (level: string | null) => void;
+  setThinkingConfig: (level: string | null, budget: number | null) => void;
   /** Knowledge base IDs enabled for the active conversation */
   enabledKnowledgeBaseIds: string[];
   setEnabledKnowledgeBaseIds: (ids: string[]) => void;
