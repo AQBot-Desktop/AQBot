@@ -260,8 +260,7 @@ export function InputArea() {
   // Search state
   const searchEnabled = useConversationStore((s) => s.searchEnabled);
   const searchProviderId = useConversationStore((s) => s.searchProviderId);
-  const setSearchEnabled = useConversationStore((s) => s.setSearchEnabled);
-  const setSearchProviderId = useConversationStore((s) => s.setSearchProviderId);
+  const setSearchConfig = useConversationStore((s) => s.setSearchConfig);
   const searchProviders = useSearchStore((s) => s.providers);
   const ensureSearchProvidersLoaded = useSearchStore((s) => s.ensureProvidersLoaded);
 
@@ -273,9 +272,8 @@ export function InputArea() {
 
   // Thinking state
   const thinkingBudget = useConversationStore((s) => s.thinkingBudget);
-  const setThinkingBudget = useConversationStore((s) => s.setThinkingBudget);
   const thinkingLevel = useConversationStore((s) => s.thinkingLevel);
-  const setThinkingLevel = useConversationStore((s) => s.setThinkingLevel);
+  const setThinkingConfig = useConversationStore((s) => s.setThinkingConfig);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
 
   // Agent permission mode state
@@ -458,10 +456,9 @@ export function InputArea() {
   const handleSearchMenuClick = useCallback(
     ({ key }: { key: string }) => {
       if (key === '__empty') return;
-      setSearchEnabled(true);
-      setSearchProviderId(key);
+      setSearchConfig(true, key);
     },
-    [setSearchEnabled, setSearchProviderId],
+    [setSearchConfig],
   );
 
   // MCP popover content — grouped by builtin/custom with checkboxes
@@ -845,11 +842,10 @@ export function InputArea() {
     ({ key }) => {
       const selected = thinkingOptions.find((opt) => opt.key === key);
       if (!selected) return;
-      setThinkingLevel(selected.key === 'default' ? null : selected.key);
-      if (selected.key === 'default') setThinkingBudget(null);
+      setThinkingConfig(selected.key === 'default' ? null : selected.key, null);
       setThinkingDropdownOpen(false);
     },
-    [setThinkingBudget, setThinkingLevel, thinkingOptions],
+    [setThinkingConfig, thinkingOptions],
   );
 
   // Context token usage calculation
@@ -1795,8 +1791,7 @@ export function InputArea() {
                   icon={<Globe size={14} />}
                   style={{ color: token.colorPrimary }}
                   onClick={() => {
-                    setSearchEnabled(false);
-                    setSearchProviderId(null);
+                    setSearchConfig(false, null);
                   }}
                 />
               </Tooltip>

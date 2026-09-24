@@ -122,10 +122,12 @@ async function migrateLegacyMultiModelPreferences(
 type ConversationManagementActions = Pick<ConversationState,
   | 'setSearchEnabled'
   | 'setSearchProviderId'
+  | 'setSearchConfig'
   | 'setEnabledMcpServerIds'
   | 'toggleMcpServer'
   | 'setThinkingBudget'
   | 'setThinkingLevel'
+  | 'setThinkingConfig'
   | 'setEnabledKnowledgeBaseIds'
   | 'toggleKnowledgeBase'
   | 'setEnabledMemoryNamespaceIds'
@@ -299,6 +301,24 @@ export function createConversationManagementActions(
         );
       }
     },
+    setSearchConfig: (enabled, providerId) => {
+      const previous = {
+        searchEnabled: get().searchEnabled,
+        searchProviderId: get().searchProviderId,
+      };
+      const conversationId = get().activeConversationId;
+      const next = { searchEnabled: enabled, searchProviderId: providerId };
+      set(next);
+      if (conversationId) {
+        void persistConversationPreferences(
+          set,
+          conversationId,
+          { search_enabled: enabled, search_provider_id: providerId },
+          next,
+          previous,
+        );
+      }
+    },
     setEnabledMcpServerIds: (ids) => {
       const previous = get().enabledMcpServerIds;
       const conversationId = get().activeConversationId;
@@ -356,6 +376,24 @@ export function createConversationManagementActions(
           { thinking_level: level },
           { thinkingLevel: level },
           { thinkingLevel: previous },
+        );
+      }
+    },
+    setThinkingConfig: (level, budget) => {
+      const previous = {
+        thinkingLevel: get().thinkingLevel,
+        thinkingBudget: get().thinkingBudget,
+      };
+      const conversationId = get().activeConversationId;
+      const next = { thinkingLevel: level, thinkingBudget: budget };
+      set(next);
+      if (conversationId) {
+        void persistConversationPreferences(
+          set,
+          conversationId,
+          { thinking_level: level, thinking_budget: budget },
+          next,
+          previous,
         );
       }
     },
