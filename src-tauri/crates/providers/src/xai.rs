@@ -159,6 +159,7 @@ fn parse_xai_image_models(provider_id: &str, payload: XaiImageModelsResponse) ->
                     image_config: None,
                     metadata_state: None,
                     aliases: Vec::new(),
+                    icon: None,
                 })
         })
         .collect()
@@ -251,6 +252,7 @@ mod image_model_tests {
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         }
     }
 

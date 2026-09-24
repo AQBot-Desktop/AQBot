@@ -216,6 +216,8 @@ export interface Model {
   metadata_state?: ModelMetadataState | null;
   /** Gateway request aliases; requests using an alias are rewritten to model_id. */
   aliases?: string[];
+  /** Packed custom icon: `emoji:`, `url:`, `file:`, `model:Id`, or `provider:Id`. */
+  icon?: string | null;
 }
 
 export type ImageOperation = 'generate' | 'edit' | 'mask_edit';

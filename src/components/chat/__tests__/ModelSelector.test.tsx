@@ -89,6 +89,9 @@ vi.mock('../ConversationModelIcon', () => ({
 
 vi.mock('@/lib/providerIcons', () => ({
   SmartProviderIcon: () => <span data-testid="provider-icon" />,
+  SmartModelIcon: ({ modelId }: { modelId: string }) => (
+    <span data-testid="model-icon">{modelId}</span>
+  ),
 }));
 
 vi.mock('@/lib/shortcuts', () => ({

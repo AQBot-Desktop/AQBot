@@ -615,7 +615,7 @@ export function ModelSyncPickerModal({
                           }}
                         />
                       </div>
-                      <SmartModelIcon modelId={models[0]?.model.model_id ?? group} provider={provider} size={20} type="avatar" />
+                      <SmartModelIcon modelId={models[0]?.model.model_id ?? group} icon={models[0]?.model.icon} provider={provider} size={20} type="avatar" />
                       <Text style={{ fontWeight: 600 }}>{group}</Text>
                       <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
                         {selectableModels.length > 0 ? `${selectedInGroup}/${models.length}` : models.length}
@@ -650,7 +650,7 @@ export function ModelSyncPickerModal({
                         }}
                       />
                     </div>
-                    <SmartModelIcon modelId={m.model_id} provider={provider} size={20} type="avatar" />
+                    <SmartModelIcon modelId={m.model_id} icon={m.icon} provider={provider} size={20} type="avatar" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1 flex-wrap">
                         <span style={{ overflowWrap: 'anywhere' }}>{m.name || m.model_id}</span>

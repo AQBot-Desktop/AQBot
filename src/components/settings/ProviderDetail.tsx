@@ -33,7 +33,6 @@ import { SmartModelIcon, SmartProviderIcon } from '@/lib/providerIcons';
 import { encodeProviderIcon, parseProviderIcon } from '@/lib/providerIconCodec';
 import { getEditableCapabilities, getVisibleModelCapabilities, sanitizeModelCapabilities } from '@/lib/modelCapabilities';
 import { IconEditor } from '@/components/shared/IconEditor';
-import { DynamicLobeIcon } from '@/components/shared/DynamicLobeIcon';
 import type {
   ImageAdapterConfig,
   Model,
@@ -213,7 +212,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [metadataSyncLoading, setMetadataSyncLoading] = useState(false);
   const [metadataSyncCurrent, setMetadataSyncCurrent] = useState<Model | null>(null);
   const [metadataSyncCandidate, setMetadataSyncCandidate] = useState<ModelSyncCandidate | null>(null);
-  const [iconOverrides, setIconOverrides] = useState<Record<string, string>>({});
+  const [editIcon, setEditIcon] = useState<string | null>(null);
   const [apiHostLocal, setApiHostLocal] = useState(provider?.api_host ?? '');
   const [apiPathLocal, setApiPathLocal] = useState(provider?.api_path ?? '');
   const [awsRegionLocal, setAwsRegionLocal] = useState(provider?.aws_region ?? '');
@@ -737,6 +736,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setEditImageConfig(model.image_config ?? null);
       setEditAliases(model.aliases ?? []);
       setEditAliasInput('');
+      setEditIcon(model.icon ?? null);
       setEditMetadataDirty(new Set());
       setEditMetadataAutomatic(new Set());
       setMetadataSyncModalOpen(false);
@@ -912,6 +912,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
         param_overrides: values,
         image_config: isImageModel ? editImageConfig : editingModel.image_config,
         aliases: normalizedAliases,
+        icon: editIcon,
       };
       const userFields = Array.from(editMetadataDirty);
       const automaticFields = Array.from(editMetadataAutomatic);
@@ -925,7 +926,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     } catch {
       message.error(t('error.saveFailed'));
     }
-  }, [editingModel, editCapabilities, editContextWindow, editMaxOutputTokens, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editOmitSamplingParams, editReasoningOptions, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, editAliases, editAliasInput, editMetadataDirty, editMetadataAutomatic, providerId, updateModelMetadata, message, t]);
+  }, [editingModel, editCapabilities, editContextWindow, editMaxOutputTokens, editModelType, editTemperature, editMaxTokensParam, editTopP, editFreqPenalty, editUseMaxCompletionTokens, editNoSystemRole, editOmitSamplingParams, editReasoningOptions, editForceMaxTokens, editThinkingParamStyle, editExtraBody, editImageConfig, editAliases, editAliasInput, editIcon, editMetadataDirty, editMetadataAutomatic, providerId, updateModelMetadata, message, t]);
 
   const handleApiHostChange = useCallback(
     (value: string) => {
@@ -1759,7 +1760,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                         />
                       )}
                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      <SmartModelIcon modelId={models[0]?.model_id ?? group} provider={provider} size={20} type="avatar" />
+                      <SmartModelIcon modelId={models[0]?.model_id ?? group} icon={models[0]?.icon} provider={provider} size={20} type="avatar" />
                       <Text style={{ fontWeight: 600 }}>{group}</Text>
                       <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>{models.length}</Tag>
                       <div style={{ flex: 1 }} />
@@ -1836,10 +1837,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                         onChange={() => handleBatchToggleModel(model.model_id)}
                       />
                     )}
-                    {iconOverrides[model.model_id]
-                      ? <DynamicLobeIcon iconId={iconOverrides[model.model_id]} size={20} type="avatar" />
-                      : <SmartModelIcon modelId={model.model_id} provider={provider} size={20} type="avatar" />
-                    }
+                    <SmartModelIcon modelId={model.model_id} icon={model.icon} provider={provider} size={20} type="avatar" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1 flex-wrap">
                         <span>{model.name || model.model_id}</span>
@@ -2228,26 +2226,15 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
             {/* Model Icon + Name + ID */}
             <div className="flex items-center gap-3">
               <IconEditor
-                iconType={iconOverrides[editingModel.model_id] ? 'model_icon' : null}
-                iconValue={iconOverrides[editingModel.model_id] ? `model:${iconOverrides[editingModel.model_id]}` : null}
+                iconType={parseProviderIcon(editIcon)?.type ?? null}
+                iconValue={parseProviderIcon(editIcon)?.value ?? null}
                 onChange={(type, value) => {
-                  if (editingModel) {
-                    if (type === 'model_icon' && value) {
-                      const iconId = value.indexOf(':') > 0 ? value.substring(value.indexOf(':') + 1) : value;
-                      setIconOverrides((prev) => ({ ...prev, [editingModel.model_id]: iconId }));
-                    } else {
-                      // Clear override for non-model_icon types (or clear)
-                      setIconOverrides((prev) => {
-                        const next = { ...prev };
-                        delete next[editingModel.model_id];
-                        return next;
-                      });
-                    }
-                  }
+                  const encoded = encodeProviderIcon(type, value);
+                  setEditIcon(encoded || null);
                 }}
                 size={32}
                 showModelIcons
-                showClear={!!iconOverrides[editingModel.model_id]}
+                showClear={!!editIcon}
                 defaultIcon={<SmartModelIcon modelId={editingModel.model_id} provider={provider} size={32} type="avatar" />}
               />
               <div className="flex items-center gap-1.5 min-w-0 flex-1">

@@ -235,6 +235,7 @@ async fn test_provider_model_operations() {
         image_config: None,
         metadata_state: None,
         aliases: Vec::new(),
+        icon: Some("emoji:★".into()),
     }];
 
     // save models
@@ -252,12 +253,14 @@ async fn test_provider_model_operations() {
     let m = provider::get_model(db, &prov.id, "claude-3").await.unwrap();
     assert_eq!(m.name, "Claude 3");
     assert_eq!(m.group_name.as_deref(), Some("claude-3"));
+    assert_eq!(m.icon.as_deref(), Some("emoji:★"));
 
     // toggle model
     let toggled = provider::toggle_model(db, &prov.id, "claude-3", false)
         .await
         .unwrap();
     assert!(!toggled.enabled);
+    assert_eq!(toggled.icon.as_deref(), Some("emoji:★"));
 }
 
 // ---------------------------------------------------------------------------

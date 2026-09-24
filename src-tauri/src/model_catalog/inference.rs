@@ -410,6 +410,8 @@ fn apply_catalog_parameters(model: &mut Model, entry: &CatalogEntry) {
 }
 
 fn merge_manual_or_legacy(local: &Model, proposed: &mut Model) {
+    // Remote sync builds a new model and would otherwise drop a user-picked icon.
+    proposed.icon = local.icon.clone();
     proposed.name = local.name.clone();
     proposed.group_name = local.group_name.clone();
     proposed.enabled = local.enabled;

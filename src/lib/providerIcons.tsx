@@ -1,10 +1,16 @@
-import { memo } from 'react';
+import { lazy, memo, Suspense } from 'react';
 import { Avatar } from 'antd';
 import type { ProviderConfig } from '@/types';
 import { ProviderIcon, ModelIcon, providerMappings, modelMappings } from '@lobehub/icons';
-import { DynamicLobeIcon } from '@/components/shared/DynamicLobeIcon';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
 import { parseProviderIcon } from '@/lib/providerIconCodec';
+import { useProviderStore } from '@/stores/providerStore';
+
+const LazyDynamicLobeIcon = lazy(() =>
+  import('@/components/shared/DynamicLobeIcon').then((mod) => ({
+    default: mod.DynamicLobeIcon,
+  })),
+);
 
 const SHUAI_API_LOGO_URL = 'https://api.shuaiapi.com/images/logo.svg';
 const GPTNB_LOGO_URL = 'https://pic.scdn.app/images/2023/06/26/favicon.png';
@@ -124,6 +130,55 @@ export function getProviderIconKey(provider: ProviderConfig): string {
   return result.key;
 }
 
+function renderStoredIcon(
+  parsed: NonNullable<ReturnType<typeof parseProviderIcon>>,
+  size: number,
+  type: 'avatar' | 'color' | 'mono',
+  shape?: 'circle' | 'square',
+) {
+  if (parsed.type === 'emoji') {
+    const borderRadius = shape === 'square' ? Math.floor(size * 0.1) : '50%';
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: size * 0.55,
+          lineHeight: 1,
+          flexShrink: 0,
+        }}
+      >
+        {parsed.value}
+      </div>
+    );
+  }
+  if (parsed.type === 'url') {
+    return (
+      <Avatar
+        size={size}
+        src={parsed.value}
+        shape={shape === 'square' ? 'square' : 'circle'}
+        style={{ flexShrink: 0 }}
+      />
+    );
+  }
+  if (parsed.type === 'file') {
+    return <ProviderFileIcon value={parsed.value} size={size} shape={shape} />;
+  }
+  const iconId = parsed.value.includes(':')
+    ? parsed.value.slice(parsed.value.indexOf(':') + 1)
+    : parsed.value;
+  return (
+    <Suspense fallback={<span style={{ width: size, height: size, display: 'inline-block', flexShrink: 0 }} />}>
+      <LazyDynamicLobeIcon iconId={iconId} size={size} type={type} />
+    </Suspense>
+  );
+}
+
 function ProviderFileIcon({
   value,
   size,
@@ -166,44 +221,7 @@ export const SmartProviderIcon = memo(function SmartProviderIcon({
 }) {
   const parsed = parseProviderIcon(provider.icon);
   if (parsed) {
-    if (parsed.type === 'emoji') {
-      const borderRadius = shape === 'square' ? Math.floor(size * 0.1) : '50%';
-      return (
-        <div
-          style={{
-            width: size,
-            height: size,
-            borderRadius,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: size * 0.55,
-            lineHeight: 1,
-            flexShrink: 0,
-          }}
-        >
-          {parsed.value}
-        </div>
-      );
-    }
-    if (parsed.type === 'url') {
-      return (
-        <Avatar
-          size={size}
-          src={parsed.value}
-          shape={shape === 'square' ? 'square' : 'circle'}
-          style={{ flexShrink: 0 }}
-        />
-      );
-    }
-    if (parsed.type === 'file') {
-      return <ProviderFileIcon value={parsed.value} size={size} shape={shape} />;
-    }
-    // model_icon: value is `group:id` or bare id
-    const iconId = parsed.value.includes(':')
-      ? parsed.value.slice(parsed.value.indexOf(':') + 1)
-      : parsed.value;
-    return <DynamicLobeIcon iconId={iconId} size={size} type={type} />;
+    return renderStoredIcon(parsed, size, type, shape);
   }
   const builtinLogoUrl = provider.builtin_id
     ? BUILTIN_LOGO_URLS[provider.builtin_id]
@@ -252,19 +270,42 @@ export const SmartProviderIcon = memo(function SmartProviderIcon({
  *    (Cohere `rerank-v4.0`, Voyage `rerank-2.5`, custom endpoints, …)
  * 3) No provider → ModelIcon default avatar
  */
+export function findStoredModelIcon(
+  providers: readonly { id: string; models: readonly { model_id: string; icon?: string | null }[] }[],
+  providerId: string | null | undefined,
+  modelId: string | null | undefined,
+): string | null {
+  if (!modelId) return null;
+  if (providerId) {
+    const provider = providers.find((item) => item.id === providerId);
+    return provider?.models.find((item) => item.model_id === modelId)?.icon || null;
+  }
+  for (const provider of providers) {
+    const icon = provider.models.find((item) => item.model_id === modelId)?.icon;
+    if (icon) return icon;
+  }
+  return null;
+}
+
 export const SmartModelIcon = memo(function SmartModelIcon({
   modelId,
   provider,
+  icon,
   size = 20,
   type = 'avatar',
   shape,
 }: {
   modelId: string;
   provider?: ProviderConfig | null;
+  icon?: string | null;
   size?: number;
   type?: 'avatar' | 'color' | 'mono';
   shape?: 'circle' | 'square';
 }) {
+  const custom = parseProviderIcon(icon);
+  if (custom) {
+    return renderStoredIcon(custom, size, type, shape);
+  }
   if (hasKnownModelIcon(modelId)) {
     return <ModelIcon model={modelId} size={size} type={type} />;
   }
@@ -274,6 +315,7 @@ export const SmartModelIcon = memo(function SmartModelIcon({
   return <ModelIcon model={modelId} size={size} type={type} />;
 }, (prev, next) =>
   prev.modelId === next.modelId
+  && prev.icon === next.icon
   && prev.provider?.id === next.provider?.id
   && prev.provider?.icon === next.provider?.icon
   && prev.provider?.builtin_id === next.provider?.builtin_id
@@ -283,3 +325,22 @@ export const SmartModelIcon = memo(function SmartModelIcon({
   && prev.type === next.type
   && prev.shape === next.shape
 );
+
+/** Brand icon for a configured model, with a stored custom icon taking priority. */
+export const ResolvedModelIcon = memo(function ResolvedModelIcon({
+  modelId,
+  providerId,
+  size = 20,
+  type = 'avatar',
+}: {
+  modelId: string;
+  providerId?: string | null;
+  size?: number;
+  type?: 'avatar' | 'color' | 'mono';
+}) {
+  const providers = useProviderStore((state) => state.providers);
+  const icon = findStoredModelIcon(providers, providerId, modelId);
+  const custom = parseProviderIcon(icon);
+  if (custom) return renderStoredIcon(custom, size, type);
+  return <ModelIcon model={modelId} size={size} type={type} />;
+});

@@ -95,6 +95,16 @@ fn model_from_entity(m: models::Model) -> Model {
             .and_then(|value| serde_json::from_str(&value).ok()),
         metadata_state,
         aliases,
+        icon: normalize_model_icon(m.icon),
+    }
+}
+
+fn normalize_model_icon(icon: Option<String>) -> Option<String> {
+    let trimmed = icon?.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
     }
 }
 
@@ -694,6 +704,7 @@ where
             image_config_json: Set(image_config_json),
             metadata_state_json: Set(metadata_state_json),
             aliases_json: Set(aliases_json),
+            icon: Set(normalize_model_icon(model.icon.clone())),
         }
         .insert(conn)
         .await?;
@@ -1281,6 +1292,7 @@ mod tests {
                     ..ModelMetadataState::default()
                 }),
                 aliases: Vec::new(),
+                icon: None,
             }],
         )
         .await
@@ -1351,6 +1363,7 @@ mod tests {
                     ..ModelMetadataState::default()
                 }),
                 aliases: Vec::new(),
+                icon: None,
             }],
         )
         .await
@@ -1372,6 +1385,50 @@ mod tests {
             model.metadata_state.as_ref().map(|state| state.model_type),
             Some(ModelMetadataSource::User)
         );
+    }
+
+    #[tokio::test]
+    async fn model_icon_round_trips_and_blank_is_cleared() {
+        let h = create_test_pool().await.unwrap();
+        let db = &h.conn;
+        let provider = create_provider(
+            db,
+            CreateProviderInput {
+                name: "Custom".into(),
+                provider_type: ProviderType::Custom,
+                api_host: "https://example.com".into(),
+                api_path: None,
+                aws_region: None,
+                enabled: true,
+                builtin_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let mut model = Model {
+            provider_id: provider.id.clone(),
+            model_id: "custom-endpoint".into(),
+            name: "Custom Endpoint".into(),
+            group_name: None,
+            model_type: ModelType::Chat,
+            capabilities: vec![ModelCapability::TextChat],
+            context_window: None,
+            max_output_tokens: None,
+            enabled: true,
+            param_overrides: None,
+            image_config: None,
+            metadata_state: None,
+            aliases: Vec::new(),
+            icon: Some("emoji:★".into()),
+        };
+        save_models(db, &provider.id, &[model.clone()]).await.unwrap();
+        let stored = get_model(db, &provider.id, "custom-endpoint").await.unwrap();
+        assert_eq!(stored.icon.as_deref(), Some("emoji:★"));
+
+        model.icon = Some("   ".into());
+        save_models(db, &provider.id, &[model]).await.unwrap();
+        let cleared = get_model(db, &provider.id, "custom-endpoint").await.unwrap();
+        assert_eq!(cleared.icon, None);
     }
 
     #[tokio::test]

@@ -1,6 +1,6 @@
 import { Button, Dropdown, theme, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { ModelIcon } from '@lobehub/icons';
+import { ResolvedModelIcon } from '@/lib/providerIcons';
 import { Atom, Trash2, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -194,7 +194,7 @@ export function CompanionModelTags({
             >
               ↓
             </button>
-            <ModelIcon model={item.target.modelId} size={14} type="avatar" />
+            <ResolvedModelIcon modelId={item.target.modelId} providerId={item.target.providerId} size={14} type="avatar" />
             <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {item.modelName}
             </span>

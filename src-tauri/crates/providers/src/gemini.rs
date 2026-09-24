@@ -820,6 +820,7 @@ impl ProviderAdapter for GeminiAdapter {
                     image_config,
                     metadata_state: None,
                     aliases: Vec::new(),
+                    icon: None,
                 }
             })
             .collect())

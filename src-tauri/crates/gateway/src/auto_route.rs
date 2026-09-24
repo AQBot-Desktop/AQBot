@@ -214,6 +214,7 @@ mod tests {
                     image_config: None,
                     metadata_state: None,
                     aliases: aliases.iter().map(|s| (*s).to_string()).collect(),
+                    icon: None,
                 })
                 .collect(),
             keys: vec![],

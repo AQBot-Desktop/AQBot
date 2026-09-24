@@ -1,10 +1,9 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Tag, Modal, Input, theme, Tooltip, Button, Checkbox } from 'antd';
 import { Search, Settings, Pin, PinOff, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, Wrench, Lightbulb, Mic, MessageSquare, Check, GitCompareArrows } from 'lucide-react';
-import { ModelIcon } from '@lobehub/icons';
 import { useTranslation } from 'react-i18next';
 import { useProviderStore, useConversationStore, useSettingsStore, useUIStore } from '@/stores';
-import { SmartProviderIcon } from '@/lib/providerIcons';
+import { SmartModelIcon, SmartProviderIcon } from '@/lib/providerIcons';
 import { getShortcutBinding, formatShortcutForDisplay } from '@/lib/shortcuts';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getVisibleModelCapabilities } from '@/lib/modelCapabilities';
@@ -135,7 +134,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     if (!pid || !mid) return null;
     const provider = providers.find((p) => p.id === pid);
     const model = provider?.models.find((m) => m.model_id === mid);
-    return { pid, mid, name: model?.name ?? mid, providerName: provider?.name ?? '' };
+    return { pid, mid, name: model?.name ?? mid, providerName: provider?.name ?? '', icon: model?.icon ?? null };
   }, [activeConversation, settings.default_provider_id, settings.default_model_id, providers, showImageModels]);
 
   const currentValue = overrideCurrentModel
@@ -424,7 +423,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
             )}
           </span>
         )}
-        <ModelIcon model={modelId} size={20} type="avatar" />
+        <SmartModelIcon modelId={modelId} icon={model?.icon} size={20} type="avatar" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
             {showProviderTag && providerName && (
@@ -483,7 +482,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
         >
           {currentModel && (
             <>
-              <ConversationModelIcon model={currentModel.mid} size={16} />
+              <ConversationModelIcon model={currentModel.mid} icon={currentModel.icon} size={16} />
               {currentModel.providerName && (
                 <Tag style={{ fontSize: 11, margin: 0, padding: '0 4px', lineHeight: '16px', color: token.colorPrimary, backgroundColor: token.colorPrimaryBg, border: 'none' }}>{currentModel.providerName}</Tag>
               )}

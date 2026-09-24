@@ -15,7 +15,7 @@ import {
 import type { ConversationStats, Message, MultiModelDisplayMode } from '@/types';
 import type { CSSProperties } from 'react';
 import Actions from '@ant-design/x/es/actions';
-import { ModelIcon } from '@lobehub/icons';
+import { ResolvedModelIcon } from '@/lib/providerIcons';
 import { App, Button, Dropdown, Input, Modal, Popconfirm, Popover, Spin, Tooltip, Typography, theme } from 'antd';
 import {
   AlertCircle,
@@ -246,7 +246,7 @@ function ModelTags({
                   '--model-tag-waiting-color': token.colorWarning,
                 } as CSSProperties}
               >
-                <ModelIcon model={pending.modelId} size={20} type="avatar" />
+                <ResolvedModelIcon modelId={pending.modelId} providerId={pending.providerId} size={20} type="avatar" />
               </div>
             </Tooltip>
           );
@@ -273,7 +273,7 @@ function ModelTags({
                 flexShrink: 0,
               }}
             >
-              <ModelIcon model={modelId} size={20} type="avatar" />
+              <ResolvedModelIcon modelId={modelId} providerId={firstVersion.provider_id} size={20} type="avatar" />
             </div>
           </Tooltip>
         );

@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect, createContext, useContext,
 import { createPortal } from 'react-dom';
 import { Avatar, Typography, theme } from 'antd';
 import { ChevronDown, User } from 'lucide-react';
-import { ModelIcon } from '@lobehub/icons';
+import { ResolvedModelIcon } from '@/lib/providerIcons';
 import { useConversationStore, useProviderStore, useSettingsStore } from '@/stores';
 import { useUserProfileStore } from '@/stores/userProfileStore';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
@@ -529,7 +529,7 @@ function FaqItem({ entry, isActive, token }: {
         {isUser ? (
           <UserAvatarIcon size={14} />
         ) : entry.modelId ? (
-          <ModelIcon model={entry.modelId} size={12} type="avatar" />
+          <ResolvedModelIcon modelId={entry.modelId} providerId={entry.providerId} size={12} type="avatar" />
         ) : (
           entry.index + 1
         )}
@@ -545,7 +545,7 @@ function FaqItem({ entry, isActive, token }: {
         >
           <div style={{ fontSize: 10, color: isUser ? token.colorTextSecondary : token.colorPrimary }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              {!isUser && entry.modelId && <ModelIcon model={entry.modelId} size={10} type="avatar" />}
+              {!isUser && entry.modelId && <ResolvedModelIcon modelId={entry.modelId} providerId={entry.providerId} size={10} type="avatar" />}
               {isUser ? 'Q' : <ModelName modelId={entry.modelId} providerId={entry.providerId} />}
             </span>
           </div>
@@ -609,7 +609,7 @@ function StickyHeader({ entries }: { entries: MinimapEntry[] }) {
         </span>
         {current.role === 'assistant' && current.modelId && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            <ModelIcon model={current.modelId} size={14} type="avatar" />
+            <ResolvedModelIcon modelId={current.modelId} providerId={current.providerId} size={14} type="avatar" />
             <StickyModelName modelId={current.modelId} providerId={current.providerId} />
           </span>
         )}
@@ -710,7 +710,7 @@ function StickyDropdownItem({ entry, isActive, token }: {
         {isUser ? (
           <UserAvatarIcon size={16} />
         ) : entry.modelId ? (
-          <ModelIcon model={entry.modelId} size={16} type="avatar" />
+          <ResolvedModelIcon modelId={entry.modelId} providerId={entry.providerId} size={16} type="avatar" />
         ) : (
           <Avatar size={16} style={{ backgroundColor: token.colorPrimary, fontSize: 10 }}>AI</Avatar>
         )}

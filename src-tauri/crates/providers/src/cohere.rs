@@ -58,6 +58,7 @@ pub(crate) fn cohere_models(provider_id: &str) -> Vec<Model> {
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         })
         .collect()
 }

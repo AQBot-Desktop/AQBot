@@ -20,6 +20,8 @@ pub struct Model {
     pub metadata_state_json: Option<String>,
     /// JSON array of gateway request aliases for this model.
     pub aliases_json: Option<String>,
+    /// Packed custom icon. Same format as `providers.icon`.
+    pub icon: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

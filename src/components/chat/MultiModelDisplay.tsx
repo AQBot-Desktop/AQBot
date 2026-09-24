@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { flushSync } from 'react-dom';
 import { Alert, App, Button, Dropdown, Popconfirm, Spin, Tag, Tooltip, Typography, theme } from 'antd';
 import { AppWindow, ArrowLeftRight, Brain, Check, ChevronLeft, ChevronRight, Columns2, GitBranch, LayoutList, Maximize2, Pencil, RotateCcw, Rows3, Trash2 } from 'lucide-react';
-import { ModelIcon } from '@lobehub/icons';
+import { ResolvedModelIcon } from '@/lib/providerIcons';
 import { useTranslation } from 'react-i18next';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import type { Message, MultiModelDisplayMode } from '@/types';
@@ -385,7 +385,7 @@ function MultiModelDisplayInner({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ModelIcon model={vMsg.model_id ?? ''} size={20} type="avatar" />
+                <ResolvedModelIcon modelId={vMsg.model_id ?? ''} providerId={vMsg.provider_id} size={20} type="avatar" />
                 {providerName && (
                   <Tag
                     style={{

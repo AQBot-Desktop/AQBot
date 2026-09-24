@@ -100,6 +100,7 @@ mod function_calling_gate_tests {
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         }
     }
 

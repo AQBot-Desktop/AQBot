@@ -106,6 +106,7 @@ import { ChatMinimap, MinimapScrollProvider } from './ChatMinimap';
 import { ChatScrollIndicator } from './ChatScrollIndicator';
 import { CodeBlockPreviewModal } from './CodeBlockPreviewModal';
 import { ConversationModelIcon } from './ConversationModelIcon';
+import { findStoredModelIcon } from '@/lib/providerIcons';
 import { InputArea } from './InputArea';
 import { RoleIntroPanel } from './RoleIntroPanel';
 import { MessageAttachmentPreview } from './MessageAttachmentPreview';
@@ -371,7 +372,11 @@ export function ChatView() {
     return `#${boundaryIndex + 1} - ${formatChatTime(boundaryMessage.created_at)}`;
   }, [messages, summaryModalSummary?.compressed_until_message_id]);
 
-  const renderConvIconForChat = useCallback((size: number, modelId?: string | null) => {
+  const renderConvIconForChat = useCallback((
+    size: number,
+    modelId?: string | null,
+    providerId?: string | null,
+  ) => {
     if (!activeConversation) return <Avatar icon={<Bot size={16} />} style={{ background: token.colorPrimary }} size={size} />;
     const customIcon = activeCustomConvIcon;
     if (customIcon) {
@@ -385,10 +390,15 @@ export function ChatView() {
     }
     const mid = modelId ?? activeConversation.model_id;
     if (mid) {
-      return <ConversationModelIcon model={mid} size={size} />;
+      const storedIcon = findStoredModelIcon(
+        providers,
+        providerId ?? activeConversation.provider_id,
+        mid,
+      );
+      return <ConversationModelIcon model={mid} icon={storedIcon} size={size} />;
     }
     return <Avatar icon={<Bot size={16} />} style={{ background: token.colorPrimary }} size={size} />;
-  }, [activeConversation, activeCustomConvIcon, resolvedActiveCustomConvIconSrc, token.colorPrimary, token.colorPrimaryBg]);
+  }, [activeConversation, activeCustomConvIcon, providers, resolvedActiveCustomConvIconSrc, token.colorPrimary, token.colorPrimaryBg]);
 
   const handleChatSidebarToggle = useCallback(() => {
     void saveSettings({ chat_sidebar_collapsed: !chatSidebarCollapsed });
@@ -1843,7 +1853,7 @@ export function ChatView() {
     return {
       placement: 'start' as const,
       ...getBubbleVariant(false),
-      avatar: isNonTabsMultiModel || column ? undefined : renderConvIconForChat(32, msg?.model_id),
+      avatar: isNonTabsMultiModel || column ? undefined : renderConvIconForChat(32, msg?.model_id, msg?.provider_id),
       loading: bubbleLoading,
       styles: getShareSelectBubbleStyles(msg?.id),
       contentRender: (content: string) => {

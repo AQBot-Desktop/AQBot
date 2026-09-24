@@ -1550,6 +1550,7 @@ where
             image_config_json: Set(None),
             metadata_state_json: Set(None),
             aliases_json: Set(None),
+            icon: Set(None),
         })
         .on_conflict(
             OnConflict::columns([models::Column::ProviderId, models::Column::ModelId])

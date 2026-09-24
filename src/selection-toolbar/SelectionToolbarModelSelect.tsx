@@ -93,7 +93,7 @@ export function SelectionToolbarModelSelect() {
     const title = providerName ? `${label} (${providerName})` : label;
     return (
       <span title={title}>
-        <ModelSelectValueLabel modelId={parsed.modelId} label={label} />
+        <ModelSelectValueLabel modelId={parsed.modelId} providerId={parsed.providerId} label={label} />
       </span>
     );
   }, [providerNameMap, providers]);

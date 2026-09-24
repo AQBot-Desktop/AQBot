@@ -2,10 +2,13 @@ import { memo } from 'react';
 import { theme } from 'antd';
 import { ModelIcon, modelMappings } from '@lobehub/icons';
 import { Brain } from 'lucide-react';
+import { parseProviderIcon } from '@/lib/providerIconCodec';
+import { SmartModelIcon } from '@/lib/providerIcons';
 
 type ConversationModelIconProps = {
   model: string;
   size: number;
+  icon?: string | null;
 };
 
 const FALLBACK_MODEL_IDS = new Set(['unknown-model', 'unknown', 'default', 'kelivo']);
@@ -35,8 +38,30 @@ function shouldUseFallbackIcon(model: string): boolean {
 export const ConversationModelIcon = memo(function ConversationModelIcon({
   model,
   size,
+  icon,
 }: ConversationModelIconProps) {
   const { token } = theme.useToken();
+  if (parseProviderIcon(icon)) {
+    return (
+      <span
+        className="aqbot-conversation-model-icon"
+        style={{
+          width: size,
+          height: size,
+          minWidth: size,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          lineHeight: 0,
+          borderRadius: '50%',
+          overflow: 'hidden',
+        }}
+      >
+        <SmartModelIcon modelId={model} icon={icon} size={size} type="avatar" />
+      </span>
+    );
+  }
   if (shouldUseFallbackIcon(model)) {
     return (
       <span

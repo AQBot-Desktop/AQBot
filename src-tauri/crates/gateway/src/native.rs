@@ -1248,6 +1248,7 @@ mod tests {
                 image_config: None,
                 metadata_state: None,
                 aliases: Vec::new(),
+                icon: None,
             }],
         )
         .await
@@ -1315,6 +1316,7 @@ mod tests {
                 image_config: None,
                 metadata_state: None,
                 aliases: Vec::new(),
+                icon: None,
             }],
         )
         .await

@@ -58,6 +58,7 @@ mod m20260825_000004_add_conversation_multi_model_preferences;
 mod m20260825_000005_add_conversation_tab_pin_order;
 mod m20260827_000001_add_role_opening_questions_v2;
 mod m20260904_000001_add_role_context_bindings;
+mod m20260924_000001_add_model_icon;
 
 pub struct Migrator;
 
@@ -125,6 +126,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260825_000005_add_conversation_tab_pin_order::Migration),
             Box::new(m20260827_000001_add_role_opening_questions_v2::Migration),
             Box::new(m20260904_000001_add_role_context_bindings::Migration),
+            Box::new(m20260924_000001_add_model_icon::Migration),
         ]
     }
 }
@@ -244,7 +246,12 @@ mod tests {
             .expect("run sqlite migrations");
         let manager = SchemaManager::new(&db);
 
-        for column in ["max_output_tokens", "metadata_state_json", "aliases_json"] {
+        for column in [
+            "max_output_tokens",
+            "metadata_state_json",
+            "aliases_json",
+            "icon",
+        ] {
             assert!(
                 manager
                     .has_column("models", column)

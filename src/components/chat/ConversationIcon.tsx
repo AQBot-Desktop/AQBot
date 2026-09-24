@@ -3,13 +3,15 @@ import { Avatar, theme } from 'antd';
 import { Loader } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getConvIcon } from '@/lib/convIcon';
+import { findStoredModelIcon } from '@/lib/providerIcons';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
+import { useProviderStore } from '@/stores/providerStore';
 import type { AvatarType } from '@/stores/userProfileStore';
 import type { Conversation } from '@/types';
 import { ConversationModelIcon } from './ConversationModelIcon';
 
 export type ConversationIconProps = {
-  conv: Pick<Conversation, 'id' | 'title' | 'model_id' | 'mode'>;
+  conv: Pick<Conversation, 'id' | 'title' | 'model_id' | 'provider_id' | 'mode'>;
   isStreaming?: boolean;
   size?: number;
 };
@@ -25,6 +27,8 @@ export const ConversationIcon = memo(function ConversationIcon({
 }: ConversationIconProps) {
   const { token } = theme.useToken();
   const { t } = useTranslation();
+  const providers = useProviderStore((state) => state.providers);
+  const modelIcon = findStoredModelIcon(providers, conv.provider_id, conv.model_id);
   const customIcon = getConvIcon(conv.id);
   const resolvedSrc = useResolvedAvatarSrc(
     (customIcon?.type as AvatarType) ?? 'icon',
@@ -46,7 +50,7 @@ export const ConversationIcon = memo(function ConversationIcon({
       icon = <Avatar size={size} src={src} />;
     }
   } else if (conv.model_id) {
-    icon = <ConversationModelIcon model={conv.model_id} size={size} />;
+    icon = <ConversationModelIcon model={conv.model_id} icon={modelIcon} size={size} />;
   } else {
     icon = (
       <Avatar

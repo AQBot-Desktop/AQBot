@@ -227,6 +227,7 @@ async fn merge_candidate_models(
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         });
     }
 

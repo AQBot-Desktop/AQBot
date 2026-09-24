@@ -139,6 +139,7 @@ fn parse_siliconflow_image_models(
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         })
         .collect()
 }
@@ -361,6 +362,7 @@ mod tests {
             image_config: None,
             metadata_state: None,
             aliases: Vec::new(),
+            icon: None,
         };
         let extra = Model {
             model_id: "Qwen/Qwen-Image-Edit-2509".into(),
@@ -387,6 +389,7 @@ mod tests {
                     image_config: None,
                     metadata_state: None,
                     aliases: Vec::new(),
+                    icon: None,
                 },
                 extra,
             ],

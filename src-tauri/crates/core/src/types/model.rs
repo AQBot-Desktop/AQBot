@@ -28,6 +28,9 @@ pub struct Model {
     /// rewrites the upstream request to the real `model_id`. Empty by default.
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// Packed custom icon: `emoji:`, `url:`, `file:`, `model:Id`, or `provider:Id`.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// Maximum length of a single model alias.

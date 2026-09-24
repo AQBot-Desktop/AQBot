@@ -44,6 +44,7 @@ vi.mock('@/stores', () => ({
 
 vi.mock('@/lib/providerIcons', () => ({
   SmartProviderIcon: () => <span data-testid="provider-icon" />,
+  ResolvedModelIcon: () => <span data-testid="model-icon" />,
 }));
 
 vi.mock('react-i18next', () => ({

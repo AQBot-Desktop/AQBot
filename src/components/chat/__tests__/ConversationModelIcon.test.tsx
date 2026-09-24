@@ -31,6 +31,13 @@ describe('ConversationModelIcon', () => {
     });
   });
 
+  it('uses a stored custom icon instead of the brain fallback', () => {
+    render(<ConversationModelIcon model="unknown-model" size={20} icon="emoji:★" />);
+
+    expect(screen.queryByTestId('brain-icon')).not.toBeInTheDocument();
+    expect(screen.getByText('★')).toBeInTheDocument();
+  });
+
   it('uses a centered local fallback for unknown model avatars', () => {
     render(<ConversationModelIcon model="unknown-model" size={20} />);
 

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Tooltip, Typography, theme } from 'antd';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Square } from 'lucide-react';
-import { ModelIcon } from '@lobehub/icons';
+import { ResolvedModelIcon } from '@/lib/providerIcons';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import { useTranslation } from 'react-i18next';
 import { useMultiModelColumnWidth } from '@/hooks/useMultiModelColumnWidth';
@@ -219,7 +219,7 @@ export const MultiModelLaneWorkspace = React.memo(function MultiModelLaneWorkspa
                   gap: 8,
                 }}
               >
-                <ModelIcon model={column.modelId} size={20} type="avatar" />
+                <ResolvedModelIcon modelId={column.modelId} providerId={column.providerId} size={20} type="avatar" />
                 <span
                   style={{
                     minWidth: 0,

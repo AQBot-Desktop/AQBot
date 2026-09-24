@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderConfig } from '@/types';
-import { hasKnownModelIcon, SmartModelIcon, SmartProviderIcon } from '../providerIcons';
+import { findStoredModelIcon, hasKnownModelIcon, SmartModelIcon, SmartProviderIcon } from '../providerIcons';
 
 vi.mock('@lobehub/icons', () => ({
   ModelIcon: ({ model }: { model: string }) => (
@@ -108,7 +108,7 @@ describe('SmartProviderIcon', () => {
     expect(container.querySelector('img')).toHaveStyle({ borderRadius: '4px' });
   });
 
-  it('keeps an explicitly configured icon ahead of the built-in logo', () => {
+  it('keeps an explicitly configured icon ahead of the built-in logo', async () => {
     const { container } = render(
       <SmartProviderIcon
         provider={makeProvider({
@@ -118,7 +118,7 @@ describe('SmartProviderIcon', () => {
       />,
     );
 
-    expect(screen.getByTestId('dynamic-lobe-icon')).toHaveAttribute('data-icon-id', 'OpenAI');
+    expect(await screen.findByTestId('dynamic-lobe-icon')).toHaveAttribute('data-icon-id', 'OpenAI');
     expect(container.querySelector('img')).not.toBeInTheDocument();
   });
 
@@ -202,5 +202,35 @@ describe('SmartModelIcon', () => {
   it('falls back to ModelIcon default when no provider is provided', () => {
     render(<SmartModelIcon modelId="rerank-2.5" />);
     expect(screen.getByTestId('model-icon')).toHaveAttribute('data-model', 'rerank-2.5');
+  });
+
+  it('prefers a stored custom icon over the brand icon', () => {
+    render(<SmartModelIcon modelId="command-r" icon="emoji:★" provider={makeProvider()} />);
+    expect(screen.getByText('★')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-icon')).not.toBeInTheDocument();
+  });
+
+  it('renders a stored lobe icon id', async () => {
+    render(<SmartModelIcon modelId="rerank-2.5" icon="model:OpenAI" />);
+    expect(await screen.findByTestId('dynamic-lobe-icon')).toHaveAttribute('data-icon-id', 'OpenAI');
+  });
+});
+
+describe('findStoredModelIcon', () => {
+  const providers = [{
+    id: 'provider-a',
+    models: [{ model_id: 'custom', icon: 'emoji:★' }, { model_id: 'plain', icon: null }],
+  }, {
+    id: 'provider-b',
+    models: [{ model_id: 'custom', icon: 'emoji:β' }],
+  }];
+
+  it('reads the icon for the given provider and model', () => {
+    expect(findStoredModelIcon(providers, 'provider-a', 'custom')).toBe('emoji:★');
+    expect(findStoredModelIcon(providers, 'provider-a', 'plain')).toBeNull();
+  });
+
+  it('does not use another provider when the provider id is known', () => {
+    expect(findStoredModelIcon(providers, 'provider-b', 'plain')).toBeNull();
   });
 });

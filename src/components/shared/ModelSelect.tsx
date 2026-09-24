@@ -1,8 +1,7 @@
 import { useMemo, useCallback, type CSSProperties, type ReactNode } from 'react';
 import { Select } from 'antd';
-import { ModelIcon } from '@lobehub/icons';
 import { useProviderStore } from '@/stores';
-import { SmartProviderIcon } from '@/lib/providerIcons';
+import { ResolvedModelIcon, SmartProviderIcon } from '@/lib/providerIcons';
 import type { ModelCapability, ModelType } from '@/types';
 
 /** Class applied to every model Select for shared alignment / open-state styles. */
@@ -65,17 +64,19 @@ export function useProviderNameMap() {
  */
 export function ModelSelectValueLabel({
   modelId,
+  providerId,
   label,
   providerName,
 }: {
   modelId: string;
+  providerId?: string | null;
   label: ReactNode;
   providerName?: string;
 }) {
   return (
     <span className="aqbot-model-select-label">
       <span className="aqbot-model-select-icon" aria-hidden>
-        <ModelIcon model={modelId} size={16} type="avatar" />
+        <ResolvedModelIcon modelId={modelId} providerId={providerId} size={16} type="avatar" />
       </span>
       <span className="aqbot-model-select-name">{label}</span>
       {providerName ? (
@@ -92,7 +93,12 @@ export function useModelSelectOptionRender() {
     (option: any) => (
       <span className="aqbot-model-select-option">
         <span className="aqbot-model-select-icon" aria-hidden>
-          <ModelIcon model={option.data?.modelId ?? ''} size={16} type="avatar" />
+          <ResolvedModelIcon
+            modelId={option.data?.modelId ?? parseModelValue(String(option.value ?? ''))?.modelId ?? ''}
+            providerId={parseModelValue(String(option.value ?? ''))?.providerId}
+            size={16}
+            type="avatar"
+          />
         </span>
         {option.label}
       </span>
@@ -111,6 +117,7 @@ export function useModelSelectLabelRender(providerNameMap: Map<string, string>) 
       return (
         <ModelSelectValueLabel
           modelId={parsed.modelId}
+          providerId={parsed.providerId}
           label={props.label}
           providerName={providerName}
         />

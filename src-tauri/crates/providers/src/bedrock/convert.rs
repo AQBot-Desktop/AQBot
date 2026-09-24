@@ -372,6 +372,7 @@ pub(super) fn foundation_model(
         image_config: None,
         metadata_state: None,
         aliases: Vec::new(),
+        icon: None,
     })
 }
 

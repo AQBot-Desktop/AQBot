@@ -212,6 +212,7 @@ fn model(model_id: &str) -> Model {
         image_config: None,
         metadata_state: None,
         aliases: Vec::new(),
+        icon: None,
     }
 }
 
@@ -745,4 +746,34 @@ fn unavailable_catalog_keeps_provider_sync_usable() {
         ModelType::Voice
     );
     assert_eq!(result.catalog.source, CatalogSource::Unavailable);
+}
+
+#[test]
+fn remote_sync_keeps_local_custom_icon() {
+    let mut local = model("custom-endpoint-model");
+    local.metadata_state = Some(ModelMetadataState::default());
+    local.icon = Some("emoji:★".into());
+    let mut owner = provider(ProviderType::Custom, None, "https://example.com");
+    owner.models = vec![local];
+    let result = infer_remote_models(
+        &owner,
+        vec![model("custom-endpoint-model")],
+        catalog(BTreeMap::new()),
+    );
+    assert_eq!(
+        result.candidates[0].proposed_model.icon.as_deref(),
+        Some("emoji:★")
+    );
+}
+
+#[test]
+fn reset_metadata_keeps_custom_icon() {
+    let mut local = model("custom-endpoint-model");
+    local.icon = Some("file:images/a.png".into());
+    let owner = provider(ProviderType::Custom, None, "https://example.com");
+    let result = infer_single_model(&owner, local, catalog(BTreeMap::new()), true);
+    assert_eq!(
+        result.proposed_model.icon.as_deref(),
+        Some("file:images/a.png")
+    );
 }

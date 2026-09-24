@@ -8,6 +8,7 @@ import { IconEditor } from '@/components/shared/IconEditor';
 import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { SettingsSelect } from '@/components/settings/SettingsSelect';
 import { findModelByIds } from '@/lib/modelCapabilities';
+import { findStoredModelIcon } from '@/lib/providerIcons';
 import { resolveModelParamDefaults } from '@/lib/modelParams';
 import {
   COMPRESSION_KEEP_LAST_N_MAX,
@@ -285,7 +286,13 @@ export function ConversationSettingsModal({ open, onClose }: ConversationSetting
               }
             }}
             size={64}
-            defaultIcon={<ConversationModelIcon model={conversation.model_id} size={64} />}
+            defaultIcon={(
+              <ConversationModelIcon
+                model={conversation.model_id}
+                icon={findStoredModelIcon(providers, conversation.provider_id, conversation.model_id)}
+                size={64}
+              />
+            )}
             prependMenuItems={useModelIconMenuItem}
             showClear={iconType !== 'model'}
           />
