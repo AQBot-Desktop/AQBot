@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { resolveReasoningProfile, resolveReasoningRequest } from '../reasoningProfile';
+import {
+  isCustomReasoningOptions,
+  reasoningOptionUniverse,
+  resolveReasoningProfile,
+  resolveReasoningRequest,
+} from '../reasoningProfile';
 import type { Model, ModelMetadataSource, ProviderType } from '@/types';
 
 function metadataState(reasoningOptions: ModelMetadataSource): NonNullable<Model['metadata_state']> {
@@ -79,6 +84,100 @@ describe('reasoning profile resolution', () => {
       apiStyle: 'openai_reasoning_effort',
       reasoningEffort: 'max',
     });
+  });
+
+  it('matches model families behind aggregator vendor prefixes and routing tags', () => {
+    const complete = ['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+    expect(optionKeys('openai', 'openai/gpt-5.6-sol')).toEqual(complete);
+    expect(optionKeys('openai_responses', 'openrouter/openai/gpt-5.6:free')).toEqual(complete);
+    expect(optionKeys('openai', 'OpenAI/GPT-5.6-Terra')).toEqual(complete);
+    expect(optionKeys('openai', 'openai/gpt-5.5')).toEqual(['default', 'none', 'low', 'medium', 'high', 'xhigh']);
+    expect(optionKeys('openai', 'ft:gpt-5.1:acme::abc123')).toContain('xhigh');
+    expect(optionKeys('openai', 'openai/gpt-5.6_preview')).not.toContain('max');
+    expect(optionKeys('custom', 'openai/gpt-5.6-sol')).toEqual(complete);
+    expect(optionKeys('custom', 'anthropic/claude-opus-4.7')).toEqual(
+      ['default', 'off', 'low', 'medium', 'high', 'xhigh', 'max'],
+    );
+  });
+
+  it('keeps prefixed custom models on the OpenAI profile they matched before', () => {
+    for (const modelId of ['openai/chatgpt-4o-latest', 'openrouter/auto']) {
+      const profile = resolveReasoningProfile('custom', model(modelId));
+      expect(profile.apiStyle, modelId).toBe('openai_reasoning_effort');
+      expect(profile.options.map((option) => option.key), modelId).toEqual(
+        ['default', 'none', 'low', 'medium', 'high'],
+      );
+    }
+  });
+
+  it('lets a user whitelist add levels the request style supports', () => {
+    const profile = resolveReasoningProfile(
+      'openai',
+      model('my-proxy-model', { reasoning_options: ['max', 'xhigh', 'low', 'unknown'] }, 'user'),
+    );
+
+    expect(profile.apiStyle).toBe('openai_reasoning_effort');
+    expect(profile.options.map((option) => option.key)).toEqual(['default', 'low', 'xhigh', 'max']);
+    expect(resolveReasoningRequest(profile, 'max')).toMatchObject({ reasoningEffort: 'max' });
+  });
+
+  it('keeps catalog and provider whitelists as filters over inferred levels', () => {
+    for (const source of ['catalog', 'provider'] as const) {
+      const profile = resolveReasoningProfile(
+        'openai',
+        model('gpt-4o', { reasoning_options: ['default', 'low', 'xhigh', 'max'] }, source),
+      );
+
+      expect(profile.options.map((option) => option.key), source).toEqual(['default', 'low']);
+    }
+  });
+
+  it('limits user whitelists to levels the request style can carry', () => {
+    const geminiLevel = resolveReasoningProfile(
+      'gemini',
+      model('gemini-3.1-flash', { reasoning_options: ['minimal', 'xhigh', 'max'] }, 'user'),
+    );
+    expect(geminiLevel.options.map((option) => option.key)).toEqual(['default', 'minimal']);
+
+    const glm = resolveReasoningProfile(
+      'glm',
+      model('glm-4.6', { reasoning_options: ['low', 'medium'] }, 'user'),
+    );
+    expect(glm.options.map((option) => option.key)).toEqual(['default', 'none', 'high']);
+  });
+
+  it('keeps inferred none and off levels available for Claude budget tokens', () => {
+    const inferred = resolveReasoningProfile('anthropic', model('claude-sonnet-4'));
+    expect(reasoningOptionUniverse(inferred).map((option) => option.key)).toEqual(
+      ['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'],
+    );
+
+    const overridden = resolveReasoningProfile(
+      'custom',
+      model('claude-opus-4.6@vertex', { reasoning_profile: 'anthropic_budget_tokens' }),
+    );
+    expect(reasoningOptionUniverse(overridden).map((option) => option.key)).toEqual(
+      ['default', 'off', 'low', 'medium', 'high', 'xhigh', 'max'],
+    );
+  });
+
+  it('treats only non-empty user-owned whitelists as custom', () => {
+    expect(isCustomReasoningOptions(model('gpt-4o', { reasoning_options: ['high'] }, 'user'))).toBe(true);
+    expect(isCustomReasoningOptions(model('gpt-4o', { reasoning_options: [] }, 'user'))).toBe(false);
+    expect(isCustomReasoningOptions(model('gpt-4o', null, 'user'))).toBe(false);
+    expect(isCustomReasoningOptions(model('gpt-4o', { reasoning_options: ['high'] }, 'catalog'))).toBe(false);
+    expect(isCustomReasoningOptions(model('gpt-4o', { reasoning_options: ['high'] }))).toBe(false);
+  });
+
+  it('maps the legacy enable_thinking profile to SiliconFlow thinking', () => {
+    const profile = resolveReasoningProfile(
+      'openai',
+      model('gpt-5.1', { reasoning_profile: 'enable_thinking' }),
+    );
+
+    expect(profile.apiStyle).toBe('siliconflow_enable_thinking');
+    expect(profile.options.map((option) => option.key)).toEqual(['default', 'none', 'low', 'medium', 'high']);
   });
 
   it('repairs stale catalog reasoning options for GPT-5.6 models', () => {

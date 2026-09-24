@@ -1,11 +1,13 @@
 import type {
   BedrockCredentialInput,
+  Model,
   ModelCapability,
   ModelMetadataState,
   ModelParamOverrides,
   ModelType,
   ProviderType,
 } from '@/types';
+import type { ReasoningOption, ReasoningOptionKey } from '@/lib/reasoningProfile';
 import type { ModelMetadataField } from './ModelMetadataSyncModal';
 
 export function metadataStateWithAutomaticFields(
@@ -169,6 +171,33 @@ export const REASONING_PROFILE_POPUP_WIDTH = 320;
 
 export function normalizeReasoningProfile(value: string): string | undefined {
   return value === 'reasoning_effort' ? undefined : value;
+}
+
+/** The model as the chat selector would see it with the unsaved thinking settings applied. */
+export function withDraftReasoning(
+  model: Model,
+  thinkingParamStyle: string,
+  reasoningOptions: string[] | null,
+): Model {
+  return {
+    ...model,
+    param_overrides: {
+      ...(model.param_overrides ?? {}),
+      reasoning_profile: normalizeReasoningProfile(thinkingParamStyle),
+      reasoning_options: reasoningOptions ?? undefined,
+    },
+  };
+}
+
+/** Non-default levels of a custom whitelist that the current style can carry, in display order. */
+export function customReasoningSelection(
+  available: ReasoningOption[],
+  reasoningOptions: string[] | null,
+): ReasoningOptionKey[] {
+  const selected = new Set(reasoningOptions ?? []);
+  return available
+    .filter((option) => option.key !== 'default' && selected.has(option.key))
+    .map((option) => option.key);
 }
 
 const RESERVED_EXTRA_BODY_FIELDS = new Set([

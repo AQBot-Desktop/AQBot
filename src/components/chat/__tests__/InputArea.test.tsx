@@ -1315,6 +1315,26 @@ describe('InputArea', () => {
     expect(setThinkingLevel).toHaveBeenCalledWith('max');
   });
 
+  it('offers xhigh and max for vendor-prefixed GPT-5.6 ids from relay providers', async () => {
+    providerState.providers[0].provider_type = 'openai';
+    providerState.providers[0].models[0].model_id = 'openai/gpt-5.6-sol';
+    providerState.providers[0].models[0].name = 'openai/gpt-5.6-sol';
+    providerState.providers[0].models[0].capabilities = ['Reasoning'];
+    conversationState.conversations[0].model_id = 'openai/gpt-5.6-sol';
+
+    render(
+      <App>
+        <InputArea />
+      </App>,
+    );
+
+    await userEvent.click(screen.getByLabelText('chat.thinkingIntensity'));
+    expect(await screen.findByText('XHigh')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Max'));
+
+    expect(setThinkingLevel).toHaveBeenCalledWith('max');
+  });
+
   it('uses the backend dynamic input budget for context usage', async () => {
     getContextUsage.mockResolvedValueOnce({
       used_tokens: 720000,

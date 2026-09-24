@@ -521,6 +521,28 @@ fn openai_responses_gpt_56_completes_reasoning_options_when_catalog_flags_are_mi
 }
 
 #[test]
+fn openai_compatible_aggregator_ids_complete_gpt_56_reasoning_options() {
+    let result = infer_remote_models(
+        &provider(
+            ProviderType::OpenAI,
+            Some("openai"),
+            "https://relay.example.com",
+        ),
+        vec![model("openai/gpt-5.6-sol"), model("gpt-5.6-terra:free")],
+        catalog_without_reasoning_flags(&[]),
+    );
+
+    for candidate in result.candidates {
+        assert_eq!(
+            reasoning_options(&candidate.proposed_model),
+            Some(COMPLETE_GPT_56_REASONING_OPTIONS.to_vec()),
+            "{} should expose the complete reasoning selector",
+            candidate.proposed_model.model_id
+        );
+    }
+}
+
+#[test]
 fn gpt_56_reasoning_completion_does_not_change_other_providers_or_model_families() {
     let openai = infer_remote_models(
         &provider(
@@ -532,6 +554,7 @@ fn gpt_56_reasoning_completion_does_not_change_other_providers_or_model_families
             model("gpt-5.5"),
             model("gpt-5.60"),
             model("gpt-5.6_preview"),
+            model("openai/gpt-5.6_preview"),
         ],
         catalog_without_reasoning_flags(&[
             ("gpt-5.5", "openai"),

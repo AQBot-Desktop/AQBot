@@ -2,7 +2,14 @@ import { App } from 'antd';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Model, ModelSyncStatus, ProviderConfig, ProviderKey } from '@/types';
+import type {
+  Model,
+  ModelMetadataSource,
+  ModelMetadataState,
+  ModelSyncStatus,
+  ProviderConfig,
+  ProviderKey,
+} from '@/types';
 import { ProviderDetail } from '../ProviderDetail';
 
 const mocks = vi.hoisted(() => ({
@@ -940,6 +947,132 @@ describe('ProviderDetail', () => {
         [],
         expect.arrayContaining(['context_window', 'no_system_role']),
       );
+    });
+  });
+
+  describe('thinking levels', () => {
+    function metadataState(reasoningOptions: ModelMetadataSource): ModelMetadataState {
+      return {
+        schema_version: 1,
+        catalog_key: null,
+        catalog_mode: null,
+        model_type: 'default',
+        capabilities: 'default',
+        context_window: 'default',
+        max_output_tokens: 'default',
+        no_system_role: 'default',
+        omit_sampling_params: 'default',
+        reasoning_options: reasoningOptions,
+      };
+    }
+
+    function useReasoningModel(overrides: Partial<Model> = {}) {
+      provider.models[0] = {
+        ...provider.models[0],
+        model_id: 'relay-model',
+        capabilities: ['TextChat', 'Reasoning'],
+        ...overrides,
+      };
+    }
+
+    function renderDetail() {
+      render(
+        <App>
+          <ProviderDetail providerId="provider-1" />
+        </App>,
+      );
+    }
+
+    it('is hidden for models without the Reasoning capability', async () => {
+      renderDetail();
+
+      const dialog = await openFirstModelSettings();
+      expect(within(dialog).queryByText('settings.reasoningLevels')).not.toBeInTheDocument();
+    });
+
+    it('asks for a thinking param style when none could be inferred', async () => {
+      provider.provider_type = 'custom';
+      useReasoningModel({ model_id: 'relay-model' });
+      renderDetail();
+
+      const dialog = await openFirstModelSettings();
+      expect(within(dialog).getByText('settings.reasoningLevelsNeedStyle')).toBeInTheDocument();
+      expect(within(dialog).queryByText('settings.reasoningLevelsCustom')).not.toBeInTheDocument();
+    });
+
+    it('shows the inferred levels for prefixed aggregator ids', async () => {
+      useReasoningModel({ model_id: 'openai/gpt-5.6-sol' });
+      renderDetail();
+
+      const dialog = await openFirstModelSettings();
+      for (const label of ['禁止思考', 'Low', 'Medium', 'High', 'XHigh', 'Max']) {
+        expect(within(dialog).getByText(label)).toBeInTheDocument();
+      }
+    });
+
+    it('saves a custom list that adds levels beyond the inferred ones', async () => {
+      useReasoningModel();
+      renderDetail();
+
+      const dialog = await openFirstModelSettings();
+      expect(within(dialog).queryByText('Max')).not.toBeInTheDocument();
+
+      await userEvent.click(within(dialog).getByText('settings.reasoningLevelsCustom'));
+      await userEvent.click(within(dialog).getByText('Max'));
+      await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => {
+        expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
+          'provider-1',
+          expect.objectContaining({
+            param_overrides: expect.objectContaining({
+              reasoning_options: ['default', 'none', 'low', 'medium', 'high', 'max'],
+            }),
+          }),
+          ['reasoning_options'],
+        );
+      });
+    });
+
+    it('returns a custom list to automatic ownership', async () => {
+      useReasoningModel({
+        param_overrides: { reasoning_options: ['default', 'xhigh'] },
+        metadata_state: metadataState('user'),
+      });
+      mocks.inferModelMetadata.mockImplementation(async (_providerId, model: Model) =>
+        syncCandidate({
+          ...model,
+          param_overrides: { ...model.param_overrides, reasoning_options: undefined },
+          metadata_state: metadataState('default'),
+        }, 'synced'));
+      renderDetail();
+
+      const dialog = await openFirstModelSettings();
+      expect(within(dialog).getByText('XHigh')).toBeInTheDocument();
+
+      await userEvent.click(within(dialog).getByText('settings.reasoningLevelsAuto'));
+      await waitFor(() => {
+        expect(mocks.inferModelMetadata).toHaveBeenCalledWith(
+          'provider-1',
+          expect.objectContaining({ model_id: 'relay-model' }),
+          true,
+        );
+      });
+      await waitFor(() => {
+        expect(within(dialog).queryByText('XHigh')).not.toBeInTheDocument();
+      });
+      await userEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => {
+        expect(mocks.updateModelMetadata).toHaveBeenCalledWith(
+          'provider-1',
+          expect.objectContaining({
+            metadata_state: expect.objectContaining({ reasoning_options: 'default' }),
+          }),
+          [],
+          ['reasoning_options'],
+        );
+      });
     });
   });
 

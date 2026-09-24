@@ -132,12 +132,37 @@ const OPTION_DEFS: Record<ReasoningOptionKey, ReasoningOption> = {
   },
 };
 
+const OPTION_ORDER = Object.keys(OPTION_DEFS) as ReasoningOptionKey[];
+
+// Every level each request style can carry; custom model whitelists may pick from these.
+const STYLE_OPTION_KEYS: Record<ReasoningApiStyle, ReasoningOptionKey[]> = {
+  none: [],
+  openai_reasoning_effort: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  openai_responses_reasoning: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  glm_thinking: ['none', 'high'],
+  gemini_thinking_level: ['minimal', 'low', 'medium', 'high'],
+  gemini_thinking_budget: ['none', 'low', 'medium', 'high', 'xhigh'],
+  anthropic_adaptive: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+  anthropic_budget_tokens: ['low', 'medium', 'high', 'xhigh', 'max'],
+  siliconflow_enable_thinking: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+};
+
 function options(keys: ReasoningOptionKey[]): ReasoningOption[] {
   return keys.map((key) => ({ ...OPTION_DEFS[key] }));
 }
 
-function normalizedModelId(model: Pick<Model, 'model_id'> | null | undefined): string {
-  return model?.model_id.toLowerCase().replace(/[_\s]+/g, '-') ?? '';
+// Aggregators expose ids like `openai/gpt-5.6-sol` or `gpt-5.6:free`; match families on the bare name.
+function baseModelId(model: Pick<Model, 'model_id'> | null | undefined): string {
+  const modelId = model?.model_id.toLowerCase() ?? '';
+  return modelId.slice(modelId.lastIndexOf('/') + 1).replace(/^ft:/, '').split(':')[0];
+}
+
+function normalizedModelId(modelId: string): string {
+  return modelId.replace(/[_\s]+/g, '-');
+}
+
+function isOpenAiModelId(modelId: string): boolean {
+  return modelId.startsWith('gpt-') || modelId.startsWith('o');
 }
 
 const GPT_56_MODEL_PATTERN = /^gpt-5\.6(?:$|-)/;
@@ -145,17 +170,27 @@ const GPT_56_MODEL_PATTERN = /^gpt-5\.6(?:$|-)/;
 function overrideProfile(model: Pick<Model, 'param_overrides'> | null | undefined): ReasoningApiStyle | null {
   const profile = model?.param_overrides?.reasoning_profile;
   if (!profile) return null;
-  return [
-    'none',
-    'openai_reasoning_effort',
-    'openai_responses_reasoning',
-    'glm_thinking',
-    'gemini_thinking_level',
-    'gemini_thinking_budget',
-    'anthropic_adaptive',
-    'anthropic_budget_tokens',
-    'siliconflow_enable_thinking',
-  ].includes(profile) ? (profile as ReasoningApiStyle) : null;
+  // Legacy alias still written by the model settings UI; the backend maps it the same way.
+  if (profile === 'enable_thinking') return 'siliconflow_enable_thinking';
+  return Object.prototype.hasOwnProperty.call(STYLE_OPTION_KEYS, profile)
+    ? (profile as ReasoningApiStyle)
+    : null;
+}
+
+export function isCustomReasoningOptions(
+  model: Pick<Model, 'param_overrides' | 'metadata_state'> | null | undefined,
+): boolean {
+  return model?.metadata_state?.reasoning_options === 'user'
+    && (model.param_overrides?.reasoning_options?.length ?? 0) > 0;
+}
+
+export function reasoningOptionUniverse(profile: ReasoningProfile): ReasoningOption[] {
+  const keys = new Set<ReasoningOptionKey>([
+    'default',
+    ...profile.options.map((option) => option.key),
+    ...STYLE_OPTION_KEYS[profile.apiStyle],
+  ]);
+  return options(OPTION_ORDER.filter((key) => keys.has(key)));
 }
 
 function openAiProfile(
@@ -295,8 +330,9 @@ export function resolveReasoningProfile(
   providerType: ProviderType | undefined,
   model: Model | null | undefined,
 ): ReasoningProfile {
-  const modelId = normalizedModelId(model);
-  const supportsGpt56Max = GPT_56_MODEL_PATTERN.test(model?.model_id.toLowerCase() ?? '');
+  const baseId = baseModelId(model);
+  const modelId = normalizedModelId(baseId);
+  const supportsGpt56Max = GPT_56_MODEL_PATTERN.test(baseId);
   const explicitProfile = overrideProfile(model);
   let profile: ReasoningProfile;
   if (explicitProfile) profile = overriddenProfile(explicitProfile, modelId, supportsGpt56Max);
@@ -311,7 +347,11 @@ export function resolveReasoningProfile(
   }
   else if (modelId.includes('claude')) profile = anthropicProfile(modelId);
   else if (modelId.includes('gemini')) profile = geminiProfile(modelId);
-  else if (modelId.startsWith('gpt-') || modelId.startsWith('o')) {
+  else if (
+    isOpenAiModelId(modelId)
+    // Keep prefixed ids such as `openai/chatgpt-4o-latest` on the OpenAI profile they always had.
+    || isOpenAiModelId(normalizedModelId(model?.model_id.toLowerCase() ?? ''))
+  ) {
     profile = openAiProfile('openai', modelId, supportsGpt56Max);
   }
   else profile = { apiStyle: 'none', defaultOptionKey: 'default', options: options(['default']) };
@@ -322,17 +362,25 @@ export function resolveReasoningProfile(
     allowed.filter((key): key is ReasoningOptionKey => key in OPTION_DEFS),
   );
   allowedKeys.add('default');
-  if (
-    supportsGpt56Max
-    && model?.metadata_state?.reasoning_options === 'catalog'
-    && (
-      profile.apiStyle === 'openai_reasoning_effort'
-      || profile.apiStyle === 'openai_responses_reasoning'
-    )
-  ) {
-    profile.options.forEach((option) => allowedKeys.add(option.key));
+  let filteredOptions: ReasoningOption[];
+  if (isCustomReasoningOptions(model)) {
+    // User whitelists may go beyond the inferred levels, within what the request style can carry.
+    filteredOptions = reasoningOptionUniverse(profile).filter((option) => allowedKeys.has(option.key));
+    // A whitelist written for another request style no longer applies; fall back to inference.
+    if (filteredOptions.length <= 1) return profile;
+  } else {
+    if (
+      supportsGpt56Max
+      && model?.metadata_state?.reasoning_options === 'catalog'
+      && (
+        profile.apiStyle === 'openai_reasoning_effort'
+        || profile.apiStyle === 'openai_responses_reasoning'
+      )
+    ) {
+      profile.options.forEach((option) => allowedKeys.add(option.key));
+    }
+    filteredOptions = profile.options.filter((option) => allowedKeys.has(option.key));
   }
-  const filteredOptions = profile.options.filter((option) => allowedKeys.has(option.key));
   const defaultOptionKey = allowedKeys.has(
     model?.param_overrides?.reasoning_default as ReasoningOptionKey,
   )

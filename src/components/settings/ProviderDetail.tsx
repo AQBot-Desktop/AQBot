@@ -32,6 +32,12 @@ import { useProviderStore, useUIStore } from '@/stores';
 import { SmartModelIcon, SmartProviderIcon } from '@/lib/providerIcons';
 import { encodeProviderIcon, parseProviderIcon } from '@/lib/providerIconCodec';
 import { getEditableCapabilities, getVisibleModelCapabilities, sanitizeModelCapabilities } from '@/lib/modelCapabilities';
+import {
+  isCustomReasoningOptions,
+  reasoningOptionUniverse,
+  resolveReasoningProfile,
+  type ReasoningOptionKey,
+} from '@/lib/reasoningProfile';
 import { IconEditor } from '@/components/shared/IconEditor';
 import type {
   ImageAdapterConfig,
@@ -53,6 +59,7 @@ import {
   type ModelMetadataField,
 } from './ModelMetadataSyncModal';
 import { ModelSyncPickerModal, type ModelSyncEntry } from './ModelSyncPickerModal';
+import { ModelReasoningLevelsField, type ReasoningLevelsMode } from './ModelReasoningLevelsField';
 import { deriveModelGroupName, formatTokenCount, getModelGroupName } from '@/lib/modelSync';
 import {
   compareModelGroupThenVersionDesc,
@@ -70,6 +77,7 @@ import {
   REASONING_PROFILE_OPTIONS,
   REASONING_PROFILE_POPUP_WIDTH,
   REASONING_PROFILE_SELECT_WIDTH,
+  customReasoningSelection,
   formatExtraBody,
   getDefaultCapabilitiesForType,
   hasUserMetadata,
@@ -78,6 +86,7 @@ import {
   normalizeReasoningProfile,
   parseExtraBodyInput,
   sameCapabilities,
+  withDraftReasoning,
 } from './providerDetailModel';
 import { ModelTestPanel } from './modelTest/ModelTestPanel';
 import { ModelTestResult } from './modelTest/ModelTestResult';
@@ -198,6 +207,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
   const [editNoSystemRole, setEditNoSystemRole] = useState<boolean | null>(null);
   const [editOmitSamplingParams, setEditOmitSamplingParams] = useState<boolean | null>(null);
   const [editReasoningOptions, setEditReasoningOptions] = useState<string[] | null>(null);
+  const [editReasoningMode, setEditReasoningMode] = useState<ReasoningLevelsMode>('auto');
+  const [reasoningModeSwitching, setReasoningModeSwitching] = useState(false);
   const [editForceMaxTokens, setEditForceMaxTokens] = useState(false);
   const [editThinkingParamStyle, setEditThinkingParamStyle] = useState<string>('reasoning_effort');
   const [editExtraBody, setEditExtraBody] = useState('');
@@ -729,6 +740,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       setEditNoSystemRole(model.param_overrides?.no_system_role ?? null);
       setEditOmitSamplingParams(model.param_overrides?.omit_sampling_params ?? null);
       setEditReasoningOptions(model.param_overrides?.reasoning_options ?? null);
+      setEditReasoningMode(isCustomReasoningOptions(model) ? 'custom' : 'auto');
       setEditForceMaxTokens(model.param_overrides?.force_max_tokens ?? false);
       setEditThinkingParamStyle(model.param_overrides?.reasoning_profile ?? model.param_overrides?.thinking_param_style ?? 'reasoning_effort');
       setEditExtraBody(formatExtraBody(model.param_overrides?.extra_body));
@@ -810,9 +822,8 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     }
   }, [buildMetadataDraft, inferModelMetadata, message, providerId, t]);
 
-  const handleApplyMetadataSync = useCallback((fields: ModelMetadataField[]) => {
-    const automatic = metadataSyncCandidate?.proposed_model;
-    if (!editingModel || !automatic || fields.length === 0) return;
+  const applyAutomaticMetadata = useCallback((automatic: Model, fields: ModelMetadataField[]) => {
+    if (!editingModel || fields.length === 0) return;
     const selected = new Set(fields);
     const finalType = selected.has('model_type') ? automatic.model_type : editModelType;
     const finalCapabilities = selected.has('capabilities')
@@ -836,6 +847,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
     }
     if (selected.has('reasoning_options')) {
       setEditReasoningOptions(automatic.param_overrides?.reasoning_options ?? []);
+      setEditReasoningMode('auto');
     }
 
     setEditingModel((current) => current
@@ -860,8 +872,77 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
       if (capabilitiesChangedByType) next.delete('capabilities');
       return next;
     });
+  }, [editCapabilities, editModelType, editingModel]);
+
+  const handleApplyMetadataSync = useCallback((fields: ModelMetadataField[]) => {
+    const automatic = metadataSyncCandidate?.proposed_model;
+    if (!editingModel || !automatic || fields.length === 0) return;
+    applyAutomaticMetadata(automatic, fields);
     setMetadataSyncModalOpen(false);
-  }, [editCapabilities, editModelType, editingModel, metadataSyncCandidate]);
+  }, [applyAutomaticMetadata, editingModel, metadataSyncCandidate]);
+
+  const inferredReasoningProfile = useMemo(
+    () => editingModel
+      ? resolveReasoningProfile(
+          provider?.provider_type,
+          withDraftReasoning(editingModel, editThinkingParamStyle, null),
+        )
+      : null,
+    [editingModel, editThinkingParamStyle, provider?.provider_type],
+  );
+  const availableReasoningOptions = useMemo(
+    () => inferredReasoningProfile ? reasoningOptionUniverse(inferredReasoningProfile) : [],
+    [inferredReasoningProfile],
+  );
+  const autoReasoningOptions = useMemo(
+    () => editingModel
+      ? resolveReasoningProfile(
+          provider?.provider_type,
+          withDraftReasoning(editingModel, editThinkingParamStyle, editReasoningOptions),
+        ).options
+      : [],
+    [editingModel, editThinkingParamStyle, editReasoningOptions, provider?.provider_type],
+  );
+
+  const handleReasoningModeChange = useCallback(async (mode: ReasoningLevelsMode) => {
+    if (mode === 'custom') {
+      // Start from what the chat selector shows today.
+      setEditReasoningOptions(autoReasoningOptions.map((option) => option.key));
+      setEditReasoningMode('custom');
+      markMetadataManual('reasoning_options');
+      return;
+    }
+    const draft = buildMetadataDraft();
+    if (!draft) return;
+    setReasoningModeSwitching(true);
+    try {
+      // Hand the field back to automatic ownership so later catalog syncs can update it.
+      const candidate = await inferModelMetadata(providerId, draft, true);
+      applyAutomaticMetadata(candidate.proposed_model, ['reasoning_options']);
+    } catch {
+      message.error(t('error.loadFailed'));
+    } finally {
+      setReasoningModeSwitching(false);
+    }
+  }, [applyAutomaticMetadata, autoReasoningOptions, buildMetadataDraft, inferModelMetadata, markMetadataManual, message, providerId, t]);
+
+  const handleCustomReasoningChange = useCallback((selected: ReasoningOptionKey[]) => {
+    setEditReasoningOptions(['default', ...selected]);
+    markMetadataManual('reasoning_options');
+  }, [markMetadataManual]);
+
+  const handleThinkingParamStyleChange = useCallback((style: string) => {
+    setEditThinkingParamStyle(style);
+    if (editReasoningMode !== 'custom' || !editingModel) return;
+    const profile = resolveReasoningProfile(
+      provider?.provider_type,
+      withDraftReasoning(editingModel, style, null),
+    );
+    // Levels picked for the previous style may not exist in the new one; restart from inference.
+    if (customReasoningSelection(reasoningOptionUniverse(profile), editReasoningOptions).length === 0) {
+      setEditReasoningOptions(profile.options.map((option) => option.key));
+    }
+  }, [editReasoningMode, editReasoningOptions, editingModel, provider?.provider_type]);
 
   const handleSaveSettings = useCallback(async () => {
     if (!editingModel) return;
@@ -2543,7 +2624,7 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     style={{ width: REASONING_PROFILE_SELECT_WIDTH }}
                     popupMatchSelectWidth={REASONING_PROFILE_POPUP_WIDTH}
                     value={editThinkingParamStyle}
-                    onChange={setEditThinkingParamStyle}
+                    onChange={handleThinkingParamStyleChange}
                     options={REASONING_PROFILE_OPTIONS.map((option) => (
                       option.value === 'none'
                         ? { ...option, label: t('settings.thinkingParamStyleNone') }
@@ -2551,6 +2632,18 @@ export function ProviderDetail({ providerId }: ProviderDetailProps) {
                     ))}
                   />
                 </div>
+                {editCapabilities.includes('Reasoning') && editThinkingParamStyle !== 'none' && inferredReasoningProfile && (
+                  <ModelReasoningLevelsField
+                    mode={editReasoningMode}
+                    autoOptions={autoReasoningOptions}
+                    availableOptions={availableReasoningOptions}
+                    selected={customReasoningSelection(availableReasoningOptions, editReasoningOptions)}
+                    styleUnresolved={inferredReasoningProfile.apiStyle === 'none'}
+                    switching={reasoningModeSwitching}
+                    onModeChange={handleReasoningModeChange}
+                    onSelectedChange={handleCustomReasoningChange}
+                  />
+                )}
                 <div>
                   <div className="font-medium mb-1.5" style={{ fontSize: 13 }}>
                     {t('settings.extraBody')}

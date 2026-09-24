@@ -223,7 +223,11 @@ fn complete_openai_gpt_56_reasoning_options(
 }
 
 fn is_gpt_56_family(model_id: &str) -> bool {
-    model_id == "gpt-5.6" || model_id.starts_with("gpt-5.6-")
+    // OpenAI-compatible aggregators expose ids like `openai/gpt-5.6-sol` or `gpt-5.6:free`.
+    let model_id = model_id.to_ascii_lowercase();
+    let base = model_id.rsplit('/').next().unwrap_or_default();
+    let base = base.split(':').next().unwrap_or_default();
+    base == "gpt-5.6" || base.starts_with("gpt-5.6-")
 }
 
 fn automatic_model(
