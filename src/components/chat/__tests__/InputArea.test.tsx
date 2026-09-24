@@ -1360,7 +1360,7 @@ describe('InputArea', () => {
     expect(await screen.findByText('XHigh')).toBeInTheDocument();
     await userEvent.click(screen.getByText('Max'));
 
-    expect(setThinkingLevel).toHaveBeenCalledWith('max');
+    expect(setThinkingConfig).toHaveBeenCalledWith('max', null);
   });
 
   it('uses the backend dynamic input budget for context usage', async () => {
