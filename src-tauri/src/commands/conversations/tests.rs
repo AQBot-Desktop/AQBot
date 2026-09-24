@@ -861,14 +861,6 @@ mod tests {
     }
 
     #[test]
-    fn should_auto_generate_title_skips_role_conversations() {
-        assert!(!should_auto_generate_title(true, "role"));
-        assert!(should_auto_generate_title(true, "chat"));
-        assert!(should_auto_generate_title(true, "agent"));
-        assert!(!should_auto_generate_title(false, "chat"));
-    }
-
-    #[test]
     fn system_prompt_log_excerpt_does_not_split_multibyte_characters() {
         let prompt = format!("{}小后续", "a".repeat(79));
         let excerpt = system_prompt_log_excerpt(&prompt);

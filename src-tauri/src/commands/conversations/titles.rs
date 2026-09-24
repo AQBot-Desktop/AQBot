@@ -55,10 +55,6 @@ fn truncate_auto_title(text: &str) -> String {
     }
 }
 
-fn should_auto_generate_title(is_first_message: bool, conversation_mode: &str) -> bool {
-    is_first_message && conversation_mode != "role"
-}
-
 fn truncate_chars(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
