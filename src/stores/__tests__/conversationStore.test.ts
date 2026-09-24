@@ -2830,6 +2830,33 @@ describe('conversationStore pagination', () => {
     expect(useConversationStore.getState().thinkingLevel).toBe('high');
   });
 
+  it('keeps saving preferences after a queued save throws unexpectedly', async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error('save failed'))
+      .mockResolvedValueOnce(makeConversation('conv-1', { thinking_level: 'high' }));
+    const { useConversationStore } = await import('../conversationStore');
+
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation('conv-1')] as never[],
+      thinkingLevel: null,
+      thinkingBudget: null,
+    });
+
+    useConversationStore.getState().setThinkingConfig('low', null);
+    const unsubscribe = useConversationStore.subscribe(() => {
+      throw new Error('listener failed');
+    });
+    await flushPromises();
+    unsubscribe();
+
+    useConversationStore.getState().setThinkingConfig('high', null);
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(useConversationStore.getState().thinkingLevel).toBe('high');
+  });
+
   it('rolls back optimistic MCP changes when persistence fails', async () => {
     invokeMock.mockRejectedValueOnce(new Error('save failed'));
     const { useConversationStore } = await import('../conversationStore');

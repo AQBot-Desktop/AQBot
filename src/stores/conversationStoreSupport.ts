@@ -1406,9 +1406,11 @@ async function persistConversationPreferences(
       });
     }
   });
-  _conversationPreferenceSaveQueues.set(conversationId, queuedSave);
-  await queuedSave;
-  if (_conversationPreferenceSaveQueues.get(conversationId) === queuedSave) {
+  // A rejected tail would skip every later save for this conversation.
+  const queueTail = queuedSave.then(() => undefined, () => undefined);
+  _conversationPreferenceSaveQueues.set(conversationId, queueTail);
+  await queueTail;
+  if (_conversationPreferenceSaveQueues.get(conversationId) === queueTail) {
     _conversationPreferenceSaveQueues.delete(conversationId);
   }
 }
