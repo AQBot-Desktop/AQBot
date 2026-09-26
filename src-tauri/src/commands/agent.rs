@@ -1446,6 +1446,12 @@ pub async fn agent_query(
         let mut sdk_messages: Option<Vec<open_agent_sdk::Message>> = None;
         let mut current_assistant_msg_id: Option<String> = Some(assistant_message_id.clone());
         let mut accumulated_text = retrieval_tag.clone();
+        // Start offset of the in-flight model turn inside `accumulated_text`.
+        // Used to reconcile delta-accumulated text with the authoritative
+        // Assistant message blocks when the turn completes.
+        let mut turn_base_len = accumulated_text.len();
+        let mut turn_base_in_think = false;
+        let mut last_snapshot_at: Option<std::time::Instant> = None;
         let mut in_thinking_block = false;
         let mut has_streamed_deltas = false;
         let mut has_agent_content = false;
@@ -1552,6 +1558,17 @@ pub async fn agent_query(
                                 pending_tool_uses.push((id.clone(), name.clone(), input.clone()));
                             }
                         }
+                        // The delta channel is only a preview path; repair the
+                        // accumulated text from the authoritative blocks so a
+                        // lost delta cannot silently truncate what we persist.
+                        super::agent_stream_recovery::reconcile_agent_streamed_turn(
+                            &mut accumulated_text,
+                            &mut inline_data_capture,
+                            &mut in_thinking_block,
+                            turn_base_len,
+                            turn_base_in_think,
+                            &msg.content,
+                        );
                     }
                     // Reset delta flag for next turn
                     has_streamed_deltas = false;
@@ -1663,6 +1680,8 @@ pub async fn agent_query(
                             persist_agent_stream_snapshot(&db, mid, &accumulated_text).await;
                         }
                     }
+                    turn_base_len = accumulated_text.len();
+                    turn_base_in_think = in_thinking_block;
                 }
                 SDKMessage::ToolStart {
                     tool_use_id,
@@ -1882,17 +1901,23 @@ pub async fn agent_query(
                     }
                     append_captured!('agent_messages, &thinking);
                     has_agent_content = true;
-                    let assistant_message_id = persist_agent_partial_content(
-                        &db,
-                        &app,
-                        &conv_id,
-                        &user_msg_id,
-                        &accumulated_text,
-                        &mut current_assistant_msg_id,
-                        &assistant_id_for_task,
-                    )
-                    .await
-                    .unwrap_or_default();
+                    let assistant_message_id = if super::agent_stream_recovery::agent_stream_snapshot_due(
+                        &mut last_snapshot_at,
+                    ) {
+                        persist_agent_partial_content(
+                            &db,
+                            &app,
+                            &conv_id,
+                            &user_msg_id,
+                            &accumulated_text,
+                            &mut current_assistant_msg_id,
+                            &assistant_id_for_task,
+                        )
+                        .await
+                        .unwrap_or_default()
+                    } else {
+                        current_assistant_msg_id.clone().unwrap_or_default()
+                    };
 
                     if let Some(thinking) =
                         filtered_agent_stream_chunk(&mut thinking_ipc_filter, &thinking)
@@ -1917,17 +1942,23 @@ pub async fn agent_query(
                     }
                     append_captured!('agent_messages, &text);
                     has_agent_content = true;
-                    let assistant_message_id = persist_agent_partial_content(
-                        &db,
-                        &app,
-                        &conv_id,
-                        &user_msg_id,
-                        &accumulated_text,
-                        &mut current_assistant_msg_id,
-                        &assistant_id_for_task,
-                    )
-                    .await
-                    .unwrap_or_default();
+                    let assistant_message_id = if super::agent_stream_recovery::agent_stream_snapshot_due(
+                        &mut last_snapshot_at,
+                    ) {
+                        persist_agent_partial_content(
+                            &db,
+                            &app,
+                            &conv_id,
+                            &user_msg_id,
+                            &accumulated_text,
+                            &mut current_assistant_msg_id,
+                            &assistant_id_for_task,
+                        )
+                        .await
+                        .unwrap_or_default()
+                    } else {
+                        current_assistant_msg_id.clone().unwrap_or_default()
+                    };
 
                     if let Some(text) = filtered_agent_stream_chunk(&mut text_ipc_filter, &text) {
                         let _ = app.emit(

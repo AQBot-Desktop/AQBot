@@ -123,11 +123,13 @@ impl LLMProvider for AQBotProviderBridge {
         let mut finish_reason = None;
 
         if let Some(ref tx) = stream_tx {
-            let _ = tx.try_send(SDKMessage::Stage {
-                stage: "waiting_model".to_string(),
-                retry_attempt: None,
-                retry_wait_ms: None,
-            });
+            let _ = tx
+                .send(SDKMessage::Stage {
+                    stage: "waiting_model".to_string(),
+                    retry_attempt: None,
+                    retry_wait_ms: None,
+                })
+                .await;
         }
 
         loop {
@@ -166,7 +168,9 @@ impl LLMProvider for AQBotProviderBridge {
                             accumulated_text.push_str(text);
 
                             if let Some(ref tx) = stream_tx {
-                                let _ = tx.try_send(SDKMessage::TextDelta { text: text.clone() });
+                                // Deltas are the consumer's only copy of the reply — try_send
+                                // would silently drop text whenever the channel is full.
+                                let _ = tx.send(SDKMessage::TextDelta { text: text.clone() }).await;
                             }
                         }
                     }
@@ -177,9 +181,11 @@ impl LLMProvider for AQBotProviderBridge {
                             accumulated_thinking.push_str(thinking);
 
                             if let Some(ref tx) = stream_tx {
-                                let _ = tx.try_send(SDKMessage::ThinkingDelta {
-                                    thinking: thinking.clone(),
-                                });
+                                let _ = tx
+                                    .send(SDKMessage::ThinkingDelta {
+                                        thinking: thinking.clone(),
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -200,11 +206,13 @@ impl LLMProvider for AQBotProviderBridge {
                     if chunk_has_delta && !emitted_delta {
                         emitted_delta = true;
                         if let Some(ref tx) = stream_tx {
-                            let _ = tx.try_send(SDKMessage::Stage {
-                                stage: "streaming".to_string(),
-                                retry_attempt: None,
-                                retry_wait_ms: None,
-                            });
+                            let _ = tx
+                                .send(SDKMessage::Stage {
+                                    stage: "streaming".to_string(),
+                                    retry_attempt: None,
+                                    retry_wait_ms: None,
+                                })
+                                .await;
                         }
                     }
 
@@ -261,6 +269,11 @@ impl LLMProvider for AQBotProviderBridge {
 
         let mut converted = convert_response(response);
         if finish_reason == Some(ChatFinishReason::OutputLimit) {
+            // The SDK loop treats end_turn and max_tokens alike, so this log
+            // is currently the only trace of an output-limit truncation.
+            tracing::warn!(
+                "[agent] Provider stopped at the output-token limit; the reply may be incomplete"
+            );
             converted.stop_reason = Some("max_tokens".into());
         }
         Ok(converted)

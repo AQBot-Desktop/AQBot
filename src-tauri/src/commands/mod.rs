@@ -8,6 +8,7 @@ pub(crate) mod agent_mcp;
 pub(crate) mod agent_memory_tool;
 pub(crate) mod agent_skills;
 pub(crate) mod agent_status;
+pub(crate) mod agent_stream_recovery;
 pub mod artifacts;
 pub mod backup;
 pub mod branches;
