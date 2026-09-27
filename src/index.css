@@ -769,6 +769,13 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
 .aqbot-chat-markdown ol {
   margin-block: 0.55em;
   padding-inline-start: 1.45em;
+  /* WKWebView misplaces `outside` markers when a <li> contains block children
+     with their own overflow (e.g. Monaco code blocks) — the marker is anchored
+     to the inner container at a negative offset and gets clipped away by
+     ancestor overflow/paint containment (webkit.org/b/292989). `inside` keeps
+     the marker in the item's first line box so it can never be clipped, and
+     keeps ul/ol markers aligned to the same left edge. */
+  list-style-position: inside;
 }
 
 .aqbot-chat-markdown li + li {
