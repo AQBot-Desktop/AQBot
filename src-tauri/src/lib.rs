@@ -97,6 +97,7 @@ mod windows_utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    tray::mark_app_main_thread();
     diagnostics::init_tracing();
     let startup_phase = startup_diagnostics::StartupPhase::new("process.start");
     startup_diagnostics::install_process_startup_phase(startup_phase.clone());

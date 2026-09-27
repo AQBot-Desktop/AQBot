@@ -442,13 +442,73 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-pub(crate) fn create_tray(
-    app: &AppHandle, settings: &AppSettings, appearance: TrayIconAppearance,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let menu = build_menu(app, &settings.language, &[], false)?;
+/// AppKit requires NSStatusItem create/remove/mutation on the main thread —
+/// doing it on a tokio worker aborts the process with "Must only be used from
+/// the main thread" (observed crash inside `-[NSStatusItem _uninstall]`).
+/// Tray ops are invoked from Tauri commands / async tasks, so bounce the work
+/// to the main thread and block until it finishes.
+fn run_on_main_blocking<T, F>(app: &AppHandle, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppHandle) -> Result<T, String> + Send + 'static,
+{
+    if on_app_main_thread() {
+        return work(app);
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(work(&handle));
+    })
+    .map_err(|error| error.to_string())?;
+    receiver
+        .recv()
+        .map_err(|_| "Main-thread tray task did not complete".to_string())?
+}
 
+#[cfg(target_os = "macos")]
+fn on_app_main_thread() -> bool {
+    objc2::MainThreadMarker::new().is_some()
+}
+
+#[cfg(not(target_os = "macos"))]
+static MAIN_THREAD_ID: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
+
+#[cfg(not(target_os = "macos"))]
+fn on_app_main_thread() -> bool {
+    MAIN_THREAD_ID
+        .get()
+        .is_some_and(|id| *id == std::thread::current().id())
+}
+
+/// Record the process main thread once at startup so `on_app_main_thread`
+/// works on platforms without `MainThreadMarker`.
+pub(crate) fn mark_app_main_thread() {
+    #[cfg(not(target_os = "macos"))]
+    let _ = MAIN_THREAD_ID.set(std::thread::current().id());
+}
+
+pub(crate) fn create_tray(
+    app: &AppHandle,
+    settings: &AppSettings,
+    appearance: TrayIconAppearance,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let settings = settings.clone();
+    run_on_main_blocking(app, move |app| {
+        let menu =
+            build_menu(app, &settings.language, &[], false).map_err(|error| error.to_string())?;
+        create_tray_inner(app, &appearance, menu).map_err(|error| error.to_string())
+    })
+    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })
+}
+
+fn create_tray_inner(
+    app: &AppHandle,
+    appearance: &TrayIconAppearance,
+    menu: Menu<tauri::Wry>,
+) -> Result<(), tauri::Error> {
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(appearance.image)
+        .icon(appearance.image.clone())
         .icon_as_template(appearance.is_template)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -487,10 +547,16 @@ pub(crate) fn apply_tray_appearance(
     app: &AppHandle,
     appearance: &TrayIconAppearance,
 ) -> Result<(), String> {
-    let tray = app.tray_by_id(TRAY_ID)
-        .ok_or_else(|| "system tray does not exist".to_string())?;
-    tray.set_icon(Some(appearance.image.clone())).map_err(|error| error.to_string())?;
-    tray.set_icon_as_template(appearance.is_template).map_err(|error| error.to_string())
+    let appearance = appearance.clone();
+    run_on_main_blocking(app, move |app| {
+        let tray = app
+            .tray_by_id(TRAY_ID)
+            .ok_or_else(|| "system tray does not exist".to_string())?;
+        tray.set_icon(Some(appearance.image.clone()))
+            .map_err(|error| error.to_string())?;
+        tray.set_icon_as_template(appearance.is_template)
+            .map_err(|error| error.to_string())
+    })
 }
 
 /// Load settings + recent conversations and rebuild the tray menu.
@@ -550,7 +616,12 @@ pub fn sync_tray_language(
 }
 
 pub fn destroy_tray(app: &AppHandle) {
-    let _ = app.remove_tray_by_id(TRAY_ID);
+    // Dropping the TrayIcon calls `NSStatusBar removeStatusItem` inline —
+    // AppKit aborts if that lands on a non-main thread.
+    let _ = run_on_main_blocking(app, |app| {
+        let _ = app.remove_tray_by_id(TRAY_ID);
+        Ok(())
+    });
 }
 
 pub fn tray_exists(app: &AppHandle) -> bool {
