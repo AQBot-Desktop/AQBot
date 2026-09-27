@@ -590,6 +590,23 @@ impl InlineDataStreamCapture {
         std::mem::take(&mut self.completed)
     }
 
+    /// Ordinary text retained because it may be a `data:image/` prefix.
+    /// Empty in header, payload, code, and failed states.
+    pub fn ordinary_pending(&self) -> &str {
+        if matches!(self.state, CaptureState::Normal) {
+            self.pending.as_str()
+        } else {
+            ""
+        }
+    }
+
+    /// Drops ordinary retained text. In-progress captures and completed images stay.
+    pub fn clear_ordinary_pending(&mut self) {
+        if matches!(self.state, CaptureState::Normal) {
+            self.pending.clear();
+        }
+    }
+
     fn create_decoded_staging_file(&self) -> Result<(PathBuf, std::fs::File)> {
         std::fs::create_dir_all(&self.temp_dir)?;
         let path = self
