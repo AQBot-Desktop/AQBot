@@ -48,8 +48,8 @@ pub(crate) fn serialize_agent_turn_content(
 
 /// When the authoritative Assistant message arrives, splice its content back
 /// into `accumulated_text` if the streamed span diverged (e.g. dropped deltas).
-/// A Normal-state suffix withheld as a `data:image/` prefix is part of the
-/// streamed span and is not divergence.
+/// A Normal-state suffix withheld as a `data:image/` prefix is part of this
+/// turn: append it and clear it so a later push or finish cannot move it.
 pub(crate) fn reconcile_agent_streamed_turn(
     accumulated: &mut String,
     capture: &mut InlineDataStreamCapture,
@@ -63,12 +63,18 @@ pub(crate) fn reconcile_agent_streamed_turn(
     }
     let (expected, ended_in_think) =
         serialize_agent_turn_content(blocks, turn_base_len > 0, turn_base_in_think);
+    // At most the `data:image/` prefix. Own it before appending so the
+    // capture borrow does not overlap `accumulated`.
+    let ordinary_pending = capture.ordinary_pending().to_string();
     let matches_with_ordinary_pending = {
-        let ordinary_pending = capture.ordinary_pending();
         let streamed = &accumulated[turn_base_len..];
-        expected.strip_prefix(streamed) == Some(ordinary_pending)
+        expected.strip_prefix(streamed) == Some(ordinary_pending.as_str())
     };
     if matches_with_ordinary_pending {
+        if !ordinary_pending.is_empty() {
+            accumulated.push_str(&ordinary_pending);
+            capture.clear_ordinary_pending();
+        }
         return;
     }
     let streamed = &accumulated[turn_base_len..];
@@ -271,14 +277,13 @@ mod tests {
     fn reconcile_does_not_rewrite_turn_ending_in_withheld_d() {
         let temp = tempfile::tempdir().unwrap();
         let (mut capture, prior) = capture_prior_png(temp.path());
-        let mut accumulated = prior;
+        let mut accumulated = prior.clone();
         let base = accumulated.len();
         let delta = capture.push("answer ends with d").unwrap();
         assert_eq!(delta.content, "answer ends with ");
         assert_eq!(capture.ordinary_pending(), "d");
         accumulated.push_str(&delta.content);
-        let before = accumulated.clone();
-        let mut in_think = false;
+        let mut in_think = true;
 
         reconcile_agent_streamed_turn(
             &mut accumulated,
@@ -289,11 +294,13 @@ mod tests {
             &[text_block("answer ends with d")],
         );
 
-        assert_eq!(accumulated, before);
-        assert!(!in_think);
-        assert_eq!(capture.ordinary_pending(), "d");
+        assert_eq!(accumulated, format!("{prior}answer ends with d"));
+        assert!(in_think);
+        assert!(capture.ordinary_pending().is_empty());
         let tail = capture.finish().unwrap();
-        assert_eq!(tail.content, "d");
+        assert_eq!(tail.content, "");
+        let next = capture.push(" next").unwrap();
+        assert_eq!(next.content, " next");
         assert_prior_png_kept(&mut capture, &accumulated, base);
         drop(capture);
         temp.close().unwrap();
