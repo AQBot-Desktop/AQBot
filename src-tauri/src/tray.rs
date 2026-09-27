@@ -12,6 +12,10 @@ const TRAY_ID: &str = "aqbot-tray";
 const GITHUB_URL: &str = "https://github.com/AQBot-Desktop/AQBot";
 const RECENT_CONVERSATION_LIMIT: u64 = 5;
 const TITLE_MAX_CHARS: usize = 40;
+/// Settings save and shutdown call tray work from a worker and then wait.
+/// The main thread is the only place that may touch `NSStatusItem`; if it
+/// never runs the callback, an unbounded wait sticks that worker forever.
+const TRAY_MAIN_THREAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const COLOR_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
 const MONOCHROME_TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-monochrome.png");
 
@@ -461,9 +465,22 @@ where
         let _ = sender.send(work(&handle));
     })
     .map_err(|error| error.to_string())?;
-    receiver
-        .recv()
-        .map_err(|_| "Main-thread tray task did not complete".to_string())?
+    recv_tray_main_result(receiver, TRAY_MAIN_THREAD_TIMEOUT)
+}
+
+fn recv_tray_main_result<T>(
+    receiver: std::sync::mpsc::Receiver<Result<T, String>>,
+    timeout: std::time::Duration,
+) -> Result<T, String> {
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err("Main-thread tray task timed out".to_string())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("Main-thread tray task did not complete".to_string())
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -618,24 +635,61 @@ pub fn sync_tray_language(
 pub fn destroy_tray(app: &AppHandle) {
     // Dropping the TrayIcon calls `NSStatusBar removeStatusItem` inline —
     // AppKit aborts if that lands on a non-main thread.
-    let _ = run_on_main_blocking(app, |app| {
+    if let Err(error) = run_on_main_blocking(app, |app| {
         let _ = app.remove_tray_by_id(TRAY_ID);
         Ok(())
-    });
+    }) {
+        tracing::warn!("Failed to destroy system tray: {error}");
+    }
 }
 
 pub fn tray_exists(app: &AppHandle) -> bool {
-    app.tray_by_id(TRAY_ID).is_some()
+    // Reading the status item is an AppKit query too. If the main thread
+    // does not answer, report the tray as present: a false "missing" makes
+    // reconcile create a second icon.
+    match run_on_main_blocking(app, |app| Ok(app.tray_by_id(TRAY_ID).is_some())) {
+        Ok(exists) => exists,
+        Err(error) => {
+            tracing::warn!("Failed to query system tray on the main thread: {error}");
+            true
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        format_conversation_title, resolved_tray_icon_style, tray_icon_appearance, tray_labels,
-        MONOCHROME_TRAY_ICON_BYTES, TITLE_MAX_CHARS,
+        format_conversation_title, recv_tray_main_result, resolved_tray_icon_style,
+        tray_icon_appearance, tray_labels, MONOCHROME_TRAY_ICON_BYTES, TITLE_MAX_CHARS,
     };
     use aqbot_core::types::TrayIconStyle;
     use tauri::image::Image;
+
+    #[test]
+    fn tray_main_result_returns_the_callback_value() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(Ok(true)).unwrap();
+        let value = recv_tray_main_result(receiver, std::time::Duration::from_millis(20)).unwrap();
+        assert!(value);
+    }
+
+    #[test]
+    fn tray_main_result_reports_a_dropped_callback() {
+        let (sender, receiver) = std::sync::mpsc::channel::<Result<bool, String>>();
+        drop(sender);
+        let error =
+            recv_tray_main_result(receiver, std::time::Duration::from_millis(20)).unwrap_err();
+        assert_eq!(error, "Main-thread tray task did not complete");
+    }
+
+    #[test]
+    fn tray_main_result_times_out_when_the_main_thread_never_answers() {
+        let (sender, receiver) = std::sync::mpsc::channel::<Result<bool, String>>();
+        let error =
+            recv_tray_main_result(receiver, std::time::Duration::from_millis(20)).unwrap_err();
+        assert_eq!(error, "Main-thread tray task timed out");
+        drop(sender);
+    }
 
     #[test]
     fn truncates_long_titles() {
