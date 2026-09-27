@@ -46,6 +46,75 @@ pub(crate) fn serialize_agent_turn_content(
     (out, in_think)
 }
 
+const THINK_OPEN: &str = "<think data-aqbot=\"1\">\n";
+const THINK_CLOSE: &str = "\n</think>\n\n";
+
+/// Split a streamed turn into thinking and visible text.
+///
+/// The delta path can emit text before thinking when one provider chunk
+/// carries both, and it can interleave them across chunks. Assistant blocks
+/// are stored thinking-then-text, so wrapper order is not evidence of a drop.
+/// Returns `None` when the injected tags are not in the shape the delta path
+/// writes; the caller then falls back to replacing the span.
+fn agent_turn_parts(span: &str) -> Option<(String, String)> {
+    let mut thinking = String::new();
+    let mut text = String::new();
+    let mut rest = span;
+    while let Some(open_at) = rest.find(THINK_OPEN) {
+        let mut before = &rest[..open_at];
+        if !before.is_empty() {
+            before = before.strip_suffix("\n\n")?;
+        }
+        text.push_str(before);
+        rest = &rest[open_at + THINK_OPEN.len()..];
+        match rest.find(THINK_CLOSE) {
+            Some(close_at) => {
+                thinking.push_str(&rest[..close_at]);
+                rest = &rest[close_at + THINK_CLOSE.len()..];
+            }
+            None => {
+                thinking.push_str(rest);
+                return Some((thinking, text));
+            }
+        }
+    }
+    text.push_str(rest);
+    Some((thinking, text))
+}
+
+fn content_block_parts(blocks: &[ContentBlock]) -> (String, String) {
+    let mut thinking = String::new();
+    let mut text = String::new();
+    for block in blocks {
+        match block {
+            ContentBlock::Thinking { thinking: part, .. } => thinking.push_str(part),
+            ContentBlock::Text { text: part } => text.push_str(part),
+            _ => {}
+        }
+    }
+    (thinking, text)
+}
+
+fn turn_parts_match(span: &str, blocks: &[ContentBlock]) -> bool {
+    let Some((stream_thinking, stream_text)) = agent_turn_parts(span) else {
+        return false;
+    };
+    let (block_thinking, block_text) = content_block_parts(blocks);
+    stream_thinking == block_thinking && stream_text == block_text
+}
+
+fn keep_ordinary_pending(
+    accumulated: &mut String,
+    capture: &mut InlineDataStreamCapture,
+    ordinary_pending: &str,
+) {
+    if ordinary_pending.is_empty() {
+        return;
+    }
+    accumulated.push_str(ordinary_pending);
+    capture.clear_ordinary_pending();
+}
+
 /// When the authoritative Assistant message arrives, splice its content back
 /// into `accumulated_text` if the streamed span diverged (e.g. dropped deltas).
 /// A Normal-state suffix withheld as a `data:image/` prefix is part of this
@@ -71,10 +140,18 @@ pub(crate) fn reconcile_agent_streamed_turn(
         expected.strip_prefix(streamed) == Some(ordinary_pending.as_str())
     };
     if matches_with_ordinary_pending {
-        if !ordinary_pending.is_empty() {
-            accumulated.push_str(&ordinary_pending);
-            capture.clear_ordinary_pending();
-        }
+        keep_ordinary_pending(accumulated, capture, &ordinary_pending);
+        return;
+    }
+    let same_parts = {
+        let streamed = &accumulated[turn_base_len..];
+        let mut comparable = String::with_capacity(streamed.len() + ordinary_pending.len());
+        comparable.push_str(streamed);
+        comparable.push_str(&ordinary_pending);
+        turn_parts_match(&comparable, blocks)
+    };
+    if same_parts {
+        keep_ordinary_pending(accumulated, capture, &ordinary_pending);
         return;
     }
     let streamed = &accumulated[turn_base_len..];
@@ -153,6 +230,75 @@ mod tests {
         let (text, in_think) = serialize_agent_turn_content(&[thinking_block("more")], true, true);
         assert_eq!(text, "more");
         assert!(in_think);
+    }
+
+    #[test]
+    fn reconcile_keeps_complete_turn_when_text_precedes_thinking() {
+        let mut accumulated = String::from("base");
+        let base = accumulated.len();
+        accumulated.push_str("answer\n\n<think data-aqbot=\"1\">\nponder");
+        let before = accumulated.clone();
+        let mut capture = InlineDataStreamCapture::default();
+        let mut in_think = true;
+
+        reconcile_agent_streamed_turn(
+            &mut accumulated,
+            &mut capture,
+            &mut in_think,
+            base,
+            false,
+            &[thinking_block("ponder"), text_block("answer")],
+        );
+
+        assert_eq!(accumulated, before);
+        assert!(in_think);
+    }
+
+    #[test]
+    fn reconcile_keeps_interleaved_chunks_when_both_parts_are_complete() {
+        let mut accumulated = String::new();
+        accumulated.push_str(
+            "<think data-aqbot=\"1\">\nt1\n</think>\n\ntext1\n\n<think data-aqbot=\"1\">\nt2\n</think>\n\ntext2",
+        );
+        let before = accumulated.clone();
+        let mut capture = InlineDataStreamCapture::default();
+        let mut in_think = false;
+
+        reconcile_agent_streamed_turn(
+            &mut accumulated,
+            &mut capture,
+            &mut in_think,
+            0,
+            false,
+            &[thinking_block("t1t2"), text_block("text1text2")],
+        );
+
+        assert_eq!(accumulated, before);
+        assert!(!in_think);
+    }
+
+    #[test]
+    fn reconcile_still_restores_text_hidden_by_think_tags() {
+        let mut accumulated = String::from("base");
+        let base = accumulated.len();
+        accumulated.push_str("answe\n\n<think data-aqbot=\"1\">\nponder\n</think>\n\n");
+        let mut capture = InlineDataStreamCapture::default();
+        let mut in_think = false;
+
+        reconcile_agent_streamed_turn(
+            &mut accumulated,
+            &mut capture,
+            &mut in_think,
+            base,
+            false,
+            &[thinking_block("ponder"), text_block("answer")],
+        );
+
+        assert_eq!(
+            accumulated,
+            "base\n\n<think data-aqbot=\"1\">\nponder\n</think>\n\nanswer"
+        );
+        assert!(!in_think);
     }
 
     #[test]
