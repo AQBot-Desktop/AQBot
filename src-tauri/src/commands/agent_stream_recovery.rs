@@ -48,6 +48,8 @@ pub(crate) fn serialize_agent_turn_content(
 
 /// When the authoritative Assistant message arrives, splice its content back
 /// into `accumulated_text` if the streamed span diverged (e.g. dropped deltas).
+/// A Normal-state suffix withheld as a `data:image/` prefix is part of the
+/// streamed span and is not divergence.
 pub(crate) fn reconcile_agent_streamed_turn(
     accumulated: &mut String,
     capture: &mut InlineDataStreamCapture,
@@ -61,26 +63,33 @@ pub(crate) fn reconcile_agent_streamed_turn(
     }
     let (expected, ended_in_think) =
         serialize_agent_turn_content(blocks, turn_base_len > 0, turn_base_in_think);
-    let streamed = &accumulated[turn_base_len..];
-    if *streamed == expected {
+    let matches_with_ordinary_pending = {
+        let ordinary_pending = capture.ordinary_pending();
+        let streamed = &accumulated[turn_base_len..];
+        expected.strip_prefix(streamed) == Some(ordinary_pending)
+    };
+    if matches_with_ordinary_pending {
         return;
     }
+    let streamed = &accumulated[turn_base_len..];
     // Inline-image turns can never match: accumulated text holds
     // aqbot-inline://pending tokens where the blocks carry raw data URLs.
     if streamed.contains("aqbot-inline://") || expected.contains("data:image/") {
         return;
     }
+    let streamed_len = streamed.len();
+    let expected_len = expected.len();
     tracing::warn!(
         "[agent] Streamed deltas diverged from provider message ({} vs {} bytes); restoring authoritative content",
-        streamed.len(),
-        expected.len()
+        streamed_len,
+        expected_len
     );
     accumulated.truncate(turn_base_len);
     accumulated.push_str(&expected);
     *in_thinking_block = ended_in_think;
-    // The capture's pending tail may still hold bytes that were part of the
-    // replaced span; reset so they cannot be re-emitted by the next push.
-    *capture = InlineDataStreamCapture::default();
+    // The replaced span is now `expected`. Drop only a Normal-state tail so
+    // the next push cannot emit it again; completed images stay in place.
+    capture.clear_ordinary_pending();
 }
 
 /// Mid-stream snapshots exist for crash/refresh recovery only, so they are
@@ -228,6 +237,99 @@ mod tests {
 
         // Replacing the span would orphan the captured image marker.
         assert_eq!(accumulated, "see aqbot-inline://pending-0 now");
+    }
+
+    fn capture_prior_png(temp: &std::path::Path) -> (InlineDataStreamCapture, String) {
+        let mut capture = InlineDataStreamCapture::new(temp.to_path_buf());
+        let prior = capture
+            .push("![one](data:image/png;base64,iVBORw0KGgo=)\n")
+            .unwrap();
+        assert!(prior.content.contains("aqbot-inline://pending/"));
+        assert!(!prior.content.to_ascii_lowercase().contains("data:image/"));
+        assert!(capture.ordinary_pending().is_empty());
+        assert_eq!(std::fs::read_dir(temp).unwrap().count(), 1);
+        (capture, prior.content)
+    }
+
+    fn assert_prior_png_kept(
+        capture: &mut InlineDataStreamCapture,
+        accumulated: &str,
+        base: usize,
+    ) {
+        let images = capture.take_images();
+        assert_eq!(images.len(), 1);
+        assert!(accumulated[..base].contains(images[0].token()));
+        assert!(!accumulated[base..].contains("aqbot-inline://"));
+        assert_eq!(
+            std::fs::read(images[0].decoded_path()).unwrap(),
+            b"\x89PNG\r\n\x1a\n"
+        );
+        drop(images);
+    }
+
+    #[test]
+    fn reconcile_does_not_rewrite_turn_ending_in_withheld_d() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut capture, prior) = capture_prior_png(temp.path());
+        let mut accumulated = prior;
+        let base = accumulated.len();
+        let delta = capture.push("answer ends with d").unwrap();
+        assert_eq!(delta.content, "answer ends with ");
+        assert_eq!(capture.ordinary_pending(), "d");
+        accumulated.push_str(&delta.content);
+        let before = accumulated.clone();
+        let mut in_think = false;
+
+        reconcile_agent_streamed_turn(
+            &mut accumulated,
+            &mut capture,
+            &mut in_think,
+            base,
+            false,
+            &[text_block("answer ends with d")],
+        );
+
+        assert_eq!(accumulated, before);
+        assert!(!in_think);
+        assert_eq!(capture.ordinary_pending(), "d");
+        let tail = capture.finish().unwrap();
+        assert_eq!(tail.content, "d");
+        assert_prior_png_kept(&mut capture, &accumulated, base);
+        drop(capture);
+        temp.close().unwrap();
+    }
+
+    #[test]
+    fn reconcile_restores_text_without_dropping_images_from_earlier_turns() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut capture, prior) = capture_prior_png(temp.path());
+        let mut accumulated = prior.clone();
+        let base = accumulated.len();
+        let delta = capture.push("abcXYZd").unwrap();
+        assert_eq!(delta.content, "abcXYZ");
+        assert_eq!(capture.ordinary_pending(), "d");
+        accumulated.push_str(&delta.content);
+        assert!(!accumulated[base..].contains("aqbot-inline://"));
+        let mut in_think = true;
+
+        reconcile_agent_streamed_turn(
+            &mut accumulated,
+            &mut capture,
+            &mut in_think,
+            base,
+            false,
+            &[text_block("abcDEFXYZ")],
+        );
+
+        assert_eq!(accumulated, format!("{prior}abcDEFXYZ"));
+        assert!(!in_think);
+        assert!(capture.ordinary_pending().is_empty());
+        let next = capture.push("!").unwrap();
+        assert_eq!(next.content, "!");
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+        assert_prior_png_kept(&mut capture, &accumulated, base);
+        drop(capture);
+        temp.close().unwrap();
     }
 
     #[test]
