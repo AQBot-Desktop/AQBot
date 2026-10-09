@@ -765,17 +765,34 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
   margin-block: 0.45em;
 }
 
+.aqbot-chat-markdown {
+  /* Keep the marker box, its gap, and the list gutter in one place.
+     ACP plan, the selection toolbar, and update notes clip overflow, so the
+     gutter is the marker box plus 0.2em and the marker must not leave the list. */
+  --aqbot-list-marker-gap: 0.25em;
+  --aqbot-list-marker-min: 1.6em;
+  --aqbot-list-marker-box: calc(var(--aqbot-list-marker-min) + var(--aqbot-list-marker-gap));
+  --aqbot-list-gutter: calc(var(--aqbot-list-marker-box) + 0.2em);
+}
+
 .aqbot-chat-markdown ul,
 .aqbot-chat-markdown ol {
   margin-block: 0.55em;
-  padding-inline-start: 1.45em;
+  padding-inline-start: var(--aqbot-list-gutter);
   /* Native ::marker boxes are unreliable inside the chat WebViews: WKWebView
      anchors `outside` markers to overflowing inner containers (e.g. Monaco
      code blocks) where ancestor overflow clips them (webkit.org/b/292989),
      while `inside` markers land on their own line ahead of the block-level
      <p> that markstream-react wraps around every item's text (issue #221).
-     Suppress them and draw markers as regular in-flow content on the li. */
+     Suppress them and draw markers as regular in-flow content on the li.
+     This also wins over markstream's list-disc / list-decimal utilities. */
   list-style: none;
+}
+
+/* markstream's `pl-1.5` would inset the marker a second time and let a large
+   chat font push it outside a clipping ancestor. */
+.aqbot-chat-markdown li.list-item {
+  padding-inline-start: 0;
 }
 
 .aqbot-chat-markdown li::before {
@@ -785,18 +802,17 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
      align in the gutter while item text — across both ul and ol — shares
      one left edge and keeps a true hanging indent when it wraps.
      `text-align: end` + padding hugs the glyph to the text with a uniform
-     gap, mimicking how native `outside` markers sit; the 1.4em min-width
-     keeps two-digit ordinals ("10.") inside the gutter so they align on the
-     period instead of pushing the text right. */
+     gap, mimicking how native `outside` markers sit. */
   display: inline-block;
-  /* content-box keeps the marker box = 1.4em glyph space + 0.25em gap pad
-     even under Tailwind's global border-box reset, so the -1.65em margin
-     always lands the text back on the li content edge. */
+  /* content-box keeps the marker box = glyph space + gap even under
+     Tailwind's global border-box reset, so the negative margin lands the
+     text back on the li content edge. */
   box-sizing: content-box;
-  min-width: 1.4em;
-  padding-inline-end: 0.25em;
-  margin-inline-start: -1.65em;
+  min-width: var(--aqbot-list-marker-min);
+  padding-inline-end: var(--aqbot-list-marker-gap);
+  margin-inline-start: calc(var(--aqbot-list-marker-box) * -1);
   text-align: end;
+  white-space: nowrap;
 }
 
 .aqbot-chat-markdown ul > li::before {
