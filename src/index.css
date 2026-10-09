@@ -777,22 +777,34 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
 
 .aqbot-chat-markdown ul,
 .aqbot-chat-markdown ol {
-  margin-block: 0.55em;
+  margin-block: 0.35em;
   padding-inline-start: var(--aqbot-list-gutter);
   /* Native ::marker boxes are unreliable inside the chat WebViews: WKWebView
      anchors `outside` markers to overflowing inner containers (e.g. Monaco
      code blocks) where ancestor overflow clips them (webkit.org/b/292989),
      while `inside` markers land on their own line ahead of the block-level
      <p> that markstream-react wraps around every item's text (issue #221).
-     Suppress them and draw markers as regular in-flow content on the li.
-     This also wins over markstream's list-disc / list-decimal utilities. */
+     Suppress them and draw one in-flow marker on the li. `list-style` on the
+     ul alone does not win against markstream's list-disc / list-decimal in
+     WKWebView, which paints a second dot. */
   list-style: none;
 }
 
-/* markstream's `pl-1.5` would inset the marker a second time and let a large
-   chat font push it outside a clipping ancestor. */
+/* `display: block` drops the UA list-item marker. Tailwind's my-* / pl-1.5
+   otherwise stack a second inset and uneven gaps around nested lists. */
 .aqbot-chat-markdown li.list-item {
+  display: block;
+  list-style: none;
+  margin-block: 0;
   padding-inline-start: 0;
+}
+
+.aqbot-chat-markdown li::marker {
+  content: none;
+}
+
+.aqbot-chat-markdown li.list-item + li.list-item {
+  margin-top: 0.35em;
 }
 
 .aqbot-chat-markdown li::before {
@@ -819,27 +831,23 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
   content: "•";
 }
 
-/* Any ul nested inside another list drops to the next marker glyph,
-   mirroring the UA stylesheet's disc → circle → square progression; these
-   selectors only match ul parents so ordered items keep their ordinals. */
-.aqbot-chat-markdown :is(ul, ol) ul > li::before {
-  content: "◦";
-}
-
-.aqbot-chat-markdown :is(ul, ol) :is(ul, ol) ul > li::before {
-  content: "▪";
-}
-
 .aqbot-chat-markdown ol > li::before {
   /* ListItemNode stamps the resolved ordinal (start + index) on `value`, so
      attr() shows the right number without depending on counter(list-item). */
   content: attr(value) ".";
 }
 
-/* Raw-HTML <li>s carry no `value`; fall back to the implicit counter on
-   engines that support it. */
+/* `display: block` stops the UA list-item counter. Number raw <li>s ourselves. */
+.aqbot-chat-markdown ol {
+  counter-reset: aqbot-list-item;
+}
+
+.aqbot-chat-markdown ol > li {
+  counter-increment: aqbot-list-item;
+}
+
 .aqbot-chat-markdown ol > li:not([value])::before {
-  content: counter(list-item) ".";
+  content: counter(aqbot-list-item) ".";
 }
 
 /* markstream-react wraps every list item's text in a block-level
@@ -853,7 +861,7 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
 }
 
 .aqbot-chat-markdown li + li {
-  margin-top: 0.2em;
+  margin-top: 0.35em;
 }
 
 .aqbot-chat-markdown blockquote {
