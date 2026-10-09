@@ -769,13 +769,71 @@ html[data-theme="dark"] .ms-tooltip[data-dark="true"] {
 .aqbot-chat-markdown ol {
   margin-block: 0.55em;
   padding-inline-start: 1.45em;
-  /* WKWebView misplaces `outside` markers when a <li> contains block children
-     with their own overflow (e.g. Monaco code blocks) — the marker is anchored
-     to the inner container at a negative offset and gets clipped away by
-     ancestor overflow/paint containment (webkit.org/b/292989). `inside` keeps
-     the marker in the item's first line box so it can never be clipped, and
-     keeps ul/ol markers aligned to the same left edge. */
-  list-style-position: inside;
+  /* Native ::marker boxes are unreliable inside the chat WebViews: WKWebView
+     anchors `outside` markers to overflowing inner containers (e.g. Monaco
+     code blocks) where ancestor overflow clips them (webkit.org/b/292989),
+     while `inside` markers land on their own line ahead of the block-level
+     <p> that markstream-react wraps around every item's text (issue #221).
+     Suppress them and draw markers as regular in-flow content on the li. */
+  list-style: none;
+}
+
+.aqbot-chat-markdown li::before {
+  /* An in-flow inline-block can neither be mis-anchored onto an inner
+     container nor clipped by ancestor overflow. The box is pulled back by
+     its full width so it parks inside the list's inline padding: markers
+     align in the gutter while item text — across both ul and ol — shares
+     one left edge and keeps a true hanging indent when it wraps.
+     `text-align: end` + padding hugs the glyph to the text with a uniform
+     gap, mimicking how native `outside` markers sit; the 1.4em min-width
+     keeps two-digit ordinals ("10.") inside the gutter so they align on the
+     period instead of pushing the text right. */
+  display: inline-block;
+  /* content-box keeps the marker box = 1.4em glyph space + 0.25em gap pad
+     even under Tailwind's global border-box reset, so the -1.65em margin
+     always lands the text back on the li content edge. */
+  box-sizing: content-box;
+  min-width: 1.4em;
+  padding-inline-end: 0.25em;
+  margin-inline-start: -1.65em;
+  text-align: end;
+}
+
+.aqbot-chat-markdown ul > li::before {
+  content: "•";
+}
+
+/* Any ul nested inside another list drops to the next marker glyph,
+   mirroring the UA stylesheet's disc → circle → square progression; these
+   selectors only match ul parents so ordered items keep their ordinals. */
+.aqbot-chat-markdown :is(ul, ol) ul > li::before {
+  content: "◦";
+}
+
+.aqbot-chat-markdown :is(ul, ol) :is(ul, ol) ul > li::before {
+  content: "▪";
+}
+
+.aqbot-chat-markdown ol > li::before {
+  /* ListItemNode stamps the resolved ordinal (start + index) on `value`, so
+     attr() shows the right number without depending on counter(list-item). */
+  content: attr(value) ".";
+}
+
+/* Raw-HTML <li>s carry no `value`; fall back to the implicit counter on
+   engines that support it. */
+.aqbot-chat-markdown ol > li:not([value])::before {
+  content: counter(list-item) ".";
+}
+
+/* markstream-react wraps every list item's text in a block-level
+   <p class="paragraph-node">, which would push the in-flow ::before marker
+   onto its own line. Keeping the first paragraph inline puts the marker
+   back on the text line; later block children (code blocks, nested lists)
+   still break onto their own lines as before. */
+.aqbot-chat-markdown li > p:first-child,
+.aqbot-chat-markdown li > .paragraph-node:first-child {
+  display: inline;
 }
 
 .aqbot-chat-markdown li + li {
