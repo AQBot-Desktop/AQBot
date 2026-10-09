@@ -1132,9 +1132,19 @@ pub async fn agent_query(
                 return PermissionDecision::Deny("Agent cancelled".to_string());
             }
 
+            // Re-read the mode per tool check: `permission_mode` was snapshotted
+            // when this run started, so switching the dropdown mid-run would
+            // otherwise not take effect until the next message.
+            let live_mode = agent_session::get_agent_session_by_conversation_id(&db, &conv_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| aqbot_agent::permission::PermissionMode::from_str(&s.permission_mode))
+                .unwrap_or(permission_mode);
+
             // Skill runtime writes are denied even in FullAccess. Other path
             // checks stay skipped in FullAccess.
-            let enforce_cwd = permission_mode
+            let enforce_cwd = live_mode
                 != aqbot_agent::permission::PermissionMode::FullAccess
                 && !cwd.is_empty();
             if skill_runtime.is_some() || enforce_cwd {
@@ -1161,7 +1171,7 @@ pub async fn agent_query(
             } else {
                 false
             };
-            match decide_permission(permission_mode, risk, is_always_allowed) {
+            match decide_permission(live_mode, risk, is_always_allowed) {
                 PermissionAction::AutoAllow => PermissionDecision::Allow,
                 PermissionAction::RequireApproval => {
                     // Create oneshot channel
