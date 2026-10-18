@@ -33,6 +33,29 @@ import {
 
 type ConversationAgentActions = Pick<ConversationState, 'sendAgentMessage'>;
 
+/** Swap the active assistant version for `parentId` with the placeholder in-place. */
+function replaceActiveAssistantVersion(
+  messages: Message[],
+  parentId: string,
+  placeholder: Message,
+): Message[] {
+  let inserted = false;
+  const updated: Message[] = [];
+  for (const message of messages) {
+    if (message.parent_message_id === parentId && message.is_active) {
+      updated.push({ ...message, is_active: false });
+      if (!inserted) {
+        updated.push(placeholder);
+        inserted = true;
+      }
+    } else {
+      updated.push(message);
+    }
+  }
+  if (!inserted) updated.push(placeholder);
+  return updated;
+}
+
 function rekeyThinkingIds(
   ids: Set<string>,
   fromId: string,
@@ -74,8 +97,16 @@ export function createConversationAgentActions(
       const conversation = get().conversations.find((item) => item.id === conversationId);
       if (!conversation) throw new Error('Conversation not found');
 
-      const providerId = conversation.provider_id;
-      const modelId = conversation.model_id;
+      const regenerateUserMessageId = options?.regenerateUserMessageId;
+      const regenUserMessage = regenerateUserMessageId
+        ? get().messages.find((message) => message.id === regenerateUserMessageId)
+        : undefined;
+      if (regenerateUserMessageId && regenUserMessage?.role !== 'user') {
+        throw new Error('User message not found for regeneration');
+      }
+
+      const providerId = options?.providerId ?? conversation.provider_id;
+      const modelId = options?.modelId ?? conversation.model_id;
       const capabilityIds = sanitizeActiveConversationCapabilityIds(set, get, conversationId);
       const mcpIds = getEffectiveMcpServerIds(get, {
         providerId,
@@ -87,7 +118,7 @@ export function createConversationAgentActions(
         ? crypto.randomUUID()
         : `agent-run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const streamId = runId;
-      const optimisticUserMsg: Message = {
+      const optimisticUserMsg: Message | null = regenUserMessage ? null : {
         id: `temp-user-${runId}`,
         conversation_id: conversationId,
         role: 'user',
@@ -113,6 +144,13 @@ export function createConversationAgentActions(
         status: 'complete',
       };
 
+      const regenParentVersions = regenUserMessage
+        ? get().messages.filter((message) => (
+          message.parent_message_id === regenUserMessage.id && message.role === 'assistant'
+        ))
+        : [];
+      const regenOriginalActive = regenParentVersions.find((message) => message.is_active);
+
       let currentMsgId = `temp-agent-${runId}`;
       const placeholderAssistant: Message = {
         id: currentMsgId,
@@ -126,9 +164,9 @@ export function createConversationAgentActions(
         thinking: null,
         tool_calls_json: null,
         tool_call_id: null,
-        created_at: Date.now(),
-        parent_message_id: optimisticUserMsg.id,
-        version_index: 0,
+        created_at: regenOriginalActive?.created_at ?? Date.now(),
+        parent_message_id: regenUserMessage?.id ?? optimisticUserMsg!.id,
+        version_index: regenUserMessage ? regenParentVersions.length : 0,
         is_active: true,
         status: 'partial',
       };
@@ -144,18 +182,23 @@ export function createConversationAgentActions(
       });
       if (get().activeConversationId === conversationId) {
         set((state) => ({
-          messages: [...state.messages, optimisticUserMsg, placeholderAssistant],
+          messages: regenUserMessage
+            ? replaceActiveAssistantVersion(state.messages, regenUserMessage.id, placeholderAssistant)
+            : [...state.messages, optimisticUserMsg!, placeholderAssistant],
           streamActivityByMessageId: {
             ...state.streamActivityByMessageId,
-            [currentMsgId]: createStreamActivity(
-              conversation?.provider_id,
-              conversation?.model_id,
-            ),
+            [currentMsgId]: createStreamActivity(providerId, modelId),
           },
           ...upsertConversationRun(state, agentRun),
         }));
       } else {
-        appendCachedConversationMessages(conversationId, [optimisticUserMsg, placeholderAssistant]);
+        if (regenUserMessage) {
+          mapCachedConversationMessages(conversationId, (cached) => (
+            replaceActiveAssistantVersion(cached, regenUserMessage.id, placeholderAssistant)
+          ));
+        } else {
+          appendCachedConversationMessages(conversationId, [optimisticUserMsg!, placeholderAssistant]);
+        }
         set((state) => upsertConversationRun(state, agentRun));
       }
 
@@ -465,16 +508,16 @@ export function createConversationAgentActions(
         keepAgentUnlisten((fn) => { unlistenError = fn; })(errorUnlisten);
         keepAgentUnlisten((fn) => { unlistenTerminal = fn; })(terminalUnlisten);
 
-        if (cleanedUp || !isCurrentAgentRun()) return;
+        if (cleanedUp || !isCurrentAgentRun()) return placeholderAssistant;
 
         await get().startStreamListening();
-        if (!isCurrentAgentRun() || !ownsLiveRun()) return;
+        if (!isCurrentAgentRun() || !ownsLiveRun()) return placeholderAssistant;
         runRuntime.sendIpcStarted = true;
         runRuntime.sendIpcPending = true;
         try {
           const query = invoke<void>('agent_query', {
             conversationId,
-            prompt: content,
+            prompt: regenUserMessage?.content ?? content,
             providerId,
             modelId,
             attachments: attachments ?? [],
@@ -483,6 +526,7 @@ export function createConversationAgentActions(
             enabledMemoryNamespaceIds: capabilityIds.enabledMemoryNamespaceIds,
             streamId,
             runId,
+            regenerateUserMessageId: regenUserMessage?.id,
           });
           // A completion barrier only; awaiting query below handles its actual error.
           runRuntime.agentStartCompleted = Promise.allSettled([query]).then(() => undefined);
@@ -506,6 +550,7 @@ export function createConversationAgentActions(
           refresh: false,
         });
       }
+      return placeholderAssistant;
     },
   };
 }

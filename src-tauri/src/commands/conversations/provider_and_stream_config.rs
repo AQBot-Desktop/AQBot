@@ -425,21 +425,21 @@ async fn persist_terminal_assistant_error(
         .map_err(|error| format!("Failed to persist assistant message count: {error}"))
 }
 
-struct AssistantPlaceholderPersistence<'a> {
-    conversation_id: &'a str,
-    message_id: &'a str,
-    parent_message_id: &'a str,
-    provider_id: &'a str,
-    model_id: &'a str,
-    content: &'a str,
-    version_index: i32,
-    created_at: i64,
-    deactivate_existing_versions: bool,
-    increment_message_count: bool,
-    is_active: bool,
+pub(crate) struct AssistantPlaceholderPersistence<'a> {
+    pub(crate) conversation_id: &'a str,
+    pub(crate) message_id: &'a str,
+    pub(crate) parent_message_id: &'a str,
+    pub(crate) provider_id: &'a str,
+    pub(crate) model_id: &'a str,
+    pub(crate) content: &'a str,
+    pub(crate) version_index: i32,
+    pub(crate) created_at: i64,
+    pub(crate) deactivate_existing_versions: bool,
+    pub(crate) increment_message_count: bool,
+    pub(crate) is_active: bool,
 }
 
-async fn persist_assistant_placeholder(
+pub(crate) async fn persist_assistant_placeholder(
     db: &sea_orm::DatabaseConnection,
     input: AssistantPlaceholderPersistence<'_>,
 ) -> Result<(), String> {

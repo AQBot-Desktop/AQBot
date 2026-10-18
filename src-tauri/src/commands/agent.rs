@@ -765,7 +765,25 @@ pub async fn agent_query(
     enabled_memory_namespace_ids: Option<Vec<String>>,
     stream_id: Option<String>,
     run_id: Option<String>,
+    regenerate_user_message_id: Option<String>,
 ) -> Result<(), String> {
+    // For regeneration the stored user message is authoritative: the prompt
+    // argument is ignored so edits saved before resend take effect.
+    let regen_user_message = if let Some(ref message_id) = regenerate_user_message_id {
+        let target = message::get_message(&state.sea_db, message_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if target.conversation_id != conversation_id || target.role != MessageRole::User {
+            return Err(format!("Cannot regenerate message {message_id}"));
+        }
+        Some(target)
+    } else {
+        None
+    };
+    let prompt = regen_user_message
+        .as_ref()
+        .map(|target| target.content.clone())
+        .unwrap_or(prompt);
     ensure_agent_prompt_safe_for_persistence(&prompt)?;
     // 2. Atomically reserve this conversation before any persistence or SDK
     // initialization so concurrent queries cannot both pass a separate check.
@@ -831,85 +849,95 @@ pub async fn agent_query(
         .map(|tool| tool.name().to_string())
         .collect();
     let mcp_display_names = Arc::new(mcp_display_names);
-    let is_first_message = pre_conv.message_count <= 1;
+    let is_first_message = regen_user_message.is_none() && pre_conv.message_count <= 1;
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .map_err(|e| format!("Failed to load application settings: {e}"))?;
     let attachment_inputs = attachments.unwrap_or_default();
-    let persisted_attachments =
+    // Regeneration reuses the attachments already persisted on the user message.
+    let persisted_attachments = if let Some(ref target) = regen_user_message {
+        target.attachments.clone()
+    } else {
         super::conversations::persist_attachments(&state, &conversation_id, &attachment_inputs)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+    };
 
     // 3. Save user message. The session is not marked running until every
     // fallible provider/SDK initialization step below has succeeded.
-    let user_message = match message::create_message(
-        &state.sea_db,
-        &conversation_id,
-        MessageRole::User,
-        &prompt,
-        &persisted_attachments,
-        None,
-        0,
-    )
-    .await
-    {
-        Ok(message) => message,
-        Err(error) => {
-            let cleanup_errors = super::conversations::cleanup_new_message_attachments(
-                &state.sea_db,
-                &persisted_attachments,
-            )
-            .await;
-            return Err(format!(
-                "Agent message creation failed: {error}; attachment rollback errors: {}",
-                if cleanup_errors.is_empty() {
-                    "none".to_string()
-                } else {
-                    cleanup_errors.join(", ")
-                }
-            ));
-        }
-    };
-
-    if let Err(error) = conversation::increment_message_count(&state.sea_db, &conversation_id).await
-    {
-        let rollback_errors = super::conversations::rollback_new_message(
-            &state.sea_db,
-            &user_message.id,
-            &user_message.attachments,
-        )
-        .await;
-        return Err(super::conversations::format_new_message_failure(
-            &user_message.id,
-            "agent message-count update failed",
-            error,
-            rollback_errors,
-        ));
-    }
-
-    // Auto-title: set fallback + async AI title for first message
-    if is_first_message {
-        let fallback_title =
-            crate::commands::conversations::normalize_auto_conversation_title(&prompt);
-        if let Err(e) = conversation::update_conversation_title(
+    let user_message = if let Some(ref target) = regen_user_message {
+        target.clone()
+    } else {
+        let user_message = match message::create_message(
             &state.sea_db,
             &conversation_id,
-            &fallback_title,
+            MessageRole::User,
+            &prompt,
+            &persisted_attachments,
+            None,
+            0,
         )
         .await
         {
-            tracing::error!("[agent] Failed to set fallback title: {}", e);
-        } else {
-            let _ = app.emit(
-                "conversation-title-updated",
-                aqbot_core::types::ConversationTitleUpdatedEvent {
-                    conversation_id: conversation_id.clone(),
-                    title: fallback_title,
-                },
-            );
+            Ok(message) => message,
+            Err(error) => {
+                let cleanup_errors = super::conversations::cleanup_new_message_attachments(
+                    &state.sea_db,
+                    &persisted_attachments,
+                )
+                .await;
+                return Err(format!(
+                    "Agent message creation failed: {error}; attachment rollback errors: {}",
+                    if cleanup_errors.is_empty() {
+                        "none".to_string()
+                    } else {
+                        cleanup_errors.join(", ")
+                    }
+                ));
+            }
+        };
+
+        if let Err(error) =
+            conversation::increment_message_count(&state.sea_db, &conversation_id).await
+        {
+            let rollback_errors = super::conversations::rollback_new_message(
+                &state.sea_db,
+                &user_message.id,
+                &user_message.attachments,
+            )
+            .await;
+            return Err(super::conversations::format_new_message_failure(
+                &user_message.id,
+                "agent message-count update failed",
+                error,
+                rollback_errors,
+            ));
         }
-    }
+
+        // Auto-title: set fallback + async AI title for first message
+        if is_first_message {
+            let fallback_title =
+                crate::commands::conversations::normalize_auto_conversation_title(&prompt);
+            if let Err(e) = conversation::update_conversation_title(
+                &state.sea_db,
+                &conversation_id,
+                &fallback_title,
+            )
+            .await
+            {
+                tracing::error!("[agent] Failed to set fallback title: {}", e);
+            } else {
+                let _ = app.emit(
+                    "conversation-title-updated",
+                    aqbot_core::types::ConversationTitleUpdatedEvent {
+                        conversation_id: conversation_id.clone(),
+                        title: fallback_title,
+                    },
+                );
+            }
+        }
+        user_message
+    };
 
     // 5. Get provider + key
     let prov = provider::get_provider(&state.sea_db, &real_provider_id)
@@ -947,14 +975,27 @@ pub async fn agent_query(
     )
     .await
     .map_err(|error| error.to_string())?;
-    let assistant_message_id = create_agent_assistant_placeholder(
-        &state.sea_db,
-        &app,
-        &conversation_id,
-        &user_message.id,
-        &run_id,
-    )
-    .await?;
+    let assistant_message_id = if regen_user_message.is_some() {
+        super::agent_regen::create_agent_regen_placeholder(
+            &state.sea_db,
+            &app,
+            &conversation_id,
+            &user_message.id,
+            &run_id,
+            &real_provider_id,
+            &model_id,
+        )
+        .await?
+    } else {
+        create_agent_assistant_placeholder(
+            &state.sea_db,
+            &app,
+            &conversation_id,
+            &user_message.id,
+            &run_id,
+        )
+        .await?
+    };
     initial_assistant_id = Some(assistant_message_id.clone());
     if let Some(diagnostic) =
         super::agent_context::first_blocking_diagnostic(&prepared_turn.diagnostics)
@@ -1389,7 +1430,13 @@ pub async fn agent_query(
     // Restore previous conversation context from the agent session
     if let Some(ref ctx_json) = session.sdk_context_json {
         match serde_json::from_str::<Vec<open_agent_sdk::Message>>(ctx_json) {
-            Ok(prev_messages) => {
+            Ok(mut prev_messages) => {
+                if let Some(ref target) = regen_user_message {
+                    let after =
+                        super::agent_regen::count_active_user_messages_after(&state.sea_db, target)
+                            .await;
+                    super::agent_regen::truncate_agent_context_for_regen(&mut prev_messages, after);
+                }
                 tracing::info!(
                     "[agent] Restored {} messages from previous session",
                     prev_messages.len()

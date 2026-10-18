@@ -1668,8 +1668,15 @@ export interface ConversationState {
   sendAgentMessage: (
     content: string,
     attachments?: AttachmentInput[],
-    options?: { conversationId?: string },
-  ) => Promise<void>;
+    options?: {
+      conversationId?: string;
+      /** Re-run the agent for an existing user message (regenerate/resend). */
+      regenerateUserMessageId?: string;
+      /** Model override for regenerate-with-model; defaults to the conversation's. */
+      providerId?: string;
+      modelId?: string;
+    },
+  ) => Promise<Message>;
   regenerateMessage: (targetMessageId?: string) => Promise<Message>;
   regenerateWithModel: (
     targetMessageId: string,
