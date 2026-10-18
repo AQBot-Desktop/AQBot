@@ -889,7 +889,7 @@ pub async fn agent_query(
     }
 
     // Auto-title: set fallback + async AI title for first message
-    if is_first_message {
+    if is_first_message && global_settings.auto_generate_title {
         let fallback_title =
             crate::commands::conversations::normalize_auto_conversation_title(&prompt);
         if let Err(e) = conversation::update_conversation_title(
@@ -2251,7 +2251,9 @@ pub async fn agent_query(
         if matches!(
             outcome,
             super::conversations::ChatStreamTerminalOutcome::Complete
-        ) && is_first_message {
+        ) && is_first_message
+            && title_settings.auto_generate_title
+        {
             let _ = app.emit(
                 "conversation-title-generating",
                 aqbot_core::types::ConversationTitleGeneratingEvent {

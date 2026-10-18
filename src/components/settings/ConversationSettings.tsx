@@ -600,6 +600,21 @@ export function ConversationSettings() {
         </div>
       </SettingsGroup>
 
+      <SettingsGroup title={t('settings.conversationTitle')}>
+        <div className="flex items-center justify-between" style={rowStyle}>
+          <div>
+            <div>{t('settings.autoGenerateTitle')}</div>
+            <div style={{ fontSize: 12, color: token.colorTextDescription }}>
+              {t('settings.autoGenerateTitleDesc')}
+            </div>
+          </div>
+          <Switch
+            checked={settings.auto_generate_title ?? true}
+            onChange={(checked) => saveSettings({ auto_generate_title: checked })}
+          />
+        </div>
+      </SettingsGroup>
+
       <SettingsGroup title={t('settings.agentSettings')}>
         <div style={{ fontSize: 12, color: token.colorTextDescription, marginBottom: 12 }}>
           {t('settings.agentWorkspaceRootDesc')}

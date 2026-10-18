@@ -681,6 +681,12 @@ pub struct AppSettings {
     /// Context strategy used when a conversation has no explicit override.
     #[serde(default)]
     pub default_context_strategy: ContextStrategy,
+    /// When true, the first user message in a conversation triggers the
+    /// truncated-fallback title and the async AI-generated title. When false,
+    /// the conversation keeps its creation title until the user renames it or
+    /// runs "regenerate title" manually.
+    #[serde(default = "default_true")]
+    pub auto_generate_title: bool,
     pub title_summary_provider_id: Option<String>,
     pub title_summary_model_id: Option<String>,
     pub title_summary_temperature: Option<f32>,
@@ -979,6 +985,7 @@ impl Default for AppSettings {
             chat_stream_idle_timeout_secs: 90,
             mcp_tool_loop_max_iterations: DEFAULT_MCP_TOOL_LOOP_MAX_ITERATIONS,
             document_attachment_reading_enabled: false,
+            auto_generate_title: true,
             show_image_models_in_model_selector: false,
             multi_model_display_mode: "tabs".to_string(),
             multi_model_execution_mode: MultiModelExecutionMode::Parallel,
