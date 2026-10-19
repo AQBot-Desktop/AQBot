@@ -761,7 +761,10 @@ fn extract_largest_persist_root(blobs: &[Vec<u8>]) -> Option<Value> {
 
     let consider = |best: &mut Option<(usize, Value)>, value: Value| {
         let score = estimate_persist_score(&value);
-        if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score > *best_score)
+        {
             *best = Some((score, value));
         }
     };
@@ -833,7 +836,9 @@ fn estimate_persist_score(value: &Value) -> usize {
 }
 
 fn utf16le_bytes(s: &str) -> Vec<u8> {
-    s.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect()
+    s.encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect()
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
@@ -980,10 +985,7 @@ fn reconstruct_persist_from_sections(text: &str) -> Option<Value> {
 
 /// Extract `"key": <json-value>` from a (possibly truncated / dirty) text buffer.
 fn extract_json_field(text: &str, key: &str) -> Option<Value> {
-    let patterns = [
-        format!("\"{key}\":"),
-        format!("\"{key}\" :"),
-    ];
+    let patterns = [format!("\"{key}\":"), format!("\"{key}\" :")];
     for pattern in &patterns {
         let mut search_from = 0usize;
         while let Some(rel) = text[search_from..].find(pattern.as_str()) {
@@ -1533,8 +1535,7 @@ where
             continue;
         }
         let display_name = model.name.as_deref().unwrap_or(&model.id);
-        let (model_type, capabilities) =
-            infer_model_type_and_capabilities(&model.id, display_name);
+        let (model_type, capabilities) = infer_model_type_and_capabilities(&model.id, display_name);
         models::Entity::insert(models::ActiveModel {
             provider_id: Set(provider_id.clone()),
             model_id: Set(model.id.clone()),
@@ -2575,14 +2576,12 @@ mod tests {
         let file = File::create(path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         // Stored keeps binary UTF-16LE payloads bit-identical for tests.
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
         zip.start_file("metadata.json", options).unwrap();
-        zip.write_all(
-            br#"{"version":6,"appName":"Cherry Studio","appVersion":"1.8.2"}"#,
-        )
-        .unwrap();
+        zip.write_all(br#"{"version":6,"appName":"Cherry Studio","appVersion":"1.8.2"}"#)
+            .unwrap();
 
         // Chromium Local Storage stores values as UTF-16LE
         let json = serde_json::to_string(&persist_root).unwrap();
@@ -2707,7 +2706,10 @@ mod tests {
             }]
         });
         // Also pad a later section so full-root parse is more likely to hit controls
-        let padded_settings = format!("{{\"showAssistants\":true,\"pad\":\"{}\"}}", "x".repeat(40000));
+        let padded_settings = format!(
+            "{{\"showAssistants\":true,\"pad\":\"{}\"}}",
+            "x".repeat(40000)
+        );
         let persist = json!({
             "assistants": serde_json::to_string(&assistants_section).unwrap(),
             "settings": padded_settings,

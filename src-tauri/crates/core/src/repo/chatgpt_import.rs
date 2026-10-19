@@ -201,9 +201,7 @@ pub async fn import_chatgpt_export_from_path(
             active_artifact_id: Set(None),
             research_mode: Set(0),
             context_compression: Set(0),
-            context_strategy_override: Set(Some(
-                ContextStrategy::RawTruncate.as_str().to_string(),
-            )),
+            context_strategy_override: Set(Some(ContextStrategy::RawTruncate.as_str().to_string())),
             context_message_limit: Set(None),
             compression_keep_last_n: Set(None),
             multi_model_display_mode_override: Set(None),
@@ -276,9 +274,8 @@ fn parse_chatgpt_export(path: &Path) -> Result<Vec<ChatGptConversation>> {
     } else {
         std::fs::read(path)?
     };
-    let value = serde_json::from_slice::<Value>(&bytes).map_err(|e| {
-        AQBotError::Validation(format!("Invalid ChatGPT conversations.json: {e}"))
-    })?;
+    let value = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|e| AQBotError::Validation(format!("Invalid ChatGPT conversations.json: {e}")))?;
     let conversations_value = value.get("conversations").cloned().unwrap_or(value);
     serde_json::from_value::<Vec<ChatGptConversation>>(conversations_value).map_err(|e| {
         AQBotError::Validation(format!("Invalid ChatGPT conversations.json structure: {e}"))
@@ -289,9 +286,9 @@ fn read_conversations_json_from_zip(path: &Path) -> Result<Vec<u8>> {
     let file = File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AQBotError::Validation(format!("Invalid ChatGPT zip export: {e}")))?;
-    let mut entry = archive
-        .by_name("conversations.json")
-        .map_err(|_| AQBotError::Validation("ChatGPT export is missing conversations.json".into()))?;
+    let mut entry = archive.by_name("conversations.json").map_err(|_| {
+        AQBotError::Validation("ChatGPT export is missing conversations.json".into())
+    })?;
     let mut data = Vec::new();
     entry.read_to_end(&mut data)?;
     Ok(data)
@@ -350,13 +347,19 @@ fn ordered_node_ids(conversation: &ChatGptConversation) -> Vec<String> {
                 break;
             };
             ids.push(node_id);
-            cursor = node.parent.clone().and_then(|parent| non_empty(Some(&parent)).map(str::to_string));
+            cursor = node
+                .parent
+                .clone()
+                .and_then(|parent| non_empty(Some(&parent)).map(str::to_string));
         }
         ids.reverse();
-        if ids
-            .iter()
-            .any(|id| conversation.mapping.get(id).and_then(|node| node.message.as_ref()).is_some())
-        {
+        if ids.iter().any(|id| {
+            conversation
+                .mapping
+                .get(id)
+                .and_then(|node| node.message.as_ref())
+                .is_some()
+        }) {
             return ids;
         }
     }
@@ -458,13 +461,19 @@ fn part_to_markdown(
                 .or_else(|| map.get("type").and_then(Value::as_str))
                 .unwrap_or("object");
             if matches!(part_type, "text" | "input_text" | "output_text") {
-                if let Some(text) = map.get("text").and_then(Value::as_str).and_then(|text| non_empty(Some(text))) {
+                if let Some(text) = map
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .and_then(|text| non_empty(Some(text)))
+                {
                     return Some(text.to_string());
                 }
             }
             warnings.push(warning(
                 "unsupported_content_part",
-                format!("Unsupported ChatGPT content part '{part_type}' was preserved as Markdown."),
+                format!(
+                    "Unsupported ChatGPT content part '{part_type}' was preserved as Markdown."
+                ),
                 Some(source_id.to_string()),
             ));
             Some(format!(
@@ -488,10 +497,11 @@ fn parse_chatgpt_ts(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     let seconds = match value {
         Value::Number(number) => number.as_f64()?,
-        Value::String(text) => text
-            .parse::<f64>()
-            .ok()
-            .or_else(|| chrono::DateTime::parse_from_rfc3339(text).ok().map(|value| value.timestamp() as f64))?,
+        Value::String(text) => text.parse::<f64>().ok().or_else(|| {
+            chrono::DateTime::parse_from_rfc3339(text)
+                .ok()
+                .map(|value| value.timestamp() as f64)
+        })?,
         _ => return None,
     };
     Some(if seconds > 10_000_000_000.0 {
@@ -703,7 +713,11 @@ mod tests {
     async fn import_chatgpt_json_materializes_mainline_messages_and_skips_duplicates() {
         let dir = tempdir().unwrap();
         let json_path = dir.path().join("conversations.json");
-        std::fs::write(&json_path, serde_json::to_vec(&sample_export_json()).unwrap()).unwrap();
+        std::fs::write(
+            &json_path,
+            serde_json::to_vec(&sample_export_json()).unwrap(),
+        )
+        .unwrap();
         let db = create_test_pool().await.unwrap();
 
         let result = import_chatgpt_export_from_path(&db.conn, &json_path)
@@ -769,7 +783,10 @@ mod tests {
             imported_messages[3].parent_message_id.as_deref(),
             Some("chatgpt-msg-tool-1")
         );
-        assert_eq!(imported_messages[1].model_id.as_deref(), Some("unknown-model"));
+        assert_eq!(
+            imported_messages[1].model_id.as_deref(),
+            Some("unknown-model")
+        );
 
         let duplicate = import_chatgpt_export_from_path(&db.conn, &json_path)
             .await

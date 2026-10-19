@@ -63,10 +63,7 @@ pub(crate) fn is_local_source(source: &str) -> bool {
 }
 
 pub(crate) fn parse_skill_package_ref(source: &str) -> Result<SkillPackageRef, String> {
-    let clean = source
-        .trim()
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
+    let clean = source.trim().trim_end_matches('/').trim_end_matches(".git");
     let (base, skill_from_at) = split_at_skill(clean);
 
     if base.contains("github.com") {
@@ -130,11 +127,7 @@ fn parse_github_url(url: &str, skill_from_at: Option<String>) -> Result<SkillPac
             skill = Some(rest[0].to_string());
         }
     }
-    Ok(SkillPackageRef {
-        owner,
-        repo,
-        skill,
-    })
+    Ok(SkillPackageRef { owner, repo, skill })
 }
 
 fn parse_skills_sh_url(
@@ -440,9 +433,7 @@ fn zipball_root_name<R: std::io::Read + std::io::Seek>(
             None => root = Some(first.to_string()),
             Some(existing) if existing == first => {}
             Some(existing) => {
-                return Err(format!(
-                    "Unexpected zip layout: {existing} vs {first}"
-                ));
+                return Err(format!("Unexpected zip layout: {existing} vs {first}"));
             }
         }
     }

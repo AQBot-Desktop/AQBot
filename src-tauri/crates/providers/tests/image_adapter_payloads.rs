@@ -35,12 +35,8 @@ fn xai_payload_omits_undeclared_openai_parameters() {
 
 #[test]
 fn unknown_openai_model_uses_gpt_image_fallback_request_body() {
-    let body = build_request_body(
-        "openai_images",
-        &request(),
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build OpenAI fallback body");
+    let body = build_request_body("openai_images", &request(), &ImageAdapterConfig::default())
+        .expect("build OpenAI fallback body");
 
     // Unverified model ids under openai_images fall back to gpt-image-2 params.
     assert_eq!(body["model"], "test-model");
@@ -151,12 +147,8 @@ fn known_xai_payload_sends_official_generation_fields() {
         .parameters
         .insert("resolution".into(), "2k".into());
 
-    let body = build_request_body(
-        "xai_images",
-        &xai_request,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build known xai body");
+    let body = build_request_body("xai_images", &xai_request, &ImageAdapterConfig::default())
+        .expect("build known xai body");
 
     assert_eq!(body["n"], 2);
     assert_eq!(body["response_format"], "b64_json");
@@ -177,12 +169,8 @@ fn grok_image_alias_uses_full_xai_generation_payload() {
         .parameters
         .insert("resolution".into(), "1k".into());
 
-    let body = build_request_body(
-        "xai_images",
-        &xai_request,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build grok-image body");
+    let body = build_request_body("xai_images", &xai_request, &ImageAdapterConfig::default())
+        .expect("build grok-image body");
 
     assert_eq!(body["model"], "grok-image");
     assert_eq!(body["response_format"], "b64_json");
@@ -206,12 +194,8 @@ fn xai_edit_uses_single_and_multi_image_request_shapes() {
     edit.operation = ImageOperation::Edit;
     edit.images = vec![upload("one.png")];
 
-    let single = build_request_body(
-        "xai_images",
-        &edit,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build single-image xAI edit");
+    let single = build_request_body("xai_images", &edit, &ImageAdapterConfig::default())
+        .expect("build single-image xAI edit");
     assert_eq!(single["image"]["type"], "image_url");
     assert!(single["image"]["url"]
         .as_str()
@@ -220,12 +204,8 @@ fn xai_edit_uses_single_and_multi_image_request_shapes() {
     assert!(single.get("mask").is_none());
 
     edit.images = vec![upload("one.png"), upload("two.png"), upload("three.png")];
-    let multiple = build_request_body(
-        "xai_images",
-        &edit,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build multi-image xAI edit");
+    let multiple = build_request_body("xai_images", &edit, &ImageAdapterConfig::default())
+        .expect("build multi-image xAI edit");
     assert_eq!(multiple["images"].as_array().unwrap().len(), 3);
     assert!(multiple["images"]
         .as_array()
@@ -257,10 +237,7 @@ fn gemini_interactions_generate_content_and_imagen_have_distinct_shapes() {
         interactions_body["response_format"]["mime_type"],
         "image/jpeg"
     );
-    assert_eq!(
-        interactions_body["response_format"]["aspect_ratio"],
-        "16:9"
-    );
+    assert_eq!(interactions_body["response_format"]["aspect_ratio"], "16:9");
     assert_eq!(interactions_body["response_format"]["image_size"], "2K");
     assert!(interactions_body.get("generationConfig").is_none());
 
@@ -269,12 +246,8 @@ fn gemini_interactions_generate_content_and_imagen_have_distinct_shapes() {
     legacy
         .parameters
         .insert("aspect_ratio".into(), "4:3".into());
-    let legacy_body = build_request_body(
-        "gemini_images",
-        &legacy,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build Gemini generateContent body");
+    let legacy_body = build_request_body("gemini_images", &legacy, &ImageAdapterConfig::default())
+        .expect("build Gemini generateContent body");
     assert_eq!(
         legacy_body["generationConfig"]["responseFormat"]["image"]["aspectRatio"],
         "4:3"
@@ -290,15 +263,9 @@ fn gemini_interactions_generate_content_and_imagen_have_distinct_shapes() {
     imagen
         .parameters
         .insert("aspect_ratio".into(), "3:4".into());
-    imagen
-        .parameters
-        .insert("image_size".into(), "2K".into());
-    let imagen_body = build_request_body(
-        "gemini_images",
-        &imagen,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build Imagen predict body");
+    imagen.parameters.insert("image_size".into(), "2K".into());
+    let imagen_body = build_request_body("gemini_images", &imagen, &ImageAdapterConfig::default())
+        .expect("build Imagen predict body");
     assert_eq!(imagen_body["instances"][0]["prompt"], "draw a cat");
     assert_eq!(imagen_body["parameters"]["sampleCount"], 3);
     assert_eq!(imagen_body["parameters"]["aspectRatio"], "3:4");
@@ -310,24 +277,16 @@ fn glm_and_siliconflow_do_not_send_fields_unsupported_by_the_model() {
     let mut glm = request();
     glm.model = "glm-image".into();
     glm.quality = "hd".into();
-    let glm_body = build_request_body(
-        "glm_images",
-        &glm,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build GLM body");
+    let glm_body = build_request_body("glm_images", &glm, &ImageAdapterConfig::default())
+        .expect("build GLM body");
     assert!(glm_body.get("n").is_none());
 
     let mut edit = request();
     edit.model = "Qwen/Qwen-Image-Edit-2509".into();
     edit.operation = ImageOperation::Edit;
     edit.images = vec![upload("one.png"), upload("two.png"), upload("three.png")];
-    let edit_body = build_request_body(
-        "siliconflow_images",
-        &edit,
-        &ImageAdapterConfig::default(),
-    )
-    .expect("build Qwen edit body");
+    let edit_body = build_request_body("siliconflow_images", &edit, &ImageAdapterConfig::default())
+        .expect("build Qwen edit body");
     assert!(edit_body.get("image_size").is_none());
     assert!(edit_body.get("batch_size").is_none());
     assert!(edit_body.get("guidance_scale").is_none());

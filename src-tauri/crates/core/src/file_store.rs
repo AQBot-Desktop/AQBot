@@ -116,10 +116,7 @@ impl FileStore {
         let bucket = crate::storage_paths::file_type_bucket(mime_type);
         let bucket_dir = self.base_dir.join(bucket);
         std::fs::create_dir_all(&bucket_dir)?;
-        let staging_path = bucket_dir.join(format!(
-            ".stream-{}.migrating",
-            crate::utils::gen_id()
-        ));
+        let staging_path = bucket_dir.join(format!(".stream-{}.migrating", crate::utils::gen_id()));
 
         let operation = (|| -> Result<SavedFile> {
             let mut staging = std::fs::OpenOptions::new()

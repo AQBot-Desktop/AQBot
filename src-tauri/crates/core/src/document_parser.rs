@@ -129,6 +129,9 @@ mod tests {
 
     #[test]
     fn mime_from_extension_detects_legacy_word_documents() {
-        assert_eq!(mime_from_extension(Path::new("report.doc")), "application/msword");
+        assert_eq!(
+            mime_from_extension(Path::new("report.doc")),
+            "application/msword"
+        );
     }
 }

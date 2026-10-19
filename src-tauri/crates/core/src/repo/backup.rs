@@ -786,22 +786,60 @@ mod tests {
     async fn tray_icon_backup_restores_reference_and_image_under_a_different_root() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("source.db");
-        let db = crate::db::create_pool(db_path.to_str().unwrap()).await.unwrap().conn;
+        let db = crate::db::create_pool(db_path.to_str().unwrap())
+            .await
+            .unwrap()
+            .conn;
         let documents = temp.path().join("documents");
         let store = crate::file_store::FileStore::with_root(documents.clone());
-        let saved = store.save_file(b"tray-image", "tray.png", "image/png").unwrap();
-        super::super::tray_icon::commit_change(&db, Some(super::super::tray_icon::NewIcon {
-            id: "tray-file", saved: &saved, name: "tray.png",
-        }), || Ok(())).await.unwrap();
-        let manifest = create_backup_with_documents_root(&db, "sqlite", &temp.path().join("backups"), &documents).await.unwrap();
+        let saved = store
+            .save_file(b"tray-image", "tray.png", "image/png")
+            .unwrap();
+        super::super::tray_icon::commit_change(
+            &db,
+            Some(super::super::tray_icon::NewIcon {
+                id: "tray-file",
+                saved: &saved,
+                name: "tray.png",
+            }),
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+        let manifest = create_backup_with_documents_root(
+            &db,
+            "sqlite",
+            &temp.path().join("backups"),
+            &documents,
+        )
+        .await
+        .unwrap();
         let restored_root = temp.path().join("moved-documents");
         let restored_path = temp.path().join("restored.db");
-        restore_sqlite_backup_with_documents_root(Path::new(manifest.file_path.as_ref().unwrap()), &restored_path, &restored_root).unwrap();
-        let restored = Database::connect(format!("sqlite:{}?mode=ro", restored_path.display())).await.unwrap();
-        assert_eq!(super::super::tray_icon::file_id(&restored).await.unwrap().as_deref(), Some("tray-file"));
-        let file = stored_file::get_stored_file(&restored, "tray-file").await.unwrap();
+        restore_sqlite_backup_with_documents_root(
+            Path::new(manifest.file_path.as_ref().unwrap()),
+            &restored_path,
+            &restored_root,
+        )
+        .unwrap();
+        let restored = Database::connect(format!("sqlite:{}?mode=ro", restored_path.display()))
+            .await
+            .unwrap();
+        assert_eq!(
+            super::super::tray_icon::file_id(&restored)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("tray-file")
+        );
+        let file = stored_file::get_stored_file(&restored, "tray-file")
+            .await
+            .unwrap();
         assert_eq!(file.storage_path, saved.storage_path);
-        assert_eq!(std::fs::read(restored_root.join(file.storage_path)).unwrap(), b"tray-image");
+        assert_eq!(
+            std::fs::read(restored_root.join(file.storage_path)).unwrap(),
+            b"tray-image"
+        );
     }
 
     #[test]

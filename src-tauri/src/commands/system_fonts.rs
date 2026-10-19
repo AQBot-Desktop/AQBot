@@ -117,10 +117,7 @@ fn strip_family_prefix(full_name: &str, family: &str) -> Option<String> {
     if !full[..family.len()].eq_ignore_ascii_case(family) {
         return None;
     }
-    let rest = full[family.len()..]
-        .trim()
-        .trim_start_matches('-')
-        .trim();
+    let rest = full[family.len()..].trim().trim_start_matches('-').trim();
     Some(rest.to_string())
 }
 

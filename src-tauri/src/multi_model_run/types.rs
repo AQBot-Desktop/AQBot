@@ -141,7 +141,8 @@ pub struct MarkTargetErrorRequest {
 
 #[async_trait::async_trait]
 pub trait MultiModelTurnAdapter: Send + Sync {
-    async fn persist_user_turn(&self, input: PersistUserTurnInput) -> Result<PersistedTurn, String>;
+    async fn persist_user_turn(&self, input: PersistUserTurnInput)
+        -> Result<PersistedTurn, String>;
     async fn start_target(&self, request: StartTargetRequest) -> Result<StreamHandle, String>;
     async fn cancel_stream(
         &self,

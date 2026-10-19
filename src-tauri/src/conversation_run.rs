@@ -27,10 +27,7 @@ pub enum ConversationRunPhase {
 
 impl ConversationRunPhase {
     pub fn is_live(self) -> bool {
-        matches!(
-            self,
-            Self::Preparing | Self::Streaming | Self::Stopping
-        )
+        matches!(self, Self::Preparing | Self::Streaming | Self::Stopping)
     }
 }
 
@@ -128,7 +125,9 @@ impl ConversationRunRegistry {
 
     pub fn snapshot(&self, conversation_id: &str) -> Option<ConversationRunSnapshot> {
         let inner = self.inner.lock().ok()?;
-        inner.get(conversation_id).map(|record| record.snapshot.clone())
+        inner
+            .get(conversation_id)
+            .map(|record| record.snapshot.clone())
     }
 
     pub fn list_active(&self) -> Vec<ConversationRunSnapshot> {
@@ -208,7 +207,12 @@ mod tests {
     fn admit_rejects_a_second_live_run_for_the_same_conversation() {
         let registry = ConversationRunRegistry::new();
         let first = registry
-            .admit("conv-a", "run-1", Some("stream-1"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-1",
+                Some("stream-1"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         let error = match registry.admit(
             "conv-a",
@@ -224,7 +228,12 @@ mod tests {
         drop(first);
         assert!(registry.snapshot("conv-a").is_none());
         let second = registry
-            .admit("conv-a", "run-2", Some("stream-2"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-2",
+                Some("stream-2"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         assert_eq!(second.run_id(), "run-2");
     }
@@ -233,10 +242,20 @@ mod tests {
     fn different_conversations_can_run_in_parallel() {
         let registry = ConversationRunRegistry::new();
         let a = registry
-            .admit("conv-a", "run-a", Some("stream-a"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-a",
+                Some("stream-a"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         let b = registry
-            .admit("conv-b", "run-b", Some("stream-b"), ConversationRunMode::Agent)
+            .admit(
+                "conv-b",
+                "run-b",
+                Some("stream-b"),
+                ConversationRunMode::Agent,
+            )
             .unwrap();
         let listed = registry.list_active();
         assert_eq!(listed.len(), 2);
@@ -249,7 +268,12 @@ mod tests {
     fn updates_and_releases_require_matching_run_id() {
         let registry = ConversationRunRegistry::new();
         let guard = registry
-            .admit("conv-a", "run-1", Some("stream-1"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-1",
+                Some("stream-1"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         assert!(registry
             .update("conv-a", "run-other", |snapshot| {
@@ -275,17 +299,24 @@ mod tests {
     fn releasing_a_run_allows_a_new_admit_before_later_work_finishes() {
         let registry = ConversationRunRegistry::new();
         let mut first = registry
-            .admit("conv-a", "run-1", Some("stream-1"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-1",
+                Some("stream-1"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         assert!(first.release());
         let second = registry
-            .admit("conv-a", "run-2", Some("stream-2"), ConversationRunMode::Chat)
+            .admit(
+                "conv-a",
+                "run-2",
+                Some("stream-2"),
+                ConversationRunMode::Chat,
+            )
             .unwrap();
         assert_eq!(second.run_id(), "run-2");
         drop(first);
-        assert_eq!(
-            registry.snapshot("conv-a").unwrap().run_id,
-            "run-2"
-        );
+        assert_eq!(registry.snapshot("conv-a").unwrap().run_id, "run-2");
     }
 }

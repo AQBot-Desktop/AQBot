@@ -45,7 +45,8 @@ pub async fn save_settings(
     state: State<'_, AppState>,
     mut settings: AppSettings,
 ) -> Result<SaveSettingsResult, String> {
-    settings.model_test_prompt = normalize_model_test_prompt(settings.model_test_prompt.as_deref())?;
+    settings.model_test_prompt =
+        normalize_model_test_prompt(settings.model_test_prompt.as_deref())?;
     settings.selection_toolbar.validate()?;
     if settings.multi_model_sequential_interval_seconds
         > aqbot_core::types::MAX_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS
@@ -92,7 +93,13 @@ pub async fn save_settings(
 
     let app_state = app.state::<AppState>();
     let mut warnings = Vec::new();
-    let tray_available = match crate::tray_icon::reconcile_locked(&app, &settings, &mut tray_runtime).await {
+    let tray_available = match crate::tray_icon::reconcile_locked(
+        &app,
+        &settings,
+        &mut tray_runtime,
+    )
+    .await
+    {
         Ok(()) => settings.tray_enabled && crate::tray::tray_exists(&app),
         Err(error) => {
             tracing::warn!(error = %error, "Failed to reconcile system tray after settings save");

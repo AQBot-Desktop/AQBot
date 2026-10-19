@@ -163,15 +163,37 @@ mod tests {
         let saved = store.save_file(b"icon", "tray.png", "image/png").unwrap();
         {
             let _guard = aqbot_core::repo::stored_file::lock_file_references().await;
-            aqbot_core::repo::tray_icon::commit_change(&db, Some(aqbot_core::repo::tray_icon::NewIcon {
-                id: "tray", saved: &saved, name: "tray.png",
-            }), || Ok(())).await.unwrap();
+            aqbot_core::repo::tray_icon::commit_change(
+                &db,
+                Some(aqbot_core::repo::tray_icon::NewIcon {
+                    id: "tray",
+                    saved: &saved,
+                    name: "tray.png",
+                }),
+                || Ok(()),
+            )
+            .await
+            .unwrap();
         }
-        assert!(delete_attachment_reference(&db, &store, "tray").await.unwrap_err().contains("tray_icon_in_use"));
+        assert!(delete_attachment_reference(&db, &store, "tray")
+            .await
+            .unwrap_err()
+            .contains("tray_icon_in_use"));
         store.delete_file(&saved.storage_path).unwrap();
-        assert!(force_delete_stored_file_record(&db, &store, "tray").await.unwrap_err().contains("tray_icon_in_use"));
-        assert_eq!(aqbot_core::repo::tray_icon::file_id(&db).await.unwrap().as_deref(), Some("tray"));
-        assert!(aqbot_core::repo::stored_file::get_stored_file(&db, "tray").await.is_ok());
+        assert!(force_delete_stored_file_record(&db, &store, "tray")
+            .await
+            .unwrap_err()
+            .contains("tray_icon_in_use"));
+        assert_eq!(
+            aqbot_core::repo::tray_icon::file_id(&db)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("tray")
+        );
+        assert!(aqbot_core::repo::stored_file::get_stored_file(&db, "tray")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]

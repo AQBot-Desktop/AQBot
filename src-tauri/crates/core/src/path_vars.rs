@@ -29,9 +29,11 @@ pub fn encode_path(absolute_path: &str) -> String {
     {
         return encoded;
     }
-    if let Some(encoded) =
-        try_encode(absolute_path, &documents_root.to_string_lossy(), VAR_DOCUMENTS)
-    {
+    if let Some(encoded) = try_encode(
+        absolute_path,
+        &documents_root.to_string_lossy(),
+        VAR_DOCUMENTS,
+    ) {
         return encoded;
     }
     if let Some(encoded) = try_encode(absolute_path, &home.to_string_lossy(), VAR_HOME) {
@@ -55,18 +57,10 @@ pub fn decode_path(encoded_path: &str) -> String {
     let documents_root = crate::storage_paths::documents_root();
 
     if let Some(rest) = encoded_path.strip_prefix(VAR_AQBOT_HOME) {
-        return format!(
-            "{}{}",
-            aqbot_home.to_string_lossy(),
-            platform_sep(rest)
-        );
+        return format!("{}{}", aqbot_home.to_string_lossy(), platform_sep(rest));
     }
     if let Some(rest) = encoded_path.strip_prefix(VAR_DOCUMENTS) {
-        return format!(
-            "{}{}",
-            documents_root.to_string_lossy(),
-            platform_sep(rest)
-        );
+        return format!("{}{}", documents_root.to_string_lossy(), platform_sep(rest));
     }
     if let Some(rest) = encoded_path.strip_prefix(VAR_HOME) {
         return format!("{}{}", home.to_string_lossy(), platform_sep(rest));
@@ -92,9 +86,7 @@ pub fn decode_path_opt(path: &Option<String>) -> Option<String> {
 /// Try to replace `prefix` at the start of `path` with `variable`.
 fn try_encode(path: &str, prefix: &str, variable: &str) -> Option<String> {
     let np = normalize_sep_fwd(path);
-    let npfx = normalize_sep_fwd(prefix)
-        .trim_end_matches('/')
-        .to_string();
+    let npfx = normalize_sep_fwd(prefix).trim_end_matches('/').to_string();
 
     if np == npfx {
         return Some(variable.to_string());
@@ -146,18 +138,9 @@ pub async fn migrate_hardcoded_paths(db: &sea_orm::DatabaseConnection) {
                 let encoded = encode_path(&value);
                 if encoded != value {
                     if let Err(e) = crate::repo::settings::set_setting(db, key, &encoded).await {
-                        tracing::warn!(
-                            "path_vars: failed to migrate setting '{}': {}",
-                            key,
-                            e
-                        );
+                        tracing::warn!("path_vars: failed to migrate setting '{}': {}", key, e);
                     } else {
-                        tracing::info!(
-                            "path_vars: migrated '{}': {} → {}",
-                            key,
-                            value,
-                            encoded
-                        );
+                        tracing::info!("path_vars: migrated '{}': {} → {}", key, value, encoded);
                     }
                 }
             }
@@ -187,10 +170,7 @@ async fn migrate_backup_manifest_paths(db: &sea_orm::DatabaseConnection) {
                     let mut am: backup_manifests::ActiveModel = m.into();
                     am.file_path = Set(Some(encoded));
                     if let Err(e) = am.update(db).await {
-                        tracing::warn!(
-                            "path_vars: failed to migrate backup manifest path: {}",
-                            e
-                        );
+                        tracing::warn!("path_vars: failed to migrate backup manifest path: {}", e);
                     }
                 }
             }

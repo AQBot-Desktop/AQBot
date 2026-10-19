@@ -129,10 +129,7 @@ mod tests {
     #[test]
     fn blank_prompt_uses_official_default() {
         assert_eq!(normalize_model_test_prompt(Some("  \n")).unwrap(), None);
-        assert_eq!(
-            effective_model_test_prompt(None).unwrap(),
-            "Say 1"
-        );
+        assert_eq!(effective_model_test_prompt(None).unwrap(), "Say 1");
     }
 
     #[test]

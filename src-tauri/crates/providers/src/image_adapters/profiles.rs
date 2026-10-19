@@ -1082,7 +1082,10 @@ mod tests {
         let config = ImageAdapterConfig::default();
         let profile = image_model_profile("openai_images", "gemini-3.1-flash-image", &config);
         assert_eq!(profile.family, ImageModelFamily::OpenAiGpt2);
-        assert!(profile.descriptor.operations.contains(&ImageOperation::Edit));
+        assert!(profile
+            .descriptor
+            .operations
+            .contains(&ImageOperation::Edit));
         assert!(profile
             .descriptor
             .parameters
@@ -1135,18 +1138,16 @@ mod tests {
     #[test]
     fn xai_imagine_profile_is_verified_for_aliases_and_requires_edit_references() {
         let config = ImageAdapterConfig::default();
-        for model in ["grok-image", "grok-imagine-image", "grok-imagine-image-quality"] {
+        for model in [
+            "grok-image",
+            "grok-imagine-image",
+            "grok-imagine-image-quality",
+        ] {
             let profile = image_model_profile("xai_images", model, &config);
             assert_eq!(profile.family, ImageModelFamily::XaiImagine);
             assert!(profile.descriptor.warnings.is_empty());
             assert_eq!(profile.official_docs, Some(XAI_IMAGE_DOCS));
-            assert!(validate_profile_request(
-                "xai_images",
-                &request(model),
-                0,
-                &config
-            )
-            .is_ok());
+            assert!(validate_profile_request("xai_images", &request(model), 0, &config).is_ok());
 
             let mut edit = request(model);
             edit.operation = ImageOperation::Edit;

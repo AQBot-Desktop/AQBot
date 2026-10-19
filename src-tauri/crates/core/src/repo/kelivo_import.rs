@@ -507,12 +507,13 @@ fn parse_kelivo_backup(path: &Path) -> Result<ParsedKelivoBackup> {
         .map_err(|_| AQBotError::Validation("Kelivo backup is missing chats.json".into()))?;
     let chats = serde_json::from_slice::<KelivoChats>(&chats_bytes)
         .map_err(|e| AQBotError::Validation(format!("Invalid Kelivo chats.json: {e}")))?;
-    let settings = match file_source.read_entry("settings.json") {
-        Ok(bytes) => Some(serde_json::from_slice::<Value>(&bytes).map_err(|e| {
-            AQBotError::Validation(format!("Invalid Kelivo settings.json: {e}"))
-        })?),
-        Err(_) => None,
-    };
+    let settings =
+        match file_source.read_entry("settings.json") {
+            Ok(bytes) => Some(serde_json::from_slice::<Value>(&bytes).map_err(|e| {
+                AQBotError::Validation(format!("Invalid Kelivo settings.json: {e}"))
+            })?),
+            Err(_) => None,
+        };
     let mut warnings = Vec::new();
     if settings.is_none() {
         warnings.push(warning(
@@ -598,7 +599,9 @@ impl KelivoFileSource {
                     )));
                 }
                 std::fs::read(&path).map_err(|e| {
-                    AQBotError::Validation(format!("Failed to read Kelivo backup file {normalized}: {e}"))
+                    AQBotError::Validation(format!(
+                        "Failed to read Kelivo backup file {normalized}: {e}"
+                    ))
                 })
             }
         }
@@ -617,9 +620,7 @@ fn list_directory_entries(root: &Path) -> Result<HashSet<String>> {
         })?;
         for entry in read_dir {
             let entry = entry.map_err(|e| {
-                AQBotError::Validation(format!(
-                    "Failed to read Kelivo backup directory entry: {e}"
-                ))
+                AQBotError::Validation(format!("Failed to read Kelivo backup directory entry: {e}"))
             })?;
             let path = entry.path();
             if path.is_dir() {
@@ -687,10 +688,8 @@ async fn summarize_kelivo_backup(
     let (providers, provider_warnings) = kelivo_providers(parsed.settings.as_ref());
     summary.warnings.extend(provider_warnings);
     // Only count providers that have a usable API key; keyless shells are skipped on purpose.
-    summary.importable_provider_count = providers
-        .into_iter()
-        .filter(is_importable_provider)
-        .count() as u32;
+    summary.importable_provider_count =
+        providers.into_iter().filter(is_importable_provider).count() as u32;
 
     Ok(summary)
 }
@@ -952,7 +951,9 @@ fn message_has_importable_payload(
             .is_some_and(|events| !events.is_empty())
 }
 
-fn kelivo_providers(settings: Option<&Value>) -> (Vec<KelivoProvider>, Vec<ThirdPartyImportWarning>) {
+fn kelivo_providers(
+    settings: Option<&Value>,
+) -> (Vec<KelivoProvider>, Vec<ThirdPartyImportWarning>) {
     let mut warnings = Vec::new();
     let Some(settings) = settings else {
         return (Vec::new(), warnings);
@@ -1140,8 +1141,7 @@ where
     }
 
     for (model_id, name) in kelivo_models(&provider.config) {
-        let (model_type, capabilities) =
-            infer_model_type_and_capabilities(&model_id, &name);
+        let (model_type, capabilities) = infer_model_type_and_capabilities(&model_id, &name);
         models::Entity::insert(models::ActiveModel {
             provider_id: Set(provider_id.clone()),
             model_id: Set(model_id),
@@ -2117,7 +2117,10 @@ mod tests {
         assert!(config.api_keys.is_empty());
         assert!(config.model_overrides.is_empty());
         assert_eq!(config.models, vec!["gpt-5.6".to_string()]);
-        assert_eq!(importable_keys(&config), vec!["sk-real-key-123".to_string()]);
+        assert_eq!(
+            importable_keys(&config),
+            vec!["sk-real-key-123".to_string()]
+        );
     }
 
     #[test]

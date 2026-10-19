@@ -5,7 +5,8 @@ use super::types::{
     PersistUserTurnInput, StartMultiModelInput, StartTargetRequest, StreamHandle, StreamTerminal,
 };
 use aqbot_core::types::{
-    resolve_target_thinking, validate_multi_model_targets, MultiModelExecutionMode, MultiModelTarget,
+    resolve_target_thinking, validate_multi_model_targets, MultiModelExecutionMode,
+    MultiModelTarget,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,10 +61,12 @@ impl MultiModelRunManager {
         validate_start_input(&input)?;
         {
             let mut inner = self.inner.lock().await;
-            let slot = inner.entry(input.conversation_id.clone()).or_insert(ConversationSlot {
-                revision: 0,
-                active: None,
-            });
+            let slot = inner
+                .entry(input.conversation_id.clone())
+                .or_insert(ConversationSlot {
+                    revision: 0,
+                    active: None,
+                });
             if slot.active.is_some() {
                 return Err(ACTIVE_RUN_EXISTS_ERROR.to_string());
             }
@@ -154,10 +157,12 @@ impl MultiModelRunManager {
 
         let envelope = {
             let mut inner = self.inner.lock().await;
-            let slot = inner.entry(conversation_id.clone()).or_insert(ConversationSlot {
-                revision: 0,
-                active: None,
-            });
+            let slot = inner
+                .entry(conversation_id.clone())
+                .or_insert(ConversationSlot {
+                    revision: 0,
+                    active: None,
+                });
             slot.revision += 1;
             slot.active = Some(ActiveRun {
                 snapshot,
@@ -336,14 +341,7 @@ async fn run_plan<A: MultiModelTurnAdapter>(
     let conversation_id = input.conversation_id.clone();
     match input.execution_mode {
         MultiModelExecutionMode::Parallel => {
-            run_parallel(
-                &manager,
-                adapter.as_ref(),
-                &input,
-                &user_message_id,
-                &stop,
-            )
-            .await;
+            run_parallel(&manager, adapter.as_ref(), &input, &user_message_id, &stop).await;
         }
         MultiModelExecutionMode::Sequential => {
             run_sequential(
@@ -395,8 +393,8 @@ async fn run_parallel<A: MultiModelTurnAdapter>(
                 adapter.emit_envelope(envelope).await;
             }
             Err(error) => {
-                let marked = mark_start_error(adapter, input, user_message_id, index, target, error)
-                    .await;
+                let marked =
+                    mark_start_error(adapter, input, user_message_id, index, target, error).await;
                 let envelope = manager
                     .update_snapshot(&input.conversation_id, |snapshot| {
                         snapshot.targets[index].state = MultiModelTargetState::Error;

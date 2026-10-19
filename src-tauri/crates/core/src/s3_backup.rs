@@ -141,9 +141,7 @@ impl S3BackupClient {
             if !response.is_truncated().unwrap_or(false) {
                 break;
             }
-            continuation_token = response
-                .next_continuation_token()
-                .map(ToOwned::to_owned);
+            continuation_token = response.next_continuation_token().map(ToOwned::to_owned);
             if continuation_token.is_none() {
                 break;
             }
@@ -154,9 +152,9 @@ impl S3BackupClient {
     }
 
     pub async fn upload_file(&self, filename: &str, local_path: &Path) -> Result<()> {
-        let body = ByteStream::from_path(local_path)
-            .await
-            .map_err(|e| AQBotError::Gateway(format!("Failed to read file for S3 upload: {}", e)))?;
+        let body = ByteStream::from_path(local_path).await.map_err(|e| {
+            AQBotError::Gateway(format!("Failed to read file for S3 upload: {}", e))
+        })?;
         self.client
             .put_object()
             .bucket(bucket_name(&self.config))
@@ -333,7 +331,11 @@ pub(crate) fn normalize_prefix(prefix: &str) -> String {
 }
 
 pub(crate) fn object_key(prefix: &str, filename: &str) -> String {
-    format!("{}{}", normalize_prefix(prefix), filename.trim_start_matches('/'))
+    format!(
+        "{}{}",
+        normalize_prefix(prefix),
+        filename.trim_start_matches('/')
+    )
 }
 
 pub(crate) fn backup_file_name_from_key(prefix: &str, key: &str) -> Option<String> {
@@ -362,7 +364,10 @@ mod tests {
     fn normalizes_s3_prefix_for_object_keys() {
         assert_eq!(normalize_prefix(""), "");
         assert_eq!(normalize_prefix("/aqbot/backups/"), "aqbot/backups/");
-        assert_eq!(object_key("/aqbot/backups/", "/backup.zip"), "aqbot/backups/backup.zip");
+        assert_eq!(
+            object_key("/aqbot/backups/", "/backup.zip"),
+            "aqbot/backups/backup.zip"
+        );
     }
 
     #[test]
@@ -370,11 +375,17 @@ mod tests {
         let prefix = normalize_prefix("aqbot/backups");
 
         assert_eq!(
-            backup_file_name_from_key(&prefix, "aqbot/backups/aqbot-backup-20260515_010203.host.zip"),
+            backup_file_name_from_key(
+                &prefix,
+                "aqbot/backups/aqbot-backup-20260515_010203.host.zip"
+            ),
             Some("aqbot-backup-20260515_010203.host.zip".to_string())
         );
         assert_eq!(
-            backup_file_name_from_key(&prefix, "aqbot/backups/nested/aqbot-backup-20260515_010203.host.zip"),
+            backup_file_name_from_key(
+                &prefix,
+                "aqbot/backups/nested/aqbot-backup-20260515_010203.host.zip"
+            ),
             None
         );
         assert_eq!(
@@ -382,7 +393,10 @@ mod tests {
             None
         );
         assert_eq!(
-            backup_file_name_from_key(&prefix, "aqbot/backups/aqbot-backup-20260515_010203.host.db"),
+            backup_file_name_from_key(
+                &prefix,
+                "aqbot/backups/aqbot-backup-20260515_010203.host.db"
+            ),
             None
         );
     }

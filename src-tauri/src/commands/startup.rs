@@ -34,7 +34,9 @@ fn require_visible_window(visibility: Result<bool, String>) -> Result<(), String
     match visibility {
         Ok(true) => Ok(()),
         Ok(false) => Err("AQBot main window is not visible after frontend presentation".into()),
-        Err(error) => Err(format!("Could not verify AQBot main window visibility: {error}")),
+        Err(error) => Err(format!(
+            "Could not verify AQBot main window visibility: {error}"
+        )),
     }
 }
 

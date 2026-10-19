@@ -195,7 +195,10 @@ async fn sequential_starts_second_target_after_first_completes() {
     let envelopes = adapter.envelopes.clone();
     let control = adapter.clone();
     manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 0))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 0),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;
@@ -220,7 +223,10 @@ async fn sequential_zero_interval_still_waits_for_terminal() {
     let started = adapter.started.clone();
     let control = adapter.clone();
     manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 0))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 0),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;
@@ -239,7 +245,10 @@ async fn sequential_skip_cancels_only_current_stream() {
     let envelopes = adapter.envelopes.clone();
     let control = adapter.clone();
     let envelope = manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 0))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 0),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;
@@ -267,7 +276,10 @@ async fn stop_during_wait_prevents_next_target() {
     let envelopes = adapter.envelopes.clone();
     let control = adapter.clone();
     let envelope = manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 60))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 60),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;
@@ -311,7 +323,10 @@ async fn start_failure_records_error_and_continues() {
     let envelopes = adapter.envelopes.clone();
     let control = adapter.clone();
     manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 0))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 0),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;
@@ -335,7 +350,10 @@ async fn second_run_for_same_conversation_is_rejected() {
     let adapter = FakeAdapter::new();
     let started = adapter.started.clone();
     manager
-        .start(adapter, sample_input(MultiModelExecutionMode::Sequential, 3))
+        .start(
+            adapter,
+            sample_input(MultiModelExecutionMode::Sequential, 3),
+        )
         .await
         .unwrap();
     wait_until(|| async { started.lock().await.len() == 1 }).await;

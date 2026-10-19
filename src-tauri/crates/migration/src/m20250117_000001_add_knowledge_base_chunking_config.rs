@@ -19,7 +19,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(KnowledgeBases::Table)
-                    .add_column(ColumnDef::new(KnowledgeBases::ChunkOverlap).integer().null())
+                    .add_column(
+                        ColumnDef::new(KnowledgeBases::ChunkOverlap)
+                            .integer()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;

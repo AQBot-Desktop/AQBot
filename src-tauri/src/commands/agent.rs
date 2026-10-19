@@ -820,10 +820,11 @@ pub async fn agent_query(
         tokens: state.agent_cancel_tokens.clone(),
     };
     // Read resume state only after admission so a just-finished turn cannot be missed.
-    let session = agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or("Agent session not found. Please switch to Agent mode first.")?;
+    let session =
+        agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or("Agent session not found. Please switch to Agent mode first.")?;
     super::agent_status::emit_agent_stage(
         &app,
         &conversation_id,
@@ -2393,22 +2394,32 @@ pub async fn agent_query(
                 error: Some(&safe_error),
                 ..Default::default()
             },
-            running_guard.take().expect("Failed Agent initialization still owns admission"),
-        ).await;
+            running_guard
+                .take()
+                .expect("Failed Agent initialization still owns admission"),
+        )
+        .await;
         // Before a persisted assistant exists, the IPC rejection owns the UI error;
         // an empty terminal refresh would erase the optimistic error message.
         if let Some(assistant_message_id) = initial_assistant_id.as_deref() {
             if let Some(error) = terminal_error.as_ref() {
-                let _ = app.emit("agent-error", AgentErrorPayload {
-                    conversation_id: conversation_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: Some(assistant_message_id.to_string()),
-                    message: filter_complete_agent_event_text(error),
-                });
+                let _ = app.emit(
+                    "agent-error",
+                    AgentErrorPayload {
+                        conversation_id: conversation_id.clone(),
+                        run_id: Some(run_id.clone()),
+                        assistant_message_id: Some(assistant_message_id.to_string()),
+                        message: filter_complete_agent_event_text(error),
+                    },
+                );
             }
             super::agent_lifecycle::emit_agent_run_terminal(
-                &app, &conversation_id, assistant_message_id, &stream_id,
-                outcome, terminal_error.clone(),
+                &app,
+                &conversation_id,
+                assistant_message_id,
+                &stream_id,
+                outcome,
+                terminal_error.clone(),
             );
         }
         return Err(terminal_error.unwrap_or(error));

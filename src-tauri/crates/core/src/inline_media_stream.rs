@@ -436,11 +436,13 @@ impl InlineDataStreamCapture {
                         self.state = CaptureState::CodePayload;
                         continue;
                     }
-                    if let Some(boundary) = self.pending.char_indices().find_map(|(offset, value)| {
-                        (value.is_whitespace()
-                            || matches!(value, ')' | '\'' | '"' | '>' | '`' | '~'))
-                        .then_some(offset)
-                    }) {
+                    if let Some(boundary) =
+                        self.pending.char_indices().find_map(|(offset, value)| {
+                            (value.is_whitespace()
+                                || matches!(value, ')' | '\'' | '"' | '>' | '`' | '~'))
+                            .then_some(offset)
+                        })
+                    {
                         self.pending.drain(..boundary);
                         self.state = CaptureState::Normal;
                         continue;

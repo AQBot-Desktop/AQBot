@@ -33,10 +33,7 @@ pub(crate) fn first_blocking_diagnostic(
         .find(|item| AGENT_BLOCKING_DIAGNOSTIC_CODES.contains(&item.code.as_str()))
 }
 
-pub(crate) fn build_append_system_prompt(
-    l1: Option<&str>,
-    rag_parts: &[String],
-) -> Option<String> {
+pub(crate) fn build_append_system_prompt(l1: Option<&str>, rag_parts: &[String]) -> Option<String> {
     let mut parts = Vec::new();
     if let Some(text) = l1.map(str::trim).filter(|value| !value.is_empty()) {
         parts.push(text.to_string());
@@ -182,8 +179,7 @@ mod tests {
             args: json!({}),
         };
         assert_eq!(
-            first_blocking_diagnostic(&[diagnostic.clone()])
-                .map(|item| item.code.as_str()),
+            first_blocking_diagnostic(&[diagnostic.clone()]).map(|item| item.code.as_str()),
             Some("MEMORY_NAMESPACE_MISSING")
         );
     }

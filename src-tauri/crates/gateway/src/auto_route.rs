@@ -89,10 +89,7 @@ pub fn resolve_real_model_id(model: &Model, name: &str) -> Option<String> {
 }
 
 /// Collect enabled models matching `request_name` (real id or alias) across providers.
-pub fn collect_candidates(
-    providers: &[ProviderConfig],
-    request_name: &str,
-) -> Vec<RouteCandidate> {
+pub fn collect_candidates(providers: &[ProviderConfig], request_name: &str) -> Vec<RouteCandidate> {
     let mut out = Vec::new();
     for provider in providers.iter().filter(|p| p.enabled) {
         for model in provider.models.iter().filter(|m| m.enabled) {

@@ -23,11 +23,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(1),
                     )
-                    .col(
-                        ColumnDef::new(SkillStates::UpdatedAt)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(SkillStates::UpdatedAt).integer().not_null())
                     .to_owned(),
             )
             .await

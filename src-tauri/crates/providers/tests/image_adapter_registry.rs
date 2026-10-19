@@ -122,10 +122,7 @@ fn custom_vendor_models_default_to_openai_images_with_gpt_image_params() {
     let adapter = registry
         .resolve(&ProviderType::Custom, "vendor-image-model", None)
         .expect("custom image model should resolve to openai_images");
-    let descriptor = adapter.descriptor(
-        "vendor-image-model",
-        &ImageAdapterConfig::default(),
-    );
+    let descriptor = adapter.descriptor("vendor-image-model", &ImageAdapterConfig::default());
 
     assert_eq!(adapter.id(), "openai_images");
     assert!(descriptor.operations.contains(&ImageOperation::Generate));
@@ -156,10 +153,7 @@ fn custom_gemini_named_model_on_openai_compat_proxy_uses_openai_protocol() {
             Some("https://proxy.example.com/v1"),
         )
         .expect("gemini-named model on custom proxy should resolve");
-    let descriptor = adapter.descriptor(
-        "gemini-3.1-flash-image",
-        &ImageAdapterConfig::default(),
-    );
+    let descriptor = adapter.descriptor("gemini-3.1-flash-image", &ImageAdapterConfig::default());
 
     assert_eq!(adapter.id(), "openai_images");
     assert!(descriptor

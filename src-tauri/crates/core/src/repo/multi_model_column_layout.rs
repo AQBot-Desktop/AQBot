@@ -112,7 +112,9 @@ pub async fn get_layout(db: &DatabaseConnection) -> Result<MultiModelColumnLayou
         } else if row.key == POPOUT_WIDTH_MODE_KEY {
             layout.popout_width_mode = parse_mode(Some(row.value))?;
         } else if let Some(model_key) = parse_column_width_key(&row.key) {
-            layout.column_widths.insert(model_key, parse_width_px(&row.value)?);
+            layout
+                .column_widths
+                .insert(model_key, parse_width_px(&row.value)?);
         }
     }
     Ok(layout)
@@ -250,7 +252,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(layout.main_width_mode, MultiModelSideBySideWidthMode::Scroll);
+        assert_eq!(
+            layout.main_width_mode,
+            MultiModelSideBySideWidthMode::Scroll
+        );
         assert_eq!(layout.popout_width_mode, MultiModelSideBySideWidthMode::Fit);
         assert_eq!(layout.column_widths.get("provider-a:model-a"), Some(&640));
     }

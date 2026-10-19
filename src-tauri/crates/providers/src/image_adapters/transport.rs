@@ -412,7 +412,13 @@ mod tests {
             "https://example.com/v1/images/generations"
         );
         assert_eq!(
-            submit_url("generic_json", &ctx, &request(ImageOperation::Edit), &config).unwrap(),
+            submit_url(
+                "generic_json",
+                &ctx,
+                &request(ImageOperation::Edit),
+                &config
+            )
+            .unwrap(),
             "https://example.com/v1/images/edits"
         );
     }

@@ -18,11 +18,7 @@ pub(crate) fn normalize_skills_sh_query(query: &str) -> String {
     }
 }
 
-pub(crate) fn marketplace_installed(
-    refs: &HashSet<String>,
-    repo: &str,
-    skill_id: &str,
-) -> bool {
+pub(crate) fn marketplace_installed(refs: &HashSet<String>, repo: &str, skill_id: &str) -> bool {
     let repo_n = repo.trim().trim_end_matches('/').to_lowercase();
     if repo_n.is_empty() {
         return false;
@@ -94,7 +90,10 @@ pub(crate) fn parse_skills_sh_skills(
                 skill_id: skill_id.clone(),
                 install_ref,
                 stars: 0,
-                installs: item.get("installs").and_then(|value| value.as_i64()).unwrap_or(0),
+                installs: item
+                    .get("installs")
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0),
                 installed: marketplace_installed(installed, &repo, &skill_id),
             })
         })

@@ -23,11 +23,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Alias::new("conversation_summaries"))
-                    .add_column(
-                        ColumnDef::new(Alias::new("source_text"))
-                            .text()
-                            .null(),
-                    )
+                    .add_column(ColumnDef::new(Alias::new("source_text")).text().null())
                     .to_owned(),
             )
             .await?;

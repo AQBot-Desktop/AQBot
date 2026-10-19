@@ -65,11 +65,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("idle"),
                     )
-                    .col(
-                        ColumnDef::new(Alias::new("sdk_context_json"))
-                            .text()
-                            .null(),
-                    )
+                    .col(ColumnDef::new(Alias::new("sdk_context_json")).text().null())
                     .col(
                         ColumnDef::new(Alias::new("total_tokens"))
                             .integer()
@@ -82,16 +78,8 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0.0),
                     )
-                    .col(
-                        ColumnDef::new(Alias::new("created_at"))
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Alias::new("updated_at"))
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Alias::new("created_at")).string().not_null())
+                    .col(ColumnDef::new(Alias::new("updated_at")).string().not_null())
                     .to_owned(),
             )
             .await?;

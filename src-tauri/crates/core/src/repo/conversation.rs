@@ -1,5 +1,5 @@
-use sea_orm::*;
 use sea_orm::sea_query::Expr;
+use sea_orm::*;
 use serde_json;
 use std::collections::HashSet;
 
@@ -118,8 +118,9 @@ fn parse_multi_model_targets(raw: &str) -> Result<Vec<MultiModelTarget>> {
 
 fn stringify_multi_model_targets(targets: &[MultiModelTarget]) -> Result<String> {
     crate::types::validate_multi_model_targets(targets).map_err(AQBotError::Validation)?;
-    serde_json::to_string(targets)
-        .map_err(|error| AQBotError::Validation(format!("failed to serialize multi_model_targets: {error}")))
+    serde_json::to_string(targets).map_err(|error| {
+        AQBotError::Validation(format!("failed to serialize multi_model_targets: {error}"))
+    })
 }
 
 fn transaction_failure(primary: AQBotError, rollback: Option<DbErr>) -> AQBotError {
@@ -565,8 +566,7 @@ pub async fn update_conversation(
         am.multi_model_targets_json = Set(stringify_multi_model_targets(&multi_model_targets)?);
     }
     if let Some(multi_model_continuation_mode) = input.multi_model_continuation_mode {
-        am.multi_model_continuation_mode =
-            Set(multi_model_continuation_mode.as_str().to_string());
+        am.multi_model_continuation_mode = Set(multi_model_continuation_mode.as_str().to_string());
     }
     if let Some(category_id) = input.category_id {
         am.category_id = Set(category_id);
@@ -881,50 +881,48 @@ pub async fn branch_conversation(
     // message. Multi-model cards may target an inactive assistant version, in
     // which case the selected version replaces its active sibling for the
     // branch snapshot.
-    let candidate_msgs: Vec<messages::Model> = if let Some(target_idx) = all_msgs
-        .iter()
-        .position(|m| m.id == until_message_id)
-    {
-        all_msgs[..=target_idx].to_vec()
-    } else {
-        let target = messages::Entity::find_by_id(until_message_id)
-            .one(&txn)
-            .await?
-            .ok_or_else(|| {
+    let candidate_msgs: Vec<messages::Model> =
+        if let Some(target_idx) = all_msgs.iter().position(|m| m.id == until_message_id) {
+            all_msgs[..=target_idx].to_vec()
+        } else {
+            let target = messages::Entity::find_by_id(until_message_id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| {
+                    AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
+                })?;
+
+            if target.conversation_id != conversation_id {
+                return Err(AQBotError::NotFound(format!(
+                    "Message {} in conversation {}",
+                    until_message_id, conversation_id
+                )));
+            }
+
+            let parent_message_id = target.parent_message_id.clone().ok_or_else(|| {
                 AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
             })?;
+            if target.role != "assistant" {
+                return Err(AQBotError::NotFound(format!(
+                    "Message {} in conversation",
+                    until_message_id
+                )));
+            }
 
-        if target.conversation_id != conversation_id {
-            return Err(AQBotError::NotFound(format!(
-                "Message {} in conversation {}",
-                until_message_id, conversation_id
-            )));
-        }
-
-        let parent_message_id = target.parent_message_id.clone().ok_or_else(|| {
-            AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
-        })?;
-        if target.role != "assistant" {
-            return Err(AQBotError::NotFound(format!(
-                "Message {} in conversation",
-                until_message_id
-            )));
-        }
-
-        let parent_idx = all_msgs
-            .iter()
-            .position(|m| m.id == parent_message_id)
-            .ok_or_else(|| {
-                AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
-            })?;
-        let mut selected_branch = all_msgs[..=parent_idx].to_vec();
-        selected_branch.retain(|message| {
-            message.role != "assistant"
-                || message.parent_message_id.as_deref() != Some(parent_message_id.as_str())
-        });
-        selected_branch.push(target);
-        selected_branch
-    };
+            let parent_idx = all_msgs
+                .iter()
+                .position(|m| m.id == parent_message_id)
+                .ok_or_else(|| {
+                    AQBotError::NotFound(format!("Message {} in conversation", until_message_id))
+                })?;
+            let mut selected_branch = all_msgs[..=parent_idx].to_vec();
+            selected_branch.retain(|message| {
+                message.role != "assistant"
+                    || message.parent_message_id.as_deref() != Some(parent_message_id.as_str())
+            });
+            selected_branch.push(target);
+            selected_branch
+        };
 
     // 4. Find last context-clear marker to determine effective start
     let start_idx = candidate_msgs
@@ -1879,7 +1877,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            serde_json::to_value(&conversation).unwrap().get("multi_model_display_mode_override"),
+            serde_json::to_value(&conversation)
+                .unwrap()
+                .get("multi_model_display_mode_override"),
             Some(&serde_json::Value::Null)
         );
 
@@ -1923,17 +1923,21 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            serde_json::to_value(&cleared).unwrap().get("multi_model_display_mode_override"),
+            serde_json::to_value(&cleared)
+                .unwrap()
+                .get("multi_model_display_mode_override"),
             Some(&serde_json::Value::Null)
         );
     }
 
     #[test]
     fn invalid_multi_model_display_mode_override_input_is_rejected() {
-        assert!(serde_json::from_value::<UpdateConversationInput>(serde_json::json!({
-            "multi_model_display_mode_override": "grid"
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<UpdateConversationInput>(serde_json::json!({
+                "multi_model_display_mode_override": "grid"
+            }))
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -2148,7 +2152,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(preserved.multi_model_targets, with_overrides.multi_model_targets);
+        assert_eq!(
+            preserved.multi_model_targets,
+            with_overrides.multi_model_targets
+        );
         assert_eq!(
             preserved.multi_model_continuation_mode,
             MultiModelContinuationMode::PerModel
@@ -2464,12 +2471,10 @@ mod tests {
         let branch = branch_conversation(db, &source.id, &source_message.id, false, None)
             .await
             .unwrap();
-        let branch_files = crate::repo::stored_file::list_stored_files_by_conversation(
-            db,
-            &branch.id,
-        )
-        .await
-        .unwrap();
+        let branch_files =
+            crate::repo::stored_file::list_stored_files_by_conversation(db, &branch.id)
+                .await
+                .unwrap();
         let branch_messages = message::list_messages(db, &branch.id).await.unwrap();
 
         assert_eq!(branch_files.len(), 1);
@@ -2487,10 +2492,9 @@ mod tests {
     async fn conversation_search_fails_closed_with_message_id_for_inline_data_preview() {
         let h = create_test_pool().await.unwrap();
         let db = &h.conn;
-        let conversation =
-            create_conversation(db, "Unsafe search", "model-a", "provider-a", None)
-                .await
-                .unwrap();
+        let conversation = create_conversation(db, "Unsafe search", "model-a", "provider-a", None)
+            .await
+            .unwrap();
         let message = message::create_message(
             db,
             &conversation.id,

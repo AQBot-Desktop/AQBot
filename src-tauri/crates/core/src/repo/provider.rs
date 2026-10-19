@@ -1421,13 +1421,19 @@ mod tests {
             aliases: Vec::new(),
             icon: Some("emoji:★".into()),
         };
-        save_models(db, &provider.id, &[model.clone()]).await.unwrap();
-        let stored = get_model(db, &provider.id, "custom-endpoint").await.unwrap();
+        save_models(db, &provider.id, &[model.clone()])
+            .await
+            .unwrap();
+        let stored = get_model(db, &provider.id, "custom-endpoint")
+            .await
+            .unwrap();
         assert_eq!(stored.icon.as_deref(), Some("emoji:★"));
 
         model.icon = Some("   ".into());
         save_models(db, &provider.id, &[model]).await.unwrap();
-        let cleared = get_model(db, &provider.id, "custom-endpoint").await.unwrap();
+        let cleared = get_model(db, &provider.id, "custom-endpoint")
+            .await
+            .unwrap();
         assert_eq!(cleared.icon, None);
     }
 

@@ -1,5 +1,5 @@
-use sea_orm::*;
 use sea_orm::prelude::Expr;
+use sea_orm::*;
 use std::collections::HashSet;
 
 use crate::entity::skill_states;
@@ -16,11 +16,7 @@ pub async fn get_disabled_skills(db: &DatabaseConnection) -> Result<HashSet<Stri
 }
 
 /// Set a skill's enabled state. Creates or updates the record.
-pub async fn set_skill_enabled(
-    db: &DatabaseConnection,
-    name: &str,
-    enabled: bool,
-) -> Result<()> {
+pub async fn set_skill_enabled(db: &DatabaseConnection, name: &str, enabled: bool) -> Result<()> {
     let now = now_ts();
     let existing = skill_states::Entity::find_by_id(name).one(db).await?;
 

@@ -118,13 +118,11 @@ pub async fn list_messages_for_model_context(
     let rows = messages::Entity::find()
         .filter(messages::Column::ConversationId.eq(conversation_id))
         .filter(
-            Condition::any()
-                .add(messages::Column::IsActive.eq(1))
-                .add(
-                    Condition::all()
-                        .add(messages::Column::VersionIndex.eq(-1))
-                        .add(messages::Column::Role.is_in(["assistant", "tool"])),
-                ),
+            Condition::any().add(messages::Column::IsActive.eq(1)).add(
+                Condition::all()
+                    .add(messages::Column::VersionIndex.eq(-1))
+                    .add(messages::Column::Role.is_in(["assistant", "tool"])),
+            ),
         )
         .order_by_asc(messages::Column::CreatedAt)
         .order_by(Expr::cust("rowid"), Order::Asc)
@@ -768,7 +766,11 @@ fn select_next_active_version(
         Vec::new()
     };
 
-    let mut candidates = if same_model.is_empty() { remaining } else { same_model };
+    let mut candidates = if same_model.is_empty() {
+        remaining
+    } else {
+        same_model
+    };
     candidates.sort_by(compare_version_priority);
     candidates.into_iter().next()
 }
@@ -842,7 +844,8 @@ pub async fn clear_conversation_first_rounds(
 
     let txn = db.begin().await?;
     let rows = ordered_conversation_rows(&txn, conversation_id).await?;
-    let Some(mut deleted) = delete_first_round_rows(&txn, conversation_id, rounds, &rows).await? else {
+    let Some(mut deleted) = delete_first_round_rows(&txn, conversation_id, rounds, &rows).await?
+    else {
         txn.commit().await?;
         return Ok(0);
     };
@@ -855,10 +858,7 @@ pub async fn clear_conversation_first_rounds(
     Ok(deleted)
 }
 
-async fn ordered_conversation_rows<C>(
-    db: &C,
-    conversation_id: &str,
-) -> Result<Vec<messages::Model>>
+async fn ordered_conversation_rows<C>(db: &C, conversation_id: &str) -> Result<Vec<messages::Model>>
 where
     C: ConnectionTrait,
 {
@@ -983,7 +983,10 @@ where
     C: ConnectionTrait,
 {
     conversations::Entity::update_many()
-        .col_expr(conversations::Column::MessageCount, Expr::value(count as i32))
+        .col_expr(
+            conversations::Column::MessageCount,
+            Expr::value(count as i32),
+        )
         .col_expr(conversations::Column::UpdatedAt, Expr::value(now_ts()))
         .filter(conversations::Column::Id.eq(conversation_id))
         .exec(db)
@@ -1358,16 +1361,17 @@ mod tests {
     }
 
     async fn set_created_at(db: &DatabaseConnection, id: &str, created_at: i64) {
-        let row = messages::Entity::find_by_id(id).one(db).await.unwrap().unwrap();
+        let row = messages::Entity::find_by_id(id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
         let mut am: messages::ActiveModel = row.into();
         am.created_at = Set(created_at);
         am.update(db).await.unwrap();
     }
 
-    async fn insert_equal_timestamp_test_messages(
-        db: &DatabaseConnection,
-        conversation_id: &str,
-    ) {
+    async fn insert_equal_timestamp_test_messages(db: &DatabaseConnection, conversation_id: &str) {
         for (id, role, content, parent_message_id, created_at) in [
             ("z-user-1", "user", "question 1", None, 100),
             (
@@ -1591,7 +1595,9 @@ mod tests {
 
         let visible_messages = list_messages(db, &conv.id).await.unwrap();
         assert_eq!(visible_messages.len(), 2);
-        assert!(visible_messages.iter().any(|message| message.id == visible_reply.id));
+        assert!(visible_messages
+            .iter()
+            .any(|message| message.id == visible_reply.id));
 
         let context_messages = list_messages_for_model_context(db, &conv.id).await.unwrap();
         let ids = context_messages
@@ -1947,9 +1953,10 @@ mod tests {
     async fn list_message_versions_batch_groups_versions_and_filters_tool_scaffolding() {
         let h = create_test_pool().await.unwrap();
         let db = &h.conn;
-        let conv = conversation::create_conversation(db, "Batch Versions", "model-1", "prov-1", None)
-            .await
-            .unwrap();
+        let conv =
+            conversation::create_conversation(db, "Batch Versions", "model-1", "prov-1", None)
+                .await
+                .unwrap();
 
         let user_a = create_message(db, &conv.id, MessageRole::User, "A", &[], None, 0)
             .await
@@ -2002,13 +2009,10 @@ mod tests {
         .await
         .unwrap();
 
-        let versions = list_message_versions_batch(
-            db,
-            &conv.id,
-            &[user_a.id.clone(), user_b.id.clone()],
-        )
-        .await
-        .unwrap();
+        let versions =
+            list_message_versions_batch(db, &conv.id, &[user_a.id.clone(), user_b.id.clone()])
+                .await
+                .unwrap();
 
         assert_eq!(versions[&user_a.id][0].id, assistant_a.id);
         assert_eq!(versions[&user_b.id].len(), 1);
@@ -2062,14 +2066,24 @@ mod tests {
         set_created_at(db, &slot_one.id, 3).await;
         set_created_at(db, &slot_zero.id, 2).await;
 
-        let versions = list_message_versions(db, &conv.id, &user.id)
-            .await
-            .unwrap();
+        let versions = list_message_versions(db, &conv.id, &user.id).await.unwrap();
         assert_eq!(
-            versions.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
-            vec![slot_zero.id.as_str(), slot_one.id.as_str(), late_slot_two.id.as_str()]
+            versions
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                slot_zero.id.as_str(),
+                slot_one.id.as_str(),
+                late_slot_two.id.as_str()
+            ]
         );
-        assert_eq!(max_assistant_version_index(db, &conv.id, &user.id).await.unwrap(), Some(2));
+        assert_eq!(
+            max_assistant_version_index(db, &conv.id, &user.id)
+                .await
+                .unwrap(),
+            Some(2)
+        );
     }
 
     #[tokio::test]
@@ -2082,9 +2096,17 @@ mod tests {
         let user = create_message(db, &conv.id, MessageRole::User, "Q", &[], None, 0)
             .await
             .unwrap();
-        create_message(db, &conv.id, MessageRole::Assistant, "A", &[], Some(&user.id), 0)
-            .await
-            .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "A",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
         let scaffold = create_message(
             db,
             &conv.id,
@@ -2108,7 +2130,12 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(max_assistant_version_index(db, &conv.id, &user.id).await.unwrap(), Some(2));
+        assert_eq!(
+            max_assistant_version_index(db, &conv.id, &user.id)
+                .await
+                .unwrap(),
+            Some(2)
+        );
         assert_eq!(
             list_message_versions(db, &conv.id, &user.id)
                 .await
@@ -2128,9 +2155,17 @@ mod tests {
         let user = create_message(db, &conv.id, MessageRole::User, "Q", &[], None, 0)
             .await
             .unwrap();
-        create_message(db, &conv.id, MessageRole::Assistant, "A", &[], Some(&user.id), 1)
-            .await
-            .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "A",
+            &[],
+            Some(&user.id),
+            1,
+        )
+        .await
+        .unwrap();
         let duplicate = create_message(
             db,
             &conv.id,
@@ -2192,7 +2227,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["user 4", "assistant 4", "user 5", "assistant 5"]
         );
-        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 4);
+        assert_eq!(
+            conversation::get_conversation(db, &conv.id)
+                .await
+                .unwrap()
+                .message_count,
+            4
+        );
     }
 
     #[tokio::test]
@@ -2231,7 +2272,11 @@ mod tests {
         .await
         .unwrap();
         set_created_at(db, &inactive.id, 3).await;
-        let row = messages::Entity::find_by_id(&inactive.id).one(db).await.unwrap().unwrap();
+        let row = messages::Entity::find_by_id(&inactive.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
         let mut am: messages::ActiveModel = row.into();
         am.is_active = Set(0);
         am.update(db).await.unwrap();
@@ -2268,9 +2313,17 @@ mod tests {
         )
         .await
         .unwrap();
-        conversation::upsert_summary(db, &conv.id, "old summary", Some(&active.id), Some(12), Some("model-1"), None)
-            .await
-            .unwrap();
+        conversation::upsert_summary(
+            db,
+            &conv.id,
+            "old summary",
+            Some(&active.id),
+            Some(12),
+            Some("model-1"),
+            None,
+        )
+        .await
+        .unwrap();
         let later_user = create_message(db, &conv.id, MessageRole::User, "later", &[], None, 0)
             .await
             .unwrap();
@@ -2288,20 +2341,27 @@ mod tests {
         .unwrap();
         set_created_at(db, &later_reply.id, 8).await;
 
-        clear_conversation_first_rounds(db, &conv.id, 1).await.unwrap();
+        clear_conversation_first_rounds(db, &conv.id, 1)
+            .await
+            .unwrap();
 
         let all_rows = messages::Entity::find()
             .filter(messages::Column::ConversationId.eq(&conv.id))
             .all(db)
             .await
             .unwrap();
-        let ids = all_rows.iter().map(|message| message.id.as_str()).collect::<Vec<_>>();
+        let ids = all_rows
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>();
         assert!(!ids.contains(&user.id.as_str()));
         assert!(!ids.contains(&active.id.as_str()));
         assert!(!ids.contains(&inactive.id.as_str()));
         assert!(!ids.contains(&tool_parent.as_str()));
         assert!(ids.contains(&later_user.id.as_str()));
-        assert!(all_rows.iter().all(|message| message.content != "<!-- context-compressed -->"));
+        assert!(all_rows
+            .iter()
+            .all(|message| message.content != "<!-- context-compressed -->"));
         assert!(conversation_summaries::Entity::find()
             .filter(conversation_summaries::Column::ConversationId.eq(&conv.id))
             .one(db)
@@ -2320,16 +2380,40 @@ mod tests {
         let user = create_message(db, &conv.id, MessageRole::User, "user", &[], None, 0)
             .await
             .unwrap();
-        create_message(db, &conv.id, MessageRole::Assistant, "assistant", &[], Some(&user.id), 0)
-            .await
-            .unwrap();
+        create_message(
+            db,
+            &conv.id,
+            MessageRole::Assistant,
+            "assistant",
+            &[],
+            Some(&user.id),
+            0,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(clear_conversation_first_rounds(db, &conv.id, 0).await.unwrap(), 0);
+        assert_eq!(
+            clear_conversation_first_rounds(db, &conv.id, 0)
+                .await
+                .unwrap(),
+            0
+        );
         assert_eq!(list_messages(db, &conv.id).await.unwrap().len(), 2);
 
-        assert_eq!(clear_conversation_first_rounds(db, &conv.id, 10).await.unwrap(), 2);
+        assert_eq!(
+            clear_conversation_first_rounds(db, &conv.id, 10)
+                .await
+                .unwrap(),
+            2
+        );
         assert!(list_messages(db, &conv.id).await.unwrap().is_empty());
-        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 0);
+        assert_eq!(
+            conversation::get_conversation(db, &conv.id)
+                .await
+                .unwrap()
+                .message_count,
+            0
+        );
     }
 
     #[tokio::test]
@@ -2353,15 +2437,31 @@ mod tests {
         )
         .await
         .unwrap();
-        set_conversation_active_message_count(db, &conv.id, 2).await.unwrap();
-        conversation::upsert_summary(db, &conv.id, "summary", Some(&assistant.id), Some(5), Some("model-1"), None)
+        set_conversation_active_message_count(db, &conv.id, 2)
             .await
             .unwrap();
+        conversation::upsert_summary(
+            db,
+            &conv.id,
+            "summary",
+            Some(&assistant.id),
+            Some(5),
+            Some("model-1"),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(clear_conversation_messages(db, &conv.id).await.unwrap(), 2);
 
         assert!(list_messages(db, &conv.id).await.unwrap().is_empty());
-        assert_eq!(conversation::get_conversation(db, &conv.id).await.unwrap().message_count, 0);
+        assert_eq!(
+            conversation::get_conversation(db, &conv.id)
+                .await
+                .unwrap()
+                .message_count,
+            0
+        );
         assert!(conversation_summaries::Entity::find()
             .filter(conversation_summaries::Column::ConversationId.eq(&conv.id))
             .one(db)
@@ -2420,14 +2520,20 @@ mod tests {
             (&complete.id, "complete", 1),
             (&inactive_partial.id, "partial", 0),
         ] {
-            let row = messages::Entity::find_by_id(id).one(db).await.unwrap().unwrap();
+            let row = messages::Entity::find_by_id(id)
+                .one(db)
+                .await
+                .unwrap()
+                .unwrap();
             let mut am: messages::ActiveModel = row.into();
             am.status = Set(status.to_string());
             am.is_active = Set(is_active);
             am.update(db).await.unwrap();
         }
 
-        let changed = mark_stale_partial_assistant_messages_failed(db).await.unwrap();
+        let changed = mark_stale_partial_assistant_messages_failed(db)
+            .await
+            .unwrap();
 
         assert_eq!(changed, 1);
         let active = messages::Entity::find_by_id(&active_partial.id)
@@ -2436,7 +2542,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(active.status, "error");
-        assert!(active.content.contains("AQBot was closed while this response was running"));
+        assert!(active
+            .content
+            .contains("AQBot was closed while this response was running"));
 
         let still_complete = messages::Entity::find_by_id(&complete.id)
             .one(db)

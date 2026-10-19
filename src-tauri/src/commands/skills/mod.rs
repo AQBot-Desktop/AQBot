@@ -1,8 +1,8 @@
 mod install;
 mod marketplace;
 
-pub use install::{install_skill, __cmd__install_skill};
-pub use marketplace::{search_marketplace, __cmd__search_marketplace};
+pub use install::{__cmd__install_skill, install_skill};
+pub use marketplace::{__cmd__search_marketplace, search_marketplace};
 
 use crate::paths::aqbot_home;
 use crate::AppState;

@@ -113,7 +113,11 @@ fn windows_and_unix_paths_are_local_sources() {
 fn discover_nested_skills_directory() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path();
-    write_skill(&repo.join("skills/hello"), "hello", &[("scripts/run.sh", "echo hi")]);
+    write_skill(
+        &repo.join("skills/hello"),
+        "hello",
+        &[("scripts/run.sh", "echo hi")],
+    );
     write_skill(&repo.join("skills/world"), "world", &[]);
     fs::write(repo.join("README.md"), "project").unwrap();
     fs::write(repo.join("package.json"), "{}").unwrap();

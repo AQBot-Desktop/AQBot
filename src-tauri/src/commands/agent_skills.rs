@@ -83,14 +83,8 @@ mod tests {
         fs::create_dir_all(&workspace).unwrap();
         write_skill(&home.join(".aqbot/skills/GFE 技能"), "GFE 技能");
 
-        let prepared = prepare_agent_skills(
-            &home,
-            HashSet::new(),
-            true,
-            Some(&workspace),
-            SESSION_A,
-        )
-        .unwrap();
+        let prepared =
+            prepare_agent_skills(&home, HashSet::new(), true, Some(&workspace), SESSION_A).unwrap();
         let runtime = prepared.runtime.expect("skill runtime");
         let alias = runtime.mapped_dir_for("GFE 技能").expect("mapped skill");
         let skill_md = alias.join("SKILL.md");
@@ -115,26 +109,14 @@ mod tests {
         fs::create_dir_all(&workspace).unwrap();
         write_skill(&home.join(".aqbot/skills/demo"), "demo");
 
-        let first = prepare_agent_skills(
-            &home,
-            HashSet::new(),
-            true,
-            Some(&workspace),
-            SESSION_A,
-        )
-        .unwrap()
-        .runtime
-        .unwrap();
-        let second = prepare_agent_skills(
-            &home,
-            HashSet::new(),
-            true,
-            Some(&workspace),
-            SESSION_B,
-        )
-        .unwrap()
-        .runtime
-        .unwrap();
+        let first = prepare_agent_skills(&home, HashSet::new(), true, Some(&workspace), SESSION_A)
+            .unwrap()
+            .runtime
+            .unwrap();
+        let second = prepare_agent_skills(&home, HashSet::new(), true, Some(&workspace), SESSION_B)
+            .unwrap()
+            .runtime
+            .unwrap();
 
         let alias_a = first.mapped_dir_for("demo").unwrap();
         let alias_b = second.mapped_dir_for("demo").unwrap();
@@ -156,22 +138,15 @@ mod tests {
         let workspace = root.path().join("workspace");
         fs::create_dir_all(&workspace).unwrap();
         write_skill(&home.join(".aqbot/skills/demo"), "demo");
-        let session_dir = workspace
-            .join(".aqbot-skills-runtime")
-            .join(SESSION_A);
+        let session_dir = workspace.join(".aqbot-skills-runtime").join(SESSION_A);
         fs::create_dir_all(&session_dir).unwrap();
         fs::write(session_dir.join("blocked"), "not a link").unwrap();
 
-        let err = match prepare_agent_skills(
-            &home,
-            HashSet::new(),
-            true,
-            Some(&workspace),
-            SESSION_A,
-        ) {
-            Ok(_) => panic!("mapping should fail for a blocked session dir"),
-            Err(error) => error,
-        };
+        let err =
+            match prepare_agent_skills(&home, HashSet::new(), true, Some(&workspace), SESSION_A) {
+                Ok(_) => panic!("mapping should fail for a blocked session dir"),
+                Err(error) => error,
+            };
         assert!(
             err.contains("Unexpected file") || err.contains("blocked"),
             "{err}"

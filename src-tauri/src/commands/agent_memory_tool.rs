@@ -1,4 +1,6 @@
-use aqbot_core::context_engine::{execute_memory_tool, memory_tool_definition, MemoryToolScope, MEMORY_TOOL_NAME};
+use aqbot_core::context_engine::{
+    execute_memory_tool, memory_tool_definition, MemoryToolScope, MEMORY_TOOL_NAME,
+};
 use async_trait::async_trait;
 use open_agent_sdk::types::{Tool, ToolError, ToolInputSchema, ToolResult, ToolUseContext};
 use sea_orm::DatabaseConnection;
