@@ -48,6 +48,8 @@ vi.mock('react-i18next', () => ({
         'settings.confirmOnQuit': '退出应用时确认',
         'desktop.alwaysOnTop': '窗口置顶',
         'desktop.startMinimized': '启动时最小化',
+        'settings.showOnStartTrayFallbackHint': '系统托盘已关闭，启动时将改为最小化',
+        'settings.startMinimizedRequiresShowOnStart': '需先开启「启动时显示窗口」',
       };
       return labels[key] ?? key;
     },
@@ -165,6 +167,12 @@ function minimizeToTraySwitch() {
   return within(row as HTMLElement).getByRole('switch');
 }
 
+function startMinimizedSwitch() {
+  const row = screen.getByText('启动时最小化').parentElement?.parentElement;
+  expect(row).not.toBeNull();
+  return within(row as HTMLElement).getByRole('switch');
+}
+
 function trayIconStyleSelect() {
   return screen.getByRole('combobox', { name: 'color-monochrome' });
 }
@@ -271,6 +279,30 @@ describe('GeneralSettings', () => {
     expect(releaseWebviewSwitch()).toBeDisabled();
     fireEvent.click(trayEnabledSwitch());
     expect(mocks.saveSettings).toHaveBeenCalledWith({ tray_enabled: true });
+  });
+
+  it('keeps start-minimized available only while the window is shown on start', () => {
+    render(<GeneralSettings />);
+    expect(startMinimizedSwitch()).toBeEnabled();
+    expect(screen.queryByText('需先开启「启动时显示窗口」')).not.toBeInTheDocument();
+  });
+
+  it('disables start-minimized when the window is hidden on start', () => {
+    settings = { ...settings, show_on_start: false, start_minimized: true };
+
+    render(<GeneralSettings />);
+
+    expect(startMinimizedSwitch()).toBeDisabled();
+    expect(screen.getByText('需先开启「启动时显示窗口」')).toBeInTheDocument();
+    expect(screen.queryByText('系统托盘已关闭，启动时将改为最小化')).not.toBeInTheDocument();
+  });
+
+  it('explains the minimized fallback when hidden startup has no tray', () => {
+    settings = { ...settings, show_on_start: false, tray_enabled: false };
+
+    render(<GeneralSettings />);
+
+    expect(screen.getByText('系统托盘已关闭，启动时将改为最小化')).toBeInTheDocument();
   });
 
   it('shows the macOS tray icon style and saves monochrome selection', () => {

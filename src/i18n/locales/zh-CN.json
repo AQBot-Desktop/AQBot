@@ -848,6 +848,8 @@
     "themeSystem": "跟随系统",
     "autoStart": "开机自启动",
     "showOnStart": "启动时显示窗口",
+    "showOnStartTrayFallbackHint": "系统托盘已关闭，为了能找回窗口，启动时将改为最小化",
+    "startMinimizedRequiresShowOnStart": "需先开启「启动时显示窗口」",
     "trayEnabled": "显示系统托盘",
     "trayEnabledDesc": "关闭后完全不显示托盘图标。关闭时最小化到托盘和释放界面进程会暂时不可用，原值会保留。",
     "trayCreateFailed": "无法创建系统托盘，关闭窗口将退出应用。",

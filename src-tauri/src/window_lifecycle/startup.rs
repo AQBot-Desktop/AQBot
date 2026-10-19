@@ -1,4 +1,5 @@
 use super::{set_app_dock_visibility, set_skip_taskbar};
+use crate::startup_diagnostics::StartupPhase;
 use crate::window_state::PersistedWindowState;
 use std::sync::{Mutex, MutexGuard};
 use tauri::{Manager, WebviewWindow};
@@ -46,6 +47,19 @@ impl MainWindowStartup {
         Ok(self.lock()?.mode)
     }
 
+    /// Without a tray, a hidden launch has no way back; keep a taskbar/Dock entry instead.
+    pub fn require_reachable_window(
+        &self,
+        tray_available: bool,
+    ) -> Result<StartupWindowMode, String> {
+        let mut state = self.lock()?;
+        if !tray_available && !state.applied && state.mode == StartupWindowMode::Hidden {
+            state.mode = StartupWindowMode::Minimized;
+            tracing::warn!("System tray unavailable; starting AQBot minimized instead of hidden");
+        }
+        Ok(state.mode)
+    }
+
     pub fn request_show(&self) -> Result<(), String> {
         let mut state = self.lock()?;
         state.mode = StartupWindowMode::Visible;
@@ -84,6 +98,8 @@ pub fn present_main_window(
     if !apply {
         return Ok(mode);
     }
+    app.state::<StartupPhase>()
+        .set_background(mode != StartupWindowMode::Visible);
     match mode {
         StartupWindowMode::Hidden => {
             set_skip_taskbar(window, true);

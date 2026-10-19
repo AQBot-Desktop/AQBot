@@ -36,6 +36,9 @@ export function GeneralSettings() {
   };
 
   const rowStyle = { padding: '4px 0' };
+  const hintStyle = { color: 'var(--ant-color-text-secondary)', fontSize: 12 };
+  // Mirrors the backend fallback: a hidden launch needs a tray to bring the window back.
+  const startsWithoutTray = !settings.show_on_start && !(settings.tray_enabled ?? true);
 
   return (
     <div className="p-6 pb-12">
@@ -108,8 +111,13 @@ export function GeneralSettings() {
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />
-        <div style={rowStyle} className="flex items-center justify-between">
-          <span>{t('settings.showOnStart')}</span>
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div>
+            <div>{t('settings.showOnStart')}</div>
+            {startsWithoutTray && (
+              <div style={hintStyle}>{t('settings.showOnStartTrayFallbackHint')}</div>
+            )}
+          </div>
           <Switch
             checked={settings.show_on_start}
             onChange={(checked) => saveSettings({ show_on_start: checked })}
@@ -130,12 +138,17 @@ export function GeneralSettings() {
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />
-        <div style={rowStyle} className="flex items-center justify-between">
-          <span>{t('desktop.startMinimized')}</span>
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div>
+            <div>{t('desktop.startMinimized')}</div>
+            {!settings.show_on_start && (
+              <div style={hintStyle}>{t('settings.startMinimizedRequiresShowOnStart')}</div>
+            )}
+          </div>
           <Switch
             checked={settings.start_minimized ?? false}
             onChange={(checked) => saveSettings({ start_minimized: checked })}
-            disabled={!inTauri}
+            disabled={!inTauri || !settings.show_on_start}
           />
         </div>
       </SettingsGroup>

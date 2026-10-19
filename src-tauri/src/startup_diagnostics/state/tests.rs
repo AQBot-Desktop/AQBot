@@ -33,6 +33,15 @@ fn slow_notice_requires_fifteen_seconds_and_is_claimed_once() {
 }
 
 #[test]
+fn background_launch_defers_slow_notice_until_window_is_requested() {
+    let phase = StartupPhase::new("webview creation");
+    phase.set_background(true);
+    assert!(!phase.claim_slow_notice(Duration::from_secs(20)));
+    phase.set_background(false);
+    assert!(phase.claim_slow_notice(Duration::from_secs(20)));
+}
+
+#[test]
 fn app_and_error_presentation_finish_startup_without_notifications() {
     for surface in [StartupPresentation::App, StartupPresentation::Error] {
         let phase = StartupPhase::new("frontend commit");

@@ -848,6 +848,8 @@
     "themeSystem": "Système",
     "autoStart": "Démarrer au démarrage",
     "showOnStart": "Afficher au démarrage",
+    "showOnStartTrayFallbackHint": "La zone de notification est désactivée : AQBot démarrera réduit pour que la fenêtre reste accessible",
+    "startMinimizedRequiresShowOnStart": "Nécessite « Afficher au démarrage »",
     "trayEnabled": "Afficher la zone de notification",
     "trayEnabledDesc": "Une fois désactivée, l’icône disparaît. Réduire dans la zone de notification et libérer l’interface restent enregistrés mais indisponibles jusqu’à réactivation.",
     "trayCreateFailed": "Impossible de créer la zone de notification. Fermer la fenêtre quittera l’application.",

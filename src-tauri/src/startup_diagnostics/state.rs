@@ -28,6 +28,8 @@ pub struct StartupPhase {
     inner: Arc<Mutex<PhaseState>>,
     #[cfg(any(target_os = "windows", test))]
     slow_notice_shown: Arc<AtomicBool>,
+    #[cfg(any(target_os = "windows", test))]
+    background: Arc<AtomicBool>,
 }
 
 struct PhaseState {
@@ -63,6 +65,8 @@ impl StartupPhase {
             })),
             #[cfg(any(target_os = "windows", test))]
             slow_notice_shown: Arc::new(AtomicBool::new(false)),
+            #[cfg(any(target_os = "windows", test))]
+            background: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -91,6 +95,14 @@ impl StartupPhase {
                 "AQBot startup phase changed"
             );
         }
+    }
+
+    /// A background launch keeps slow-startup notices silent until the user asks for the window.
+    pub fn set_background(&self, background: bool) {
+        #[cfg(any(target_os = "windows", test))]
+        self.background.store(background, Ordering::Release);
+        #[cfg(not(any(target_os = "windows", test)))]
+        let _ = background;
     }
 
     pub fn get(&self) -> String {
@@ -189,6 +201,7 @@ impl StartupPhase {
     #[cfg(any(target_os = "windows", test))]
     pub(super) fn claim_slow_notice(&self, elapsed: Duration) -> bool {
         elapsed >= SLOW_STARTUP_NOTICE_AFTER
+            && !self.background.load(Ordering::Acquire)
             && self.snapshot().is_some_and(|state| !state.finished)
             && !self.slow_notice_shown.swap(true, Ordering::AcqRel)
     }

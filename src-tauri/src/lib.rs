@@ -851,10 +851,14 @@ pub fn run() {
 
             let app_settings =
                 rt.block_on(aqbot_core::repo::settings::get_settings(&db_handle.conn))?;
-            app.manage(window_lifecycle::MainWindowStartup::new(
+            let main_window_startup = window_lifecycle::MainWindowStartup::new(
                 app_settings.show_on_start,
                 app_settings.start_minimized,
-            ));
+            );
+            startup_phase.set_background(
+                main_window_startup.mode()? != window_lifecycle::StartupWindowMode::Visible,
+            );
+            app.manage(main_window_startup);
 
             // Apply custom documents root (if configured) before anything
             // that reads documents_root().
@@ -1196,6 +1200,12 @@ pub fn run() {
                 .state::<AppState>()
                 .tray_available
                 .store(tray_available, Ordering::Relaxed);
+            if let Err(error) = handle
+                .state::<window_lifecycle::MainWindowStartup>()
+                .require_reachable_window(tray_available)
+            {
+                tracing::error!(%error, "Could not reconcile AQBot startup window with tray availability");
+            }
 
             startup_phase.set("frontend.bootstrap");
             Ok(())

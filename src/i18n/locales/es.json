@@ -848,6 +848,8 @@
     "themeSystem": "Sistema",
     "autoStart": "Iniciar al arrancar",
     "showOnStart": "Mostrar al iniciar",
+    "showOnStartTrayFallbackHint": "La bandeja del sistema está desactivada, por lo que AQBot se iniciará minimizado para que la ventana siga accesible",
+    "startMinimizedRequiresShowOnStart": "Requiere «Mostrar al iniciar»",
     "trayEnabled": "Mostrar la bandeja del sistema",
     "trayEnabledDesc": "Al desactivarlo, el icono desaparece. Minimizar a la bandeja y liberar la interfaz se conservan, pero no estarán disponibles hasta reactivar la bandeja.",
     "trayCreateFailed": "No se pudo crear la bandeja del sistema. Cerrar la ventana saldrá de la aplicación.",

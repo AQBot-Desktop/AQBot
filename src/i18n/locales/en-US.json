@@ -848,6 +848,8 @@
     "themeSystem": "System",
     "autoStart": "Start on Boot",
     "showOnStart": "Show on Start",
+    "showOnStartTrayFallbackHint": "The system tray is off, so AQBot will start minimized to keep the window reachable",
+    "startMinimizedRequiresShowOnStart": "Requires Show on Start",
     "trayEnabled": "Show system tray",
     "trayEnabledDesc": "When off, the tray icon is hidden. Minimize-to-tray and releasing the UI process stay saved but are unavailable until the tray is enabled again.",
     "trayCreateFailed": "Could not create the system tray. Closing the window will quit the app.",

@@ -848,6 +848,8 @@
     "themeSystem": "跟隨系統",
     "autoStart": "開機自動啟動",
     "showOnStart": "啟動時顯示視窗",
+    "showOnStartTrayFallbackHint": "系統匣已關閉，為了能找回視窗，啟動時將改為最小化",
+    "startMinimizedRequiresShowOnStart": "需先開啟「啟動時顯示視窗」",
     "trayEnabled": "顯示系統匣",
     "trayEnabledDesc": "關閉後完全不顯示系統匣圖示。關閉時最小化至系統匣與釋放介面行程會暫時無法使用，原值會保留。",
     "trayCreateFailed": "無法建立系統匣，關閉視窗將結束應用程式。",

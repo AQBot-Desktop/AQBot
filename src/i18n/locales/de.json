@@ -848,6 +848,8 @@
     "themeSystem": "System",
     "autoStart": "Bei Systemstart starten",
     "showOnStart": "Beim Start anzeigen",
+    "showOnStartTrayFallbackHint": "Der Systemtray ist deaktiviert, daher startet AQBot minimiert, damit das Fenster erreichbar bleibt",
+    "startMinimizedRequiresShowOnStart": "Erfordert „Beim Start anzeigen“",
     "trayEnabled": "Systemtray anzeigen",
     "trayEnabledDesc": "Wenn aus, wird das Tray-Symbol vollständig ausgeblendet. Minimieren in den Tray und Freigeben der Oberfläche bleiben gespeichert, sind aber erst wieder nutzbar, wenn der Tray aktiviert ist.",
     "trayCreateFailed": "Systemtray konnte nicht erstellt werden. Das Schließen des Fensters beendet die App.",

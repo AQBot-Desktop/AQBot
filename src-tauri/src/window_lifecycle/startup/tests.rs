@@ -59,3 +59,36 @@ fn saved_maximized_or_fullscreen_state_survives_background_startup() {
         assert!(!startup.has_deferred_restore().unwrap());
     }
 }
+
+#[test]
+fn hidden_launch_without_tray_falls_back_to_minimized_before_presentation() {
+    let startup = MainWindowStartup::new(false, false);
+    assert_eq!(
+        startup.require_reachable_window(true).unwrap(),
+        StartupWindowMode::Hidden
+    );
+    assert_eq!(
+        startup.require_reachable_window(false).unwrap(),
+        StartupWindowMode::Minimized
+    );
+    assert_eq!(
+        startup.begin_presentation(false).unwrap(),
+        (StartupWindowMode::Minimized, true)
+    );
+
+    for (show, minimized, expected) in [
+        (true, false, StartupWindowMode::Visible),
+        (true, true, StartupWindowMode::Minimized),
+    ] {
+        let startup = MainWindowStartup::new(show, minimized);
+        assert_eq!(startup.require_reachable_window(false).unwrap(), expected);
+    }
+
+    // A window already presented hidden is not re-presented by a later tray change.
+    let startup = MainWindowStartup::new(false, false);
+    startup.begin_presentation(false).unwrap();
+    assert_eq!(
+        startup.require_reachable_window(false).unwrap(),
+        StartupWindowMode::Hidden
+    );
+}
