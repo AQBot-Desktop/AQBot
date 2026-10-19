@@ -716,7 +716,7 @@ fn spawn_stream_task(
         release_conversation_run_guard(&app, &mut conversation_run_guard);
 
         // Auto-title: if this is the first user message, set conversation title (role conversations included)
-        if is_first_message {
+        if is_first_message && settings.auto_generate_title {
             // Set truncated title immediately for instant feedback
             let fallback_title = normalize_auto_conversation_title(&user_content);
 

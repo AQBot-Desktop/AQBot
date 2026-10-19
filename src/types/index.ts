@@ -834,6 +834,8 @@ export interface AppSettings {
   default_context_count: number | null;
   /** Default context handling strategy for conversations without an override. */
   default_context_strategy: ContextStrategy;
+  /** Auto-generate/overwrite the conversation title after the first message. Off keeps the creation title until manual rename or manual title regeneration. */
+  auto_generate_title: boolean;
   title_summary_provider_id: string | null;
   title_summary_model_id: string | null;
   title_summary_temperature: number | null;

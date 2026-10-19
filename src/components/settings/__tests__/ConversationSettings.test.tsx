@@ -46,6 +46,9 @@ vi.mock('react-i18next', () => ({
         'settings.chatLineHeight': '对话行高',
         'settings.chatMinimap': '对话导航',
         'settings.newConversationDefaults': '新建对话',
+        'settings.conversationTitle': '会话标题',
+        'settings.autoGenerateTitle': '自动生成标题',
+        'settings.autoGenerateTitleDesc': '开启后，发送第一条消息时自动生成对话标题；关闭后标题保持创建时的名称，可随时手动重命名或手动生成标题',
         'settings.inheritConversationPreferencesOnCreate': '继承当前对话能力配置',
         'settings.inheritConversationPreferencesOnCreateDesc': '开启后，新建对话会沿用当前对话的联网、知识库、记忆、工具、思考设置，以及多模型选择与续问方式。',
         'settings.chatStreamTimeouts': '流式响应超时',
@@ -377,6 +380,7 @@ describe('ConversationSettings', () => {
       multi_model_popout_side_by_side_width_mode: 'scroll',
       render_user_markdown: false,
       inherit_conversation_preferences_on_create: true,
+      auto_generate_title: true,
       document_attachment_reading_enabled: false,
       show_image_models_in_model_selector: false,
       chat_stream_first_packet_timeout_secs: 180,
@@ -733,6 +737,24 @@ describe('ConversationSettings', () => {
 
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       inherit_conversation_preferences_on_create: false,
+    });
+  });
+
+  it('saves the auto conversation title setting when toggled', () => {
+    render(<ConversationSettings />);
+
+    const titleGroup = screen.getByText('会话标题').parentElement?.parentElement;
+    expect(titleGroup).not.toBeNull();
+    const toggle = within(titleGroup as HTMLElement).getByRole('switch');
+
+    expect(screen.getByText('自动生成标题')).toBeInTheDocument();
+    expect(screen.getByText('开启后，发送第一条消息时自动生成对话标题；关闭后标题保持创建时的名称，可随时手动重命名或手动生成标题')).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(toggle);
+
+    expect(mocks.saveSettings).toHaveBeenCalledWith({
+      auto_generate_title: false,
     });
   });
 

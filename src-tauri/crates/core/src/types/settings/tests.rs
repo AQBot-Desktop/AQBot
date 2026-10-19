@@ -50,6 +50,19 @@ fn model_test_prompt_defaults_to_none_and_roundtrips() {
 }
 
 #[test]
+fn auto_generate_title_defaults_to_enabled_and_roundtrips() {
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert!(settings.auto_generate_title);
+
+    let settings: AppSettings = serde_json::from_value(json!({
+        "auto_generate_title": false
+    }))
+    .expect("settings should deserialize");
+    assert!(!settings.auto_generate_title);
+}
+
+#[test]
 fn confirm_on_quit_defaults_to_enabled_and_roundtrips() {
     let settings: AppSettings =
         serde_json::from_value(json!({})).expect("settings should default missing fields");
