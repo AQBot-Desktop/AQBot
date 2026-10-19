@@ -682,7 +682,9 @@ mod tests {
     use crate::db::create_test_pool;
     use crate::entity::stored_files;
     use crate::repo::stored_file;
-    use sea_orm::{DbBackend, MockDatabase};
+    use sea_orm::IntoActiveModel;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     fn generation_model(
         id: &str,
@@ -811,6 +813,8 @@ mod tests {
                 Some("mask-1"),
             ),
             generation_model("generation-old", 100, &["reference-1"], &["source-1"], None),
+            // Owns the source images; oldest, so `limit = 2` leaves it out of the page.
+            generation_model("source-generation", 0, &[], &[], None),
         ];
         let all_images = vec![
             image_model("source-1", "source-generation", 10),
@@ -825,16 +829,50 @@ mod tests {
             stored_file_model("mask-1"),
         ];
 
-        let db = MockDatabase::new(DbBackend::Sqlite)
-            .append_query_results([generations])
-            .append_query_results([all_images])
-            .append_query_results([all_stored_files])
-            .into_connection();
+        // Seed in foreign-key order: files (including each image's own file),
+        // then generations, then images.
+        let mut db = create_test_pool().await.unwrap().conn;
+        let image_files = all_images
+            .iter()
+            .map(|image| stored_file_model(&image.stored_file_id));
+        for model in all_stored_files.into_iter().chain(image_files) {
+            model
+                .into_active_model()
+                .reset_all()
+                .insert(&db)
+                .await
+                .unwrap();
+        }
+        for model in generations {
+            model
+                .into_active_model()
+                .reset_all()
+                .insert(&db)
+                .await
+                .unwrap();
+        }
+        for model in all_images {
+            model
+                .into_active_model()
+                .reset_all()
+                .insert(&db)
+                .await
+                .unwrap();
+        }
 
-        let fetched = list_generations(&db, 100, None).await.unwrap();
-        let query_log = db.into_transaction_log();
+        let query_count = Arc::new(AtomicUsize::new(0));
+        let counter = query_count.clone();
+        db.set_metric_callback(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
 
-        assert_eq!(query_log.len(), 3, "history hydration must stay O(1)");
+        let fetched = list_generations(&db, 2, None).await.unwrap();
+
+        assert_eq!(
+            query_count.load(Ordering::SeqCst),
+            3,
+            "history hydration must stay O(1)"
+        );
         assert_eq!(
             fetched
                 .iter()

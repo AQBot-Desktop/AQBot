@@ -159,48 +159,27 @@ async fn run_migration(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
     use std::fs;
 
-    const CREATE_STORED_FILES: &str = "
-        CREATE TABLE stored_files (
-            id TEXT PRIMARY KEY,
-            hash TEXT NOT NULL,
-            original_name TEXT NOT NULL,
-            mime_type TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            storage_path TEXT NOT NULL,
-            conversation_id TEXT,
-            created_at TEXT NOT NULL
-        )";
-
-    const CREATE_MESSAGES: &str = "
-        CREATE TABLE messages (
-            id TEXT PRIMARY KEY,
-            conversation_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            provider_id TEXT,
-            model_id TEXT,
-            token_count INTEGER,
-            attachments TEXT NOT NULL DEFAULT '[]',
-            thinking TEXT,
-            created_at INTEGER NOT NULL DEFAULT 0,
-            branch_id TEXT,
-            parent_message_id TEXT,
-            version_index INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            tool_calls_json TEXT,
-            tool_call_id TEXT
-        )";
-
+    /// Real migrated schema, seeded with the `conv1` conversation the
+    /// fixtures reference so foreign keys hold.
     async fn test_db() -> DatabaseConnection {
-        let db = Database::connect("sqlite::memory:").await.unwrap();
-        for ddl in [CREATE_STORED_FILES, CREATE_MESSAGES] {
-            db.execute(Statement::from_string(DbBackend::Sqlite, ddl))
-                .await
-                .unwrap();
+        let db = crate::db::create_test_pool().await.unwrap().conn;
+        crate::entity::conversations::ActiveModel {
+            id: Set("conv1".into()),
+            title: Set("Storage migration".into()),
+            model_id: Set("model-1".into()),
+            provider_id: Set("provider-1".into()),
+            message_count: Set(0),
+            is_pinned: Set(0),
+            sort_order: Set(0),
+            created_at: Set(0),
+            updated_at: Set(0),
+            ..Default::default()
         }
+        .insert(&db)
+        .await
+        .unwrap();
         db
     }
 

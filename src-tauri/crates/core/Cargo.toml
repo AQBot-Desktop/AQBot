@@ -41,5 +41,3 @@ aqbot-migration = { path = "../migration" }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
 
-[dev-dependencies]
-sea-orm = { workspace = true, features = ["mock"] }

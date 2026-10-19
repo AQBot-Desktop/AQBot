@@ -1,5 +1,7 @@
 use aqbot_core::db::create_test_pool;
-use aqbot_core::repo::{app, category, conversation, message, provider, settings, stored_file};
+use aqbot_core::repo::{
+    conversation, conversation_category, message, provider, settings, stored_file,
+};
 use aqbot_core::types::*;
 use aqbot_core::utils::gen_id;
 
@@ -43,53 +45,96 @@ async fn test_app_settings_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// Category
+// Conversation Category
 // ---------------------------------------------------------------------------
 
+fn category_input(name: &str) -> CreateConversationCategoryInput {
+    CreateConversationCategoryInput {
+        name: name.into(),
+        icon_type: None,
+        icon_value: None,
+        system_prompt: None,
+        default_provider_id: None,
+        default_model_id: None,
+        default_temperature: None,
+        default_max_tokens: None,
+        default_top_p: None,
+        default_frequency_penalty: None,
+    }
+}
+
 #[tokio::test]
-async fn test_category_crud() {
+async fn test_conversation_category_crud() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
     // create
-    let cat = category::create_category(db, "Work").await.unwrap();
+    let cat = conversation_category::create_conversation_category(db, category_input("Work"))
+        .await
+        .unwrap();
     assert_eq!(cat.name, "Work");
     assert!(!cat.id.is_empty());
 
     // list
-    let cats = category::list_categories(db).await.unwrap();
+    let cats = conversation_category::list_conversation_categories(db)
+        .await
+        .unwrap();
     assert_eq!(cats.len(), 1);
     assert_eq!(cats[0].name, "Work");
 
     // update
-    let updated = category::update_category(db, &cat.id, "Personal")
+    let update = UpdateConversationCategoryInput {
+        name: Some("Personal".into()),
+        icon_type: None,
+        icon_value: None,
+        system_prompt: None,
+        default_provider_id: None,
+        default_model_id: None,
+        default_temperature: None,
+        default_max_tokens: None,
+        default_top_p: None,
+        default_frequency_penalty: None,
+    };
+    let updated = conversation_category::update_conversation_category(db, &cat.id, update)
         .await
         .unwrap();
     assert_eq!(updated.name, "Personal");
 
     // delete
-    category::delete_category(db, &cat.id).await.unwrap();
-    let cats = category::list_categories(db).await.unwrap();
+    conversation_category::delete_conversation_category(db, &cat.id)
+        .await
+        .unwrap();
+    let cats = conversation_category::list_conversation_categories(db)
+        .await
+        .unwrap();
     assert!(cats.is_empty());
 }
 
 #[tokio::test]
-async fn test_category_reorder() {
+async fn test_conversation_category_reorder() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let a = category::create_category(db, "A").await.unwrap();
-    let b = category::create_category(db, "B").await.unwrap();
-    let c = category::create_category(db, "C").await.unwrap();
+    let mut created = Vec::new();
+    for name in ["A", "B", "C"] {
+        created.push(
+            conversation_category::create_conversation_category(db, category_input(name))
+                .await
+                .unwrap(),
+        );
+    }
 
     // reverse order
-    let ids = vec![c.id.clone(), b.id.clone(), a.id.clone()];
-    category::reorder_categories(db, &ids).await.unwrap();
+    let ids: Vec<String> = created.iter().rev().map(|c| c.id.clone()).collect();
+    conversation_category::reorder_conversation_categories(db, &ids)
+        .await
+        .unwrap();
 
-    let cats = category::list_categories(db).await.unwrap();
-    assert_eq!(cats[0].id, c.id);
-    assert_eq!(cats[1].id, b.id);
-    assert_eq!(cats[2].id, a.id);
+    let cats = conversation_category::list_conversation_categories(db)
+        .await
+        .unwrap();
+    let listed: Vec<String> = cats.into_iter().map(|c| c.id).collect();
+    assert_eq!(listed, ids);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +157,7 @@ async fn test_provider_crud() {
         api_path: None,
         aws_region: None,
         enabled: true,
+        builtin_id: None,
     };
     let prov = provider::create_provider(db, input).await.unwrap();
     assert_eq!(prov.name, "OpenAI");
@@ -125,11 +171,14 @@ async fn test_provider_crud() {
     // update
     let update = UpdateProviderInput {
         name: Some("OpenAI v2".into()),
+        provider_type: None,
         api_host: None,
         api_path: None,
         aws_region: None,
         enabled: None,
         proxy_config: None,
+        custom_headers: None,
+        icon: None,
         sort_order: None,
     };
     let updated = provider::update_provider(db, &prov.id, update)
@@ -164,6 +213,7 @@ async fn test_provider_key_operations() {
             api_path: None,
             aws_region: None,
             enabled: true,
+            builtin_id: None,
         },
     )
     .await
@@ -216,6 +266,7 @@ async fn test_provider_model_operations() {
             api_path: None,
             aws_region: None,
             enabled: true,
+            builtin_id: None,
         },
     )
     .await
@@ -273,10 +324,9 @@ async fn test_conversation_crud() {
     let db = &h.conn;
 
     // create
-    let conv =
-        conversation::create_conversation(db, "Hello World", "gpt-4", "openai-1", None, None)
-            .await
-            .unwrap();
+    let conv = conversation::create_conversation(db, "Hello World", "gpt-4", "openai-1", None)
+        .await
+        .unwrap();
     assert_eq!(conv.title, "Hello World");
     assert_eq!(conv.model_id, "gpt-4");
     assert_eq!(conv.provider_id, "openai-1");
@@ -331,7 +381,7 @@ async fn test_conversation_update_input() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let conv = conversation::create_conversation(db, "Chat", "gpt-4", "p1", None, None)
+    let conv = conversation::create_conversation(db, "Chat", "gpt-4", "p1", None)
         .await
         .unwrap();
 
@@ -395,7 +445,7 @@ async fn test_message_crud() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let conv = conversation::create_conversation(db, "Test Chat", "model-1", "prov-1", None, None)
+    let conv = conversation::create_conversation(db, "Test Chat", "model-1", "prov-1", None)
         .await
         .unwrap();
 
@@ -442,21 +492,19 @@ async fn test_message_with_attachments() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let conv = conversation::create_conversation(db, "Attach Chat", "m1", "p1", None, None)
+    let conv = conversation::create_conversation(db, "Attach Chat", "m1", "p1", None)
         .await
         .unwrap();
 
-    let attachments = vec![AttachmentInput {
-        file_name: "doc.pdf".into(),
+    let attachments = vec![Attachment {
+        id: "att-1".into(),
         file_type: "application/pdf".into(),
+        file_name: "doc.pdf".into(),
+        file_path: "files/abc123_doc.pdf".into(),
         file_size: 1024,
-        data: "base64data".into(),
+        data: None,
     }];
 
-    // create_message stores AttachmentInput JSON, but message_from_entity
-    // deserialises as Vec<Attachment> (different struct) — mismatched fields
-    // cause unwrap_or_default() to return []. Verify the message is created
-    // successfully; attachment round-trip fidelity is a known schema gap.
     let msg = message::create_message(
         db,
         &conv.id,
@@ -471,6 +519,9 @@ async fn test_message_with_attachments() {
 
     assert_eq!(msg.content, "See attached");
     assert_eq!(msg.role, MessageRole::User);
+    assert_eq!(msg.attachments.len(), 1);
+    assert_eq!(msg.attachments[0].file_name, "doc.pdf");
+    assert_eq!(msg.attachments[0].file_path, "files/abc123_doc.pdf");
 }
 
 #[tokio::test]
@@ -478,7 +529,7 @@ async fn test_delete_messages_after() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let conv = conversation::create_conversation(db, "Branching", "m1", "p1", None, None)
+    let conv = conversation::create_conversation(db, "Branching", "m1", "p1", None)
         .await
         .unwrap();
 
@@ -511,78 +562,6 @@ async fn test_delete_messages_after() {
 }
 
 // ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_app_crud() {
-    let h = create_test_pool().await.unwrap();
-    let db = &h.conn;
-
-    // create
-    let input = CreateAppInput {
-        name: "Translator".into(),
-        description: Some("Translates text".into()),
-        icon: Some("🌐".into()),
-        icon_color: Some("#ff0000".into()),
-        system_prompt: Some("You are a translator.".into()),
-        default_model_id: None,
-        default_provider_id: None,
-        temperature: Some(0.7),
-        max_tokens: None,
-        top_p: None,
-        category_id: None,
-        variables: Some(vec![Variable {
-            name: "target_lang".into(),
-            label: "Target Language".into(),
-            default_value: "English".into(),
-            placeholder: "Enter language".into(),
-        }]),
-    };
-    let a = app::create_app(db, input).await.unwrap();
-    assert_eq!(a.name, "Translator");
-    assert_eq!(a.description, "Translates text");
-    assert_eq!(a.variables.len(), 1);
-    assert_eq!(a.variables[0].name, "target_lang");
-
-    // list
-    let apps = app::list_apps(db).await.unwrap();
-    assert_eq!(apps.len(), 1);
-
-    // get
-    let fetched = app::get_app(db, &a.id).await.unwrap();
-    assert_eq!(fetched.id, a.id);
-
-    // update
-    let update = UpdateAppInput {
-        name: Some("Super Translator".into()),
-        description: None,
-        icon: None,
-        icon_color: None,
-        system_prompt: None,
-        default_model_id: None,
-        default_provider_id: None,
-        temperature: None,
-        max_tokens: None,
-        top_p: None,
-        category_id: None,
-        variables: None,
-    };
-    let updated = app::update_app(db, &a.id, update).await.unwrap();
-    assert_eq!(updated.name, "Super Translator");
-
-    // toggle favorite
-    app::toggle_favorite(db, &a.id).await.unwrap();
-    let fetched = app::get_app(db, &a.id).await.unwrap();
-    assert!(fetched.is_favorite);
-
-    // delete
-    app::delete_app(db, &a.id).await.unwrap();
-    let apps = app::list_apps(db).await.unwrap();
-    assert!(apps.is_empty());
-}
-
-// ---------------------------------------------------------------------------
 // Stored File
 // ---------------------------------------------------------------------------
 
@@ -592,7 +571,7 @@ async fn test_stored_file_crud() {
     let db = &h.conn;
 
     let file_id = gen_id();
-    let conv = conversation::create_conversation(db, "File Chat", "m1", "p1", None, None)
+    let conv = conversation::create_conversation(db, "File Chat", "m1", "p1", None)
         .await
         .unwrap();
 
@@ -667,7 +646,7 @@ async fn test_delete_stored_files_by_conversation() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
 
-    let conv = conversation::create_conversation(db, "Bulk Files", "m1", "p1", None, None)
+    let conv = conversation::create_conversation(db, "Bulk Files", "m1", "p1", None)
         .await
         .unwrap();
 

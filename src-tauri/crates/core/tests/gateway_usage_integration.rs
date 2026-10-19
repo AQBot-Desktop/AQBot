@@ -23,6 +23,7 @@ async fn seed_gateway_usage() -> (
             api_path: None,
             aws_region: None,
             enabled: true,
+            builtin_id: None,
         },
     )
     .await

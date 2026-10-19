@@ -1581,6 +1581,19 @@ for line in sys.stdin:
         time.sleep(int(os.environ.get("AQBOT_TEST_STOP_READING_MS", "0")) / 1000)
 "#;
 
+    /// Waits for a marker file written by the python test server. Startup can
+    /// take seconds when the whole suite runs in parallel, so the timeout only
+    /// guards against hangs and is not part of the behavior under test.
+    async fn wait_for_test_server_marker(path: &std::path::Path) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !path.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("test MCP server never wrote {}", path.display()));
+    }
+
     fn test_stdio_launch(server_id: &str, counter_path: &std::path::Path) -> StdioServerLaunch {
         let env = std::env::var("PATH")
             .map(|path| HashMap::from([("PATH".to_string(), path)]))
@@ -2168,13 +2181,7 @@ for line in sys.stdin:
                 )
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !call_counter_path.exists() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        wait_for_test_server_marker(&call_counter_path).await;
 
         let server_id = launch.server_id.clone();
         tokio::time::timeout(
@@ -2214,13 +2221,7 @@ for line in sys.stdin:
                 )
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !initialized_path.exists() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        wait_for_test_server_marker(&initialized_path).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let server_id = launch.server_id.clone();
@@ -2249,13 +2250,7 @@ for line in sys.stdin:
         let discovery_launch = launch.clone();
         let discovery =
             tokio::spawn(async move { discovery_manager.discover_tools(discovery_launch).await });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !counter_path.exists() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        wait_for_test_server_marker(&counter_path).await;
 
         let server_id = launch.server_id.clone();
         tokio::time::timeout(
