@@ -1449,4 +1449,67 @@ mod tests {
 
         upstream_task.abort();
     }
+
+    #[tokio::test]
+    async fn chat_completions_accepts_null_assistant_content_with_tool_calls() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 }
+        })
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, _handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+        // `stream` is omitted on purpose: OpenAI treats it as optional.
+        let request_body = json!({
+            "model": "deepseek/deepseek-v4-pro",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "get_time", "arguments": "{}" }
+                    }]
+                },
+                { "role": "tool", "tool_call_id": "call_1", "content": "1700000000" }
+            ]
+        })
+        .to_string();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let captured = captures.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        let upstream_messages = &captured[0].body["messages"];
+        assert_eq!(upstream_messages[0]["role"], "assistant");
+        assert!(upstream_messages[0]["content"].is_null());
+        assert_eq!(upstream_messages[0]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(upstream_messages[1]["tool_call_id"], "call_1");
+
+        upstream_task.abort();
+    }
 }

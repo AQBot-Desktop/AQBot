@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    /// OpenAI treats `stream` as optional, defaulting to false.
+    #[serde(default)]
     pub stream: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
@@ -68,6 +70,9 @@ pub struct ToolCallFunction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
+    /// OpenAI allows `null` or an omitted field for assistant tool-call turns;
+    /// both are normalized to empty text.
+    #[serde(default, deserialize_with = "deserialize_nullable_content")]
     pub content: ChatContent,
     /// Provider-native reasoning/thinking content for APIs that require it in history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +90,19 @@ pub struct ChatMessage {
 pub enum ChatContent {
     Text(String),
     Multipart(Vec<ContentPart>),
+}
+
+impl Default for ChatContent {
+    fn default() -> Self {
+        Self::Text(String::new())
+    }
+}
+
+fn deserialize_nullable_content<'de, D>(deserializer: D) -> Result<ChatContent, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<ChatContent>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,4 +258,67 @@ pub struct ConversationTitleGeneratingEvent {
     pub generating: bool,
     /// Error message if generation failed
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn assert_empty_text(content: &ChatContent) {
+        assert!(matches!(content, ChatContent::Text(text) if text.is_empty()));
+    }
+
+    #[test]
+    fn chat_message_accepts_null_content_for_tool_call_turns() {
+        let message: ChatMessage = serde_json::from_value(json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": { "name": "get_time", "arguments": "{}" }
+            }]
+        }))
+        .unwrap();
+
+        assert_empty_text(&message.content);
+        assert_eq!(message.tool_calls.unwrap()[0].id, "call_1");
+    }
+
+    #[test]
+    fn chat_message_accepts_missing_content() {
+        let message: ChatMessage = serde_json::from_value(json!({
+            "role": "assistant",
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": { "name": "get_time", "arguments": "{}" }
+            }]
+        }))
+        .unwrap();
+
+        assert_empty_text(&message.content);
+    }
+
+    #[test]
+    fn chat_message_still_rejects_invalid_content() {
+        let result = serde_json::from_value::<ChatMessage>(json!({
+            "role": "user",
+            "content": 42
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn chat_request_defaults_stream_to_false() {
+        let request: ChatRequest = serde_json::from_value(json!({
+            "model": "gpt-4o",
+            "messages": [{ "role": "user", "content": "hi" }]
+        }))
+        .unwrap();
+
+        assert!(!request.stream);
+    }
 }
