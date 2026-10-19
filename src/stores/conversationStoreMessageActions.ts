@@ -1164,6 +1164,17 @@ export function createConversationMessageActions(
         throw new Error('消息仍在保存，请稍后再试');
       }
 
+      // Agent-mode conversations re-run the agent pipeline for the existing
+      // user message; the plain chat path would silently drop tool access.
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+        ?? get().archivedConversations.find((item) => item.id === conversationId);
+      if (conversation?.mode === 'agent') {
+        return get().sendAgentMessage(userMsg.content, [], {
+          conversationId,
+          regenerateUserMessageId: userMsg.id,
+        });
+      }
+
       // Create placeholder for new version, preserving original created_at for position
       const tempAssistantId = `temp-assistant-${Date.now()}`;
       const streamId = createStreamId();
@@ -1313,6 +1324,19 @@ export function createConversationMessageActions(
       if (!userMsg) throw new Error('User message not found');
       if (isTemporaryMessageId(userMsg.id)) {
         throw new Error('消息仍在保存，请稍后再试');
+      }
+
+      // Same as regenerateMessage: agent conversations must stay on the agent
+      // pipeline, with the selected model as the run's model override.
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+        ?? get().archivedConversations.find((item) => item.id === conversationId);
+      if (conversation?.mode === 'agent') {
+        return get().sendAgentMessage(userMsg.content, [], {
+          conversationId,
+          regenerateUserMessageId: userMsg.id,
+          providerId,
+          modelId,
+        });
       }
 
       const parentId = userMsg.id;

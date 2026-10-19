@@ -243,7 +243,7 @@ describe('conversationStore agent streaming', () => {
     });
 
     const run = useConversationStore.getState().sendAgentMessage('你好呀');
-    await expect(run).resolves.toBeUndefined();
+    await expect(run).resolves.toMatchObject({ role: 'assistant', status: 'partial' });
 
     const state = useConversationStore.getState();
     expect(state.streaming).toBe(true);
@@ -328,6 +328,83 @@ describe('conversationStore agent streaming', () => {
       enabledMcpServerIds: [],
     }));
     expect(useConversationStore.getState().enabledMcpServerIds).toEqual(['mcp-active']);
+  });
+
+  it('regenerates through agent_query so the run keeps tool access', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const userMsg: Message = {
+      id: 'user-1', conversation_id: 'conv-1', role: 'user', content: 'run cli', status: 'complete',
+      provider_id: null, model_id: null, token_count: null,
+      attachments: [], thinking: null, tool_calls_json: null, tool_call_id: null,
+      created_at: 1_000, parent_message_id: null, version_index: 0, is_active: true,
+    };
+    const aiMsg: Message = {
+      ...storedMessage('ai-1', 'old answer'),
+      parent_message_id: 'user-1',
+    };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation()] as never[],
+      messages: [userMsg, aiMsg],
+      streaming: false,
+      streamingMessageId: null,
+      streamingConversationId: null,
+      thinkingActiveMessageIds: new Set<string>(),
+      enabledMcpServerIds: [],
+      thinkingBudget: null,
+      enabledKnowledgeBaseIds: [],
+      enabledMemoryNamespaceIds: [],
+    });
+
+    await useConversationStore.getState().regenerateMessage(aiMsg.id);
+
+    expect(invokeMock).toHaveBeenCalledWith('agent_query', expect.objectContaining({
+      conversationId: 'conv-1',
+      prompt: 'run cli',
+      regenerateUserMessageId: 'user-1',
+    }));
+    expect(invokeMock.mock.calls.some((call) => call[0] === 'regenerate_message')).toBe(false);
+    const state = useConversationStore.getState();
+    // No duplicate user turn: the old answer was swapped for a placeholder version.
+    expect(state.messages.filter((message) => message.role === 'user')).toHaveLength(1);
+    const placeholder = state.messages.find(
+      (message) => message.parent_message_id === 'user-1' && message.is_active,
+    );
+    expect(placeholder?.role).toBe('assistant');
+    expect(placeholder?.status).toBe('partial');
+    expect(placeholder?.version_index).toBe(1);
+    expect(state.runsByConversation['conv-1']?.mode).toBe('agent');
+  });
+
+  it('resends the stored user content after an edit-and-resend in agent mode', async () => {
+    const { useConversationStore } = await import('../conversationStore');
+    const userMsg: Message = {
+      id: 'user-1', conversation_id: 'conv-1', role: 'user', content: 'edited prompt', status: 'complete',
+      provider_id: null, model_id: null, token_count: null,
+      attachments: [], thinking: null, tool_calls_json: null, tool_call_id: null,
+      created_at: 1_000, parent_message_id: null, version_index: 0, is_active: true,
+    };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation()] as never[],
+      messages: [userMsg],
+      streaming: false,
+      streamingMessageId: null,
+      streamingConversationId: null,
+      thinkingActiveMessageIds: new Set<string>(),
+      enabledMcpServerIds: [],
+      thinkingBudget: null,
+      enabledKnowledgeBaseIds: [],
+      enabledMemoryNamespaceIds: [],
+    });
+
+    await useConversationStore.getState().regenerateMessage(userMsg.id);
+
+    expect(invokeMock).toHaveBeenCalledWith('agent_query', expect.objectContaining({
+      conversationId: 'conv-1',
+      prompt: 'edited prompt',
+      regenerateUserMessageId: 'user-1',
+    }));
   });
 
   async function seedAgentConversation(store: typeof import('../conversationStore').useConversationStore) {
