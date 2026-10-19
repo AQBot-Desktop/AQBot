@@ -10,7 +10,8 @@ export type StartupDiagnosticWriter = (
 const MAX_DIAGNOSTIC_TEXT_LENGTH = 8 * 1024;
 // A WebView reload recreates this module; StrictMode and React remounts do not.
 const presentations = new Map<'loading' | 'app' | 'error', Promise<boolean>>();
-let windowShown: Promise<boolean> | undefined;
+type WindowPresentation = 'visible' | 'hidden' | 'minimized' | 'failed' | 'ignored';
+let windowShown: Promise<WindowPresentation> | undefined;
 let errorCloseListener: Promise<void> | undefined;
 
 export function formatStartupError(reason: unknown): string {
@@ -64,14 +65,18 @@ export function presentStartupWindow(kind: 'loading' | 'app' | 'error'): Promise
 }
 
 async function confirmStartupPresentation(kind: 'loading' | 'app' | 'error'): Promise<boolean> {
-  const shown = await (windowShown ??= showStartupWindow());
-  if (shown && kind === 'loading') return true;
+  const presentation = await (windowShown ??= showStartupWindow(kind === 'error'));
+  // A real error must be visible even after a successful background launch.
+  const result = kind === 'error' && (presentation === 'hidden' || presentation === 'minimized')
+    ? await (windowShown = showStartupWindow(true)) : presentation;
+  const shown = result === 'visible' || result === 'minimized';
+  if (kind === 'loading' && result !== 'failed') return shown;
   try {
     const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
     if (getCurrentWebviewWindow().label === 'main') {
       if (kind === 'error') listenForErrorWindowClose();
       const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('report_startup_presented', { kind: shown ? kind : 'error' });
+      await invoke('report_startup_presented', { kind: result === 'failed' ? 'error' : kind });
     }
     return shown;
   } catch (error) {
@@ -80,23 +85,27 @@ async function confirmStartupPresentation(kind: 'loading' | 'app' | 'error'): Pr
   }
 }
 
-async function showStartupWindow(): Promise<boolean> {
+async function showStartupWindow(forceVisible: boolean): Promise<WindowPresentation> {
   const startedAt = performance.now();
   try {
     const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
     const nativeWindow = getCurrentWebviewWindow();
-    if (nativeWindow.label !== 'main' && frontendKindForWindow(nativeWindow.label) !== 'conversation-popout') return false;
+    if (nativeWindow.label === 'main') {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<'visible' | 'hidden' | 'minimized'>('present_startup_window', { forceVisible });
+    }
+    if (frontendKindForWindow(nativeWindow.label) !== 'conversation-popout') return 'ignored';
     void writeStartupDiagnostic('info', `frontend window_show begin window=${nativeWindow.label}`);
     await nativeWindow.show();
     void writeStartupDiagnostic('info', `frontend window_show complete elapsed_ms=${Math.round(performance.now() - startedAt)}`);
     void nativeWindow.setFocus().catch((error) => {
       void writeStartupDiagnostic('warn', `frontend window_focus failed: ${formatStartupError(error)}`);
     });
-    return true;
+    return 'visible';
   } catch (error) {
     // Dispatch the original failure first; a stalled logger must not block native diagnosis.
     void writeStartupDiagnostic('error', `frontend window_show failed: ${formatStartupError(error)}`);
-    return false;
+    return 'failed';
   }
 }
 

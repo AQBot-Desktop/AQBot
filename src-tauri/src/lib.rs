@@ -525,6 +525,7 @@ pub fn run() {
         commands::desktop::open_devtools,
         commands::desktop::write_diagnostic_log,
         commands::startup::report_startup_presented,
+        commands::startup::present_startup_window,
         commands::system_fonts::list_system_fonts,
         commands::system_fonts::list_system_font_faces,
         commands::desktop::minimize_window,
@@ -850,6 +851,10 @@ pub fn run() {
 
             let app_settings =
                 rt.block_on(aqbot_core::repo::settings::get_settings(&db_handle.conn))?;
+            app.manage(window_lifecycle::MainWindowStartup::new(
+                app_settings.show_on_start,
+                app_settings.start_minimized,
+            ));
 
             // Apply custom documents root (if configured) before anything
             // that reads documents_root().
@@ -1203,6 +1208,14 @@ pub fn run() {
         if window.label() == "main" {
             match event {
                 tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                    match window_lifecycle::should_save_window_state(window) {
+                        Ok(true) => {}
+                        Ok(false) => return,
+                        Err(error) => {
+                            tracing::error!(%error, "Could not inspect AQBot window before saving geometry");
+                            return;
+                        }
+                    }
                     let app = window.app_handle();
                     let state = app.state::<AppState>();
                     let maximized = window.is_maximized().unwrap_or(false);
@@ -1237,6 +1250,11 @@ pub fn run() {
                                 y: Some(logical_y),
                             },
                         );
+                    }
+                }
+                tauri::WindowEvent::Focused(true) => {
+                    if let Err(error) = window_lifecycle::on_main_window_focus(window) {
+                        tracing::error!(%error, "Could not finish AQBot window restore");
                     }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {

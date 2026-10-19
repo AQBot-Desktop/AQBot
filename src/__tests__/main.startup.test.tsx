@@ -8,7 +8,7 @@ describe('bootstrap failure handling', () => {
     vi.resetModules();
     // React 19 deliberately rethrows errors inside act instead of invoking onUncaughtError.
     Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
-    invoke.mockReset().mockResolvedValue(undefined);
+    invoke.mockReset().mockImplementation(async (command: string) => command === 'present_startup_window' ? 'visible' : undefined);
     document.body.innerHTML = '<div id="root"></div>';
     Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {
       metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
@@ -31,7 +31,7 @@ describe('bootstrap failure handling', () => {
     await waitFor(() => expect(document.querySelector('#root pre')).not.toBeNull());
     expect(document.querySelector('#root')?.textContent).toContain(phase === 'import'
       ? 'application module unavailable' : 'first render failed');
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('plugin:window|show', { label: 'main' }, undefined));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('present_startup_window', { forceVisible: true }, undefined));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('report_startup_presented', { kind: 'error' }, undefined));
     expect(invoke).not.toHaveBeenCalledWith('report_startup_presented', { kind: 'app' }, undefined);
     expect(invoke).toHaveBeenCalledWith('write_diagnostic_log', expect.objectContaining({

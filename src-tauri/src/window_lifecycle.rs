@@ -2,9 +2,18 @@ use crate::{window_state, AppState};
 use std::sync::atomic::Ordering;
 use tauri::{LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow};
 
+mod startup;
+pub use startup::{
+    on_main_window_focus, present_main_window, should_save_window_state, MainWindowStartup,
+    StartupWindowMode,
+};
+
 const MAIN_WINDOW_LABEL: &str = "main";
 
-pub fn configure_main_window(app: &tauri::AppHandle, main_window: &WebviewWindow) {
+pub fn configure_main_window(
+    app: &tauri::AppHandle,
+    main_window: &WebviewWindow,
+) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if let Err(error) = crate::linux_webkit::enable_input_method_preedit(main_window) {
         tracing::warn!(
@@ -28,6 +37,8 @@ pub fn configure_main_window(app: &tauri::AppHandle, main_window: &WebviewWindow
 
     let state = app.state::<AppState>();
     if let Some(saved_state) = window_state::load_window_state(&state.app_data_dir) {
+        app.state::<MainWindowStartup>()
+            .defer_restore(saved_state)?;
         let restored_state = if let Ok(Some(monitor)) = main_window.current_monitor() {
             let monitor_size = monitor
                 .size()
@@ -51,19 +62,14 @@ pub fn configure_main_window(app: &tauri::AppHandle, main_window: &WebviewWindow
         } else {
             let _ = main_window.center();
         }
-
-        if restored_state.fullscreen {
-            let _ = main_window.set_fullscreen(true);
-        } else if restored_state.maximized {
-            let _ = main_window.maximize();
-        }
     }
+    Ok(())
 }
 
 pub fn ensure_main_window_for_setup(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         tracing::info!("AQBot main window found during setup");
-        configure_main_window(app, &main_window);
+        configure_main_window(app, &main_window)?;
         tracing::info!("AQBot main window configured");
         return Ok(());
     }
@@ -75,7 +81,7 @@ pub fn ensure_main_window_for_setup(app: &tauri::AppHandle) -> Result<(), String
         tracing::info!("Creating AQBot main window manually during Linux setup");
         let main_window = create_main_window_from_config(app)?;
         tracing::info!("AQBot main window manually created during Linux setup");
-        configure_main_window(app, &main_window);
+        configure_main_window(app, &main_window)?;
         tracing::info!("AQBot main window configured");
     }
 
@@ -131,20 +137,25 @@ pub fn minimize_main_window(window: tauri::Window) -> Result<(), String> {
 }
 
 pub fn restore_main_window(app: &tauri::AppHandle) {
-    // Restore Dock presence before showing so the window is findable again.
-    set_app_dock_visibility(app, true);
-
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let state = app.state::<AppState>();
         state
             .main_window_released_to_tray
             .store(false, Ordering::Relaxed);
-        set_skip_taskbar(&window, false);
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(error) = app.run_on_main_thread(move || {
+            if let Err(error) = present_main_window(&window, true) {
+                tracing::error!(%error, "Could not restore AQBot main window");
+            }
+        }) {
+            tracing::error!(%error, "Could not schedule AQBot main window restore");
+        }
         return;
     }
 
+    if let Err(error) = app.state::<MainWindowStartup>().request_show() {
+        tracing::error!(%error, "Could not request AQBot main window restore");
+        return;
+    }
     let state = app.state::<AppState>();
     if state.main_window_restoring.swap(true, Ordering::Relaxed) {
         return;
@@ -236,7 +247,15 @@ impl SetSkipTaskbar for WebviewWindow {
 
 fn restore_main_window_inner(app: &tauri::AppHandle) -> Result<(), String> {
     let window = create_main_window_from_config(app)?;
-    configure_main_window(app, &window);
+    configure_main_window(app, &window)?;
+    // IPC can arrive while the worker configures a newly built WebView.
+    // If React already presented it, finish the deferred geometry on the UI thread.
+    app.run_on_main_thread(move || {
+        if let Err(error) = startup::finish_configuration(&window) {
+            tracing::error!(%error, "Could not finish restored AQBot window configuration");
+        }
+    })
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 

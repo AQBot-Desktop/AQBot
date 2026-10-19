@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   nativeSettings: vi.fn(),
   enable: vi.fn(),
   disable: vi.fn(),
+  present: vi.fn(),
   show: vi.fn(),
   focus: vi.fn(),
   invoke: vi.fn(),
@@ -97,6 +98,7 @@ describe('native startup presentation', () => {
     Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {
       metadata: { currentWindow: { label: mocks.label }, currentWebview: { label: mocks.label } },
       invoke: (command: string, args: object) => {
+        if (command === 'present_startup_window') return mocks.present(args);
         if (command === 'plugin:window|show') return mocks.show();
         if (command === 'plugin:window|set_focus') return mocks.focus();
         if (command === 'plugin:autostart|enable') return mocks.enable();
@@ -106,6 +108,7 @@ describe('native startup presentation', () => {
     } });
     for (const fn of [mocks.getSettings, mocks.layout, mocks.nativeSettings, mocks.enable, mocks.disable,
       mocks.show, mocks.focus, mocks.diagnostics]) fn.mockResolvedValue(undefined);
+    mocks.present.mockResolvedValue('visible');
     mocks.getSettings.mockResolvedValue({ auto_check_update: false });
     mocks.invoke.mockImplementation((command: string) => {
       if (command === 'get_settings') return mocks.getSettings();
@@ -120,6 +123,23 @@ describe('native startup presentation', () => {
     await waitFor(() => expect(mocks.closeListeners.size).toBe(1));
     for (const callback of mocks.closeListeners) callback();
     expect(mocks.invoke).toHaveBeenCalledWith('force_quit');
+  });
+
+  it.each(['hidden', 'minimized'])('preserves native %s intent before and after frontend settings load', async (mode) => {
+    mocks.present.mockResolvedValue(mode);
+    let resolveSettings!: (value: object) => void;
+    mocks.getSettings.mockImplementation(() => new Promise((resolve) => { resolveSettings = resolve; }));
+    await mount();
+    await waitFor(() => expect(mocks.present).toHaveBeenCalledWith({ forceVisible: false }));
+    expect(mocks.show).not.toHaveBeenCalled();
+    expect(mocks.focus).not.toHaveBeenCalled();
+    expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', expect.anything());
+    await act(async () => resolveSettings({ show_on_start: mode !== 'hidden', start_minimized: mode === 'minimized', auto_check_update: false }));
+    expect(await screen.findByText('application content')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.diagnostics).toHaveBeenCalledWith('report_startup_presented', { kind: 'app' }));
+    expect(mocks.present).toHaveBeenCalledTimes(1);
+    expect(mocks.show).not.toHaveBeenCalled();
+    expect(mocks.focus).not.toHaveBeenCalled();
   });
 
   it('keeps the existing application mounted when settings are subsequently refreshed', async () => {
@@ -143,7 +163,7 @@ describe('native startup presentation', () => {
     try {
       root.render(<App />);
       await waitFor(() => expect(onUncaughtError).toHaveBeenCalled());
-      expect(mocks.show).toHaveBeenCalledTimes(1);
+      expect(mocks.present).toHaveBeenCalledTimes(1);
       expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', { kind: 'app' });
     } finally {
       root.unmount();
@@ -162,7 +182,7 @@ describe('native startup presentation', () => {
     dependency.mockReturnValue(pending);
     await mount();
     await waitFor(() => expect(mocks.getSettings).toHaveBeenCalled());
-    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.present).toHaveBeenCalledTimes(1));
     if (phase === 'settings') expect(screen.getByText('startup.loading')).toBeInTheDocument();
     if (phase === 'settings') {
       expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', { kind: 'app' });
@@ -187,24 +207,35 @@ describe('native startup presentation', () => {
     }));
   });
 
+  it('reveals a settings failure after the native policy kept the loading screen hidden', async () => {
+    mocks.present.mockResolvedValueOnce('hidden').mockResolvedValue('visible');
+    mocks.getSettings.mockRejectedValue(new Error('background settings failure'));
+    await mount();
+    expect(await screen.findByText('startup.settingsFailed')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.present).toHaveBeenCalledWith({ forceVisible: true }));
+    expect(mocks.present).toHaveBeenNthCalledWith(1, { forceVisible: false });
+    await waitFor(() => expect(mocks.diagnostics).toHaveBeenCalledWith('report_startup_presented', { kind: 'error' }));
+    expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', { kind: 'app' });
+  });
+
   it('does not confirm success while settings are pending and subsequently fail', async () => {
     let rejectSettings!: (reason: Error) => void;
     mocks.getSettings.mockImplementation(() => new Promise((_, reject) => { rejectSettings = reject; }));
     await mount();
-    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.present).toHaveBeenCalledTimes(1));
     expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', expect.anything());
     await act(async () => rejectSettings(new Error('late settings failure')));
     expect(await screen.findByText('startup.settingsFailed')).toBeInTheDocument();
     await waitFor(() => expect(mocks.diagnostics).toHaveBeenCalledWith('report_startup_presented', { kind: 'error' }));
     expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', { kind: 'app' });
-    expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(mocks.present).toHaveBeenCalledTimes(1);
   });
 
   it.each(['layout', 'native', 'autostart'])('keeps the window visible and logs %s failures', async (phase) => {
     const dependency = { layout: mocks.layout, native: mocks.nativeSettings, autostart: mocks.disable }[phase]!;
     dependency.mockRejectedValue(new Error(`${phase} failed`));
     await mount();
-    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.present).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.diagnostics).toHaveBeenCalledWith('write_diagnostic_log', expect.objectContaining({
       level: 'error', message: expect.stringContaining(`${phase} failed`),
     })));
@@ -221,6 +252,7 @@ describe('native startup presentation', () => {
     }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('set_always_on_top', { enabled: false }));
     expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(mocks.present).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalledWith('apply_startup_settings', expect.anything());
     expect(mocks.diagnostics).not.toHaveBeenCalledWith('report_startup_presented', expect.anything());
     expect(mocks.disable).not.toHaveBeenCalled();

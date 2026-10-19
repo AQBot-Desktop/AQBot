@@ -47,11 +47,12 @@ function dispatchNewConversationForActivePage() {
 async function toggleCurrentWindow() {
   if (!isTauri()) return;
   const win = getCurrentWindow();
-  const visible = await win.isVisible();
+  const visible = await win.isVisible() && !await win.isMinimized();
   if (visible) {
     await win.hide();
     return;
   }
+  await win.unminimize();
   await win.show();
   await win.setFocus();
 }
@@ -60,13 +61,16 @@ async function toggleAllWindows() {
   if (!isTauri()) return;
   const windows = await getAllWindows();
   if (windows.length === 0) return;
-  const visibility = await Promise.all(windows.map((win) => win.isVisible()));
+  const visibility = await Promise.all(windows.map(async (win) => await win.isVisible() && !await win.isMinimized()));
   const shouldHide = visibility.some(Boolean);
   if (shouldHide) {
     await Promise.all(windows.map((win) => win.hide()));
     return;
   }
-  await Promise.all(windows.map((win) => win.show()));
+  await Promise.all(windows.map(async (win) => {
+    await win.unminimize();
+    await win.show();
+  }));
   await windows[0].setFocus();
 }
 

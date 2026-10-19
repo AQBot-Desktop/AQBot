@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn intentional_background_readiness_finishes_monitoring_without_claiming_visibility() {
+    let log = tempfile::NamedTempFile::new().unwrap();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(Arc::new(log.reopen().unwrap()))
+        .finish();
+    let phase = StartupPhase::new("frontend commit");
+    tracing::subscriber::with_default(subscriber, || {
+        phase.mark_presented(StartupPresentation::App, false);
+    });
+    assert!(phase.snapshot().unwrap().finished);
+    assert!(!phase.presentation_cancelled());
+    assert!(!phase.claim_slow_notice(Duration::from_secs(30)));
+    assert!(std::fs::read_to_string(log.path())
+        .unwrap()
+        .contains("visible=false"));
+    assert!(phase
+        .record_presentation(StartupPresentation::Error)
+        .is_some());
+}
+
+#[test]
 fn slow_notice_requires_fifteen_seconds_and_is_claimed_once() {
     let phase = StartupPhase::new("webview creation");
     assert!(!phase.claim_slow_notice(Duration::from_secs(14)));
@@ -13,7 +36,7 @@ fn slow_notice_requires_fifteen_seconds_and_is_claimed_once() {
 fn app_and_error_presentation_finish_startup_without_notifications() {
     for surface in [StartupPresentation::App, StartupPresentation::Error] {
         let phase = StartupPhase::new("frontend commit");
-        phase.mark_presented(surface);
+        phase.mark_presented(surface, true);
         assert!(phase.snapshot().unwrap().finished);
         assert!(!phase.claim_slow_notice(Duration::from_secs(30)));
         phase.set("late initialization");
@@ -59,10 +82,10 @@ fn later_error_is_logged_without_reopening_startup_or_accepting_app_again() {
         .finish();
     let phase = StartupPhase::new("frontend commit");
     tracing::subscriber::with_default(subscriber, || {
-        phase.mark_presented(StartupPresentation::App);
-        phase.mark_presented(StartupPresentation::Error);
-        phase.mark_presented(StartupPresentation::App);
-        phase.mark_presented(StartupPresentation::Error);
+        phase.mark_presented(StartupPresentation::App, true);
+        phase.mark_presented(StartupPresentation::Error, true);
+        phase.mark_presented(StartupPresentation::App, true);
+        phase.mark_presented(StartupPresentation::Error, true);
     });
     let output = std::fs::read_to_string(log.path()).unwrap();
     let presentations: Vec<_> = output
@@ -92,8 +115,8 @@ fn cancelled_presentation_stops_monitoring_without_surface_or_native_failure() {
     tracing::subscriber::with_default(subscriber, || {
         phase.cancel_presentation();
         phase.cancel_presentation();
-        phase.mark_presented(StartupPresentation::App);
-        phase.mark_presented(StartupPresentation::Error);
+        phase.mark_presented(StartupPresentation::App, true);
+        phase.mark_presented(StartupPresentation::Error, true);
         phase.fail(&std::io::Error::other("window hidden by user"));
     });
     let output = std::fs::read_to_string(log.path()).unwrap();
@@ -112,7 +135,7 @@ fn cancelled_presentation_stops_monitoring_without_surface_or_native_failure() {
 #[test]
 fn cancelling_after_app_presentation_keeps_late_errors_observable() {
     let phase = StartupPhase::new("frontend commit");
-    phase.mark_presented(StartupPresentation::App);
+    phase.mark_presented(StartupPresentation::App, true);
     phase.cancel_presentation();
     assert!(!phase.presentation_cancelled());
     assert!(phase

@@ -99,13 +99,13 @@ impl StartupPhase {
             .unwrap_or_else(|| "<phase lock poisoned>".into())
     }
 
-    /// Called only after the main window's native visibility has been verified.
-    pub fn mark_presented(&self, surface: StartupPresentation) {
+    /// Called only after the main window matches its requested native presentation.
+    pub fn mark_presented(&self, surface: StartupPresentation, visible: bool) {
         if let Some(snapshot) = self.record_presentation(surface) {
             tracing::info!(
                 window = "main",
                 surface = surface.as_str(),
-                visible = true,
+                visible,
                 startup_phase = %snapshot.phase,
                 elapsed_ms = snapshot.elapsed.as_millis() as u64,
                 phase_elapsed_ms = snapshot.phase_elapsed.as_millis() as u64,

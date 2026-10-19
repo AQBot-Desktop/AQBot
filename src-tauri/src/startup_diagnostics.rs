@@ -281,7 +281,7 @@ mod tests {
             super::Duration::from_millis(5),
             super::Duration::from_millis(1),
         );
-        phase.mark_presented(super::StartupPresentation::App);
+        phase.mark_presented(super::StartupPresentation::App, true);
         let deadline = super::Instant::now() + super::Duration::from_secs(2);
         while !watchdog.handle.as_ref().unwrap().is_finished() && super::Instant::now() < deadline {
             std::thread::sleep(super::Duration::from_millis(1));
