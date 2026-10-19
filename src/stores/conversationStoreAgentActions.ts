@@ -1,5 +1,7 @@
 import { invoke, listen, type UnlistenFn } from '@/lib/invoke';
 import { appendStreamErrorToContent } from '@/lib/streamStatus';
+import { getContextErrorMessage } from '@/lib/contextErrorMessage';
+import i18n from '@/i18n';
 import type {
   AgentDoneEvent,
   AgentErrorEvent,
@@ -33,7 +35,7 @@ import {
 
 type ConversationAgentActions = Pick<ConversationState, 'sendAgentMessage'>;
 
-/** Swap the active assistant version for `parentId` with the placeholder in-place. */
+/** Insert a regenerated version, replacing the active version only when requested. */
 function replaceActiveAssistantVersion(
   messages: Message[],
   parentId: string,
@@ -43,7 +45,7 @@ function replaceActiveAssistantVersion(
   const updated: Message[] = [];
   for (const message of messages) {
     if (message.parent_message_id === parentId && message.is_active) {
-      updated.push({ ...message, is_active: false });
+      updated.push(placeholder.is_active ? { ...message, is_active: false } : message);
       if (!inserted) {
         updated.push(placeholder);
         inserted = true;
@@ -94,15 +96,16 @@ export function createConversationAgentActions(
       runtime.agentStreamSeq = agentRunSeq;
       runtime.activeAgentCancel = () => runRuntime.agentCancel?.();
 
-      const conversation = get().conversations.find((item) => item.id === conversationId);
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+        ?? get().archivedConversations.find((item) => item.id === conversationId);
       if (!conversation) throw new Error('Conversation not found');
 
       const regenerateUserMessageId = options?.regenerateUserMessageId;
       const regenUserMessage = regenerateUserMessageId
-        ? get().messages.find((message) => message.id === regenerateUserMessageId)
+        ? get().messages.find((message) => message.id === regenerateUserMessageId && message.conversation_id === conversationId)
         : undefined;
       if (regenerateUserMessageId && regenUserMessage?.role !== 'user') {
-        throw new Error('User message not found for regeneration');
+        throw new Error(i18n.t('errors.AGENT_REGEN_MESSAGE_MISSING'));
       }
 
       const providerId = options?.providerId ?? conversation.provider_id;
@@ -167,7 +170,7 @@ export function createConversationAgentActions(
         created_at: regenOriginalActive?.created_at ?? Date.now(),
         parent_message_id: regenUserMessage?.id ?? optimisticUserMsg!.id,
         version_index: regenUserMessage ? regenParentVersions.length : 0,
-        is_active: true,
+        is_active: options?.activate !== false,
         status: 'partial',
       };
 
@@ -325,6 +328,7 @@ export function createConversationAgentActions(
       }) => {
         if (finishing || !isCurrentAgentRun()) return;
         finishing = true;
+        const error = input.error == null ? input.error : getContextErrorMessage(input.error, i18n.t.bind(i18n));
         flushAgentStreamChunks();
         const nextId = input.assistantMessageId || currentMsgId;
         const isActiveConversation = get().activeConversationId === conversationId;
@@ -338,7 +342,7 @@ export function createConversationAgentActions(
                 : 'partial',
           };
           if (input.outcome === 'error') {
-            messagePatch.content = input.error || input.text || '';
+            messagePatch.content = error || input.text || '';
           } else if (input.outcome === 'complete' && input.text !== undefined) {
             messagePatch.content = input.text;
           }
@@ -348,7 +352,7 @@ export function createConversationAgentActions(
           }
           const apply = (messages: Message[]) => messages.map((message) => message.id === currentMsgId
             ? { ...message, ...messagePatch, ...(input.outcome === 'error'
-              ? { content: appendStreamErrorToContent(message.content, input.error ?? input.text ?? '') }
+              ? { content: appendStreamErrorToContent(message.content, error ?? input.text ?? '') }
               : {}) }
             : message);
           if (isActiveConversation) {
@@ -382,7 +386,7 @@ export function createConversationAgentActions(
             message_id: nextId,
             stream_id: streamId,
             outcome: input.outcome,
-            error: input.error ?? null,
+            error: error ?? null,
           });
         }
       };
@@ -527,6 +531,7 @@ export function createConversationAgentActions(
             streamId,
             runId,
             regenerateUserMessageId: regenUserMessage?.id,
+            activate: options?.activate,
           });
           // A completion barrier only; awaiting query below handles its actual error.
           runRuntime.agentStartCompleted = Promise.allSettled([query]).then(() => undefined);
@@ -540,7 +545,7 @@ export function createConversationAgentActions(
           console.error('[sendAgentMessage] stream error:', error);
         });
       } catch (error) {
-        const errMsg = String(error);
+        const errMsg = getContextErrorMessage(error, i18n.t.bind(i18n));
         console.error('[sendAgentMessage] error:', errMsg);
         const cancelled = errMsg === 'Agent cancelled';
         await finishAgentRun({

@@ -2768,6 +2768,8 @@
     "preparingConversation": "正在準備對話…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "找不到要重新產生的使用者訊息",
+    "AGENT_HISTORY_UNTRACKED": "此 Agent 歷史缺少訊息識別碼，無法安全定位重送回合，請先清空 Agent 上下文再重試",
     "MEMORY_L1_TOO_LARGE": "常駐記憶為 {{bytes}} 位元組，上限是 {{limit}}。",
     "MEMORY_L1_REVISION_CONFLICT": "常駐記憶已在其他地方更新，已重新載入最新版本。",
     "MEMORY_L1_READ_FAILED": "無法讀取常駐記憶，修復前不能傳送。",

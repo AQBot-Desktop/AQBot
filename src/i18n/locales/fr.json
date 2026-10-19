@@ -2768,6 +2768,8 @@
     "preparingConversation": "Préparation de la conversation…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "Le message utilisateur à régénérer est introuvable",
+    "AGENT_HISTORY_UNTRACKED": "Cet historique Agent ne contient pas d’identifiants de message permettant de retrouver le tour à relancer de façon fiable. Effacez le contexte Agent avant de réessayer",
     "MEMORY_L1_TOO_LARGE": "La mémoire permanente fait {{bytes}} octets ; la limite est {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "La mémoire permanente a été mise à jour ailleurs. La dernière version a été rechargée.",
     "MEMORY_L1_READ_FAILED": "Impossible de lire la mémoire permanente. L’envoi est bloqué jusqu’à correction.",

@@ -2768,6 +2768,8 @@
     "preparingConversation": "会話を準備しています…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "再生成するユーザーメッセージが見つかりません",
+    "AGENT_HISTORY_UNTRACKED": "この Agent 履歴にはメッセージ識別子がなく、再試行するターンを安全に特定できません。Agent のコンテキストをクリアしてから再試行してください",
     "MEMORY_L1_TOO_LARGE": "常時メモリは {{bytes}} バイトで、上限は {{limit}} です。",
     "MEMORY_L1_REVISION_CONFLICT": "常時メモリが別の場所で更新されたため、最新版を再読み込みしました。",
     "MEMORY_L1_READ_FAILED": "常時メモリを読めません。修復するまで送信できません。",

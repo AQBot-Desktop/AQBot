@@ -407,6 +407,73 @@ describe('conversationStore agent streaming', () => {
     }));
   });
 
+  it.each([false, true])('regenerates archived Agent conversations with model override: %s', async (override) => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = { ...storedMessage('user-1', 'prompt'), role: 'user' as const, parent_message_id: null };
+    const assistant = { ...storedMessage('ai-1', 'answer'), parent_message_id: user.id };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [],
+      archivedConversations: [{ ...makeConversation(), is_archived: true }] as never[],
+      messages: [user, assistant],
+      loading: false,
+    });
+
+    const result = override
+      ? await useConversationStore.getState().regenerateWithModel(assistant.id, 'provider-2', 'model-2')
+      : await useConversationStore.getState().regenerateMessage(assistant.id);
+
+    expect(result.role).toBe('assistant');
+    expect(invokeMock).toHaveBeenCalledWith('agent_query', expect.objectContaining({
+      regenerateUserMessageId: user.id,
+      providerId: override ? 'provider-2' : 'provider-1',
+    }));
+  });
+
+  it.each([false, undefined, true])('honors context activation when regenerating a companion with activate=%s', async (activate) => {
+    const { useConversationStore } = await import('../conversationStore');
+    const user = { ...storedMessage('user-1', 'prompt'), role: 'user' as const, parent_message_id: null };
+    const active = { ...storedMessage('active', 'answer B'), parent_message_id: user.id, model_id: 'model-b' };
+    const companion = { ...storedMessage('companion', 'answer A'), parent_message_id: user.id, is_active: false };
+    useConversationStore.setState({
+      activeConversationId: 'conv-1',
+      conversations: [makeConversation()] as never[],
+      messages: [user, active, companion],
+      loading: false,
+    });
+
+    const result = await useConversationStore.getState().regenerateWithModel(
+      companion.id, 'provider-1', 'model-1', { activate },
+    );
+
+    expect(result.is_active).toBe(activate === true);
+    expect(useConversationStore.getState().messages.find((message) => message.id === active.id)?.is_active).toBe(activate !== true);
+    expect(invokeMock).toHaveBeenCalledWith('agent_query', expect.objectContaining({
+      regenerateUserMessageId: user.id,
+      activate: activate === true,
+    }));
+  });
+
+  it.each(['zh-CN', 'en-US', 'ja'])('localizes regeneration errors in %s', async (language) => {
+    const { useConversationStore } = await import('../conversationStore');
+    const { default: i18n } = await import('@/i18n');
+    await i18n.changeLanguage(language);
+    await seedAgentConversation(useConversationStore);
+    await expect(useConversationStore.getState().sendAgentMessage('', [], {
+      regenerateUserMessageId: 'missing',
+    })).rejects.toThrow(i18n.t('errors.AGENT_REGEN_MESSAGE_MISSING'));
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'agent_query') throw '{"code":"AGENT_HISTORY_UNTRACKED"}';
+      throw new Error(`Unexpected invoke: ${command}`);
+    });
+    await useConversationStore.getState().sendAgentMessage('prompt');
+    const failed = useConversationStore.getState().messages.find((message) => message.status === 'error');
+    expect(failed?.content).toContain(i18n.t('errors.AGENT_HISTORY_UNTRACKED'));
+    expect(failed?.content).not.toContain('AGENT_HISTORY_UNTRACKED');
+    await i18n.changeLanguage('zh-CN');
+  });
+
   async function seedAgentConversation(store: typeof import('../conversationStore').useConversationStore) {
     store.setState({
       activeConversationId: 'conv-1',

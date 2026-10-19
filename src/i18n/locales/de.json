@@ -2768,6 +2768,8 @@
     "preparingConversation": "Gespräch vorbereiten…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "Die Benutzernachricht zur erneuten Generierung wurde nicht gefunden",
+    "AGENT_HISTORY_UNTRACKED": "Dieser Agent-Verlauf enthält keine Nachrichtenkennungen, mit denen sich die zu wiederholende Runde sicher zuordnen lässt. Leeren Sie den Agent-Kontext und versuchen Sie es erneut",
     "MEMORY_L1_TOO_LARGE": "Das dauerhafte Gedächtnis ist {{bytes}} Bytes groß; das Limit ist {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "Das dauerhafte Gedächtnis wurde woanders aktualisiert. Die neueste Version wurde neu geladen.",
     "MEMORY_L1_READ_FAILED": "Das dauerhafte Gedächtnis konnte nicht gelesen werden. Senden ist gesperrt, bis das behoben ist.",

@@ -3,6 +3,7 @@ pub mod agent;
 #[cfg(test)]
 mod agent_allowed_tools;
 pub(crate) mod agent_context;
+mod agent_history;
 pub(crate) mod agent_lifecycle;
 pub(crate) mod agent_mcp;
 pub(crate) mod agent_memory_tool;

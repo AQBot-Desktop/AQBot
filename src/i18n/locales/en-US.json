@@ -2768,6 +2768,8 @@
     "preparingConversation": "Preparing conversation…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "The user message to regenerate could not be found",
+    "AGENT_HISTORY_UNTRACKED": "This Agent history has no message identifiers, so the retry turn cannot be located safely. Clear the Agent context before trying again",
     "MEMORY_L1_TOO_LARGE": "Always-on memory is {{bytes}} bytes; the limit is {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "Always-on memory was updated elsewhere. The latest version was reloaded.",
     "MEMORY_L1_READ_FAILED": "Always-on memory could not be read. Sending is blocked until this is fixed.",

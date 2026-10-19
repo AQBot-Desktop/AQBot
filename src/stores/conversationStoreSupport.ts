@@ -1672,6 +1672,8 @@ export interface ConversationState {
       conversationId?: string;
       /** Re-run the agent for an existing user message (regenerate/resend). */
       regenerateUserMessageId?: string;
+      /** Whether a regenerated answer becomes the conversation's context version. */
+      activate?: boolean;
       /** Model override for regenerate-with-model; defaults to the conversation's. */
       providerId?: string;
       modelId?: string;

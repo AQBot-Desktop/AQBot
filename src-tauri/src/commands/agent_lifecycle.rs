@@ -29,6 +29,8 @@ pub(crate) struct AgentRunCompletion<'a> {
     pub assistant_message_id: Option<&'a str>,
     pub content: Option<&'a str>,
     pub sdk_context: Option<&'a [open_agent_sdk::Message]>,
+    pub sdk_prompt_ids: Option<&'a [Option<String>]>,
+    pub preserve_sdk_context: bool,
     pub usage: Option<&'a open_agent_sdk::Usage>,
     pub cost_usd: f64,
     pub cancelled: bool,
@@ -44,7 +46,11 @@ pub(crate) async fn persist_and_release_agent_run(
 ) -> (ChatStreamTerminalOutcome, Option<String>) {
     let (mut outcome, mut error) = agent_terminal_outcome(input.cancelled, input.error, None);
     let mut failures = Vec::new();
-    let context = input.sdk_context.map(serde_json::to_string).transpose();
+    let context = input
+        .sdk_context
+        .filter(|_| !input.preserve_sdk_context)
+        .map(|messages| super::agent_history::serialize_history(messages, input.sdk_prompt_ids))
+        .transpose();
     let context = match context {
         Ok(context) => context,
         Err(error) => {
@@ -324,6 +330,60 @@ mod tests {
         assert_eq!(persisted_message.content, "Final answer");
         assert_eq!(persisted_message.status, "complete");
         assert_eq!(persisted_message.completion_tokens, Some(8));
+    }
+
+    #[tokio::test]
+    async fn companion_completion_does_not_replace_the_active_sdk_history() {
+        let (db, session, message) = fixture().await;
+        let original = vec![open_agent_sdk::utils::messages::create_user_message(
+            "active context",
+        )];
+        let ids = vec![Some("original-user".to_string())];
+        let saved = super::super::agent_history::serialize_history(&original, Some(&ids)).unwrap();
+        agent_session::update_agent_session_after_query(
+            &db,
+            &session.id,
+            "idle",
+            Some(&saved),
+            0,
+            0.0,
+        )
+        .await
+        .unwrap();
+        let companion = vec![open_agent_sdk::utils::messages::create_user_message(
+            "companion context",
+        )];
+        let registry = ConversationRunRegistry::new();
+        let guard = registry
+            .admit(
+                &session.conversation_id,
+                "companion",
+                None,
+                ConversationRunMode::Agent,
+            )
+            .unwrap();
+        let (outcome, error) = persist_and_release_agent_run(
+            &db,
+            AgentRunCompletion {
+                session_id: &session.id,
+                assistant_message_id: Some(&message.id),
+                sdk_context: Some(&companion),
+                sdk_prompt_ids: Some(&[Some("companion-user".into())]),
+                preserve_sdk_context: true,
+                ..Default::default()
+            },
+            guard,
+        )
+        .await;
+        assert_eq!(outcome, ChatStreamTerminalOutcome::Complete);
+        assert!(error.is_none());
+        let persisted =
+            agent_session::get_agent_session_by_conversation_id(&db, &session.conversation_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(persisted.sdk_context_json.as_deref(), Some(saved.as_str()));
+        assert!(registry.list_active().is_empty());
     }
 
     #[tokio::test]

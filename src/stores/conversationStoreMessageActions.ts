@@ -1336,6 +1336,9 @@ export function createConversationMessageActions(
           regenerateUserMessageId: userMsg.id,
           providerId,
           modelId,
+          activate: options?.activate ?? !hasMultipleModelVersions(
+            msgs.filter((message) => message.parent_message_id === userMsg.id && message.role === 'assistant'),
+          ),
         });
       }
 

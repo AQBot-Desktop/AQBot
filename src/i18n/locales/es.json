@@ -2768,6 +2768,8 @@
     "preparingConversation": "Preparando conversación…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "No se encontró el mensaje del usuario que se debe regenerar",
+    "AGENT_HISTORY_UNTRACKED": "Este historial del Agent no tiene identificadores de mensaje para localizar con seguridad el turno que se debe repetir. Borra el contexto del Agent antes de volver a intentarlo",
     "MEMORY_L1_TOO_LARGE": "La memoria permanente ocupa {{bytes}} bytes; el límite es {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "La memoria permanente se actualizó en otro sitio. Se recargó la versión más reciente.",
     "MEMORY_L1_READ_FAILED": "No se pudo leer la memoria permanente. El envío queda bloqueado hasta resolverlo.",

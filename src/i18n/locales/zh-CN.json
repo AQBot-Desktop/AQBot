@@ -2768,6 +2768,8 @@
     "preparingConversation": "正在准备对话…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "找不到要重新生成的用户消息",
+    "AGENT_HISTORY_UNTRACKED": "此 Agent 历史缺少消息标识，无法安全定位重发轮次，请先清空 Agent 上下文再重试",
     "MEMORY_L1_TOO_LARGE": "常驻记忆为 {{bytes}} 字节，上限是 {{limit}}。",
     "MEMORY_L1_REVISION_CONFLICT": "常驻记忆已在其他地方更新，已重新加载最新版本。",
     "MEMORY_L1_READ_FAILED": "无法读取常驻记忆，修复前不能发送。",
