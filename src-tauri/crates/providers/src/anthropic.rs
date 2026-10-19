@@ -781,18 +781,26 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     async fn list_models(&self, ctx: &ProviderRequestContext) -> Result<Vec<Model>> {
-        let url = resolve_models_url(&Self::base_url(ctx));
-
-        let resp = crate::apply_request_headers(
-            self.get_client(ctx)?
-                .get(&url)
-                .header("x-api-key", &ctx.api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION),
-            ctx,
-        )
-        .send()
-        .await
-        .map_err(|e| AQBotError::Provider(format!("Request failed: {e}")))?;
+        let url = reqwest::Url::parse(&resolve_models_url(&Self::base_url(ctx)))
+            .map_err(|e| AQBotError::Provider(format!("Invalid models URL: {e}")))?;
+        let mut request = self
+            .get_client(ctx)?
+            .get(url.clone())
+            .header("x-api-key", &ctx.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION);
+        let has_custom_authorization = ctx.custom_headers.as_ref().is_some_and(|headers| {
+            headers
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case("authorization"))
+        });
+        // Third-party model catalogs may require Bearer even when chat accepts x-api-key.
+        if url.host_str() != Some("api.anthropic.com") && !has_custom_authorization {
+            request = request.bearer_auth(&ctx.api_key);
+        }
+        let resp = crate::apply_request_headers(request, ctx)
+            .send()
+            .await
+            .map_err(|e| AQBotError::Provider(format!("Request failed: {e}")))?;
 
         if !resp.status().is_success() {
             let s = resp.status();
