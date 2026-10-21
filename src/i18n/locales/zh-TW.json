@@ -638,7 +638,10 @@
     "codexRepairVisibilityTargetProvider": "目前 model_provider：{{provider}}",
     "autoModelRouting": "自動模型路由",
     "autoModelRoutingTooltip": "將多個服務商上相同的模型 ID 或別名聚集成一個，並在限流/故障時自動切換。",
-    "autoModelRoutingDesc": "開啟後，當多個服務商配置了相同的模型 ID 或相同的別名時，網關對外呈現為一個模型名，並按服務商排序與可用性自動選擇上游；限流或故障時會嘗試其他來源。使用「服務商/模型」可強制指定單一上游。"
+    "autoModelRoutingDesc": "開啟後，當多個服務商配置了相同的模型 ID 或相同的別名時，網關對外呈現為一個模型名，並按服務商排序與可用性自動選擇上游；限流或故障時會嘗試其他來源。使用「服務商/模型」可強制指定單一上游。",
+    "modelProviderPrefix": "模型 ID 加上服務商前綴",
+    "modelProviderPrefixTooltip": "在模型清單中為每個模型 ID 加上服務商前綴，方便在用戶端中區分模型來源。",
+    "modelProviderPrefixDesc": "開啟後，/v1/models 回傳的模型 ID 統一為「服務商/模型」格式（如 deepseek/deepseek-chat），前綴為服務商名稱產生的小寫識別碼。請求時仍可直接使用不含前綴的模型 ID。"
   },
   "settings": {
     "contextStrategy": "上下文策略",

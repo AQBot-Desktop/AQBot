@@ -882,6 +882,8 @@ export interface AppSettings {
   gateway_force_ssl: boolean;
   /** When true, pool same model id/alias across providers and fail over. */
   gateway_auto_model_routing?: boolean;
+  /** When true, /v1/models always lists model ids as `provider/model`. */
+  gateway_model_provider_prefix?: boolean;
   // Desktop integration
   always_on_top?: boolean;
   tray_enabled?: boolean;

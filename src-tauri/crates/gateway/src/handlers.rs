@@ -33,6 +33,9 @@ pub async fn health_check() -> impl IntoResponse {
 /// - **auto routing on**: emit a single bare name with `owned_by: "aqbot"`, and
 ///   still emit namespaced `public_id/name` entries so clients can pin a source.
 ///
+/// With `gateway_model_provider_prefix` on, non-colliding names are also
+/// emitted as `public_id/name`. Bare names remain accepted on requests.
+///
 /// Results are sorted deterministically by displayed model ID, then owner.
 pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoResponse {
     let providers = match aqbot_core::repo::provider::list_providers(&state.db).await {
@@ -46,12 +49,15 @@ pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoRespo
         }
     };
 
-    let auto_routing = aqbot_core::repo::settings::get_settings(&state.db)
+    let settings = aqbot_core::repo::settings::get_settings(&state.db)
         .await
-        .map(|s| s.gateway_auto_model_routing)
-        .unwrap_or(false);
+        .unwrap_or_default();
 
-    let models = build_gateway_model_list(&providers, auto_routing);
+    let models = build_gateway_model_list(
+        &providers,
+        settings.gateway_auto_model_routing,
+        settings.gateway_model_provider_prefix,
+    );
 
     Json(json!({
         "object": "list",
@@ -64,6 +70,7 @@ pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoRespo
 pub(crate) fn build_gateway_model_list(
     providers: &[ProviderConfig],
     auto_routing: bool,
+    always_prefix: bool,
 ) -> Vec<serde_json::Value> {
     use crate::auto_route::request_name_provider_counts;
 
@@ -85,37 +92,26 @@ pub(crate) fn build_gateway_model_list(
 
             for name in names {
                 let count = *name_counts.get(&name).unwrap_or(&0);
-                if auto_routing && count > 1 {
-                    if emitted_aggregated.insert(name.clone()) {
-                        models.push(json!({
-                            "id": name,
-                            "object": "model",
-                            "created": provider.created_at,
-                            "owned_by": "aqbot",
-                        }));
-                    }
-                    // Always keep namespaced pin entry when auto-routing aggregates.
-                    models.push(json!({
-                        "id": format!("{}/{}", public_id, name),
-                        "object": "model",
-                        "created": provider.created_at,
-                        "owned_by": provider.name,
-                    }));
-                } else if count > 1 {
-                    models.push(json!({
-                        "id": format!("{}/{}", public_id, name),
-                        "object": "model",
-                        "created": provider.created_at,
-                        "owned_by": provider.name,
-                    }));
-                } else {
+                if auto_routing && count > 1 && emitted_aggregated.insert(name.clone()) {
                     models.push(json!({
                         "id": name,
                         "object": "model",
                         "created": provider.created_at,
-                        "owned_by": provider.name,
+                        "owned_by": "aqbot",
                     }));
                 }
+                // Colliding names always keep a namespaced pin entry.
+                let id = if always_prefix || count > 1 {
+                    format!("{}/{}", public_id, name)
+                } else {
+                    name
+                };
+                models.push(json!({
+                    "id": id,
+                    "object": "model",
+                    "created": provider.created_at,
+                    "owned_by": provider.name,
+                }));
             }
         }
     }
@@ -675,40 +671,6 @@ pub(crate) fn build_provider_public_id_map(
     map
 }
 
-/// Build a `(provider_internal_id, model_id) → display_id` map for all
-/// enabled models across all enabled providers.
-///
-/// Display rules:
-/// - If a `model_id` is **globally unique** across enabled providers → emit bare `model_id`.
-/// - If the same `model_id` appears on **multiple** enabled providers → emit
-///   `public_provider_id/model_id` using the ID from [`build_provider_public_id_map`].
-fn build_model_display_map(providers: &[ProviderConfig]) -> HashMap<(String, String), String> {
-    let public_id_map = build_provider_public_id_map(providers);
-
-    // Count how many enabled providers expose each model_id.
-    let mut model_id_counts: HashMap<String, usize> = HashMap::new();
-    for provider in providers.iter().filter(|p| p.enabled) {
-        for model in provider.models.iter().filter(|m| m.enabled) {
-            *model_id_counts.entry(model.model_id.clone()).or_default() += 1;
-        }
-    }
-
-    let mut map = HashMap::new();
-    for provider in providers.iter().filter(|p| p.enabled) {
-        let public_id = public_id_map.get(&provider.id).cloned().unwrap_or_default();
-        for model in provider.models.iter().filter(|m| m.enabled) {
-            let count = *model_id_counts.get(&model.model_id).unwrap_or(&0);
-            let display_id = if count > 1 {
-                format!("{}/{}", public_id, model.model_id)
-            } else {
-                model.model_id.clone()
-            };
-            map.insert((provider.id.clone(), model.model_id.clone()), display_id);
-        }
-    }
-    map
-}
-
 // ── Model-field parsing ───────────────────────────────────────────────────────
 
 /// Result of parsing the `model` field from a chat completion request.
@@ -1154,7 +1116,7 @@ mod tests {
         assert_eq!(map["p3"], "custom-2");
     }
 
-    // ── build_model_display_map ───────────────────────────────────────────────
+    // ── build_gateway_model_list ──────────────────────────────────────────────
 
     fn make_provider(id: &str, name: &str, model_ids: &[&str]) -> ProviderConfig {
         ProviderConfig {
@@ -1195,80 +1157,106 @@ mod tests {
         }
     }
 
+    fn list_ids(
+        providers: &[ProviderConfig],
+        auto_routing: bool,
+        always_prefix: bool,
+    ) -> Vec<String> {
+        build_gateway_model_list(providers, auto_routing, always_prefix)
+            .iter()
+            .filter_map(|v| v["id"].as_str().map(str::to_string))
+            .collect()
+    }
+
     #[test]
-    fn test_display_map_slug_collision_uses_deduplicated_public_id() {
+    fn test_model_list_slug_collision_uses_deduplicated_public_id() {
         // "Open-AI" and "Open AI" → same base slug "open-ai".
         // p1 (id="p1") < p2 (id="p2") → p1 = "open-ai", p2 = "open-ai-2".
         let providers = vec![
             make_provider("p1", "Open-AI", &["gpt-4o", "shared-model"]),
             make_provider("p2", "Open AI", &["gpt-4", "shared-model"]),
         ];
-        let map = build_model_display_map(&providers);
-        // shared-model is on both → namespaced with deduplicated public IDs
         assert_eq!(
-            map[&("p1".to_string(), "shared-model".to_string())],
-            "open-ai/shared-model"
+            list_ids(&providers, false, false),
+            vec![
+                "gpt-4",
+                "gpt-4o",
+                "open-ai-2/shared-model",
+                "open-ai/shared-model",
+            ]
         );
-        assert_eq!(
-            map[&("p2".to_string(), "shared-model".to_string())],
-            "open-ai-2/shared-model"
-        );
-        // unique models stay bare
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        assert_eq!(map[&("p2".to_string(), "gpt-4".to_string())], "gpt-4");
     }
 
     #[test]
-    fn test_display_map_unique_models_bare() {
+    fn test_model_list_unique_models_bare() {
         let providers = vec![
             make_provider("p1", "OpenAI", &["gpt-4o", "gpt-3.5-turbo"]),
             make_provider("p2", "Anthropic", &["claude-3-opus"]),
         ];
-        let map = build_model_display_map(&providers);
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
         assert_eq!(
-            map[&("p1".to_string(), "gpt-3.5-turbo".to_string())],
-            "gpt-3.5-turbo"
-        );
-        assert_eq!(
-            map[&("p2".to_string(), "claude-3-opus".to_string())],
-            "claude-3-opus"
+            list_ids(&providers, false, false),
+            vec!["claude-3-opus", "gpt-3.5-turbo", "gpt-4o"]
         );
     }
 
     #[test]
-    fn test_display_map_collision_uses_slug_prefix() {
-        let providers = vec![
-            make_provider("p1", "OpenAI", &["gpt-4o", "custom-model"]),
-            make_provider("p2", "My Provider", &["custom-model"]),
-        ];
-        let map = build_model_display_map(&providers);
-        // gpt-4o is unique → bare
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        // custom-model appears on both → namespaced
-        assert_eq!(
-            map[&("p1".to_string(), "custom-model".to_string())],
-            "openai/custom-model"
-        );
-        assert_eq!(
-            map[&("p2".to_string(), "custom-model".to_string())],
-            "my-provider/custom-model"
-        );
-    }
-
-    #[test]
-    fn test_display_map_disabled_provider_excluded() {
+    fn test_model_list_disabled_provider_excluded() {
         let mut providers = vec![
             make_provider("p1", "OpenAI", &["gpt-4o"]),
             make_provider("p2", "OtherAI", &["gpt-4o"]),
         ];
         // Disable p2 → no collision
         providers[1].enabled = false;
-        let map = build_model_display_map(&providers);
-        // Only p1 is enabled, gpt-4o is unique
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        // p2 is disabled → not in map at all
-        assert!(!map.contains_key(&("p2".to_string(), "gpt-4o".to_string())));
+        assert_eq!(list_ids(&providers, false, false), vec!["gpt-4o"]);
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_namespaces_every_entry() {
+        let mut providers = vec![
+            make_provider("p1", "DeepSeek", &["deepseek-chat"]),
+            make_provider("p2", "OpenAI", &["gpt-4o"]),
+        ];
+        providers[1].models[0].aliases = vec!["gpt".into()];
+        assert_eq!(
+            list_ids(&providers, false, true),
+            vec!["deepseek/deepseek-chat", "openai/gpt", "openai/gpt-4o"]
+        );
+        let entries = build_gateway_model_list(&providers, false, true);
+        assert_eq!(entries[0]["owned_by"], "DeepSeek");
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_keeps_aggregated_entry_when_auto_routing() {
+        let providers = vec![
+            make_provider("p1", "OpenAI", &["gpt-5.5", "gpt-4o"]),
+            make_provider("p2", "OtherAI", &["gpt-5.5"]),
+        ];
+        assert_eq!(
+            list_ids(&providers, true, true),
+            vec![
+                "gpt-5.5",
+                "openai/gpt-4o",
+                "openai/gpt-5.5",
+                "otherai/gpt-5.5",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_ids_resolve() {
+        let providers = vec![
+            make_provider("p1", "OpenAI", &["gpt-4o"]),
+            make_provider("p2", "深度求索", &["deepseek-chat"]),
+        ];
+        let map = build_provider_public_id_map(&providers);
+        let known: HashSet<String> = map.values().cloned().collect();
+        for id in list_ids(&providers, false, true) {
+            let parsed = parse_model_field(&id, &known);
+            assert!(parsed.provider_hint.is_some(), "{id} should be namespaced");
+            let targets = resolve_route_targets(&providers, &map, &parsed, false)
+                .unwrap_or_else(|_| panic!("{id} should resolve"));
+            assert_eq!(targets.len(), 1);
+        }
     }
 
     #[test]
@@ -1308,11 +1296,11 @@ mod tests {
             make_provider("p1", "OpenAI", &["gpt-5.5"]),
             make_provider("p2", "OtherAI", &["gpt-5.5"]),
         ];
-        let off = build_gateway_model_list(&providers, false);
+        let off = build_gateway_model_list(&providers, false, false);
         let off_ids: Vec<&str> = off.iter().filter_map(|v| v["id"].as_str()).collect();
         assert!(off_ids.iter().all(|id| id.contains('/')));
 
-        let on = build_gateway_model_list(&providers, true);
+        let on = build_gateway_model_list(&providers, true, false);
         let on_ids: Vec<&str> = on.iter().filter_map(|v| v["id"].as_str()).collect();
         assert!(on_ids.contains(&"gpt-5.5"));
         assert!(on_ids

@@ -638,7 +638,10 @@
     "codexRepairVisibilityTargetProvider": "Aktueller model_provider: {{provider}}",
     "autoModelRouting": "Automatisches Modellrouting",
     "autoModelRoutingTooltip": "Bündeln Sie dieselbe Modell-ID oder denselben Alias für alle Anbieter und führen Sie bei Ratenbegrenzungen oder Ausfällen ein Failover durch.",
-    "autoModelRoutingDesc": "Wenn diese Option aktiviert ist, wird dieselbe Modell-ID oder derselbe Alias ​​bei mehreren Anbietern als ein Modell angezeigt. Das Gateway wählt einen Upstream nach Anbieterreihenfolge und Verfügbarkeit aus und führt bei Ratenbegrenzungen oder Ausfällen ein Failover durch. Verwenden Sie Provider/Model, um einen einzelnen Upstream anzupinnen."
+    "autoModelRoutingDesc": "Wenn diese Option aktiviert ist, wird dieselbe Modell-ID oder derselbe Alias ​​bei mehreren Anbietern als ein Modell angezeigt. Das Gateway wählt einen Upstream nach Anbieterreihenfolge und Verfügbarkeit aus und führt bei Ratenbegrenzungen oder Ausfällen ein Failover durch. Verwenden Sie Provider/Model, um einen einzelnen Upstream anzupinnen.",
+    "modelProviderPrefix": "Modell-IDs mit Anbieter-Präfix versehen",
+    "modelProviderPrefixTooltip": "Stellt jeder Modell-ID in der Modellliste ein Anbieter-Präfix voran, damit Clients die Herkunft jedes Modells erkennen können.",
+    "modelProviderPrefixDesc": "Wenn aktiviert, listet /v1/models jede Modell-ID im Format Anbieter/Modell (z. B. deepseek/deepseek-chat) auf. Das Präfix ist eine aus dem Anbieternamen abgeleitete Kennung in Kleinbuchstaben. Anfragen akzeptieren weiterhin Modell-IDs ohne Präfix."
   },
   "settings": {
     "contextStrategy": "Kontextstrategie",

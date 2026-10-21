@@ -638,7 +638,10 @@
     "templateDescCursor": "基于 VS Code 的 AI 原生编辑器，深度集成代码补全与对话",
     "autoModelRouting": "自动模型路由",
     "autoModelRoutingTooltip": "将多个服务商上相同的模型 ID 或别名聚合成一个，并在限流/故障时自动切换。",
-    "autoModelRoutingDesc": "开启后，当多个服务商配置了相同的模型 ID 或相同的别名时，网关对外呈现为一个模型名，并按服务商排序与可用性自动选择上游；限流或故障时会尝试其他源。使用「服务商/模型」可强制指定单一上游。"
+    "autoModelRoutingDesc": "开启后，当多个服务商配置了相同的模型 ID 或相同的别名时，网关对外呈现为一个模型名，并按服务商排序与可用性自动选择上游；限流或故障时会尝试其他源。使用「服务商/模型」可强制指定单一上游。",
+    "modelProviderPrefix": "模型 ID 添加服务商前缀",
+    "modelProviderPrefixTooltip": "在模型列表中为每个模型 ID 加上服务商前缀，便于在客户端中区分模型来源。",
+    "modelProviderPrefixDesc": "开启后，/v1/models 返回的模型 ID 统一为「服务商/模型」格式（如 deepseek/deepseek-chat），前缀为服务商名称生成的小写标识。请求时仍可直接使用不带前缀的模型 ID。"
   },
   "settings": {
     "contextStrategy": "上下文策略",

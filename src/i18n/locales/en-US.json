@@ -638,7 +638,10 @@
     "templateDescCursor": "AI-native editor based on VS Code, with deep integration of code completion and chat",
     "autoModelRouting": "Automatic model routing",
     "autoModelRoutingTooltip": "Pool the same model ID or alias across providers and fail over on rate limits or outages.",
-    "autoModelRoutingDesc": "When enabled, the same model ID or alias on multiple providers is exposed as one model. The gateway chooses an upstream by provider order and availability, and fails over on rate limits or outages. Use provider/model to pin a single upstream."
+    "autoModelRoutingDesc": "When enabled, the same model ID or alias on multiple providers is exposed as one model. The gateway chooses an upstream by provider order and availability, and fails over on rate limits or outages. Use provider/model to pin a single upstream.",
+    "modelProviderPrefix": "Prefix model IDs with provider",
+    "modelProviderPrefixTooltip": "Add a provider prefix to every model ID in the model list so clients can tell where each model comes from.",
+    "modelProviderPrefixDesc": "When enabled, /v1/models lists every model ID as provider/model (e.g. deepseek/deepseek-chat), using a lowercase identifier derived from the provider name. Requests still accept model IDs without the prefix."
   },
   "settings": {
     "contextStrategy": "Context strategy",

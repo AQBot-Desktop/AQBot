@@ -106,6 +106,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   gateway_ssl_port: 8443,
   gateway_force_ssl: false,
   gateway_auto_model_routing: false,
+  gateway_model_provider_prefix: false,
   always_on_top: false,
   tray_enabled: true,
   tray_icon_style: 'color',

@@ -738,6 +738,10 @@ pub struct AppSettings {
     /// alias and fails over on retriable upstream errors.
     #[serde(default)]
     pub gateway_auto_model_routing: bool,
+    /// When true, `/v1/models` always lists model ids as `provider/model`
+    /// instead of only namespacing ids that collide across providers.
+    #[serde(default)]
+    pub gateway_model_provider_prefix: bool,
     pub always_on_top: bool,
     pub tray_enabled: bool,
     /// macOS menu-bar icon appearance. Other platforms always use the color icon.
@@ -932,6 +936,7 @@ impl Default for AppSettings {
             gateway_ssl_port: 8443,
             gateway_force_ssl: false,
             gateway_auto_model_routing: false,
+            gateway_model_provider_prefix: false,
             always_on_top: false,
             tray_enabled: true,
             tray_icon_style: TrayIconStyle::Color,

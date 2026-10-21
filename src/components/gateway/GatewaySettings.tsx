@@ -229,6 +229,24 @@ export function GatewaySettings() {
             onChange={(checked) => handleSave({ gateway_auto_model_routing: checked })}
           />
         </div>
+        <Divider style={{ margin: '4px 0' }} />
+        <div style={{ padding: '4px 0' }} className="flex items-center justify-between gap-4">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex items-center gap-1">
+              <span>{t('gateway.modelProviderPrefix')}</span>
+              <Tooltip title={t('gateway.modelProviderPrefixTooltip')}>
+                <Info size={12} style={{ color: token.colorTextSecondary, cursor: 'help' }} />
+              </Tooltip>
+            </div>
+            <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4, lineHeight: 1.5 }}>
+              {t('gateway.modelProviderPrefixDesc')}
+            </div>
+          </div>
+          <Switch
+            checked={settings.gateway_model_provider_prefix ?? false}
+            onChange={(checked) => handleSave({ gateway_model_provider_prefix: checked })}
+          />
+        </div>
       </Card>
 
       <Card size="small" title={t('gateway.settingsSsl')} style={{ marginBottom: 16 }}>
