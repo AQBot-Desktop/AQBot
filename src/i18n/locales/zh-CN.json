@@ -641,7 +641,7 @@
     "autoModelRoutingDesc": "开启后，当多个服务商配置了相同的模型 ID 或相同的别名时，网关对外呈现为一个模型名，并按服务商排序与可用性自动选择上游；限流或故障时会尝试其他源。使用「服务商/模型」可强制指定单一上游。",
     "modelProviderPrefix": "模型 ID 添加服务商前缀",
     "modelProviderPrefixTooltip": "在模型列表中为每个模型 ID 加上服务商前缀，便于在客户端中区分模型来源。",
-    "modelProviderPrefixDesc": "开启后，/v1/models 返回的模型 ID 统一为「服务商/模型」格式（如 deepseek/deepseek-chat），前缀为服务商名称生成的小写标识。请求时仍可直接使用不带前缀的模型 ID。",
+    "modelProviderPrefixDesc": "开启后，/v1/models 返回的模型 ID 统一为「服务商/模型」格式（如 deepseek/deepseek-chat），前缀默认由服务商名称生成，也可在下方自定义。请求时仍可直接使用不带前缀的模型 ID，响应中的 model 字段会返回请求时使用的名称。",
     "providerPrefixes": "服务商前缀",
     "providerPrefixesDesc": "自定义「服务商/模型」中的服务商前缀，留空则使用由服务商名称自动生成的前缀（显示为占位文字）。",
     "providerPrefixesEmpty": "暂无已启用的服务商",

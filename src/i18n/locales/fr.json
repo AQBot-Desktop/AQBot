@@ -641,7 +641,7 @@
     "autoModelRoutingDesc": "Lorsqu'il est activé, le même ID de modèle ou alias sur plusieurs fournisseurs est exposé comme un seul modèle. La passerelle choisit un ordre et une disponibilité en amont par fournisseur, et bascule en cas de limites de débit ou de pannes. Utilisez le fournisseur/modèle pour en épingler un seul en amont.",
     "modelProviderPrefix": "Préfixer les ID de modèle par le fournisseur",
     "modelProviderPrefixTooltip": "Ajoute un préfixe de fournisseur à chaque ID de modèle de la liste afin que les clients puissent identifier l'origine de chaque modèle.",
-    "modelProviderPrefixDesc": "Lorsque cette option est activée, /v1/models liste chaque ID de modèle au format fournisseur/modèle (par ex. deepseek/deepseek-chat), avec un identifiant en minuscules dérivé du nom du fournisseur. Les requêtes acceptent toujours les ID de modèle sans préfixe.",
+    "modelProviderPrefixDesc": "Lorsque cette option est activée, /v1/models liste chaque ID de modèle au format fournisseur/modèle (par ex. deepseek/deepseek-chat). Le préfixe est dérivé par défaut du nom du fournisseur et peut être personnalisé ci-dessous. Les requêtes acceptent toujours les ID de modèle sans préfixe, et le champ model des réponses renvoie le nom utilisé dans la requête.",
     "providerPrefixes": "Préfixes des fournisseurs",
     "providerPrefixesDesc": "Personnalisez le préfixe de fournisseur utilisé dans fournisseur/modèle. Laissez vide pour utiliser le préfixe généré à partir du nom du fournisseur (affiché en espace réservé).",
     "providerPrefixesEmpty": "Aucun fournisseur activé",

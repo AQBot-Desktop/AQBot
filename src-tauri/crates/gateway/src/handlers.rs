@@ -241,6 +241,11 @@ pub async fn chat_completions(
         let mut attempt_request = request.clone();
         // Always send the real upstream model id.
         attempt_request.model = model_id.clone();
+        let response_model = crate::response_model::response_model_name(
+            global_settings.gateway_model_provider_prefix,
+            &request.model,
+            &model_id,
+        );
 
         if attempt_request.stream {
             // Streaming: try until we get a stream handle; mid-stream failures
@@ -253,6 +258,7 @@ pub async fn chat_completions(
                 &gateway_key,
                 &provider.id,
                 &model_id,
+                response_model.as_deref(),
                 start_time,
             )
             .await;
@@ -287,6 +293,7 @@ pub async fn chat_completions(
             &gateway_key,
             &provider.id,
             &model_id,
+            response_model.as_deref(),
             start_time,
         )
         .await
@@ -347,10 +354,11 @@ async fn try_non_stream(
     gateway_key: &GatewayKey,
     provider_id: &str,
     model_id: &str,
+    response_model: Option<&str>,
     start_time: Instant,
 ) -> Result<axum::response::Response, String> {
     match adapter.chat(ctx, request).await {
-        Ok(response) => {
+        Ok(mut response) => {
             let _ = aqbot_core::repo::gateway::record_usage(
                 &state.db,
                 &gateway_key.id,
@@ -378,6 +386,9 @@ async fn try_non_stream(
             )
             .await;
 
+            if let Some(name) = response_model {
+                response.model = name.to_string();
+            }
             Ok(Json(build_non_stream_response_body(&response)).into_response())
         }
         Err(e) => Err(e.to_string()),
@@ -392,9 +403,10 @@ async fn handle_stream(
     gateway_key: &GatewayKey,
     provider_id: &str,
     model_id: &str,
+    response_model: Option<&str>,
     start_time: Instant,
 ) -> axum::response::Response {
-    let model_str = model_id.to_string();
+    let model_str = response_model.unwrap_or(model_id).to_string();
     let mut stream = adapter.chat_stream(ctx, request);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
@@ -1510,6 +1522,101 @@ mod tests {
         let captured = captures.lock().unwrap();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].body["model"], "deepseek-v4-pro");
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_echoes_requested_model_in_prefix_mode() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 }
+        })
+        .to_string();
+        let (upstream_base, _captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+
+        let send = |app: Router| {
+            let gateway_key = gateway_key.clone();
+            async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::POST)
+                            .uri("/v1/chat/completions")
+                            .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .body(Body::from(chat_request_body(false)))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+            }
+        };
+
+        let off = send(app.clone()).await;
+        assert_eq!(off["model"], "deepseek-v4-pro");
+
+        crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+        let on = send(app).await;
+        assert_eq!(on["model"], "deepseek/deepseek-v4-pro");
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_stream_echoes_requested_model_in_prefix_mode() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
+        let upstream_body = concat!(
+            "data: {\"id\":\"chatcmpl-upstream\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .to_string();
+        let (upstream_base, _captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+        crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(chat_request_body(true)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        let models: Vec<String> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+            .filter_map(|value| value["model"].as_str().map(str::to_string))
+            .collect();
+        assert!(!models.is_empty(), "no model fields in stream: {text}");
+        assert!(models.iter().all(|m| m == "deepseek/deepseek-v4-pro"));
 
         upstream_task.abort();
     }

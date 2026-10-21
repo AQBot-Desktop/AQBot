@@ -13,6 +13,9 @@ use futures::StreamExt;
 use std::{convert::Infallible, time::Instant};
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::response_model::{
+    is_rewritable_body, response_model_name, rewrite_json_body, SseModelRewriter,
+};
 use crate::{
     auth::AuthenticatedKey,
     handlers::{
@@ -148,6 +151,8 @@ struct ResolvedNativeContext {
     provider: ProviderConfig,
     request_ctx: ProviderRequestContext,
     model_id: Option<String>,
+    /// Client-requested model name to echo in responses (provider-prefix mode).
+    response_model: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -579,6 +584,16 @@ async fn resolve_native_context(
     } else {
         (candidates[0].clone(), None)
     };
+    let response_model = match (model, model_id.as_deref()) {
+        (Some(requested), Some(upstream)) if should_rewrite_body_model(protocol) => {
+            response_model_name(
+                global_settings.gateway_model_provider_prefix,
+                requested,
+                upstream,
+            )
+        }
+        _ => None,
+    };
 
     let provider_key = aqbot_core::repo::provider::get_active_key(&state.db, &provider.id)
         .await
@@ -614,6 +629,7 @@ async fn resolve_native_context(
                 .and_then(|s| serde_json::from_str(s).ok()),
         },
         model_id,
+        response_model,
     })
 }
 
@@ -674,6 +690,7 @@ async fn proxy_buffered_response(
     path: &str,
     provider_id: &str,
     model_id: Option<&str>,
+    response_model: Option<&str>,
     start_time: Instant,
     response: reqwest::Response,
 ) -> axum::response::Response {
@@ -732,6 +749,12 @@ async fn proxy_buffered_response(
     )
     .await;
 
+    let body = match response_model {
+        Some(name) if status.is_success() && is_rewritable_body(&headers) => {
+            rewrite_json_body(body, name)
+        }
+        _ => body,
+    };
     build_passthrough_response(status, &headers, Body::from(body))
 }
 
@@ -800,6 +823,7 @@ async fn proxy_stream_response(
     path: String,
     provider_id: String,
     model_id: Option<String>,
+    response_model: Option<String>,
     start_time: Instant,
     response: reqwest::Response,
 ) -> axum::response::Response {
@@ -808,17 +832,26 @@ async fn proxy_stream_response(
     let headers = response.headers().clone();
     let mut upstream_stream = response.bytes_stream();
     let mut observer = protocol.stream_observer();
+    let mut rewriter = response_model
+        .filter(|_| status.is_success() && is_rewritable_body(&headers))
+        .map(SseModelRewriter::new);
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(32);
 
     tokio::spawn(async move {
         let mut buffer = String::new();
         let mut stream_error: Option<String> = None;
+        let mut client_closed = false;
 
         while let Some(chunk) = upstream_stream.next().await {
             match chunk {
                 Ok(bytes) => {
                     observe_sse_chunk(&mut buffer, &bytes, &mut observer);
-                    if tx.send(Ok(bytes)).await.is_err() {
+                    let bytes = match rewriter.as_mut() {
+                        Some(rewriter) => rewriter.push(&bytes),
+                        None => bytes,
+                    };
+                    if !bytes.is_empty() && tx.send(Ok(bytes)).await.is_err() {
+                        client_closed = true;
                         break;
                     }
                 }
@@ -826,6 +859,12 @@ async fn proxy_stream_response(
                     stream_error = Some(format!("Stream error: {e}"));
                     break;
                 }
+            }
+        }
+        if let (false, Some(rewriter)) = (client_closed, rewriter.as_mut()) {
+            let rest = rewriter.finish();
+            if !rest.is_empty() {
+                let _ = tx.send(Ok(rest)).await;
             }
         }
 
@@ -990,6 +1029,7 @@ async fn handle_native_request(
             path,
             resolved.provider.id.clone(),
             resolved.model_id,
+            resolved.response_model,
             start_time,
             response,
         )
@@ -1003,6 +1043,7 @@ async fn handle_native_request(
             &path,
             &resolved.provider.id,
             resolved.model_id.as_deref(),
+            resolved.response_model.as_deref(),
             start_time,
             response,
         )
@@ -1637,6 +1678,118 @@ mod tests {
         assert_eq!(logs[0].response_tokens, 17);
 
         upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn anthropic_stream_echoes_requested_model_in_prefix_mode() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
+        let upstream_body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-x\",\"usage\":{\"input_tokens\":5}}}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\n"
+        )
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_upstream(StatusCode::OK, headers, upstream_body).await;
+        let (app, handle, gateway_key, _) =
+            seed_native_router(ProviderType::Anthropic, &upstream_base, "claude-x").await;
+        crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/messages")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model": "native-provider/claude-x",
+                            "max_tokens": 32,
+                            "stream": true,
+                            "messages": [{ "role": "user", "content": "hi" }]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "event: message_start");
+        let start: serde_json::Value =
+            serde_json::from_str(lines[1].strip_prefix("data: ").unwrap()).unwrap();
+        assert_eq!(start["message"]["model"], "native-provider/claude-x");
+        assert_eq!(start["message"]["usage"]["input_tokens"], 5);
+        assert_eq!(
+            &lines[2..],
+            [
+                "",
+                "event: message_delta",
+                "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}",
+                "",
+            ]
+        );
+        assert_eq!(captures.lock().unwrap()[0].body["model"], "claude-x");
+
+        let metrics = gateway::get_gateway_metrics(&handle.conn).await.unwrap();
+        assert_eq!(metrics.total_request_tokens, 5);
+        assert_eq!(metrics.total_response_tokens, 2);
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn openai_responses_buffered_model_rewrite_skips_compressed_bodies() {
+        let upstream_body = json!({
+            "id": "resp_1",
+            "object": "response",
+            "model": "gpt-5",
+            "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+        })
+        .to_string();
+
+        for (encoding, expected_model) in [(None, "native-provider/gpt-5"), (Some("gzip"), "gpt-5")]
+        {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+            if let Some(encoding) = encoding {
+                headers.insert(header::CONTENT_ENCODING, encoding.parse().unwrap());
+            }
+            let (upstream_base, _captures, upstream_task) =
+                spawn_mock_upstream(StatusCode::OK, headers, upstream_body.clone()).await;
+            let (app, handle, gateway_key, _) =
+                seed_native_router(ProviderType::OpenAI, &upstream_base, "gpt-5").await;
+            crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/v1/responses")
+                        .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({ "model": "native-provider/gpt-5", "input": "hi" }).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["model"], expected_model, "encoding {encoding:?}");
+
+            upstream_task.abort();
+        }
     }
 
     #[tokio::test]

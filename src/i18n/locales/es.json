@@ -641,7 +641,7 @@
     "autoModelRoutingDesc": "Cuando está habilitado, el mismo ID de modelo o alias en múltiples proveedores se expone como un solo modelo. La puerta de enlace elige un flujo ascendente según el orden y la disponibilidad del proveedor, y conmuta por error en caso de límites de velocidad o interrupciones. Utilice proveedor/modelo para fijar un único flujo ascendente.",
     "modelProviderPrefix": "Anteponer el proveedor a los ID de modelo",
     "modelProviderPrefixTooltip": "Añade un prefijo de proveedor a cada ID de modelo de la lista para que los clientes puedan saber de dónde procede cada modelo.",
-    "modelProviderPrefixDesc": "Cuando está habilitado, /v1/models muestra cada ID de modelo con el formato proveedor/modelo (p. ej., deepseek/deepseek-chat), usando un identificador en minúsculas derivado del nombre del proveedor. Las solicitudes siguen aceptando ID de modelo sin prefijo.",
+    "modelProviderPrefixDesc": "Cuando está habilitado, /v1/models muestra cada ID de modelo con el formato proveedor/modelo (p. ej., deepseek/deepseek-chat). El prefijo se deriva por defecto del nombre del proveedor y puede personalizarse abajo. Las solicitudes siguen aceptando ID de modelo sin prefijo, y el campo model de las respuestas devuelve el nombre usado en la solicitud.",
     "providerPrefixes": "Prefijos de proveedores",
     "providerPrefixesDesc": "Personaliza el prefijo de proveedor usado en proveedor/modelo. Déjalo vacío para usar el prefijo generado a partir del nombre del proveedor (se muestra como marcador de posición).",
     "providerPrefixesEmpty": "No hay proveedores habilitados",
