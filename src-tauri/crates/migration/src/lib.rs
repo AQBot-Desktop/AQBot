@@ -59,6 +59,7 @@ mod m20260825_000005_add_conversation_tab_pin_order;
 mod m20260827_000001_add_role_opening_questions_v2;
 mod m20260904_000001_add_role_context_bindings;
 mod m20260924_000001_add_model_icon;
+mod m20261021_000001_add_provider_gateway_prefix;
 
 pub struct Migrator;
 
@@ -127,6 +128,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260827_000001_add_role_opening_questions_v2::Migration),
             Box::new(m20260904_000001_add_role_context_bindings::Migration),
             Box::new(m20260924_000001_add_model_icon::Migration),
+            Box::new(m20261021_000001_add_provider_gateway_prefix::Migration),
         ]
     }
 }

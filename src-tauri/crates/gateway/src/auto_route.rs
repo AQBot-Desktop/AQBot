@@ -219,6 +219,7 @@ mod tests {
             custom_headers: None,
             icon: None,
             builtin_id: None,
+            gateway_prefix: None,
             sort_order: sort,
             created_at: 0,
             updated_at: 0,

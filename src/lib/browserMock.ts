@@ -2522,6 +2522,14 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
     }
 
     // ── Phase 2: Gateway Diagnostics & Templates ──────────────────────
+    case 'get_gateway_provider_prefixes': {
+      const providers = getStore<any[]>('providers', []);
+      return Object.fromEntries(
+        providers
+          .filter((p: any) => p.enabled)
+          .map((p: any) => [p.id, p.gateway_prefix || String(p.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'custom']),
+      ) as T;
+    }
     case 'get_gateway_diagnostics':
       return [
         { id: '1', category: 'port', status: 'ok', message: 'Gateway port is available', createdAt: nowTs() },

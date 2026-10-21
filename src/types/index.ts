@@ -32,6 +32,8 @@ export interface ProviderConfig {
   custom_headers: string | null;
   icon: string | null;
   builtin_id: string | null;
+  /** Custom gateway prefix for `prefix/model`; null derives it from the name. */
+  gateway_prefix?: string | null;
   sort_order: number;
   created_at: number;
   updated_at: number;
@@ -80,6 +82,7 @@ export interface UpdateProviderInput {
   proxy_config?: ProviderProxyConfig;
   custom_headers?: string | null;
   icon?: string | null;
+  gateway_prefix?: string | null;
   sort_order?: number;
 }
 

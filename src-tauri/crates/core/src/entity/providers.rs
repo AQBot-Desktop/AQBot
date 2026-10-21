@@ -16,6 +16,7 @@ pub struct Model {
     pub custom_headers: Option<String>,
     pub icon: Option<String>,
     pub builtin_id: Option<String>,
+    pub gateway_prefix: Option<String>,
     pub sort_order: i32,
     pub created_at: i64,
     pub updated_at: i64,

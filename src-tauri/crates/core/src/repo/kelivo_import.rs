@@ -1095,6 +1095,7 @@ where
                 custom_headers: Set(None),
                 icon: Set(None),
                 builtin_id: Set(None),
+                gateway_prefix: Set(None),
                 sort_order: Set(0),
                 created_at: Set(now),
                 updated_at: Set(now),

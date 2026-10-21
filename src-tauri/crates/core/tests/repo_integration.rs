@@ -142,6 +142,64 @@ async fn test_conversation_category_reorder() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn test_provider_gateway_prefix_validation() {
+    let h = create_test_pool().await.unwrap();
+    let db = &h.conn;
+    let create = |name: &str| CreateProviderInput {
+        name: name.into(),
+        provider_type: ProviderType::OpenAI,
+        api_host: "https://api.openai.com".into(),
+        api_path: None,
+        aws_region: None,
+        enabled: true,
+        builtin_id: None,
+    };
+    let set_prefix = |prefix: Option<&str>| UpdateProviderInput {
+        gateway_prefix: Some(prefix.map(str::to_string)),
+        ..Default::default()
+    };
+    let a = provider::create_provider(db, create("A")).await.unwrap();
+    let b = provider::create_provider(db, create("B")).await.unwrap();
+    assert_eq!(a.gateway_prefix, None);
+
+    // Normalised to lowercase and trimmed.
+    let a = provider::update_provider(db, &a.id, set_prefix(Some("  My-DS ")))
+        .await
+        .unwrap();
+    assert_eq!(a.gateway_prefix.as_deref(), Some("my-ds"));
+    // Re-saving the same prefix on the same provider is allowed.
+    provider::update_provider(db, &a.id, set_prefix(Some("my-ds")))
+        .await
+        .unwrap();
+
+    // Duplicate on another provider is rejected.
+    assert!(
+        provider::update_provider(db, &b.id, set_prefix(Some("MY-DS")))
+            .await
+            .is_err()
+    );
+    // Invalid formats are rejected.
+    for bad in ["a/b", "-ds", "ds--x", "深度", &"x".repeat(33)] {
+        assert!(
+            provider::update_provider(db, &b.id, set_prefix(Some(bad)))
+                .await
+                .is_err(),
+            "{bad} should be rejected"
+        );
+    }
+
+    // Blank clears the prefix; omitting the field keeps it.
+    let a = provider::update_provider(db, &a.id, UpdateProviderInput::default())
+        .await
+        .unwrap();
+    assert_eq!(a.gateway_prefix.as_deref(), Some("my-ds"));
+    let a = provider::update_provider(db, &a.id, set_prefix(Some("  ")))
+        .await
+        .unwrap();
+    assert_eq!(a.gateway_prefix, None);
+}
+
+#[tokio::test]
 async fn test_provider_crud() {
     let h = create_test_pool().await.unwrap();
     let db = &h.conn;
@@ -179,6 +237,7 @@ async fn test_provider_crud() {
         proxy_config: None,
         custom_headers: None,
         icon: None,
+        gateway_prefix: None,
         sort_order: None,
     };
     let updated = provider::update_provider(db, &prov.id, update)

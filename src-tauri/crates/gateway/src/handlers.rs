@@ -8,7 +8,7 @@ use axum::{
 };
 use futures::StreamExt;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
 use std::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
@@ -635,37 +635,50 @@ fn provider_base_slug(provider: &ProviderConfig) -> String {
 /// Always build it from the full provider list (not a protocol-filtered
 /// subset) so the IDs shown by `/v1/models` resolve on every endpoint.
 ///
-/// The public ID is the base slug (see [`provider_base_slug`]).  When two or more
+/// A provider's custom `gateway_prefix` wins when set and valid. Otherwise the
+/// public ID is the base slug (see [`provider_base_slug`]).  When two or more
 /// enabled providers share the same base slug (e.g. `"OpenAI"` and `"Open AI"`
 /// both normalise to `"openai"`), a numeric suffix is appended (`-2`, `-3`, …)
-/// in **internal-ID–sorted order** so the result is unique and deterministic.
-pub(crate) fn build_provider_public_id_map(
-    providers: &[ProviderConfig],
-) -> HashMap<String, String> {
-    // Group enabled providers by their base slug.
-    let mut slug_groups: HashMap<String, Vec<String>> = HashMap::new();
-    for p in providers.iter().filter(|p| p.enabled) {
-        slug_groups
-            .entry(provider_base_slug(p))
-            .or_default()
-            .push(p.id.clone());
-    }
+/// in **internal-ID–sorted order**; IDs already taken by custom prefixes are
+/// skipped, so the result is unique and deterministic.
+pub fn build_provider_public_id_map(providers: &[ProviderConfig]) -> HashMap<String, String> {
+    let mut enabled: Vec<&ProviderConfig> = providers.iter().filter(|p| p.enabled).collect();
+    enabled.sort_by(|a, b| a.id.cmp(&b.id));
 
     let mut map = HashMap::new();
-    for (base_slug, mut ids) in slug_groups {
-        if ids.len() == 1 {
-            map.insert(ids.remove(0), base_slug);
-        } else {
-            // Stable tie-breaking by internal ID (lexicographic).
-            ids.sort();
-            for (i, id) in ids.into_iter().enumerate() {
-                let public_id = if i == 0 {
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut slug_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in enabled {
+        let custom = p
+            .gateway_prefix
+            .as_deref()
+            .filter(|prefix| aqbot_core::repo::provider::is_valid_gateway_prefix(prefix));
+        match custom {
+            Some(prefix) if taken.insert(prefix.to_string()) => {
+                map.insert(p.id.clone(), prefix.to_string());
+            }
+            _ => slug_groups
+                .entry(provider_base_slug(p))
+                .or_default()
+                .push(p.id.clone()),
+        }
+    }
+
+    for (base_slug, ids) in slug_groups {
+        let mut n = 1;
+        for id in ids {
+            let public_id = loop {
+                let candidate = if n == 1 {
                     base_slug.clone()
                 } else {
-                    format!("{}-{}", base_slug, i + 1)
+                    format!("{}-{}", base_slug, n)
                 };
-                map.insert(id, public_id);
-            }
+                n += 1;
+                if taken.insert(candidate.clone()) {
+                    break candidate;
+                }
+            };
+            map.insert(id, public_id);
         }
     }
     map
@@ -1116,6 +1129,65 @@ mod tests {
         assert_eq!(map["p3"], "custom-2");
     }
 
+    #[test]
+    fn test_public_id_map_custom_prefix_wins() {
+        let mut providers = vec![
+            make_provider("p1", "DeepSeek", &["deepseek-chat"]),
+            make_provider("p2", "OpenAI", &["gpt-4o"]),
+        ];
+        providers[0].gateway_prefix = Some("ds".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "ds");
+        assert_eq!(map["p2"], "openai");
+
+        let known: HashSet<String> = map.values().cloned().collect();
+        let parsed = parse_model_field("ds/deepseek-chat", &known);
+        let targets = resolve_route_targets(&providers, &map, &parsed, false).unwrap();
+        assert_eq!(targets[0].0.id, "p1");
+    }
+
+    #[test]
+    fn test_public_id_map_auto_slug_skips_custom_prefix() {
+        let mut providers = vec![
+            make_provider("p1", "OpenAI", &[]),
+            make_provider("p2", "Other", &[]),
+        ];
+        providers[1].gateway_prefix = Some("openai".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p2"], "openai");
+        assert_eq!(map["p1"], "openai-2");
+    }
+
+    #[test]
+    fn test_public_id_map_invalid_or_duplicate_custom_prefix_falls_back() {
+        let mut providers = vec![
+            make_provider("p1", "Alpha", &[]),
+            make_provider("p2", "Beta", &[]),
+            make_provider("p3", "Gamma", &[]),
+        ];
+        providers[0].gateway_prefix = Some("shared".into());
+        providers[1].gateway_prefix = Some("shared".into());
+        providers[2].gateway_prefix = Some("Bad/Prefix".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "shared");
+        assert_eq!(map["p2"], "beta");
+        assert_eq!(map["p3"], "gamma");
+    }
+
+    #[test]
+    fn test_public_id_map_suffix_never_collides_with_other_slug() {
+        let providers = vec![
+            make_provider("pa", "A Provider", &[]),
+            make_provider("pb", "A Provider", &[]),
+            make_provider("pc", "A Provider 2", &[]),
+        ];
+        let map = build_provider_public_id_map(&providers);
+        let unique: HashSet<&String> = map.values().collect();
+        assert_eq!(unique.len(), 3);
+        assert_eq!(map["pa"], "a-provider");
+        assert_eq!(map["pb"], "a-provider-2");
+    }
+
     // ── build_gateway_model_list ──────────────────────────────────────────────
 
     fn make_provider(id: &str, name: &str, model_ids: &[&str]) -> ProviderConfig {
@@ -1151,6 +1223,7 @@ mod tests {
             custom_headers: None,
             icon: None,
             builtin_id: None,
+            gateway_prefix: None,
             sort_order: 0,
             created_at: 0,
             updated_at: 0,

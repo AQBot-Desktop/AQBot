@@ -18,6 +18,9 @@ pub struct ProviderConfig {
     pub custom_headers: Option<String>,
     pub icon: Option<String>,
     pub builtin_id: Option<String>,
+    /// Custom public prefix used by the gateway (`prefix/model`); `None` derives it from the name.
+    #[serde(default)]
+    pub gateway_prefix: Option<String>,
     pub sort_order: i32,
     pub created_at: i64,
     pub updated_at: i64,
@@ -200,6 +203,8 @@ pub struct UpdateProviderInput {
     pub proxy_config: Option<ProviderProxyConfig>,
     pub custom_headers: Option<Option<String>>,
     pub icon: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub gateway_prefix: Option<Option<String>>,
     pub sort_order: Option<i32>,
 }
 

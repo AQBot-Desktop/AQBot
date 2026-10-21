@@ -191,6 +191,7 @@ fn provider(
         custom_headers: None,
         icon: None,
         builtin_id: builtin_id.map(str::to_string),
+        gateway_prefix: None,
         sort_order: 0,
         created_at: 0,
         updated_at: 0,

@@ -641,7 +641,13 @@
     "autoModelRoutingDesc": "When enabled, the same model ID or alias on multiple providers is exposed as one model. The gateway chooses an upstream by provider order and availability, and fails over on rate limits or outages. Use provider/model to pin a single upstream.",
     "modelProviderPrefix": "Prefix model IDs with provider",
     "modelProviderPrefixTooltip": "Add a provider prefix to every model ID in the model list so clients can tell where each model comes from.",
-    "modelProviderPrefixDesc": "When enabled, /v1/models lists every model ID as provider/model (e.g. deepseek/deepseek-chat), using a lowercase identifier derived from the provider name. Requests still accept model IDs without the prefix."
+    "modelProviderPrefixDesc": "When enabled, /v1/models lists every model ID as provider/model (e.g. deepseek/deepseek-chat), using a lowercase identifier derived from the provider name. Requests still accept model IDs without the prefix.",
+    "providerPrefixes": "Provider prefixes",
+    "providerPrefixesDesc": "Customize the provider prefix used in provider/model. Leave blank to use the prefix generated from the provider name (shown as the placeholder).",
+    "providerPrefixesEmpty": "No enabled providers",
+    "providerPrefixInvalid": "Prefixes may only contain lowercase letters, digits and single hyphens, up to 32 characters",
+    "providerPrefixDuplicate": "This prefix is already used by another provider",
+    "providerPrefixInputLabel": "Gateway prefix for {{name}}"
   },
   "settings": {
     "contextStrategy": "Context strategy",

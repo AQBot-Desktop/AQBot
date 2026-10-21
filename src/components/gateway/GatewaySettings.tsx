@@ -5,6 +5,7 @@ import { Info, Upload as UploadIcon, ShieldAlert } from 'lucide-react';
 import { useGatewayStore } from '@/stores/gatewayStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { invoke } from '@/lib/invoke';
+import { GatewayProviderPrefixes } from './GatewayProviderPrefixes';
 
 interface CertResult {
   cert_path: string;
@@ -248,6 +249,8 @@ export function GatewaySettings() {
           />
         </div>
       </Card>
+
+      <GatewayProviderPrefixes />
 
       <Card size="small" title={t('gateway.settingsSsl')} style={{ marginBottom: 16 }}>
         <div style={{ padding: '4px 0' }} className="flex items-center justify-between">

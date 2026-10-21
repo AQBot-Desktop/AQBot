@@ -127,6 +127,7 @@ fn provider_from_entity(
         custom_headers: row.custom_headers,
         icon: row.icon,
         builtin_id: row.builtin_id,
+        gateway_prefix: row.gateway_prefix,
         sort_order: row.sort_order,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -183,6 +184,7 @@ pub async fn create_provider(
         custom_headers: Set(None),
         icon: Set(None),
         builtin_id: Set(input.builtin_id),
+        gateway_prefix: Set(None),
         sort_order: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
@@ -248,10 +250,56 @@ pub async fn update_provider(
     if let Some(icon) = input.icon {
         am.icon = Set(icon);
     }
+    if let Some(gateway_prefix) = input.gateway_prefix {
+        am.gateway_prefix = Set(normalized_gateway_prefix(db, id, gateway_prefix).await?);
+    }
     am.updated_at = Set(now);
     am.update(db).await?;
 
     get_provider(db, id).await
+}
+
+/// Validate a custom gateway prefix: lowercase ASCII alphanumerics separated by
+/// single `-`, at most 32 chars, unique across providers. Blank clears it.
+async fn normalized_gateway_prefix(
+    db: &DatabaseConnection,
+    id: &str,
+    gateway_prefix: Option<String>,
+) -> Result<Option<String>> {
+    let Some(prefix) = gateway_prefix
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    if !is_valid_gateway_prefix(&prefix) {
+        return Err(AQBotError::Validation(format!(
+            "Invalid gateway prefix '{prefix}': use lowercase letters, digits and single hyphens (max 32 chars)"
+        )));
+    }
+    let taken = providers::Entity::find()
+        .filter(providers::Column::GatewayPrefix.eq(prefix.as_str()))
+        .filter(providers::Column::Id.ne(id))
+        .one(db)
+        .await?;
+    if let Some(other) = taken {
+        return Err(AQBotError::Validation(format!(
+            "Gateway prefix '{prefix}' is already used by provider '{}'",
+            other.name
+        )));
+    }
+    Ok(Some(prefix))
+}
+
+pub fn is_valid_gateway_prefix(prefix: &str) -> bool {
+    prefix.len() <= 32
+        && !prefix.is_empty()
+        && prefix.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        })
 }
 
 fn normalized_aws_region(
@@ -970,6 +1018,7 @@ pub async fn list_providers_merged(db: &DatabaseConnection) -> Result<Vec<Provid
                 custom_headers: None,
                 icon: None,
                 builtin_id: Some(String::from(bp.builtin_id)),
+                gateway_prefix: None,
                 sort_order: 0,
                 created_at: now,
                 updated_at: now,

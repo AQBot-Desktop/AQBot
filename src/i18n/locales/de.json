@@ -641,7 +641,13 @@
     "autoModelRoutingDesc": "Wenn diese Option aktiviert ist, wird dieselbe Modell-ID oder derselbe Alias ​​bei mehreren Anbietern als ein Modell angezeigt. Das Gateway wählt einen Upstream nach Anbieterreihenfolge und Verfügbarkeit aus und führt bei Ratenbegrenzungen oder Ausfällen ein Failover durch. Verwenden Sie Provider/Model, um einen einzelnen Upstream anzupinnen.",
     "modelProviderPrefix": "Modell-IDs mit Anbieter-Präfix versehen",
     "modelProviderPrefixTooltip": "Stellt jeder Modell-ID in der Modellliste ein Anbieter-Präfix voran, damit Clients die Herkunft jedes Modells erkennen können.",
-    "modelProviderPrefixDesc": "Wenn aktiviert, listet /v1/models jede Modell-ID im Format Anbieter/Modell (z. B. deepseek/deepseek-chat) auf. Das Präfix ist eine aus dem Anbieternamen abgeleitete Kennung in Kleinbuchstaben. Anfragen akzeptieren weiterhin Modell-IDs ohne Präfix."
+    "modelProviderPrefixDesc": "Wenn aktiviert, listet /v1/models jede Modell-ID im Format Anbieter/Modell (z. B. deepseek/deepseek-chat) auf. Das Präfix ist eine aus dem Anbieternamen abgeleitete Kennung in Kleinbuchstaben. Anfragen akzeptieren weiterhin Modell-IDs ohne Präfix.",
+    "providerPrefixes": "Anbieter-Präfixe",
+    "providerPrefixesDesc": "Passen Sie das Anbieter-Präfix in Anbieter/Modell an. Leer lassen, um das aus dem Anbieternamen erzeugte Präfix zu verwenden (als Platzhalter angezeigt).",
+    "providerPrefixesEmpty": "Keine aktivierten Anbieter",
+    "providerPrefixInvalid": "Präfixe dürfen nur Kleinbuchstaben, Ziffern und einzelne Bindestriche enthalten und höchstens 32 Zeichen lang sein",
+    "providerPrefixDuplicate": "Dieses Präfix wird bereits von einem anderen Anbieter verwendet",
+    "providerPrefixInputLabel": "Gateway-Präfix für {{name}}"
   },
   "settings": {
     "contextStrategy": "Kontextstrategie",

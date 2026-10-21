@@ -636,6 +636,19 @@ pub async fn get_gateway_diagnostics(
         .map_err(|e| e.to_string())
 }
 
+/// Effective gateway public prefix (`prefix/model`) per enabled provider ID.
+#[tauri::command]
+pub async fn get_gateway_provider_prefixes(
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let providers = aqbot_core::repo::provider::list_providers(&state.sea_db)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(aqbot_gateway::handlers::build_provider_public_id_map(
+        &providers,
+    ))
+}
+
 #[tauri::command]
 pub async fn get_program_policies(
     state: State<'_, AppState>,

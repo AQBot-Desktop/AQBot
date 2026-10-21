@@ -381,6 +381,7 @@ pub fn run() {
         commands::gateway::get_gateway_usage_by_day,
         commands::gateway::get_connected_programs,
         commands::gateway::get_gateway_diagnostics,
+        commands::gateway::get_gateway_provider_prefixes,
         commands::gateway::get_program_policies,
         commands::gateway::save_program_policy,
         commands::gateway::delete_program_policy,
