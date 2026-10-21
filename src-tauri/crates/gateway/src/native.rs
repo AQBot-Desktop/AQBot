@@ -524,6 +524,8 @@ async fn resolve_native_context(
     let providers = aqbot_core::repo::provider::list_providers(&state.db)
         .await
         .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    // Public IDs come from the full provider list so they match `/v1/models`.
+    let public_id_map = build_provider_public_id_map(&providers);
     let candidates: Vec<ProviderConfig> = providers
         .into_iter()
         .filter(|provider| {
@@ -546,7 +548,6 @@ async fn resolve_native_context(
         .unwrap_or_default();
 
     let (provider, model_id) = if let Some(model) = model {
-        let public_id_map = build_provider_public_id_map(&candidates);
         let known_public_ids = public_id_map.values().cloned().collect();
         let parsed = parse_model_field(model, &known_public_ids);
         // Always collect the full match set so we can prefer a provider with an
@@ -1098,7 +1099,10 @@ mod tests {
         crypto::{encrypt_key, key_prefix},
         db::{create_test_pool, DbHandle},
         repo::{gateway, gateway_request_log, provider},
-        types::{CreateProviderInput, Model, ModelCapability, ModelType, ProviderType, TokenUsage},
+        types::{
+            CreateProviderInput, Model, ModelCapability, ModelType, ProviderType, TokenUsage,
+            UpdateProviderInput,
+        },
     };
     use axum::{
         body::{to_bytes, Body},
@@ -1818,6 +1822,95 @@ mod tests {
         let captured = captures.lock().unwrap();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].path_and_query, "/v1/responses");
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn namespaced_model_uses_public_ids_from_all_providers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "resp_shared",
+            "object": "response",
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2
+            }
+        })
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_upstream(StatusCode::OK, headers, upstream_body).await;
+
+        let handle = create_test_pool().await.unwrap();
+        let db = &handle.conn;
+        let gateway_key = gateway::create_gateway_key(db, "Native Test Key", None)
+            .await
+            .unwrap();
+        let master_key = [9u8; 32];
+        for _ in 0..2 {
+            insert_provider_with_optional_key(
+                db,
+                &master_key,
+                "Shared",
+                ProviderType::OpenAI,
+                &upstream_base,
+                "gpt-5",
+                true,
+            )
+            .await;
+        }
+
+        // Make the provider owning the base slug non-OpenAI so the OpenAI
+        // endpoint only sees the `shared-2` provider among its candidates.
+        let providers = provider::list_providers(db).await.unwrap();
+        let public_ids = build_provider_public_id_map(&providers);
+        let base_owner = providers
+            .iter()
+            .find(|p| public_ids[&p.id] == "shared")
+            .unwrap();
+        provider::update_provider(
+            db,
+            &base_owner.id,
+            UpdateProviderInput {
+                provider_type: Some(ProviderType::Anthropic),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let app = create_router(GatewayAppState {
+            db: handle.conn.clone(),
+            master_key,
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/responses")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer {}", gateway_key.plain_key),
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model": "shared-2/gpt-5",
+                            "input": "hello"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let captured = captures.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].body["model"], "gpt-5");
 
         upstream_task.abort();
     }

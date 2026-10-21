@@ -140,29 +140,30 @@ pub async fn chat_completions(
     let start_time = Instant::now();
 
     // Fetch providers once — used for both model-field parsing and resolution.
-    // Filter to only chat-completions-compatible provider types.
-    let providers: Vec<ProviderConfig> =
-        match aqbot_core::repo::provider::list_providers(&state.db).await {
-            Ok(p) => p
-                .into_iter()
-                .filter(|p| {
-                    matches!(
-                        p.provider_type,
-                        ProviderType::OpenAI
-                            | ProviderType::DeepSeek
-                            | ProviderType::XAI
-                            | ProviderType::GLM
-                            | ProviderType::SiliconFlow
-                            | ProviderType::Custom
-                    )
-                })
-                .collect(),
-            Err(e) => {
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
-            }
-        };
-    let public_id_map = build_provider_public_id_map(&providers);
+    // Public IDs are computed over all providers so they match `/v1/models`;
+    // routing is then restricted to chat-completions-compatible provider types.
+    let all_providers = match aqbot_core::repo::provider::list_providers(&state.db).await {
+        Ok(p) => p,
+        Err(e) => {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    };
+    let public_id_map = build_provider_public_id_map(&all_providers);
     let known_public_ids: HashSet<String> = public_id_map.values().cloned().collect();
+    let providers: Vec<ProviderConfig> = all_providers
+        .into_iter()
+        .filter(|p| {
+            matches!(
+                p.provider_type,
+                ProviderType::OpenAI
+                    | ProviderType::DeepSeek
+                    | ProviderType::XAI
+                    | ProviderType::GLM
+                    | ProviderType::SiliconFlow
+                    | ProviderType::Custom
+            )
+        })
+        .collect();
 
     // Parse model field: supports "provider_public_id/model_id" (preferred),
     // or bare "model_id" / alias.
@@ -622,9 +623,23 @@ fn provider_slug(name: &str) -> String {
         .join("-")
 }
 
+/// Base public-ID slug for a provider: the name slug, or the provider type when
+/// the name has no ASCII alphanumerics (e.g. "深度求索" → `"deepseek"`).
+fn provider_base_slug(provider: &ProviderConfig) -> String {
+    let slug = provider_slug(&provider.name);
+    if slug.is_empty() {
+        provider_slug(provider_type_to_str(&provider.provider_type))
+    } else {
+        slug
+    }
+}
+
 /// Build a `provider_internal_id → public_id` map for all enabled providers.
 ///
-/// The public ID is the name slug (see [`provider_slug`]).  When two or more
+/// Always build it from the full provider list (not a protocol-filtered
+/// subset) so the IDs shown by `/v1/models` resolve on every endpoint.
+///
+/// The public ID is the base slug (see [`provider_base_slug`]).  When two or more
 /// enabled providers share the same base slug (e.g. `"OpenAI"` and `"Open AI"`
 /// both normalise to `"openai"`), a numeric suffix is appended (`-2`, `-3`, …)
 /// in **internal-ID–sorted order** so the result is unique and deterministic.
@@ -635,7 +650,7 @@ pub(crate) fn build_provider_public_id_map(
     let mut slug_groups: HashMap<String, Vec<String>> = HashMap::new();
     for p in providers.iter().filter(|p| p.enabled) {
         slug_groups
-            .entry(provider_slug(&p.name))
+            .entry(provider_base_slug(p))
             .or_default()
             .push(p.id.clone());
     }
@@ -708,15 +723,18 @@ pub(crate) struct ParsedModel {
 ///
 /// Accepted formats:
 /// 1. `provider_public_id/model_id`  — preferred namespaced form; only
-///    recognised when the left segment is a **known** public provider ID.
+///    recognised when the left segment is a **known** public provider ID
+///    (compared case-insensitively, e.g. `DeepSeek/deepseek-chat`).
 ///    This prevents misparsing native model IDs that contain `/` (e.g.
 ///    `"accounts/fireworks/models/qwen3"`).
 /// 2. `model_id`                     — bare; resolved by unique match across providers
 pub(crate) fn parse_model_field(model: &str, known_public_ids: &HashSet<String>) -> ParsedModel {
     if let Some((left, right)) = model.split_once('/') {
-        if known_public_ids.contains(left) {
+        // Public IDs are always lowercase ASCII slugs.
+        let left = left.to_ascii_lowercase();
+        if known_public_ids.contains(&left) {
             return ParsedModel {
-                provider_hint: Some(left.to_string()),
+                provider_hint: Some(left),
                 model_id: right.to_string(),
             };
         }
@@ -1067,6 +1085,13 @@ mod tests {
         assert_eq!(p.model_id, "accounts/fireworks/models/qwen3");
     }
 
+    #[test]
+    fn test_parse_provider_prefix_case_insensitive() {
+        let p = parse_model_field("DeepSeek/deepseek-chat", &known_ids(&["deepseek"]));
+        assert_eq!(p.provider_hint.as_deref(), Some("deepseek"));
+        assert_eq!(p.model_id, "deepseek-chat");
+    }
+
     // Unknown left segment with colon is treated as bare model.
     #[test]
     fn test_parse_unknown_prefix_with_colon_treated_as_bare() {
@@ -1113,6 +1138,20 @@ mod tests {
         assert_eq!(map["pa"], "a-provider");
         assert_eq!(map["pb"], "a-provider-2");
         assert_eq!(map["pc"], "a-provider-3");
+    }
+
+    #[test]
+    fn test_public_id_map_non_ascii_name_falls_back_to_provider_type() {
+        let mut providers = vec![
+            make_provider("p1", "深度求索", &["deepseek-chat"]),
+            make_provider("p2", "自定义一", &[]),
+            make_provider("p3", "自定义二", &[]),
+        ];
+        providers[0].provider_type = ProviderType::DeepSeek;
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "deepseek");
+        assert_eq!(map["p2"], "custom");
+        assert_eq!(map["p3"], "custom-2");
     }
 
     // ── build_model_display_map ───────────────────────────────────────────────
