@@ -779,6 +779,7 @@ export type AgentWorkspaceNameStrategy =
   | 'created_datetime';
 export type ChatMessageAreaStyle = 'none' | 'background' | 'border';
 export type SettingsSidebarDensity = 'compact' | 'standard' | 'spacious';
+export type FontSmoothing = 'auto' | 'antialiased';
 export type TrayIconStyle = 'color' | 'monochrome';
 
 /** Toggleable title bar action icons (settings is always visible). */
@@ -810,6 +811,7 @@ export interface AppSettings {
   font_weight: number;
   font_family: string;
   font_style: string;
+  font_smoothing: FontSmoothing;
   code_font_family: string;
   chat_font_size: number;
   chat_line_height: number;

@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   font_weight: 400,
   font_family: '',
   font_style: 'normal',
+  font_smoothing: 'auto',
   code_font_family: '',
   chat_font_size: 15,
   chat_line_height: 1.7,

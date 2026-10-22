@@ -242,6 +242,7 @@ function AppRoot() {
   const fontWeight = useSettingsStore((s) => s.settings.font_weight);
   const fontFamily = useSettingsStore((s) => s.settings.font_family);
   const fontStyle = useSettingsStore((s) => s.settings.font_style);
+  const fontSmoothing = useSettingsStore((s) => s.settings.font_smoothing);
   const codeFontFamily = useSettingsStore((s) => s.settings.code_font_family);
   const chatFontSize = useSettingsStore((s) => s.settings.chat_font_size);
   const chatLineHeight = useSettingsStore((s) => s.settings.chat_line_height);
@@ -288,6 +289,7 @@ function AppRoot() {
       fontFamily,
       fontWeight,
       fontStyle,
+      fontSmoothing,
       fontFaces: interfaceFontFaces,
       codeFontFamily,
       chatFontFamily,
@@ -301,6 +303,7 @@ function AppRoot() {
     fontWeight,
     fontFamily,
     fontStyle,
+    fontSmoothing,
     interfaceFontFaces,
     codeFontFamily,
     chatFontSize,

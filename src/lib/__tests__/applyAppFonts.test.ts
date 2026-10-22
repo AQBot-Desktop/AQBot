@@ -5,6 +5,7 @@ import { DEFAULT_UI_FONT_FALLBACK } from '../cssFontFamily';
 describe('applyAppFonts', () => {
   afterEach(() => {
     document.documentElement.style.cssText = '';
+    delete document.documentElement.dataset.fontSmoothing;
     document.getElementById('aqbot-ui-font-faces')?.remove();
     document.getElementById('aqbot-chat-font-faces')?.remove();
   });
@@ -58,6 +59,34 @@ describe('applyAppFonts', () => {
     const css = document.getElementById('aqbot-ui-font-faces')?.textContent ?? '';
     expect(css).toContain('local("Alibaba PuHuiTi 3.0 65 Medium")');
     expect(css).toContain('font-weight: 500;');
+  });
+
+  it('applies grayscale font smoothing and restores the platform default', () => {
+    applyAppFonts({
+      fontFamily: '',
+      fontWeight: 400,
+      fontSmoothing: 'antialiased',
+      codeFontFamily: '',
+      chatFontFamily: '',
+      chatFontWeight: 400,
+      chatFontSize: 15,
+      chatLineHeight: 1.7,
+    });
+
+    expect(document.documentElement.dataset.fontSmoothing).toBe('antialiased');
+
+    applyAppFonts({
+      fontFamily: '',
+      fontWeight: 400,
+      fontSmoothing: 'auto',
+      codeFontFamily: '',
+      chatFontFamily: '',
+      chatFontWeight: 400,
+      chatFontSize: 15,
+      chatLineHeight: 1.7,
+    });
+
+    expect(document.documentElement.dataset.fontSmoothing).toBeUndefined();
   });
 
   it('clears custom interface font properties when the family is system default', () => {
