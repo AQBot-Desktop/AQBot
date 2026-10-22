@@ -5,7 +5,8 @@ use super::{
     SelectionToolbarAiConfig, SelectionToolbarAppEntry, SelectionToolbarAppFilterMode,
     SelectionToolbarBuiltinAiKey, SelectionToolbarDisplayMode, SelectionToolbarPlacement,
     SelectionToolbarResultPinningMode, SelectionToolbarSettings, SelectionToolbarTool,
-    SelectionToolbarTriggerMode, SettingsSidebarDensity, TrayIconStyle, DEFAULT_EXPLAIN_PROMPT,
+    SelectionToolbarTriggerMode, SettingsSidebarDensity, TrayIconStyle, FontSmoothing,
+    DEFAULT_EXPLAIN_PROMPT,
     DEFAULT_MULTI_MODEL_SEQUENTIAL_INTERVAL_SECONDS, DEFAULT_SELECTION_TOOLBAR_SEARCH_URL,
     DEFAULT_SELECTION_TOOLBAR_SHORTCUT, DEFAULT_TRANSLATE_PROMPT,
 };
@@ -971,6 +972,22 @@ fn chat_input_actions_scale_defaults_and_roundtrips() {
     let roundtrip: AppSettings =
         serde_json::from_value(serialized).expect("settings should deserialize");
     assert_eq!(roundtrip.chat_input_actions_scale, 150);
+}
+
+#[test]
+fn font_smoothing_defaults_to_auto_and_roundtrips() {
+    let settings = AppSettings::default();
+    assert_eq!(settings.font_smoothing, FontSmoothing::Auto);
+
+    let settings: AppSettings = serde_json::from_value(json!({
+        "font_smoothing": "antialiased"
+    }))
+    .expect("settings should deserialize");
+    assert_eq!(settings.font_smoothing, FontSmoothing::Antialiased);
+
+    let settings: AppSettings =
+        serde_json::from_value(json!({})).expect("settings should default missing fields");
+    assert_eq!(settings.font_smoothing, FontSmoothing::Auto);
 }
 
 #[test]
