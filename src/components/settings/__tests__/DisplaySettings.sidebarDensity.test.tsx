@@ -2,6 +2,7 @@ import type React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings } from '@/types';
+import zhCN from '@/i18n/locales/zh-CN.json';
 import { DisplaySettings } from '../DisplaySettings';
 
 const mocks = vi.hoisted(() => ({
@@ -45,6 +46,10 @@ vi.mock('react-i18next', () => ({
         'settings.fontStyle': '字体样式',
         'settings.fontFamily': '界面字体',
         'settings.fontDefault': '系统默认',
+        'settings.fontSmoothing': zhCN.settings.fontSmoothing,
+        'settings.fontSmoothingDesc': zhCN.settings.fontSmoothingDesc,
+        'settings.fontSmoothingAuto': zhCN.settings.fontSmoothingAuto,
+        'settings.fontSmoothingAntialiased': zhCN.settings.fontSmoothingAntialiased,
         'settings.codeThemeLight': '代码主题（亮色）',
         'settings.codeThemeDark': '代码主题（暗色）',
         'settings.borderRadius': '圆角大小',
@@ -157,6 +162,7 @@ describe('DisplaySettings sidebar density', () => {
       settings_sidebar_density: 'standard',
       font_weight: 400,
       font_family: '',
+      font_smoothing: 'auto',
       code_theme_light: 'github-light',
       code_theme: 'poimandres',
       border_radius: 8,
@@ -182,6 +188,31 @@ describe('DisplaySettings sidebar density', () => {
     expect(mocks.saveSettings).toHaveBeenCalledWith({
       settings_sidebar_density: 'spacious',
     });
+  });
+
+  it('saves font smoothing changes and reflects the selected mode', () => {
+    const { rerender } = render(<DisplaySettings />);
+    const control = screen.getByRole('radiogroup', { name: zhCN.settings.fontSmoothing });
+    expect(control).toHaveAccessibleDescription(zhCN.settings.fontSmoothingDesc);
+    expect(within(control).getByRole('radio', { name: zhCN.settings.fontSmoothingAuto }))
+      .toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(within(control).getByRole('radio', {
+      name: zhCN.settings.fontSmoothingAntialiased,
+    }));
+    expect(mocks.saveSettings).toHaveBeenNthCalledWith(1, { font_smoothing: 'antialiased' });
+    settings = { ...settings, font_smoothing: 'antialiased' };
+    rerender(<DisplaySettings />);
+    expect(within(control).getByRole('radio', { name: zhCN.settings.fontSmoothingAntialiased }))
+      .toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(within(control).getByRole('radio', { name: zhCN.settings.fontSmoothingAuto }));
+    expect(mocks.saveSettings).toHaveBeenNthCalledWith(2, { font_smoothing: 'auto' });
+    settings = { ...settings, font_smoothing: 'auto' };
+    rerender(<DisplaySettings />);
+    expect(within(control).getByRole('radio', { name: zhCN.settings.fontSmoothingAuto }))
+      .toHaveAttribute('aria-checked', 'true');
+    expect(mocks.saveSettings).toHaveBeenCalledTimes(2);
   });
 
   it('places title bar icons section before font settings and toggles visibility', () => {

@@ -889,7 +889,7 @@
     "fontFaceBlack": "Black",
     "fontFamily": "Interface Font",
     "fontSmoothing": "Font Smoothing",
-    "fontSmoothingDesc": "Antialiased renders thinner, sharper glyphs via grayscale smoothing; switch back to Default if text looks too light.",
+    "fontSmoothingDesc": "Antialiased uses grayscale smoothing; its effect varies by system and font and is usually more noticeable on macOS. Switch back to Default if text looks too light.",
     "fontSmoothingAuto": "Default",
     "fontSmoothingAntialiased": "Antialiased",
     "codeFontFamily": "Code Font",

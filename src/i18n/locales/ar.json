@@ -889,7 +889,7 @@
     "fontFaceBlack": "أسود",
     "fontFamily": "خط الواجهة",
     "fontSmoothing": "تجانس الخط",
-    "fontSmoothingDesc": "يعرض «التجانس» الحروف أرقّ وأكثر حدة بالتدرج الرمادي؛ إذا بدت باهتة فعُد إلى «الافتراضي».",
+    "fontSmoothingDesc": "يستخدم «التجانس» التدرج الرمادي؛ يختلف تأثيره حسب النظام والخط ويكون عادةً أوضح على macOS. إذا بدا النص باهتًا جدًا، فعُد إلى «الافتراضي».",
     "fontSmoothingAuto": "الافتراضي",
     "fontSmoothingAntialiased": "تجانس",
     "codeFontFamily": "خط الكود",

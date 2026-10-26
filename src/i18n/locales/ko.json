@@ -889,7 +889,7 @@
     "fontFaceBlack": "가장 굵게",
     "fontFamily": "인터페이스 글꼴",
     "fontSmoothing": "글꼴 스무딩",
-    "fontSmoothingDesc": "「안티앨리어싱」은 그레이스케일로 글리프를 렌더링하여 텍스트가 더 가늘고 선명해집니다. 너무 옅다면 「기본값」으로 되돌리세요.",
+    "fontSmoothingDesc": "「안티앨리어싱」은 그레이스케일 렌더링을 사용합니다. 효과는 시스템과 글꼴에 따라 다르며 보통 macOS에서 더 뚜렷합니다. 텍스트가 너무 옅다면 「기본값」으로 되돌리세요.",
     "fontSmoothingAuto": "기본값",
     "fontSmoothingAntialiased": "안티앨리어싱",
     "codeFontFamily": "코드 글꼴",

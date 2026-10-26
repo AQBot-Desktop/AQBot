@@ -889,7 +889,7 @@
     "fontFaceBlack": "Noir",
     "fontFamily": "Police de l'interface",
     "fontSmoothing": "Lissage de la police",
-    "fontSmoothingDesc": "« Anticrénelage » dessine des glyphes plus fins et nets en niveaux de gris ; revenez à « Par défaut » si le texte paraît trop clair.",
+    "fontSmoothingDesc": "« Anticrénelage » lisse en niveaux de gris ; l’effet dépend du système et de la police et se remarque généralement davantage sur macOS. Revenez à « Par défaut » si le texte paraît trop clair.",
     "fontSmoothingAuto": "Par défaut",
     "fontSmoothingAntialiased": "Anticrénelage",
     "codeFontFamily": "Police de code",

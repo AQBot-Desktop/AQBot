@@ -889,7 +889,7 @@
     "fontFaceBlack": "超粗",
     "fontFamily": "界面字体",
     "fontSmoothing": "字体抗锯齿",
-    "fontSmoothingDesc": "「抗锯齿」以灰度方式渲染字形，笔画更纤细锐利；若觉得偏淡可保持「默认」。",
+    "fontSmoothingDesc": "「抗锯齿」使用灰度渲染，效果因系统和字体而异，通常在 macOS 上更明显；若文字偏淡可切回「默认」。",
     "fontSmoothingAuto": "默认",
     "fontSmoothingAntialiased": "抗锯齿",
     "codeFontFamily": "代码字体",

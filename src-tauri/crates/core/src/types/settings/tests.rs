@@ -985,9 +985,23 @@ fn font_smoothing_defaults_to_auto_and_roundtrips() {
     .expect("settings should deserialize");
     assert_eq!(settings.font_smoothing, FontSmoothing::Antialiased);
 
+    let serialized = serde_json::to_value(settings).expect("settings should serialize");
+    assert_eq!(serialized["font_smoothing"], json!("antialiased"));
+    let roundtrip: AppSettings =
+        serde_json::from_value(serialized).expect("settings should deserialize");
+    assert_eq!(roundtrip.font_smoothing, FontSmoothing::Antialiased);
+
     let settings: AppSettings =
         serde_json::from_value(json!({})).expect("settings should default missing fields");
     assert_eq!(settings.font_smoothing, FontSmoothing::Auto);
+}
+
+#[test]
+fn font_smoothing_rejects_unknown_modes() {
+    assert!(serde_json::from_value::<AppSettings>(json!({
+        "font_smoothing": "unsupported"
+    }))
+    .is_err());
 }
 
 #[test]

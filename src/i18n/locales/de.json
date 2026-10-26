@@ -889,7 +889,7 @@
     "fontFaceBlack": "Ultrafett",
     "fontFamily": "UI-Schriftart",
     "fontSmoothing": "Schriftglättung",
-    "fontSmoothingDesc": "„Antialiasing“ zeichnet Glyphen feiner und schärfer in Graustufen; wirkt der Text zu blass, zurück zu „Standard“.",
+    "fontSmoothingDesc": "„Antialiasing“ glättet in Graustufen; die Wirkung hängt von System und Schriftart ab und ist unter macOS meist deutlicher. Wirkt der Text zu blass, wählen Sie „Standard“.",
     "fontSmoothingAuto": "Standard",
     "fontSmoothingAntialiased": "Antialiasing",
     "codeFontFamily": "Code-Schriftart",

@@ -889,7 +889,7 @@
     "fontFaceBlack": "Negro",
     "fontFamily": "Fuente de la interfaz",
     "fontSmoothing": "Suavizado de fuente",
-    "fontSmoothingDesc": "«Antialiasing» dibuja glifos más finos y nítidos en escala de grises; vuelve a «Predeterminado» si el texto se ve demasiado claro.",
+    "fontSmoothingDesc": "«Antialiasing» suaviza en escala de grises; el efecto depende del sistema y la fuente y suele ser más visible en macOS. Vuelve a «Predeterminado» si el texto se ve demasiado claro.",
     "fontSmoothingAuto": "Predeterminado",
     "fontSmoothingAntialiased": "Antialiasing",
     "codeFontFamily": "Fuente de código",
