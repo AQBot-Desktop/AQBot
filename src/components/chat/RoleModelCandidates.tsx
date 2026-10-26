@@ -38,7 +38,7 @@ export function RoleModelCandidates({ conversationId, providers, renderModel, on
     <section style={{ padding: '4px 0' }} aria-label={t('chat.role.boundModels')}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('chat.role.boundModels')}</Typography.Text>
-        <Button type="link" size="small" style={{ padding: 0 }} onClick={onManage}>{t('chat.role.manage')}</Button>
+        <Button type="link" size="small" style={{ padding: 0, fontSize: 12 }} onClick={onManage}>{t('chat.role.manage')}</Button>
       </div>
       {(snapshot.error || selectionFailed) && <div role="alert">{t('roles.applyFailed')}</div>}
       {snapshot.bindings.map((binding) => {
