@@ -380,6 +380,7 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     showProviderTag: boolean,
     model?: Model,
     isKeyboardActive?: boolean,
+    candidate?: { disabled: boolean; onSelect: () => void },
   ) => {
     const key = `${providerId}::${modelId}`;
     const isActive = multiSelect ? multiSelectedKeys.includes(key) : currentValue === key;
@@ -389,14 +390,33 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
     return (
       <div
         className="flex items-center gap-2 cursor-pointer"
+        role={candidate ? 'button' : undefined}
+        tabIndex={candidate && !candidate.disabled ? 0 : undefined}
+        aria-label={candidate ? `${providerName} / ${modelName}` : undefined}
+        aria-pressed={candidate ? isActive : undefined}
+        aria-disabled={candidate?.disabled}
+        title={candidate?.disabled ? t('chat.role.modelUnavailable') : undefined}
         style={{
           backgroundColor: isActive ? token.colorPrimaryBg : isHovered ? token.colorFillSecondary : undefined,
           borderRadius: 6,
           margin: '0 6px',
           padding: '5px 10px',
           transition: 'background-color 0.15s',
+          cursor: candidate?.disabled ? 'not-allowed' : undefined,
+          opacity: candidate?.disabled ? 0.5 : undefined,
         }}
-        onClick={() => handleSelect(providerId, modelId)}
+        onClick={() => {
+          if (candidate) {
+            if (!candidate.disabled) candidate.onSelect();
+          } else handleSelect(providerId, modelId);
+        }}
+        onKeyDown={candidate ? (event) => {
+          if (event.target !== event.currentTarget || candidate.disabled) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            candidate.onSelect();
+          }
+        } : undefined}
         onMouseEnter={() => { setHoveredKey(key); setActiveIndex(-1); }}
         onMouseLeave={() => setHoveredKey(null)}
       >
@@ -553,7 +573,16 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
             key={`${activeConversationId}:${activeConversation?.updated_at}`}
             conversationId={activeConversationId}
             providers={providers}
-            currentModel={{ providerId: activeConversation?.provider_id ?? '', modelId: activeConversation?.model_id ?? '' }}
+            onManage={() => {
+              setOpen(false);
+              setSearch('');
+              setActivePage('roles');
+            }}
+            renderModel={(item) => renderModelItem(
+              item.providerId, item.modelId, item.name, item.providerName,
+              pinnedModels.includes(`${item.providerId}::${item.modelId}`), true,
+              item.model, false, item,
+            )}
             onSelect={async (providerId, modelId) => {
               await updateConversation(activeConversationId, {
                 provider_id: providerId,

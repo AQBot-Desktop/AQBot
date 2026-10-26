@@ -1,5 +1,5 @@
 import type React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation, ProviderConfig } from '@/types';
 import { ModelSelector } from '../ModelSelector';
@@ -100,7 +100,7 @@ vi.mock('@/lib/shortcuts', () => ({
 }));
 
 vi.mock('@/lib/modelCapabilities', () => ({
-  getVisibleModelCapabilities: () => [],
+  getVisibleModelCapabilities: (model: { capabilities: string[] }) => model.capabilities,
 }));
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -328,7 +328,7 @@ describe('ModelSelector', () => {
   ]));
   render(<ModelSelector open onOpenChange={vi.fn()} />);
   expect(screen.getByText('chat.role.boundModels')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'provider-1 / missing' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'OpenAI Compatible / missing' })).toHaveAttribute('aria-disabled', 'true');
   fireEvent.click(screen.getByRole('button', { name: 'OpenAI Compatible / GPT 5.4' }));
   await waitFor(() => expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
     provider_id: 'provider-1', model_id: 'gpt-5.4', multi_model_targets: [],
@@ -336,5 +336,67 @@ describe('ModelSelector', () => {
   expect(mocks.saveSettings).not.toHaveBeenCalled();
   expect(screen.getAllByText('GPT 5.4').length).toBeGreaterThan(0);
 });
+
+  it('renders assistant models with the same model row details and pin/hover behavior', () => {
+    providers[0].models.push({ ...providers[0].models[0], model_id: 'other-chat', name: 'Other Chat' });
+    localStorage.setItem('aqbot_conv_role_models_conv-1', JSON.stringify([
+      { provider_id: 'provider-1', model_id: 'gpt-5.4' },
+      { provider_id: 'provider-1', model_id: 'other-chat' },
+    ]));
+    render(<ModelSelector open onOpenChange={vi.fn()} />);
+    const section = screen.getByRole('region', { name: 'chat.role.boundModels' });
+    const manage = within(section).getByRole('button', { name: 'chat.role.manage' });
+    expect(manage.parentElement).toBe(within(section).getByText('chat.role.boundModels').parentElement);
+    const selected = within(section).getByRole('button', { name: 'OpenAI Compatible / GPT 5.4' });
+    expect(selected).toHaveAttribute('aria-pressed', 'true');
+    expect(selected).toHaveStyle({ backgroundColor: '#e6f4ff' });
+    expect(within(selected).getByTestId('model-icon')).toHaveTextContent('gpt-5.4');
+    expect(within(selected).getByText('GPT 5.4')).toBeInTheDocument();
+    expect(within(selected).getByText('OpenAI Compatible')).toBeInTheDocument();
+    expect(within(selected).getByText('128K')).toBeInTheDocument();
+    expect(selected.querySelector('.lucide-message-square')).toBeInTheDocument();
+    const other = within(section).getByRole('button', { name: 'OpenAI Compatible / Other Chat' });
+    fireEvent.mouseEnter(other);
+    expect(other).toHaveStyle({ backgroundColor: '#f5f5f5' });
+    fireEvent.mouseLeave(other);
+    expect(other).not.toHaveStyle({ backgroundColor: '#f5f5f5' });
+    const pin = other.querySelector('.lucide-pin')?.parentElement;
+    expect(pin).toBeInTheDocument();
+    fireEvent.click(pin!);
+    expect(JSON.parse(localStorage.getItem('aqbot_pinned_models')!)).toEqual(['provider-1::other-chat']);
+    expect(other.querySelector('.lucide-pin-off')).toBeInTheDocument();
+    expect(mocks.updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('closes the model selector before opening assistant management', () => {
+    localStorage.setItem('aqbot_conv_role_models_conv-1', JSON.stringify([
+      { provider_id: 'provider-1', model_id: 'gpt-5.4' },
+    ]));
+    const onOpenChange = vi.fn();
+    render(<ModelSelector open onOpenChange={onOpenChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.role.manage' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.setActivePage).toHaveBeenCalledWith('roles');
+    expect(onOpenChange.mock.invocationCallOrder[0]).toBeLessThan(mocks.setActivePage.mock.invocationCallOrder[0]);
+  });
+
+  it('keeps unavailable candidate disabled and reports switch errors visibly', async () => {
+    localStorage.setItem('aqbot_conv_role_models_conv-1', JSON.stringify([
+      { provider_id: 'provider-1', model_id: 'gpt-5.4' },
+      { provider_id: 'missing', model_id: 'gone' },
+    ]));
+    const failure = new Error('save failed');
+    mocks.updateConversation.mockRejectedValueOnce(failure);
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<ModelSelector open onOpenChange={vi.fn()} />);
+    const unavailable = screen.getByRole('button', { name: 'missing / gone' });
+    fireEvent.click(unavailable);
+    fireEvent.keyDown(unavailable, { key: 'Enter' });
+    expect(mocks.updateConversation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'OpenAI Compatible / GPT 5.4' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('roles.applyFailed');
+    expect(errorLog).toHaveBeenCalledWith('[RoleModelCandidates] failed to switch model', failure);
+    errorLog.mockRestore();
+  });
 
 });

@@ -1,22 +1,29 @@
-import { Button, Space, Typography } from 'antd';
-import { useMemo, useState } from 'react';
+import { Button, Typography } from 'antd';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRoleModels } from '@/lib/applyRole';
 import { RoleModelBindingError, resolveRoleModelBinding } from '@/lib/roleModels';
-import { useUIStore } from '@/stores';
-import type { ProviderConfig } from '@/types';
+import type { Model, ProviderConfig } from '@/types';
 
 interface Props {
   conversationId: string;
   providers: ProviderConfig[];
-  currentModel: { providerId: string; modelId: string };
+  onManage: () => void;
+  renderModel: (item: {
+    providerId: string;
+    modelId: string;
+    name: string;
+    providerName: string;
+    model?: Model;
+    disabled: boolean;
+    onSelect: () => void;
+  }) => ReactNode;
   onSelect: (providerId: string, modelId: string) => Promise<void>;
 }
 
 /** Candidates come from the applied snapshot, never from a subsequently edited preset. */
-export function RoleModelCandidates({ conversationId, providers, currentModel, onSelect }: Props) {
+export function RoleModelCandidates({ conversationId, providers, renderModel, onSelect, onManage }: Props) {
   const { t } = useTranslation();
-  const setActivePage = useUIStore((s) => s.setActivePage);
   const [selectionFailed, setSelectionFailed] = useState(false);
   const snapshot = useMemo(() => {
     try {
@@ -28,8 +35,11 @@ export function RoleModelCandidates({ conversationId, providers, currentModel, o
   }, [conversationId]);
   if (!snapshot.error && snapshot.bindings.length === 0) return null;
   return (
-    <section style={{ padding: '4px 12px' }} aria-label={t('chat.role.boundModels')}>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('chat.role.boundModels')}</Typography.Text>
+    <section style={{ padding: '4px 0' }} aria-label={t('chat.role.boundModels')}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('chat.role.boundModels')}</Typography.Text>
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={onManage}>{t('chat.role.manage')}</Button>
+      </div>
       {(snapshot.error || selectionFailed) && <div role="alert">{t('roles.applyFailed')}</div>}
       {snapshot.bindings.map((binding) => {
         let selection;
@@ -40,31 +50,29 @@ export function RoleModelCandidates({ conversationId, providers, currentModel, o
           // Keep unavailable snapshot candidates visible so users can repair the preset.
         }
         const available = selection !== undefined;
+        const provider = providers.find((item) => item.id === binding.provider_id);
+        const model = provider?.models.find((item) => item.model_id === binding.model_id);
         return (
-          <Space direction="vertical" size={0} style={{ display: 'flex' }} key={JSON.stringify([binding.provider_id, binding.model_id])}>
-            <Button
-              type={currentModel.providerId === binding.provider_id && currentModel.modelId === binding.model_id ? 'primary' : 'text'}
-              size="small"
-              block
-              aria-pressed={currentModel.providerId === binding.provider_id && currentModel.modelId === binding.model_id}
-              style={{ textAlign: 'left', justifyContent: 'flex-start', marginTop: 4 }}
-              disabled={!available}
-              title={available ? undefined : t('chat.role.modelUnavailable')}
-              onClick={() => {
+          <div key={JSON.stringify([binding.provider_id, binding.model_id])}>
+            {renderModel({
+              providerId: binding.provider_id,
+              modelId: binding.model_id,
+              name: model?.name ?? binding.model_id,
+              providerName: provider?.name ?? binding.provider_id,
+              model,
+              disabled: !available,
+              onSelect: () => {
                 setSelectionFailed(false);
                 void onSelect(binding.provider_id, binding.model_id).catch((error) => {
                   console.error('[RoleModelCandidates] failed to switch model', error);
                   setSelectionFailed(true);
                 });
-              }}
-            >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selection ? `${selection.provider.name} / ${selection.model.name}` : `${binding.provider_id} / ${binding.model_id}`}</span>
-            </Button>
-            {!available && <Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('chat.role.modelUnavailable')}</Typography.Text>}
-          </Space>
+              },
+            })}
+            {!available && <Typography.Text type="secondary" style={{ fontSize: 11, padding: '0 16px' }}>{t('chat.role.modelUnavailable')}</Typography.Text>}
+          </div>
         );
       })}
-      <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setActivePage('roles')}>{t('chat.role.manage')}</Button>
     </section>
   );
 }
