@@ -425,7 +425,11 @@
       "apply": "التقديم",
       "new": "جديد",
       "manage": "إدارة الأدوار →",
-      "bindingReadFailed": "تعذر قراءة ربط الدور، لذلك لم يتم تغيير الوضع"
+      "bindingReadFailed": "تعذر قراءة ربط الدور، لذلك لم يتم تغيير الوضع",
+      "chooseAssistant": "اختر مساعدًا",
+      "boundModels": "نماذج المساعد",
+      "modelUnavailable": "النموذج غير متاح؛ أصلحه في إعدادات المساعد",
+      "legacyModel": "يستخدم النموذج الافتراضي الحالي"
     },
     "skill": {
       "title": "المهارات",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "إزالة السؤال",
     "searchPlaceholder": "البحث عن الأدوار",
     "systemPrompt": "موجه النظام",
-    "systemPromptPlaceholder": "موجه النظام",
+    "systemPromptPlaceholder": "حدد تعليمات النظام للدور (اختياري)",
     "tags": "الوسوم",
     "tagsPlaceholder": "وسوم مفصولة بفواصل",
     "title": "الأدوار",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "لا يمكن أن يحتوي العنوان على أسطر جديدة",
       "contextBindingsMissing": "قاعدة معرفة أو دفتر ذاكرة مرتبط بهذا الدور غير موجود",
       "contextBindingsLoadFailed": "تعذر تحميل قواعد المعرفة أو دفاتر الذاكرة، يُرجى المحاولة لاحقاً",
-      "failed": "فشل التحقق من الصحة: {{detail}}"
-    }
+      "failed": "فشل التحقق من الصحة: {{detail}}",
+      "modelBindingsInvalid": "ارتباطات النماذج غير صالحة؛ احذف الإدخالات المكررة أو الفارغة",
+      "modelBindingsUnavailable": "أحد النماذج المرتبطة غير متاح؛ أصلحه في إعدادات الدور"
+    },
+    "modelBindings": "النماذج المرشحة",
+    "modelBindingsHint": "اختر نماذج الدردشة للتبديل بينها؛ يُستخدم النموذج الافتراضي للمحادثات الجديدة دون استدعاءات متوازية",
+    "modelBindingsPlaceholder": "اختر نماذج الدردشة (اختياري)",
+    "defaultModel": "النموذج الافتراضي",
+    "defaultModelLabel": "الافتراضي: {{model}}",
+    "unavailableModel": "غير متاح: {{model}}"
   },
   "agentPage": {
     "title": "منضدة عمل الوكيل",

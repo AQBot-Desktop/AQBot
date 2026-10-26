@@ -23,12 +23,14 @@ import { getRoleErrorMessage } from '@/lib/roleErrorMessage';
 import { ensureLoadedRoleContextBindings, isRoleContextBindingsError } from '@/lib/roleContextBindings';
 import type { TFunction } from 'i18next';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
+import { RoleModelBindingError, resolveRoleDefaultModel } from '@/lib/roleModels';
 import type { Role } from '@/types';
 import type { AvatarType } from '@/stores/userProfileStore';
 
 function applyFailureMessage(error: unknown, t: TFunction) {
   if (
-    isRoleContextBindingsError(error)
+    error instanceof RoleModelBindingError
+    || isRoleContextBindingsError(error)
     || parseCodedError(error)?.code === 'ROLE_CONTEXT_BINDINGS_MISSING'
   ) {
     return getRoleErrorMessage(error, t);
@@ -95,7 +97,7 @@ function RoleListAvatar({ role }: { role: Role }) {
   );
 }
 
-export function RoleSwitcherPopover() {
+export function RoleSwitcherPopover({ createOnly = false }: { createOnly?: boolean }) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { message: messageApi } = App.useApp();
@@ -193,10 +195,12 @@ export function RoleSwitcherPopover() {
       return;
     }
     try {
+      resolveRoleDefaultModel(role, providers);
       await assertRoleContextBindingsForRole(role);
       await applyRoleWithRollback(activeConversation.id, role, async () => {
         await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
           currentMode: activeConversation.mode,
+          providers,
         }));
       });
       await ensureRoleSkillsEnabled(role);
@@ -206,39 +210,39 @@ export function RoleSwitcherPopover() {
       console.error('[RoleSwitcherPopover] failed to apply role', error);
       messageApi.error(applyFailureMessage(error, t));
     }
-  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, t, updateConversation]);
+  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, providers, t, updateConversation]);
 
   const createWithRole = useCallback(async (role: Role) => {
-    const selection = pickModel();
-    if (!selection) return;
+    let selection;
     try {
+      selection = resolveRoleDefaultModel(role, providers) ?? pickModel();
+      if (!selection) throw new RoleModelBindingError('ROLE_MODEL_BINDINGS_UNAVAILABLE');
       await assertRoleContextBindingsForRole(role);
     } catch (error) {
       console.error('[RoleSwitcherPopover] failed to validate role context bindings', error);
       messageApi.error(applyFailureMessage(error, t));
       return;
     }
-    const conversation = await createConversation(
-      role.name,
-      selection.model.model_id,
-      selection.provider.id,
-    );
+    let created = false;
     try {
+      const conversation = await createConversation(role.name, selection.model.model_id, selection.provider.id);
+      created = true;
       await applyRoleWithRollback(conversation.id, role, async () => {
-        await updateConversation(conversation.id, buildApplyRoleUpdate(role));
+        await updateConversation(conversation.id, buildApplyRoleUpdate(role, { providers }));
       });
       await ensureRoleSkillsEnabled(role);
       setActiveConversation(conversation.id);
       setOpen(false);
     } catch (error) {
       console.error('[RoleSwitcherPopover] failed to apply role to new conversation', error);
-      messageApi.error(t('roles.applyCreatedButFailed'));
+      messageApi.error(created ? t('roles.applyCreatedButFailed') : applyFailureMessage(error, t));
     }
   }, [
     createConversation,
     ensureRoleSkillsEnabled,
     messageApi,
     pickModel,
+    providers,
     setActiveConversation,
     t,
     updateConversation,
@@ -264,7 +268,17 @@ export function RoleSwitcherPopover() {
           />
         ) : (
           filteredRoles.map((role) => {
-            const active = isRoleApplied && activeRoleId === role.id;
+            const active = !createOnly && isRoleApplied && activeRoleId === role.id;
+            let modelLabel = t('chat.role.legacyModel');
+            let unavailable = false;
+            try {
+              const selection = resolveRoleDefaultModel(role, providers);
+              if (selection) modelLabel = `${selection.provider.name} / ${selection.model.name}`;
+            } catch (error) {
+              if (!(error instanceof RoleModelBindingError)) throw error;
+              unavailable = true;
+              modelLabel = t('chat.role.modelUnavailable');
+            }
             return (
               <div
                 key={role.id}
@@ -284,6 +298,7 @@ export function RoleSwitcherPopover() {
                   <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {role.name}
                   </div>
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{modelLabel}</div>
                   {role.description ? (
                     <div style={{ fontSize: 11, color: token.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {role.description}
@@ -291,18 +306,20 @@ export function RoleSwitcherPopover() {
                   ) : null}
                 </div>
                 <Space size={4}>
-                  <Button
+                  {!createOnly && <Button
                     type="text"
                     size="small"
-                    disabled={!activeConversation}
+                    disabled={!activeConversation || unavailable}
                     onClick={() => void applyToCurrent(role)}
                     title={t('roles.applyToCurrent')}
                   >
                     {t('chat.role.apply')}
-                  </Button>
+                  </Button>}
                   <Button
                     type="link"
                     size="small"
+                    disabled={unavailable}
+                    aria-label={createOnly ? `${t('roles.newConversation')}: ${role.name}` : undefined}
                     onClick={() => void createWithRole(role)}
                     title={t('roles.newConversation')}
                   >
@@ -339,13 +356,13 @@ export function RoleSwitcherPopover() {
       open={open}
       onOpenChange={setOpen}
     >
-      <Tooltip title={t('chat.role.title')} open={open ? false : undefined}>
+      <Tooltip title={t(createOnly ? 'chat.role.chooseAssistant' : 'chat.role.title')} open={open ? false : undefined}>
         <Button
           type="text"
           size="small"
-          aria-label={t('chat.role.title')}
+          aria-label={t(createOnly ? 'chat.role.chooseAssistant' : 'chat.role.title')}
           icon={<UserRound size={14} />}
-          style={isRoleApplied ? { color: token.colorPrimary } : undefined}
+          style={!createOnly && isRoleApplied ? { color: token.colorPrimary } : undefined}
         />
       </Tooltip>
     </Popover>

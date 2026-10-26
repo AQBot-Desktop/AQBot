@@ -1,8 +1,29 @@
+import { resolveRoleDefaultModel } from '@/lib/roleModels';
 import { CONV_ICON_KEY } from '@/lib/convIcon';
 import { ROLE_INTRO_KEY, saveRoleIntro } from '@/lib/roleIntro';
-import type { Conversation, Role, UpdateConversationInput } from '@/types';
+import type { Conversation, ProviderConfig, Role, RoleModelBinding, UpdateConversationInput } from '@/types';
 
 export const CONV_ROLE_ID_KEY = (conversationId: string) => `aqbot_conv_role_${conversationId}`;
+
+export const CONV_ROLE_MODELS_KEY = (conversationId: string) => `aqbot_conv_role_models_${conversationId}`;
+
+export function getConversationRoleModels(conversationId: string): RoleModelBinding[] {
+  const raw = readLocalStorageItem(CONV_ROLE_MODELS_KEY(conversationId));
+  if (raw === null) return [];
+  try {
+    const bindings: unknown = JSON.parse(raw);
+    if (!Array.isArray(bindings) || bindings.some((binding) =>
+      !binding || typeof binding.provider_id !== 'string' || typeof binding.model_id !== 'string'
+      || !binding.provider_id.trim() || !binding.model_id.trim())) {
+      throw new Error('Invalid role model snapshot');
+    }
+    const identities = bindings.map((binding) => JSON.stringify([binding.provider_id, binding.model_id]));
+    if (new Set(identities).size !== bindings.length) throw new Error('Duplicate role model snapshot');
+    return bindings;
+  } catch {
+    throw new ConversationRoleStorageError('Failed to read conversation role model snapshot');
+  }
+}
 
 export class ConversationRoleStorageError extends Error {
   constructor(message = 'Failed to access conversation role binding') {
@@ -43,6 +64,7 @@ interface ConversationRoleMetadataSnapshot {
   roleId: string | null;
   iconRaw: string | null;
   introRaw: string | null;
+  modelsRaw: string | null;
 }
 
 function captureConversationRoleMetadata(conversationId: string): ConversationRoleMetadataSnapshot {
@@ -50,6 +72,7 @@ function captureConversationRoleMetadata(conversationId: string): ConversationRo
     roleId: readLocalStorageItem(CONV_ROLE_ID_KEY(conversationId)),
     iconRaw: readLocalStorageItem(CONV_ICON_KEY(conversationId)),
     introRaw: readLocalStorageItem(ROLE_INTRO_KEY(conversationId)),
+    modelsRaw: readLocalStorageItem(CONV_ROLE_MODELS_KEY(conversationId)),
   };
 }
 
@@ -60,6 +83,7 @@ function restoreConversationRoleMetadata(
   writeLocalStorageItem(CONV_ROLE_ID_KEY(conversationId), snapshot.roleId);
   writeLocalStorageItem(CONV_ICON_KEY(conversationId), snapshot.iconRaw);
   writeLocalStorageItem(ROLE_INTRO_KEY(conversationId), snapshot.introRaw);
+  writeLocalStorageItem(CONV_ROLE_MODELS_KEY(conversationId), snapshot.modelsRaw);
 }
 
 /** Write role metadata, then persist. Restore the previous snapshot if persist fails. */
@@ -95,6 +119,7 @@ function getRoleAvatar(role: Pick<Role, 'avatar' | 'avatar_type' | 'avatar_value
 /** Persist avatar icon + opening intro for a conversation after a role is applied. */
 export function syncConversationRoleMetadata(conversationId: string, role: Role) {
   setConversationRoleId(conversationId, role.id);
+  writeLocalStorageItem(CONV_ROLE_MODELS_KEY(conversationId), JSON.stringify(role.model_bindings ?? []));
   const avatar = getRoleAvatar(role);
   try {
     if (avatar.type && avatar.value) {
@@ -112,6 +137,7 @@ export function syncConversationRoleMetadata(conversationId: string, role: Role)
 }
 
 export interface BuildApplyRoleUpdateOptions {
+  providers?: ProviderConfig[];
   /** When true (default), write MCP ids if the role defines a non-empty list. */
   applyMcp?: boolean;
   /** When true (default), the caller should enable listed skills globally. */
@@ -138,6 +164,7 @@ export function buildApplyRoleUpdate(
   role: Role,
   options: BuildApplyRoleUpdateOptions = {},
 ): UpdateConversationInput {
+  if (options.providers) resolveRoleDefaultModel(role, options.providers);
   const applyMcp = options.applyMcp !== false;
   const update: UpdateConversationInput = {
     system_prompt: role.system_prompt,
@@ -147,6 +174,13 @@ export function buildApplyRoleUpdate(
     enabled_knowledge_base_ids: [...(role.enabled_knowledge_base_ids ?? [])],
     enabled_memory_namespace_ids: [...(role.enabled_memory_namespace_ids ?? [])],
   };
+
+  const defaultModel = role.model_bindings?.[0];
+  if (defaultModel) {
+    update.provider_id = defaultModel.provider_id;
+    update.model_id = defaultModel.model_id;
+    update.multi_model_targets = [];
+  }
 
   const mcpIds = role.enabled_mcp_server_ids ?? [];
   if (applyMcp && mcpIds.length > 0) {

@@ -506,8 +506,16 @@ impl From<String> for RoleOpeningQuestion {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct RoleModelBinding {
+    pub provider_id: String,
+    pub model_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Role {
+    #[serde(default)]
+    pub model_bindings: Vec<RoleModelBinding>,
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -536,6 +544,8 @@ pub struct Role {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoleInput {
+    #[serde(default)]
+    pub model_bindings: Vec<RoleModelBinding>,
     pub name: String,
     pub description: Option<String>,
     pub system_prompt: String,
@@ -561,6 +571,7 @@ pub struct CreateRoleInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateRoleInput {
+    pub model_bindings: Option<Vec<RoleModelBinding>>,
     pub name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub description: Option<Option<String>>,

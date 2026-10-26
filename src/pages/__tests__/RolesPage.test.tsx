@@ -135,8 +135,11 @@ vi.mock('react-i18next', () => ({
         'roles.addOpeningQuestion': '添加问题',
         'roles.removeOpeningQuestion': '删除问题',
         'roles.namePlaceholder': '请输入角色名称',
-        'roles.systemPromptPlaceholder': '定义角色的系统提示词（必填）',
+        'roles.systemPromptPlaceholder': '定义角色的系统提示词（可选）',
         'roles.tags': '标签',
+        'roles.modelBindings': '候选模型',
+        'roles.defaultModel': '默认模型',
+        'roles.validation.modelBindingsUnavailable': '绑定的模型不可用',
         'roles.modelParams': '模型参数',
         'roles.capabilities': '能力绑定',
         'roles.mcpServers': 'MCP 服务器',
@@ -251,8 +254,12 @@ vi.mock('@/stores', () => ({
     providers: [
       {
         id: 'provider-1',
+        name: 'Provider',
         enabled: true,
-        models: [{ model_id: 'model-1', enabled: true }],
+        models: [
+          { model_id: 'model-1', name: 'One', model_type: 'Chat', enabled: true },
+          { model_id: 'model-2', name: 'Two', model_type: 'Chat', enabled: true },
+        ],
       },
     ],
     };
@@ -345,6 +352,63 @@ describe('RolesPage', () => {
     ];
     storeState.archivedConversations = [];
     storeState.skills = [];
+  });
+
+  it('uses a bound default instead of the global default', async () => {
+    storeState.roles = [{ ...roles[0], model_bindings: [{ provider_id: 'provider-1', model_id: 'model-2' }] }];
+    render(<RolesPage />);
+    await userEvent.click(screen.getByRole('button', { name: '使用' }));
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalledWith('中文翻译助手', 'model-2', 'provider-1'));
+  });
+
+  it('reports conversation creation errors without applying the role', async () => {
+    mocks.createConversation.mockRejectedValue(new Error('database unavailable'));
+    render(<RolesPage />);
+    await userEvent.click(screen.getByRole('button', { name: '使用' }));
+    await screen.findByText('database unavailable');
+    expect(mocks.updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('blocks conversation creation for an unavailable bound default', async () => {
+    storeState.roles = [{ ...roles[0], model_bindings: [{ provider_id: 'missing', model_id: 'model-2' }] }];
+    render(<RolesPage />);
+    await userEvent.click(screen.getByRole('button', { name: '使用' }));
+    await screen.findByText('绑定的模型不可用');
+    expect(mocks.createConversation).not.toHaveBeenCalled();
+  });
+
+  it('saves model candidates with an empty prompt and changes the default on edit', async () => {
+    const user = userEvent.setup();
+    const view = render(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    fireEvent.change(screen.getByPlaceholderText('请输入角色名称'), { target: { value: '模型助手' } });
+    const choose = async (label: string, option: string) => {
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
+      const choices = await screen.findAllByText(option, { selector: '.ant-select-item-option-content' });
+      fireEvent.click(choices[choices.length - 1]);
+    };
+    await choose('候选模型', 'Provider / One');
+    await choose('候选模型', 'Provider / Two');
+    const save = () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /保\s*存/ }));
+    await save();
+    const bindings = [{ provider_id: 'provider-1', model_id: 'model-1' }, { provider_id: 'provider-1', model_id: 'model-2' }];
+    await waitFor(() => expect(mocks.createRole).toHaveBeenCalledWith(expect.objectContaining({ system_prompt: '', model_bindings: bindings })));
+    storeState.roles = [{ ...roles[0], system_prompt: '', model_bindings: bindings }];
+    view.rerender(<RolesPage />);
+    await user.click(screen.getByRole('button', { name: '编辑' }));
+    await choose('默认模型', 'Provider / Two');
+    await save();
+    await waitFor(() => expect(mocks.updateRole).toHaveBeenCalledWith('role-1', expect.objectContaining({ system_prompt: '', model_bindings: [bindings[1], bindings[0]] })));
+  }, 15000);
+
+  it('keeps unavailable candidates visible and blocks saving until repaired', async () => {
+    storeState.roles = [{ ...roles[0], model_bindings: [{ provider_id: 'missing', model_id: 'gone' }] }];
+    render(<RolesPage />);
+    await userEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(screen.getByRole('combobox', { name: '候选模型' })).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /保\s*存/ }));
+    await screen.findByText('绑定的模型不可用');
+    expect(mocks.updateRole).not.toHaveBeenCalled();
   });
 
   it('creates a new role conversation from the main use button', async () => {
@@ -607,7 +671,7 @@ describe('RolesPage', () => {
 
     expect(mocks.createRole).not.toHaveBeenCalled();
     expect(screen.getAllByText('请输入角色名称').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('请输入系统提示词').length).toBeGreaterThan(0);
+    expect(screen.queryByText('请输入系统提示词')).not.toBeInTheDocument();
   });
 
   it('saves an opening question title and multiline content', async () => {
@@ -617,7 +681,7 @@ describe('RolesPage', () => {
     render(<RolesPage />);
     await user.click(screen.getByRole('button', { name: '新建角色' }));
     fireEvent.change(screen.getByPlaceholderText('请输入角色名称'), { target: { value: '助手' } });
-    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（必填）'), { target: { value: '你是助手' } });
+    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（可选）'), { target: { value: '你是助手' } });
     await user.click(screen.getByRole('button', { name: '添加问题' }));
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '翻译' } });
     fireEvent.change(screen.getByLabelText('输入一个开场问题'), { target: { value: '请翻译\n这段话' } });
@@ -664,7 +728,7 @@ describe('RolesPage', () => {
     const view = render(<RolesPage />);
     await user.click(screen.getByRole('button', { name: '新建角色' }));
     fireEvent.change(screen.getByPlaceholderText('请输入角色名称'), { target: { value: '助手' } });
-    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（必填）'), { target: { value: '你是助手' } });
+    fireEvent.change(screen.getByPlaceholderText('定义角色的系统提示词（可选）'), { target: { value: '你是助手' } });
     await selectFirstOption('知识库');
     await selectFirstOption('记忆空间');
     await clickSave();

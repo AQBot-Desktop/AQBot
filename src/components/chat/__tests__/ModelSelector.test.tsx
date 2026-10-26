@@ -1,5 +1,5 @@
 import type React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation, ProviderConfig } from '@/types';
 import { ModelSelector } from '../ModelSelector';
@@ -124,6 +124,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('antd', () => ({
+  Space: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  Typography: { Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span> },
   Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   Modal: ({ open, children, footer, title }: { open?: boolean; children?: React.ReactNode; footer?: React.ReactNode; title?: React.ReactNode }) => (
     open ? <div>{title}{children}{footer}</div> : null
@@ -141,8 +143,8 @@ vi.mock('antd', () => ({
     </label>
   ),
   Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  Button: ({ children, onClick }: { children?: React.ReactNode; onClick?: React.MouseEventHandler<HTMLButtonElement> }) => (
-    <button onClick={onClick}>{children}</button>
+  Button: ({ children, onClick, disabled }: { children?: React.ReactNode; onClick?: React.MouseEventHandler<HTMLButtonElement>; disabled?: boolean }) => (
+    <button disabled={disabled} onClick={onClick}>{children}</button>
   ),
   Checkbox: ({ checked }: { checked?: boolean }) => <input type="checkbox" readOnly checked={checked} />,
   theme: {
@@ -318,4 +320,21 @@ describe('ModelSelector', () => {
     expect(icon).toHaveAttribute('data-model', 'unknown-model');
     expect(icon).toHaveAttribute('data-size', '16');
   });
+
+  it('switches a bound candidate on this conversation only and preserves ordinary models', async () => {
+  localStorage.setItem('aqbot_conv_role_models_conv-1', JSON.stringify([
+    { provider_id: 'provider-1', model_id: 'gpt-5.4' },
+    { provider_id: 'provider-1', model_id: 'missing' },
+  ]));
+  render(<ModelSelector open onOpenChange={vi.fn()} />);
+  expect(screen.getByText('chat.role.boundModels')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'provider-1 / missing' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'OpenAI Compatible / GPT 5.4' }));
+  await waitFor(() => expect(mocks.updateConversation).toHaveBeenCalledWith('conv-1', {
+    provider_id: 'provider-1', model_id: 'gpt-5.4', multi_model_targets: [],
+  }));
+  expect(mocks.saveSettings).not.toHaveBeenCalled();
+  expect(screen.getAllByText('GPT 5.4').length).toBeGreaterThan(0);
+});
+
 });

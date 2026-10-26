@@ -1,3 +1,4 @@
+import { RoleModelBindingError } from '@/lib/roleModels';
 import type { TFunction } from 'i18next';
 import { parseCodedError } from '@/lib/contextErrorMessage';
 import { getErrorMessage } from '@/lib/errorMessage';
@@ -54,7 +55,13 @@ export function getRoleErrorMessage(error: unknown, t: TFunction): string {
       'roles.validation.contextBindingsMissing',
     );
   }
+  if (error instanceof RoleModelBindingError) {
+    const code = error.code;
+    return t(code === 'ROLE_MODEL_BINDINGS_INVALID' ? 'roles.validation.modelBindingsInvalid' : 'roles.validation.modelBindingsUnavailable');
+  }
   const coded = parseCodedError(error);
+  if (coded?.code === 'ROLE_MODEL_BINDINGS_INVALID') return t('roles.validation.modelBindingsInvalid');
+  if (coded?.code === 'ROLE_MODEL_BINDINGS_UNAVAILABLE') return t('roles.validation.modelBindingsUnavailable');
   if (coded?.code === 'ROLE_CONTEXT_BINDINGS_MISSING') {
     return missingBindingsMessage(
       t,
@@ -108,7 +115,7 @@ function openingQuestionErrorMessage(
   });
 }
 
-/** Client-side draft validation (mirrors backend required_text for name / system_prompt). */
+/** Validate the required name and optional opening questions. */
 export function validateRoleDraft(
   draft: { name: string; systemPrompt: string; openingQuestions?: OpeningQuestionDraft[] },
   t: TFunction,
@@ -116,9 +123,6 @@ export function validateRoleDraft(
   const errors: RoleDraftValidation = {};
   if (!draft.name.trim()) {
     errors.name = t('roles.validation.nameRequired');
-  }
-  if (!draft.systemPrompt.trim()) {
-    errors.systemPrompt = t('roles.validation.systemPromptRequired');
   }
   if (draft.openingQuestions) {
     const normalized = normalizeOpeningQuestions(draft.openingQuestions);

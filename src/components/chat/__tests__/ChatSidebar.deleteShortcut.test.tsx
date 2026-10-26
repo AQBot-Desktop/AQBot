@@ -2,6 +2,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatSidebar } from '../ChatSidebar';
 
+vi.mock('../toolbar/RoleSwitcherPopover', () => ({
+  RoleSwitcherPopover: ({ createOnly }: { createOnly?: boolean }) => <button data-testid="assistant-chooser" data-create-only={String(createOnly)} />,
+}));
+
 const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   deleteConversation: vi.fn(),
@@ -282,6 +286,10 @@ vi.mock('@/stores', () => ({
     (selector: (state: typeof categoryState) => unknown) => selector(categoryState),
     { setState: vi.fn(), getState: () => categoryState },
   ),
+}));
+
+vi.mock('@/stores/conversationStore', () => ({
+  selectLiveStreamingConversationKey: (state: { streamingConversationId: string | null }) => state.streamingConversationId,
 }));
 
 vi.mock('@/hooks/useResolvedAvatarSrc', () => ({
@@ -748,4 +756,10 @@ describe('ChatSidebar direct delete shortcut', () => {
     });
   });
 
+});
+
+
+it('places the assistant chooser beside the ordinary new-chat control', () => {
+  render(<ChatSidebar />);
+  expect(screen.getByTestId('assistant-chooser')).toHaveAttribute('data-create-only', 'true');
 });

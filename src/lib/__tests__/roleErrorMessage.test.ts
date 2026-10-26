@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RoleModelBindingError } from '../roleModels';
 import { RoleContextBindingsError } from '../roleContextBindings';
 import { getRoleErrorMessage, validateRoleDraft } from '../roleErrorMessage';
 
@@ -21,6 +22,11 @@ const t = ((key: string, opts?: { detail?: string; max?: number; items?: string 
 }) as import('i18next').TFunction;
 
 describe('getRoleErrorMessage', () => {
+  it.each(['ROLE_MODEL_BINDINGS_INVALID', 'ROLE_MODEL_BINDINGS_UNAVAILABLE'] as const)('maps %s from backend and frontend', (code) => {
+    const key = code === 'ROLE_MODEL_BINDINGS_INVALID' ? 'roles.validation.modelBindingsInvalid' : 'roles.validation.modelBindingsUnavailable';
+    expect(getRoleErrorMessage(new RoleModelBindingError(code), t)).toBe(key);
+    expect(getRoleErrorMessage(JSON.stringify({ code, args: {} }), t)).toBe(key);
+  });
   it('localizes backend name validation errors', () => {
     expect(getRoleErrorMessage('Validation error: name cannot be empty', t)).toBe('请输入角色名称');
   });
@@ -68,12 +74,11 @@ describe('getRoleErrorMessage', () => {
 });
 
 describe('validateRoleDraft', () => {
-  it('requires name and system prompt', () => {
+  it('requires a name while allowing an empty system prompt', () => {
     expect(validateRoleDraft({ name: '  ', systemPrompt: '' }, t)).toEqual({
       name: '请输入角色名称',
-      systemPrompt: '请输入系统提示词',
     });
-    expect(validateRoleDraft({ name: '助手', systemPrompt: '你是助手' }, t)).toEqual({});
+    expect(validateRoleDraft({ name: '助手', systemPrompt: '' }, t)).toEqual({});
   });
 
   it('rejects an opening question title without content', () => {

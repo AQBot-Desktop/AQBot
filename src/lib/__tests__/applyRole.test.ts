@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CONV_ROLE_ID_KEY,
+  CONV_ROLE_MODELS_KEY,
+  getConversationRoleModels,
   ConversationRoleStorageError,
   applyRoleWithRollback,
   buildApplyRoleUpdate,
@@ -196,5 +198,49 @@ describe('applyRoleWithRollback', () => {
     })).rejects.toThrow('backend down');
 
     expect(localStorage.getItem(CONV_ROLE_ID_KEY('conv-1'))).toBeNull();
+  });
+});
+
+
+describe('role model application snapshots', () => {
+  beforeEach(() => localStorage.clear());
+  it('applies exactly the bound default and clears inherited parallel targets', () => {
+    const bindings = [{ provider_id: 'p', model_id: 'm' }, { provider_id: 'p', model_id: 'other' }];
+    expect(buildApplyRoleUpdate(makeRole({ model_bindings: bindings }))).toMatchObject({
+      provider_id: 'p', model_id: 'm', multi_model_targets: [],
+    });
+    expect(buildApplyRoleUpdate(makeRole())).not.toHaveProperty('model_id');
+    expect(buildApplyRoleUpdate(makeRole())).not.toHaveProperty('multi_model_targets');
+  });
+  it('keeps the applied candidates stable after editing the source preset', async () => {
+    const role = makeRole({ model_bindings: [{ provider_id: 'p', model_id: 'original' }] });
+    await applyRoleWithRollback('conv', role, async () => {});
+    role.model_bindings = [{ provider_id: 'p', model_id: 'edited' }];
+    expect(getConversationRoleModels('conv')).toEqual([{ provider_id: 'p', model_id: 'original' }]);
+  });
+  it('restores the old candidate snapshot on persistence failure', async () => {
+    const original = '[{"provider_id":"p","model_id":"old"}]';
+    localStorage.setItem(CONV_ROLE_MODELS_KEY('conv'), original);
+    await expect(applyRoleWithRollback('conv', makeRole({ model_bindings: [{ provider_id: 'p', model_id: 'new' }] }),
+      async () => { throw new Error('persist failed'); })).rejects.toThrow('persist failed');
+    expect(localStorage.getItem(CONV_ROLE_MODELS_KEY('conv'))).toBe(original);
+  });
+  it('does not persist conversation changes when candidate snapshot storage fails', async () => {
+    const persist = vi.fn();
+    const originalSetItem = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === CONV_ROLE_MODELS_KEY('conv')) throw new Error('storage unavailable');
+      originalSetItem.call(this, key, value);
+    });
+    await expect(applyRoleWithRollback('conv', makeRole({ model_bindings: [{ provider_id: 'p', model_id: 'm' }] }), persist))
+      .rejects.toThrow(ConversationRoleStorageError);
+    expect(persist).not.toHaveBeenCalled();
+    expect(getConversationRoleId('conv')).toBeNull();
+    write.mockRestore();
+  });
+  it('reports corrupt snapshots explicitly while legacy conversations have no candidates', () => {
+    expect(getConversationRoleModels('legacy')).toEqual([]);
+    localStorage.setItem(CONV_ROLE_MODELS_KEY('conv'), '{}');
+    expect(() => getConversationRoleModels('conv')).toThrow(ConversationRoleStorageError);
   });
 });

@@ -608,3 +608,45 @@ describe('browserMock gateway templates', () => {
     expect(updated.input).toBeUndefined();
   });
 });
+
+
+describe('browserMock role model bindings', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('aqbot_providers', JSON.stringify([
+      { id: 'first', enabled: true, models: [{ model_id: 'shared', enabled: true, model_type: 'Chat' }] },
+      { id: 'second', enabled: true, models: [{ model_id: 'shared', enabled: true, model_type: 'Chat' }] },
+      { id: 'disabled', enabled: false, models: [{ model_id: 'shared', enabled: true, model_type: 'Chat' }] },
+    ]));
+  });
+
+  it('keeps binding order, permits blank prompts, preserves omitted bindings and clears explicit empty lists', async () => {
+    const bindings = [{ provider_id: 'second', model_id: 'shared' }, { provider_id: 'first', model_id: 'shared' }];
+    const created = await handleCommand<any>('create_role', { input: {
+      name: ' Assistant ', system_prompt: '  ', model_bindings: bindings,
+    } });
+    expect(created.name).toBe('Assistant');
+    expect(created.system_prompt).toBe('');
+    expect(created.model_bindings).toEqual(bindings);
+    const updated = await handleCommand<any>('update_role', { id: created.id, input: { system_prompt: ' ' } });
+    expect(updated.model_bindings).toEqual(bindings);
+    expect(updated.system_prompt).toBe('');
+    const cleared = await handleCommand<any>('update_role', { id: created.id, input: { model_bindings: [] } });
+    expect(cleared.model_bindings).toEqual([]);
+  });
+
+  it('normalizes legacy roles and rejects duplicate, empty and unavailable bindings', async () => {
+    localStorage.setItem('aqbot_roles', JSON.stringify([{ id: 'old', name: 'Old', system_prompt: '' }]));
+    expect((await handleCommand<any[]>('list_roles'))[0].model_bindings).toEqual([]);
+    expect((await handleCommand<any>('get_role', { id: 'old' })).model_bindings).toEqual([]);
+    for (const [model_bindings, code] of [
+      [[{ provider_id: '', model_id: 'shared' }], 'ROLE_MODEL_BINDINGS_INVALID'],
+      [[{ provider_id: 'first', model_id: 'shared' }, { provider_id: 'first', model_id: 'shared' }], 'ROLE_MODEL_BINDINGS_INVALID'],
+      [[{ provider_id: 'missing', model_id: 'shared' }], 'ROLE_MODEL_BINDINGS_UNAVAILABLE'],
+      [[{ provider_id: 'disabled', model_id: 'shared' }], 'ROLE_MODEL_BINDINGS_UNAVAILABLE'],
+    ] as const) {
+      await expect(handleCommand('create_role', { input: { name: 'Assistant', system_prompt: '', model_bindings } })).rejects.toThrow(code);
+      await expect(handleCommand('update_role', { id: 'old', input: { model_bindings } })).rejects.toThrow(code);
+    }
+  });
+});

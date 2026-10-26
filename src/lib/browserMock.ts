@@ -6,6 +6,29 @@
 
 import { defaultAgentAllowedTools } from '@/lib/agentAllowedTools';
 
+function validateRoleModelBindings(bindings: any[]): void {
+  const seen = new Set<string>();
+  const unavailable: any[] = [];
+  for (const binding of bindings) {
+    const key = JSON.stringify([binding.provider_id, binding.model_id]);
+    const reason = typeof binding.provider_id !== 'string' || !binding.provider_id.trim()
+      || typeof binding.model_id !== 'string' || !binding.model_id.trim()
+      ? 'empty' : seen.has(key) ? 'duplicate' : null;
+    if (reason) throw new Error(JSON.stringify({ code: 'ROLE_MODEL_BINDINGS_INVALID', args: { reason } }));
+    seen.add(key);
+    const provider = getStore<any[]>('providers', []).find((item) => item.id === binding.provider_id);
+    const model = provider?.models?.find((item: any) => item.model_id === binding.model_id);
+    if (!provider?.enabled || !model?.enabled || model.model_type !== 'Chat') unavailable.push(binding);
+  }
+  if (unavailable.length) {
+    throw new Error(JSON.stringify({ code: 'ROLE_MODEL_BINDINGS_UNAVAILABLE', args: { bindings: unavailable } }));
+  }
+}
+
+function normalizedRole(role: any): any {
+  return { ...role, model_bindings: role.model_bindings ?? [] };
+}
+
 function genId(): string {
   return crypto.randomUUID();
 }
@@ -2619,18 +2642,23 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
 
     // ── Roles ─────────────────────────────────────────────────────────
     case 'list_roles':
-      return getStore<any[]>('roles', []) as T;
+      return getStore<any[]>('roles', []).map(normalizedRole) as T;
     case 'get_role': {
       const role = getStore<any[]>('roles', []).find((item) => item.id === (args as any)?.id);
       if (!role) throw new Error('Role not found');
-      return role as T;
+      return normalizedRole(role) as T;
     }
     case 'create_role': {
       const input = (args as any)?.input;
+      if (!input.name.trim()) throw new Error('name cannot be empty');
+      validateRoleModelBindings(input.model_bindings ?? []);
       const now = nowTs();
       const role = {
         id: genId(),
         ...input,
+        name: input.name.trim(),
+        system_prompt: input.system_prompt.trim(),
+        model_bindings: input.model_bindings ?? [],
         description: input.description ?? null,
         opening_message: input.opening_message ?? null,
         opening_questions: input.opening_questions ?? [],
@@ -2658,7 +2686,12 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const roles = getStore<any[]>('roles', []);
       const idx = roles.findIndex((item) => item.id === id);
       if (idx === -1) throw new Error('Role not found');
-      roles[idx] = { ...roles[idx], ...input, updated_at: nowTs() };
+      if (input.name !== undefined && !input.name.trim()) throw new Error('name cannot be empty');
+      if (input.model_bindings !== undefined) validateRoleModelBindings(input.model_bindings);
+      roles[idx] = normalizedRole({ ...roles[idx], ...input,
+        name: input.name === undefined ? roles[idx].name : input.name.trim(),
+        system_prompt: input.system_prompt === undefined ? roles[idx].system_prompt : input.system_prompt.trim(),
+        updated_at: nowTs() });
       setStore('roles', roles);
       return roles[idx] as T;
     }
@@ -2698,6 +2731,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
       const now = nowTs();
       const role = {
         ...entry,
+        model_bindings: [],
         id: genId(),
         enabled_mcp_server_ids: [],
         enabled_skill_names: [],

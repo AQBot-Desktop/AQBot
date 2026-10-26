@@ -425,7 +425,11 @@
       "apply": "應用",
       "new": "新建",
       "manage": "管理角色 →",
-      "bindingReadFailed": "讀取角色綁定失敗，無法切換模式"
+      "bindingReadFailed": "讀取角色綁定失敗，無法切換模式",
+      "chooseAssistant": "選擇助手",
+      "boundModels": "助手模型",
+      "modelUnavailable": "模型無法使用，請在助手設定中修復",
+      "legacyModel": "使用目前預設模型"
     },
     "skill": {
       "title": "技能",
@@ -2622,7 +2626,7 @@
     "namePlaceholder": "請輸入角色名稱",
     "avatarPlaceholder": "頭像（表情或 URL）",
     "descriptionPlaceholder": "簡要描述這個角色的用途",
-    "systemPromptPlaceholder": "定義角色的系統提示詞（必填）",
+    "systemPromptPlaceholder": "定義角色的系統提示詞（選填）",
     "openingMessagePlaceholder": "進入會話時展示的開場白（可選）",
     "openingQuestionsPlaceholder": "開場問題，每行一個",
     "openingQuestionPlaceholder": "輸入一個開場問題",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "標題不能包含換行",
       "contextBindingsMissing": "角色綁定的知識庫或記憶空間已不存在",
       "contextBindingsLoadFailed": "無法載入知識庫或記憶空間，請稍後再試",
-      "failed": "校驗失敗：{{detail}}"
-    }
+      "failed": "校驗失敗：{{detail}}",
+      "modelBindingsInvalid": "模型綁定無效，請移除重複項或空項",
+      "modelBindingsUnavailable": "綁定的模型無法使用，請在角色設定中修復"
+    },
+    "modelBindings": "候選模型",
+    "modelBindingsHint": "選擇可切換的聊天模型，預設模型用於新對話，不會並行呼叫",
+    "modelBindingsPlaceholder": "選擇聊天模型（選填）",
+    "defaultModel": "預設模型",
+    "defaultModelLabel": "預設：{{model}}",
+    "unavailableModel": "無法使用：{{model}}"
   },
   "agentPage": {
     "title": "Agent 工作台",

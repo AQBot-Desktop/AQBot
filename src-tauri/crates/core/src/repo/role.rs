@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use sea_orm::*;
 use serde_json::json;
 
-use crate::entity::roles;
+use crate::entity::{models, providers, roles};
 use crate::error::{coded_error, AQBotError, Result};
 use crate::repo::opening_questions::{decode_columns, encode_columns, prepare_opening_questions};
-use crate::types::{CreateRoleInput, Role, RoleOpeningQuestion, UpdateRoleInput};
+use crate::types::{CreateRoleInput, Role, RoleModelBinding, RoleOpeningQuestion, UpdateRoleInput};
 use crate::utils::{gen_id, now_ts};
 
 use super::{knowledge, memory};
@@ -84,6 +84,54 @@ async fn validate_context_bindings(
     ))
 }
 
+fn encode_model_bindings(bindings: &[RoleModelBinding]) -> Result<String> {
+    serde_json::to_string(bindings)
+        .map_err(|err| AQBotError::Validation(format!("Invalid role model_bindings JSON: {err}")))
+}
+
+async fn validate_model_bindings(
+    db: &DatabaseConnection,
+    bindings: &[RoleModelBinding],
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    let mut unavailable = Vec::new();
+    for binding in bindings {
+        let reason = if binding.provider_id.trim().is_empty() || binding.model_id.trim().is_empty()
+        {
+            Some("empty")
+        } else if !seen.insert(binding) {
+            Some("duplicate")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(coded_error(
+                "ROLE_MODEL_BINDINGS_INVALID",
+                json!({"reason": reason}),
+            ));
+        }
+        let provider = providers::Entity::find_by_id(&binding.provider_id)
+            .one(db)
+            .await?;
+        let model =
+            models::Entity::find_by_id((binding.provider_id.clone(), binding.model_id.clone()))
+                .one(db)
+                .await?;
+        if !provider.is_some_and(|provider| provider.enabled != 0)
+            || !model.is_some_and(|model| model.enabled != 0 && model.model_type == "chat")
+        {
+            unavailable.push(binding);
+        }
+    }
+    if !unavailable.is_empty() {
+        return Err(coded_error(
+            "ROLE_MODEL_BINDINGS_UNAVAILABLE",
+            json!({"bindings": unavailable}),
+        ));
+    }
+    Ok(())
+}
+
 fn infer_avatar_type(value: &str) -> String {
     if value.starts_with("http://") || value.starts_with("https://") {
         "url".to_string()
@@ -110,6 +158,9 @@ fn role_from_entity(m: roles::Model) -> Result<Role> {
     let fallback_avatar_type = m.avatar.as_deref().map(infer_avatar_type);
     let fallback_avatar_value = m.avatar.clone();
     Ok(Role {
+        model_bindings: serde_json::from_str(&m.model_bindings_json).map_err(|err| {
+            AQBotError::Validation(format!("Invalid role model_bindings JSON: {err}"))
+        })?,
         id: m.id,
         name: m.name,
         description: m.description,
@@ -180,11 +231,13 @@ pub async fn create_role(db: &DatabaseConnection, input: CreateRoleInput) -> Res
         &enabled_memory_namespace_ids,
     )
     .await?;
+    validate_model_bindings(db, &input.model_bindings).await?;
     let model = roles::ActiveModel {
+        model_bindings_json: Set(encode_model_bindings(&input.model_bindings)?),
         id: Set(id.clone()),
         name: Set(required_text(input.name, "name")?),
         description: Set(clean_optional_text(input.description)),
-        system_prompt: Set(required_text(input.system_prompt, "system_prompt")?),
+        system_prompt: Set(input.system_prompt.trim().to_string()),
         opening_message: Set(clean_optional_text(input.opening_message)),
         opening_questions_json: Set(opening_questions_json),
         opening_questions_v2_json: Set(opening_questions_v2_json),
@@ -224,6 +277,10 @@ pub async fn update_role(
         .ok_or_else(|| AQBotError::NotFound(format!("Role {id}")))?;
 
     let mut model: roles::ActiveModel = row.into();
+    if let Some(bindings) = input.model_bindings {
+        validate_model_bindings(db, &bindings).await?;
+        model.model_bindings_json = Set(encode_model_bindings(&bindings)?);
+    }
     if let Some(name) = input.name {
         model.name = Set(required_text(name, "name")?);
     }
@@ -231,7 +288,7 @@ pub async fn update_role(
         model.description = Set(clean_optional_text(description));
     }
     if let Some(system_prompt) = input.system_prompt {
-        model.system_prompt = Set(required_text(system_prompt, "system_prompt")?);
+        model.system_prompt = Set(system_prompt.trim().to_string());
     }
     if let Some(opening_message) = input.opening_message {
         model.opening_message = Set(clean_optional_text(opening_message));
@@ -310,8 +367,9 @@ mod tests {
     };
     use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, EntityTrait, Set, Statement};
 
-    fn sample_create_input() -> CreateRoleInput {
+    pub(super) fn sample_create_input() -> CreateRoleInput {
         CreateRoleInput {
+            model_bindings: vec![],
             name: "翻译助手".into(),
             description: Some("把输入翻译成中文".into()),
             system_prompt: "你是翻译助手".into(),
@@ -332,8 +390,9 @@ mod tests {
         }
     }
 
-    fn sample_update_input() -> UpdateRoleInput {
+    pub(super) fn sample_update_input() -> UpdateRoleInput {
         UpdateRoleInput {
+            model_bindings: None,
             name: None,
             description: None,
             system_prompt: None,
@@ -417,6 +476,7 @@ mod tests {
             &h.conn,
             &created.id,
             UpdateRoleInput {
+                model_bindings: None,
                 name: Some("中文翻译助手".into()),
                 description: None,
                 system_prompt: Some("请只输出中文翻译".into()),
@@ -465,7 +525,8 @@ mod tests {
                   WHERE version LIKE '%roles%'
                      OR version LIKE '%role_capability%'
                      OR version LIKE '%opening_questions%'
-                     OR version LIKE '%role_context%';
+                     OR version LIKE '%role_context%'
+                     OR version LIKE '%role_model%';
                 CREATE TABLE roles (
                     id varchar NOT NULL PRIMARY KEY,
                     name varchar NOT NULL,
@@ -499,6 +560,7 @@ mod tests {
         let roles = super::list_roles(&h.conn).await.unwrap();
 
         assert_eq!(roles.len(), 1);
+        assert!(roles[0].model_bindings.is_empty());
         assert_eq!(roles[0].avatar_type.as_deref(), Some("emoji"));
         assert_eq!(roles[0].avatar_value.as_deref(), Some("🌐"));
     }
@@ -509,6 +571,7 @@ mod tests {
         let created = super::create_role(
             &h.conn,
             CreateRoleInput {
+                model_bindings: vec![],
                 name: "翻译助手".into(),
                 description: None,
                 system_prompt: "你是翻译助手".into(),
@@ -653,3 +716,7 @@ mod tests {
         assert!(matches!(err, AQBotError::Database(_)));
     }
 }
+
+#[cfg(test)]
+#[path = "role_model_tests.rs"]
+mod model_tests;

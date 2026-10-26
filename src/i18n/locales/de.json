@@ -425,7 +425,11 @@
       "apply": "Bewerben",
       "new": "Neu",
       "manage": "Rollen verwalten →",
-      "bindingReadFailed": "Die Rollenbindung konnte nicht gelesen werden, der Modus wurde nicht geändert"
+      "bindingReadFailed": "Die Rollenbindung konnte nicht gelesen werden, der Modus wurde nicht geändert",
+      "chooseAssistant": "Assistent wählen",
+      "boundModels": "Modelle des Assistenten",
+      "modelUnavailable": "Modell nicht verfügbar; bitte in den Assistenteneinstellungen korrigieren",
+      "legacyModel": "Verwendet das aktuelle Standardmodell"
     },
     "skill": {
       "title": "Fähigkeiten",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "Frage entfernen",
     "searchPlaceholder": "Rollen suchen",
     "systemPrompt": "System-Prompt",
-    "systemPromptPlaceholder": "System-Prompt",
+    "systemPromptPlaceholder": "Systemanweisung der Rolle festlegen (optional)",
     "tags": "Tags",
     "tagsPlaceholder": "Tags, durch Komma getrennt",
     "title": "Rollen",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "Titel darf keine Zeilenumbrüche enthalten",
       "contextBindingsMissing": "Eine an diese Rolle gebundene Wissensdatenbank oder ein Gedächtnis-Notizbuch fehlt",
       "contextBindingsLoadFailed": "Wissensdatenbanken oder Gedächtnis-Notizbücher konnten nicht geladen werden. Bitte später erneut versuchen",
-      "failed": "Validierung fehlgeschlagen: {{detail}}"
-    }
+      "failed": "Validierung fehlgeschlagen: {{detail}}",
+      "modelBindingsInvalid": "Ungültige Modellbindungen; doppelte oder leere Einträge entfernen",
+      "modelBindingsUnavailable": "Ein gebundenes Modell ist nicht verfügbar; bitte in den Rolleneinstellungen korrigieren"
+    },
+    "modelBindings": "Modellkandidaten",
+    "modelBindingsHint": "Wählen Sie wechselbare Chatmodelle; das Standardmodell gilt für neue Gespräche, ohne parallele Aufrufe",
+    "modelBindingsPlaceholder": "Chatmodelle wählen (optional)",
+    "defaultModel": "Standardmodell",
+    "defaultModelLabel": "Standard: {{model}}",
+    "unavailableModel": "Nicht verfügbar: {{model}}"
   },
   "agentPage": {
     "title": "Agenten-Workbench",

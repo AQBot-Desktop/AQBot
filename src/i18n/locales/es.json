@@ -425,7 +425,11 @@
       "apply": "Aplicar",
       "new": "Nuevo",
       "manage": "Administrar roles →",
-      "bindingReadFailed": "No se pudo leer la vinculación del rol, así que no se cambió el modo"
+      "bindingReadFailed": "No se pudo leer la vinculación del rol, así que no se cambió el modo",
+      "chooseAssistant": "Elegir asistente",
+      "boundModels": "Modelos del asistente",
+      "modelUnavailable": "Modelo no disponible; corrígelo en los ajustes del asistente",
+      "legacyModel": "Usa el modelo predeterminado actual"
     },
     "skill": {
       "title": "Habilidades",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "Quitar pregunta",
     "searchPlaceholder": "Buscar roles",
     "systemPrompt": "Indicación del sistema",
-    "systemPromptPlaceholder": "Indicación del sistema",
+    "systemPromptPlaceholder": "Definir las instrucciones del sistema del rol (opcional)",
     "tags": "Etiquetas",
     "tagsPlaceholder": "Etiquetas, separadas por comas",
     "title": "Funciones",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "El título no puede contener saltos de línea",
       "contextBindingsMissing": "Falta una base de conocimiento o un cuaderno de memoria vinculado a este rol",
       "contextBindingsLoadFailed": "No se pudieron cargar las bases de conocimiento o los cuadernos de memoria. Inténtalo más tarde",
-      "failed": "Validación fallida: {{detail}}"
-    }
+      "failed": "Validación fallida: {{detail}}",
+      "modelBindingsInvalid": "Vínculos de modelos no válidos; elimina las entradas duplicadas o vacías",
+      "modelBindingsUnavailable": "Un modelo vinculado no está disponible; corrígelo en los ajustes del rol"
+    },
+    "modelBindings": "Modelos candidatos",
+    "modelBindingsHint": "Elige los modelos de chat disponibles; el predeterminado se usa en nuevas conversaciones, sin llamadas paralelas",
+    "modelBindingsPlaceholder": "Elegir modelos de chat (opcional)",
+    "defaultModel": "Modelo predeterminado",
+    "defaultModelLabel": "Predeterminado: {{model}}",
+    "unavailableModel": "No disponible: {{model}}"
   },
   "agentPage": {
     "title": "Banco de trabajo del agente",

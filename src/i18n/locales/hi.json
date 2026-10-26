@@ -425,7 +425,11 @@
       "apply": "आवेदन करें",
       "new": "नया",
       "manage": "भूमिकाएँ प्रबंधित करें →",
-      "bindingReadFailed": "भूमिका बाइंडिंग पढ़ी नहीं जा सकी, इसलिए मोड नहीं बदला गया"
+      "bindingReadFailed": "भूमिका बाइंडिंग पढ़ी नहीं जा सकी, इसलिए मोड नहीं बदला गया",
+      "chooseAssistant": "सहायक चुनें",
+      "boundModels": "सहायक के मॉडल",
+      "modelUnavailable": "मॉडल अनुपलब्ध है; सहायक सेटिंग में ठीक करें",
+      "legacyModel": "वर्तमान डिफ़ॉल्ट मॉडल का उपयोग करता है"
     },
     "skill": {
       "title": "कौशल",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "प्रश्न हटाएँ",
     "searchPlaceholder": "भूमिकाएँ खोजें",
     "systemPrompt": "सिस्टम प्रॉम्प्ट",
-    "systemPromptPlaceholder": "सिस्टम प्रॉम्प्ट",
+    "systemPromptPlaceholder": "भूमिका का सिस्टम निर्देश लिखें (वैकल्पिक)",
     "tags": "टैग",
     "tagsPlaceholder": "टैग, अल्पविराम से अलग",
     "title": "भूमिकाएँ",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "शीर्षक में पंक्ति विराम नहीं हो सकता",
       "contextBindingsMissing": "इस भूमिका से बंधा ज्ञान आधार या स्मृति नोटबुक मौजूद नहीं है",
       "contextBindingsLoadFailed": "ज्ञान आधार या स्मृति नोटबुक लोड नहीं हो सके, बाद में पुनः प्रयास करें",
-      "failed": "सत्यापन विफल: {{detail}}"
-    }
+      "failed": "सत्यापन विफल: {{detail}}",
+      "modelBindingsInvalid": "मॉडल संबंध अमान्य हैं; दोहराई गई या खाली प्रविष्टियाँ हटाएँ",
+      "modelBindingsUnavailable": "जुड़ा मॉडल अनुपलब्ध है; भूमिका सेटिंग में ठीक करें"
+    },
+    "modelBindings": "वैकल्पिक मॉडल",
+    "modelBindingsHint": "बदलने के लिए चैट मॉडल चुनें; डिफ़ॉल्ट मॉडल नई बातचीत में उपयोग होगा，समानांतर कॉल नहीं होंगी",
+    "modelBindingsPlaceholder": "चैट मॉडल चुनें (वैकल्पिक)",
+    "defaultModel": "डिफ़ॉल्ट मॉडल",
+    "defaultModelLabel": "डिफ़ॉल्ट: {{model}}",
+    "unavailableModel": "अनुपलब्ध: {{model}}"
   },
   "agentPage": {
     "title": "एजेंट कार्यक्षेत्र",

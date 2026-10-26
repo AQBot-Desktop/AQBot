@@ -61,6 +61,8 @@ mod m20260904_000001_add_role_context_bindings;
 mod m20260924_000001_add_model_icon;
 mod m20261021_000001_add_provider_gateway_prefix;
 
+mod m20261026_000001_add_role_model_bindings;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -129,6 +131,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260904_000001_add_role_context_bindings::Migration),
             Box::new(m20260924_000001_add_model_icon::Migration),
             Box::new(m20261021_000001_add_provider_gateway_prefix::Migration),
+            Box::new(m20261026_000001_add_role_model_bindings::Migration),
         ]
     }
 }

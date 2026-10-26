@@ -374,6 +374,7 @@ fn entry_to_create_input(entry: RoleMarketplaceEntry) -> Result<CreateRoleInput,
         .system_prompt
         .ok_or_else(|| format!("Marketplace role '{}' is missing systemPrompt", entry.name))?;
     Ok(CreateRoleInput {
+        model_bindings: Vec::new(),
         name: entry.name,
         description: entry.description,
         system_prompt,

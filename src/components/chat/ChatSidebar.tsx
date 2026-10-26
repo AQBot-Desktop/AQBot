@@ -1,3 +1,4 @@
+import { RoleSwitcherPopover } from './toolbar/RoleSwitcherPopover'
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { Button, Input, App, theme, Tooltip, Checkbox, Dropdown, Empty } from 'antd'
 import { MessageSquarePlus, Search, Archive, ListTodo, Trash2, Pencil, Share, Pin, PinOff, Loader, X, Undo2, ArrowLeft, FileImage, FileCode, FileType, FileText, FolderPlus, FolderOpen, GripVertical, ChevronRight, MessageSquareText, Sparkles } from 'lucide-react'
@@ -1621,6 +1622,7 @@ export function ChatSidebar() {
                   onClick={() => { setEditingCategory(null); setCategoryModalOpen(true) }}
                 />
               </Tooltip>
+              <RoleSwitcherPopover createOnly />
               <Tooltip title={shortcutHint(t('chat.newConversation'), 'newConversation')}>
                 {activeConversationCategory ? (
                   <Dropdown

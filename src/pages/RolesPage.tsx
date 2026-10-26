@@ -38,6 +38,8 @@ import { ModelParamSliders } from '@/components/common/ModelParamSliders';
 import { KnowledgeBaseIcon } from '@/components/shared/KnowledgeBaseIcon';
 import { McpServerIcon } from '@/components/shared/McpServerIcon';
 import { NamespaceIcon } from '@/components/shared/NamespaceIcon';
+import { RoleModelBindingsEditor } from '@/components/roles/RoleModelBindingsEditor';
+import { resolveRoleDefaultModel, validateRoleModelBindings } from '@/lib/roleModels';
 import { OpeningQuestionsEditor } from '@/components/roles/OpeningQuestionsEditor';
 import { applyRoleWithRollback, buildApplyRoleUpdate, roleSkillNames } from '@/lib/applyRole';
 import {
@@ -51,7 +53,7 @@ import {
   normalizeRoleContextIds,
 } from '@/lib/roleContextBindings';
 import { useResolvedAvatarSrc } from '@/hooks/useResolvedAvatarSrc';
-import type { CreateRoleInput, MarketplaceRole, Role, RoleOpeningQuestion, UpdateRoleInput } from '@/types';
+import type { CreateRoleInput, MarketplaceRole, Role, RoleModelBinding, RoleOpeningQuestion, UpdateRoleInput } from '@/types';
 import type { AvatarType } from '@/stores/userProfileStore';
 
 /** Keep modal inside the app window with room for margins; header/footer stay visible. */
@@ -80,6 +82,7 @@ interface RoleDraft {
   name: string;
   description: string;
   systemPrompt: string;
+  modelBindings: RoleModelBinding[];
   openingMessage: string;
   openingQuestions: OpeningQuestionDraft[];
   tags: string[];
@@ -97,6 +100,7 @@ const emptyDraft: RoleDraft = {
   name: '',
   description: '',
   systemPrompt: '',
+  modelBindings: [],
   openingMessage: '',
   openingQuestions: [],
   tags: [],
@@ -117,6 +121,7 @@ function roleToDraft(role: Role): RoleDraft {
     name: role.name,
     description: role.description ?? '',
     systemPrompt: role.system_prompt,
+    modelBindings: role.model_bindings ?? [],
     openingMessage: role.opening_message ?? '',
     openingQuestions: questionsToDraft(role.opening_questions),
     tags: role.tags,
@@ -137,6 +142,7 @@ function draftToCreateInput(draft: RoleDraft): CreateRoleInput {
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     system_prompt: draft.systemPrompt.trim(),
+    model_bindings: draft.modelBindings,
     opening_message: draft.openingMessage.trim() || null,
     opening_questions: draftOpeningQuestions(draft),
     tags: cleanList(draft.tags),
@@ -160,6 +166,7 @@ function draftToUpdateInput(draft: RoleDraft): UpdateRoleInput {
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     system_prompt: draft.systemPrompt.trim(),
+    model_bindings: draft.modelBindings,
     opening_message: draft.openingMessage.trim() || null,
     opening_questions: draftOpeningQuestions(draft),
     tags: cleanList(draft.tags),
@@ -369,7 +376,9 @@ export function RolesPage() {
     );
   }, [query, roles]);
 
-  const pickModel = useCallback(() => {
+  const pickModel = useCallback((role: Role) => {
+    const bound = resolveRoleDefaultModel(role, providers);
+    if (bound) return bound;
     if (settings.default_provider_id && settings.default_model_id) {
       const provider = providers.find((item) => item.id === settings.default_provider_id && item.enabled);
       const model = provider?.models.find((item) => item.model_id === settings.default_model_id && item.enabled);
@@ -409,6 +418,7 @@ export function RolesPage() {
       return;
     }
     try {
+      resolveRoleDefaultModel(role, providers);
       await assertRoleContextBindingsForIds(
         role.enabled_knowledge_base_ids ?? [],
         role.enabled_memory_namespace_ids ?? [],
@@ -416,6 +426,7 @@ export function RolesPage() {
       await applyRoleWithRollback(activeConversation.id, role, async () => {
         await updateConversation(activeConversation.id, buildApplyRoleUpdate(role, {
           currentMode: activeConversation.mode,
+          providers,
         }));
       });
       await ensureRoleSkillsEnabled(role);
@@ -424,10 +435,16 @@ export function RolesPage() {
     } catch (e) {
       messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
     }
-  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, setActivePage, t, updateConversation]);
+  }, [activeConversation, ensureRoleSkillsEnabled, messageApi, providers, setActivePage, t, updateConversation]);
 
   const createConversationWithRole = useCallback(async (role: Role) => {
-    const selection = pickModel();
+    let selection;
+    try {
+      selection = pickModel(role);
+    } catch (error) {
+      messageApi.error(getRoleErrorMessage(error, t));
+      return;
+    }
     if (!selection) {
       messageApi.warning(t('chat.noModelsAvailable'));
       return;
@@ -441,18 +458,20 @@ export function RolesPage() {
       messageApi.error(getRoleErrorMessage(e, t) || t('roles.applyFailed'));
       return;
     }
-    const conversation = await createConversation(role.name, selection.model.model_id, selection.provider.id);
+    let created = false;
     try {
+      const conversation = await createConversation(role.name, selection.model.model_id, selection.provider.id);
+      created = true;
       await applyRoleWithRollback(conversation.id, role, async () => {
-        await updateConversation(conversation.id, buildApplyRoleUpdate(role));
+        await updateConversation(conversation.id, buildApplyRoleUpdate(role, { providers }));
       });
       await ensureRoleSkillsEnabled(role);
       setActiveConversation(conversation.id);
       setActivePage('chat');
-    } catch {
-      messageApi.error(t('roles.applyCreatedButFailed'));
+    } catch (error) {
+      messageApi.error(created ? t('roles.applyCreatedButFailed') : getRoleErrorMessage(error, t));
     }
-  }, [createConversation, ensureRoleSkillsEnabled, messageApi, pickModel, setActiveConversation, setActivePage, t, updateConversation]);
+  }, [createConversation, ensureRoleSkillsEnabled, messageApi, pickModel, providers, setActiveConversation, setActivePage, t, updateConversation]);
 
   const useRole = useCallback((role: Role) => {
     void createConversationWithRole(role);
@@ -559,6 +578,7 @@ export function RolesPage() {
 
     setSaving(true);
     try {
+      validateRoleModelBindings(draft.modelBindings, providers);
       await assertRoleContextBindingsForIds(
         draft.enabledKnowledgeBaseIds,
         draft.enabledMemoryNamespaceIds,
@@ -578,7 +598,7 @@ export function RolesPage() {
     } finally {
       setSaving(false);
     }
-  }, [createRole, draft, editingRole, messageApi, t, updateRole]);
+  }, [createRole, draft, editingRole, messageApi, providers, t, updateRole]);
 
   const handleDeleteRole = useCallback(async (roleId: string) => {
     try {
@@ -633,6 +653,16 @@ export function RolesPage() {
           <Space size={8} wrap>
             <Text strong>{role.name}</Text>
             {role.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}
+            {(role.model_bindings ?? []).map((binding, index) => {
+              const provider = providers.find((item) => item.id === binding.provider_id);
+              const model = provider?.models.find((item) => item.model_id === binding.model_id);
+              const label = `${provider?.name || binding.provider_id} / ${model?.name || binding.model_id}`;
+              return (
+                <Tag key={JSON.stringify(binding)} style={{ maxWidth: '100%', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
+                  {index === 0 ? t('roles.defaultModelLabel', { model: label }) : label}
+                </Tag>
+              );
+            })}
           </Space>
           {role.description ? (
             <Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ margin: '4px 0 0', fontSize: 13 }}>
@@ -901,7 +931,6 @@ export function RolesPage() {
 
           <Form.Item
             label={t('roles.systemPrompt')}
-            required
             validateStatus={fieldErrors.systemPrompt ? 'error' : undefined}
             help={fieldErrors.systemPrompt}
           >
@@ -974,6 +1003,12 @@ export function RolesPage() {
               />
             </Space>
           </Form.Item>
+
+          <RoleModelBindingsEditor
+            bindings={draft.modelBindings}
+            providers={providers}
+            onChange={(modelBindings) => setDraft((s) => ({ ...s, modelBindings }))}
+          />
 
           <Form.Item label={t('roles.modelParams')}>
             <ModelParamSliders

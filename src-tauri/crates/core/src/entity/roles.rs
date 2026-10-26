@@ -9,6 +9,7 @@ pub struct Model {
     pub name: String,
     pub description: Option<String>,
     pub system_prompt: String,
+    pub model_bindings_json: String,
     pub opening_message: Option<String>,
     pub opening_questions_json: String,
     pub opening_questions_v2_json: Option<String>,

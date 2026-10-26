@@ -1244,6 +1244,7 @@ where
         let opening_questions = crate::repo::opening_questions::OpeningQuestionColumns::empty();
 
         roles::ActiveModel {
+            model_bindings_json: Set("[]".to_string()),
             id: Set(gen_id()),
             name: Set(name),
             description: Set(description),

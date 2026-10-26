@@ -1335,7 +1335,13 @@ export interface RoleOpeningQuestion {
   content: string;
 }
 
+export interface RoleModelBinding {
+  provider_id: string;
+  model_id: string;
+}
+
 export interface Role {
+  model_bindings?: RoleModelBinding[];
   id: string;
   name: string;
   description: string | null;
@@ -1359,6 +1365,7 @@ export interface Role {
 }
 
 export interface CreateRoleInput {
+  model_bindings?: RoleModelBinding[];
   name: string;
   description?: string | null;
   system_prompt: string;
@@ -1379,6 +1386,7 @@ export interface CreateRoleInput {
 }
 
 export interface UpdateRoleInput {
+  model_bindings?: RoleModelBinding[];
   name?: string;
   description?: string | null;
   system_prompt?: string;

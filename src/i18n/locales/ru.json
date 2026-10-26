@@ -425,7 +425,11 @@
       "apply": "Применить",
       "new": "Новое",
       "manage": "Управление ролями →",
-      "bindingReadFailed": "Не удалось прочитать привязку роли, режим не изменён"
+      "bindingReadFailed": "Не удалось прочитать привязку роли, режим не изменён",
+      "chooseAssistant": "Выбрать помощника",
+      "boundModels": "Модели помощника",
+      "modelUnavailable": "Модель недоступна; исправьте её в настройках помощника",
+      "legacyModel": "Использует текущую модель по умолчанию"
     },
     "skill": {
       "title": "Навыки",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "Удалить вопрос",
     "searchPlaceholder": "Поиск ролей",
     "systemPrompt": "Системный промпт",
-    "systemPromptPlaceholder": "Системный промпт",
+    "systemPromptPlaceholder": "Задайте системную инструкцию роли (необязательно)",
     "tags": "Теги",
     "tagsPlaceholder": "Теги через запятую",
     "title": "Роли",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "Заголовок не может содержать переносы строк",
       "contextBindingsMissing": "Привязанная к этой роли база знаний или блокнот памяти отсутствует",
       "contextBindingsLoadFailed": "Не удалось загрузить базы знаний или блокноты памяти. Повторите попытку позже",
-      "failed": "Проверка не удалась: {{detail}}"
-    }
+      "failed": "Проверка не удалась: {{detail}}",
+      "modelBindingsInvalid": "Некорректные привязки моделей; удалите повторы и пустые записи",
+      "modelBindingsUnavailable": "Привязанная модель недоступна; исправьте её в настройках роли"
+    },
+    "modelBindings": "Модели на выбор",
+    "modelBindingsHint": "Выберите модели чата для переключения; модель по умолчанию используется в новых беседах без параллельных вызовов",
+    "modelBindingsPlaceholder": "Выбрать модели чата (необязательно)",
+    "defaultModel": "Модель по умолчанию",
+    "defaultModelLabel": "По умолчанию: {{model}}",
+    "unavailableModel": "Недоступна: {{model}}"
   },
   "agentPage": {
     "title": "Рабочая среда агента",

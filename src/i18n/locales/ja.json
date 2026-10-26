@@ -425,7 +425,11 @@
       "apply": "申し込む",
       "new": "新しい",
       "manage": "ロールの管理 →",
-      "bindingReadFailed": "ロールの割り当てを読み取れなかったため、モードは変更されませんでした"
+      "bindingReadFailed": "ロールの割り当てを読み取れなかったため、モードは変更されませんでした",
+      "chooseAssistant": "アシスタントを選択",
+      "boundModels": "アシスタントのモデル",
+      "modelUnavailable": "モデルを利用できません，アシスタント設定で修正してください",
+      "legacyModel": "現在の既定モデルを使用"
     },
     "skill": {
       "title": "スキル",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "質問を削除",
     "searchPlaceholder": "ロールを検索",
     "systemPrompt": "システムプロンプト",
-    "systemPromptPlaceholder": "システムプロンプト",
+    "systemPromptPlaceholder": "ロールのシステムプロンプトを設定（任意）",
     "tags": "タグ",
     "tagsPlaceholder": "タグ（カンマ区切り）",
     "title": "ロール",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "タイトルに改行は使えません",
       "contextBindingsMissing": "このロールに紐づいたナレッジベースまたはメモリノートが見つかりません",
       "contextBindingsLoadFailed": "ナレッジベースまたはメモリノートを読み込めませんでした。しばらくして再試行してください",
-      "failed": "検証に失敗しました: {{detail}}"
-    }
+      "failed": "検証に失敗しました: {{detail}}",
+      "modelBindingsInvalid": "モデルの関連付けが無効です，重複または空の項目を削除してください",
+      "modelBindingsUnavailable": "関連付けたモデルは利用できません，ロール設定で修正してください"
+    },
+    "modelBindings": "候補モデル",
+    "modelBindingsHint": "切り替え可能なチャットモデルを選択します，既定モデルは新しい会話に使用され，並列呼び出しは行いません",
+    "modelBindingsPlaceholder": "チャットモデルを選択（任意）",
+    "defaultModel": "既定のモデル",
+    "defaultModelLabel": "既定：{{model}}",
+    "unavailableModel": "利用不可：{{model}}"
   },
   "agentPage": {
     "title": "エージェントワークベンチ",

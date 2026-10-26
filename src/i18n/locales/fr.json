@@ -425,7 +425,11 @@
       "apply": "Appliquer",
       "new": "Nouveau",
       "manage": "Gérer les rôles →",
-      "bindingReadFailed": "Impossible de lire l’association de rôle, le mode n’a pas été modifié"
+      "bindingReadFailed": "Impossible de lire l’association de rôle, le mode n’a pas été modifié",
+      "chooseAssistant": "Choisir un assistant",
+      "boundModels": "Modèles de l’assistant",
+      "modelUnavailable": "Modèle indisponible ; corrigez-le dans les paramètres de l’assistant",
+      "legacyModel": "Utilise le modèle par défaut actuel"
     },
     "skill": {
       "title": "Compétences",
@@ -2599,7 +2603,7 @@
     "removeOpeningQuestion": "Supprimer la question",
     "searchPlaceholder": "Rechercher des rôles",
     "systemPrompt": "Invite système",
-    "systemPromptPlaceholder": "Invite système",
+    "systemPromptPlaceholder": "Définir les instructions système du rôle (facultatif)",
     "tags": "Étiquettes",
     "tagsPlaceholder": "Étiquettes, séparées par des virgules",
     "title": "Rôles",
@@ -2640,8 +2644,16 @@
       "openingQuestionTitleHasNewline": "Le titre ne peut pas contenir de retours à la ligne",
       "contextBindingsMissing": "Une base de connaissances ou un carnet de mémoire lié à ce rôle est introuvable",
       "contextBindingsLoadFailed": "Impossible de charger les bases de connaissances ou les carnets de mémoire. Réessayez plus tard",
-      "failed": "Échec de la validation : {{detail}}"
-    }
+      "failed": "Échec de la validation : {{detail}}",
+      "modelBindingsInvalid": "Liaisons de modèles invalides ; supprimez les doublons ou les entrées vides",
+      "modelBindingsUnavailable": "Un modèle lié est indisponible ; corrigez-le dans les paramètres du rôle"
+    },
+    "modelBindings": "Modèles proposés",
+    "modelBindingsHint": "Choisissez les modèles de discussion disponibles ; le modèle par défaut sert aux nouvelles conversations, sans appels parallèles",
+    "modelBindingsPlaceholder": "Choisir les modèles de discussion (facultatif)",
+    "defaultModel": "Modèle par défaut",
+    "defaultModelLabel": "Par défaut : {{model}}",
+    "unavailableModel": "Indisponible : {{model}}"
   },
   "agentPage": {
     "title": "Poste de travail des agents",

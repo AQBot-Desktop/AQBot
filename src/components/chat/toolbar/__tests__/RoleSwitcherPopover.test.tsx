@@ -132,7 +132,7 @@ vi.mock('@/stores', () => ({
         {
           id: 'provider-1',
           enabled: true,
-          models: [{ model_id: 'model-1', enabled: true }],
+          models: [{ model_id: 'model-1', name: 'Global', model_type: 'Chat', enabled: true }, { model_id: 'bound', name: 'Bound model', model_type: 'Chat', enabled: true }],
         },
       ],
     };
@@ -229,6 +229,31 @@ describe('RoleSwitcherPopover', () => {
     ];
     storeState.archivedConversations = [];
     storeState.skills = [];
+  });
+
+  it('creates from the accessible assistant chooser with the preset default', async () => {
+    storeState.roles = [{ ...role, model_bindings: [{ provider_id: 'provider-1', model_id: 'bound' }] }];
+    mocks.createConversation.mockResolvedValue({ id: 'new-conv' });
+    const user = userEvent.setup();
+    render(<App><RoleSwitcherPopover createOnly /></App>);
+    await user.click(screen.getByRole('button', { name: 'chat.role.chooseAssistant' }));
+    expect(await screen.findByText(/Bound model/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '应用' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: `新建会话并使用: ${role.name}` }));
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalledWith(role.name, 'bound', 'provider-1'));
+    expect(mocks.updateConversation).toHaveBeenCalledWith('new-conv', roleApplyPayload({
+      provider_id: 'provider-1', model_id: 'bound', multi_model_targets: [],
+    }));
+  });
+
+  it('keeps invalid explicit defaults visible and prevents chat creation', async () => {
+    storeState.roles = [{ ...role, model_bindings: [{ provider_id: 'missing', model_id: 'bound' }] }];
+    const user = await openSwitcher();
+    expect(await screen.findByText('chat.role.modelUnavailable')).toBeInTheDocument();
+    const create = screen.getByRole('button', { name: '新建' });
+    expect(create).toBeDisabled();
+    await user.click(create);
+    expect(mocks.createConversation).not.toHaveBeenCalled();
   });
 
   it('keeps Agent mode when applying a role to the active Agent conversation', async () => {

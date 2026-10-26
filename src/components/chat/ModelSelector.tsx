@@ -9,6 +9,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { getVisibleModelCapabilities } from '@/lib/modelCapabilities';
 import { sortModelsByVersionDesc } from '@/lib/modelVersionSort';
 import type { ModelCapability, Model } from '@/types';
+import { RoleModelCandidates } from './RoleModelCandidates';
 import { ConversationModelIcon } from './ConversationModelIcon';
 import { usePageSuspendCleanup } from '@/components/layout/PageLifecycle';
 
@@ -546,6 +547,24 @@ export function ModelSelector({ style, onSelect, overrideCurrentModel, children,
             </span>
           </Tooltip>
         </div>
+
+        {open && activeConversationId && !multiSelect && !onSelect && (
+          <RoleModelCandidates
+            key={`${activeConversationId}:${activeConversation?.updated_at}`}
+            conversationId={activeConversationId}
+            providers={providers}
+            currentModel={{ providerId: activeConversation?.provider_id ?? '', modelId: activeConversation?.model_id ?? '' }}
+            onSelect={async (providerId, modelId) => {
+              await updateConversation(activeConversationId, {
+                provider_id: providerId,
+                model_id: modelId,
+                multi_model_targets: [],
+              });
+              setOpen(false);
+              setSearch('');
+            }}
+          />
+        )}
 
         {/* Virtualized model list */}
         <div

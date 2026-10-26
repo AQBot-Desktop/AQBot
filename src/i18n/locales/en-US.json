@@ -442,7 +442,11 @@
       "apply": "Apply",
       "new": "New",
       "manage": "Manage roles →",
-      "bindingReadFailed": "Could not read the role binding, so the mode was not changed"
+      "bindingReadFailed": "Could not read the role binding, so the mode was not changed",
+      "chooseAssistant": "Choose assistant",
+      "boundModels": "Assistant models",
+      "modelUnavailable": "Model unavailable; repair it in assistant settings",
+      "legacyModel": "Uses the current default model"
     },
     "skill": {
       "title": "Skills",
@@ -2403,7 +2407,7 @@
     "namePlaceholder": "Enter a role name",
     "avatarPlaceholder": "Avatar (emoji or URL)",
     "descriptionPlaceholder": "Briefly describe what this role is for",
-    "systemPromptPlaceholder": "Define the system prompt for this role (required)",
+    "systemPromptPlaceholder": "Define the role’s system prompt (optional)",
     "openingMessagePlaceholder": "Opening message shown when starting a chat (optional)",
     "openingQuestionsPlaceholder": "Opening questions, one per line",
     "openingQuestionPlaceholder": "Enter an opening question",
@@ -2449,8 +2453,16 @@
       "openingQuestionTitleHasNewline": "Title cannot contain line breaks",
       "contextBindingsMissing": "A knowledge base or memory notebook bound to this role is missing",
       "contextBindingsLoadFailed": "Could not load knowledge bases or memory notebooks. Please try again later",
-      "failed": "Validation failed: {{detail}}"
-    }
+      "failed": "Validation failed: {{detail}}",
+      "modelBindingsInvalid": "Invalid model bindings; remove duplicate or empty entries",
+      "modelBindingsUnavailable": "A bound model is unavailable; repair it in role settings"
+    },
+    "modelBindings": "Model candidates",
+    "modelBindingsHint": "Choose chat models to switch between; the default is used for new conversations, without parallel calls",
+    "modelBindingsPlaceholder": "Choose chat models (optional)",
+    "defaultModel": "Default model",
+    "defaultModelLabel": "Default: {{model}}",
+    "unavailableModel": "Unavailable: {{model}}"
   },
   "agent": {
     "askUserPlaceholder": "Type your answer...",
