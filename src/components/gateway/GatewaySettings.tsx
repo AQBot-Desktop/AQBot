@@ -32,7 +32,7 @@ export function GatewaySettings() {
 
   const handleSave = async (partial: Parameters<typeof saveSettings>[0]) => {
     try {
-      await saveSettings(partial);
+      await saveSettings(partial, { throwOnError: true });
     } catch (e) {
       message.error(String(e));
     }

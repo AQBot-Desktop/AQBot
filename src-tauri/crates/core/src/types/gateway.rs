@@ -10,6 +10,7 @@ pub struct GatewayCertResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayStatus {
+    pub last_start_error: Option<String>,
     pub is_running: bool,
     pub listen_address: String,
     pub port: u16,

@@ -28,7 +28,7 @@ pub struct AppState {
     pub sea_db: DatabaseConnection,
     pub master_key: [u8; 32],
     pub mcp_stdio_clients: Arc<aqbot_core::mcp_client::StdioClientManager>,
-    pub gateway: Arc<Mutex<Option<aqbot_gateway::server::GatewayServer>>>,
+    pub(crate) gateway: Arc<Mutex<gateway_runtime::GatewayRuntime>>,
     pub close_to_tray: Arc<AtomicBool>,
     pub release_webview_on_tray: Arc<AtomicBool>,
     pub main_window_released_to_tray: Arc<AtomicBool>,
@@ -68,6 +68,7 @@ mod conversation_popout;
 mod conversation_run;
 mod crash_diagnostics;
 mod diagnostic_log;
+mod gateway_runtime;
 mod diagnostics;
 mod embedding_runtime;
 mod indexing;
@@ -945,7 +946,7 @@ pub fn run() {
                 mcp_stdio_clients: Arc::new(
                     aqbot_core::mcp_client::StdioClientManager::new(),
                 ),
-                gateway: Arc::new(Mutex::new(None)),
+                gateway: Arc::new(Mutex::new(gateway_runtime::GatewayRuntime::default())),
                 close_to_tray: Arc::new(AtomicBool::new(app_settings.minimize_to_tray)),
                 release_webview_on_tray: Arc::new(AtomicBool::new(app_settings.release_webview_on_tray)),
                 main_window_released_to_tray: Arc::new(AtomicBool::new(false)),
@@ -977,6 +978,15 @@ pub fn run() {
                 tray_available: Arc::new(AtomicBool::new(false)),
                 model_test_registry: Arc::new(Mutex::new(commands::model_test::ModelTestRegistry::default())),
             });
+
+            {
+                let state = app.state::<AppState>();
+                gateway_runtime::schedule_auto_start(
+                    state.sea_db.clone(),
+                    state.master_key,
+                    state.gateway.clone(),
+                );
+            }
 
             {
                 let toolbar = app.state::<AppState>().selection_toolbar.clone();

@@ -17,7 +17,7 @@ mod tests {
             sea_db: db,
             master_key: [0; 32],
             mcp_stdio_clients: Arc::new(aqbot_core::mcp_client::StdioClientManager::new()),
-            gateway: Arc::new(Mutex::new(None)),
+            gateway: Arc::new(Mutex::new(crate::gateway_runtime::GatewayRuntime::default())),
             close_to_tray: Arc::new(AtomicBool::new(false)),
             release_webview_on_tray: Arc::new(AtomicBool::new(false)),
             main_window_released_to_tray: Arc::new(AtomicBool::new(false)),

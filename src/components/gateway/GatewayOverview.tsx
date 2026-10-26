@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Tag, Statistic, Row, Col, Empty, Table, theme, message } from 'antd';
+import { Alert, Button, Card, Tag, Statistic, Row, Col, Empty, Table, theme, message } from 'antd';
 import { PlayCircle, Power, Router, ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
 import { useGatewayStore } from '@/stores/gatewayStore';
 import type { GatewayRequestLog } from '@/types';
@@ -181,6 +181,14 @@ export function GatewayOverview({ onViewMoreLogs }: GatewayOverviewProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {status.last_start_error && (
+        <Alert
+          type="error"
+          showIcon
+          message={t('error.gatewayStartFailed')}
+          description={status.last_start_error}
+        />
+      )}
       {/* Server Status */}
       <Card size="small">
         <div className="flex items-center justify-between">

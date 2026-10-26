@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { message } from 'antd';
 import { GatewayOverview } from '../GatewayOverview';
+import type { GatewayStatus } from '@/types';
 
-let status = {
+let status: GatewayStatus = {
   is_running: false,
   listen_address: '127.0.0.1',
   port: 8000,
@@ -12,6 +13,7 @@ let status = {
   started_at: null,
   https_port: 8443,
   force_ssl: false,
+  last_start_error: null,
 };
 const startGateway = vi.fn();
 const stopGateway = vi.fn();
@@ -58,6 +60,7 @@ describe('GatewayOverview', () => {
       started_at: null,
       https_port: 8443,
       force_ssl: false,
+      last_start_error: null,
     };
     metrics = null;
     requestLogs = [];
@@ -74,6 +77,25 @@ describe('GatewayOverview', () => {
         dispatchEvent: vi.fn(),
       })),
     });
+  });
+
+  it('keeps a queried startup failure visible after returning and clears it after recovery', () => {
+    status.last_start_error = 'Address already in use';
+    const firstVisit = render(<GatewayOverview />);
+    expect(screen.getByRole('alert')).toHaveTextContent('error.gatewayStartFailed');
+    expect(screen.getByRole('alert')).toHaveTextContent('Address already in use');
+    expect(ensureStatusLoaded).toHaveBeenCalledWith({ maxAgeMs: 5_000 });
+    expect(startGateway).not.toHaveBeenCalled();
+    firstVisit.unmount();
+
+    const secondVisit = render(<GatewayOverview />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Address already in use');
+    status = { ...status, is_running: true, last_start_error: null };
+    secondVisit.rerender(<GatewayOverview />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    status = { ...status, is_running: false };
+    secondVisit.rerender(<GatewayOverview />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('shows an error message when starting the gateway fails', async () => {

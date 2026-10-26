@@ -658,6 +658,7 @@ export interface UpdateConversationInput {
 
 // === Gateway System ===
 export interface GatewayStatus {
+  last_start_error: string | null;
   is_running: boolean;
   listen_address: string;
   port: number;

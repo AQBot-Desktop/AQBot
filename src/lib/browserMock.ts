@@ -1862,6 +1862,7 @@ export async function handleCommand<T>(cmd: string, args?: Record<string, unknow
         started_at: null,
         https_port: null,
         force_ssl: false,
+        last_start_error: null,
       } as T;
     case 'get_connected_programs':
       return [] as T;

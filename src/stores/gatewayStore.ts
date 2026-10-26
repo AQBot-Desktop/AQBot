@@ -115,6 +115,7 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
     started_at: null,
     https_port: null,
     force_ssl: false,
+    last_start_error: null,
   },
   keys: [],
   metrics: null,

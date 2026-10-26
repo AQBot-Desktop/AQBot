@@ -1,17 +1,8 @@
+use crate::gateway_runtime::load_gateway_runtime_settings;
 use crate::AppState;
 use aqbot_core::repo::cli_config::CliTool;
 use aqbot_core::types::*;
 use tauri::State;
-
-struct GatewayRuntimeSettings {
-    listen_address: String,
-    port: u16,
-    ssl_port: u16,
-    ssl_enabled: bool,
-    ssl_cert_path: Option<String>,
-    ssl_key_path: Option<String>,
-    force_ssl: bool,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QuickConnectProtocol {
@@ -46,42 +37,6 @@ struct GatewayUrlOptions {
 struct CliToolConnectionState {
     status: &'static str,
     connected_protocol: Option<QuickConnectProtocol>,
-}
-
-async fn load_gateway_runtime_settings(state: &AppState) -> Result<GatewayRuntimeSettings, String> {
-    let settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(GatewayRuntimeSettings {
-        listen_address: settings.gateway_listen_address,
-        port: settings.gateway_port,
-        ssl_port: settings.gateway_ssl_port,
-        ssl_enabled: settings.gateway_ssl_enabled,
-        ssl_cert_path: aqbot_core::path_vars::decode_path_opt(&settings.gateway_ssl_cert_path),
-        ssl_key_path: aqbot_core::path_vars::decode_path_opt(&settings.gateway_ssl_key_path),
-        force_ssl: settings.gateway_force_ssl,
-    })
-}
-
-/// Validates SSL settings before starting; returns an error message if invalid.
-fn validate_ssl_settings(s: &GatewayRuntimeSettings) -> Result<(), String> {
-    if !s.ssl_enabled {
-        return Ok(());
-    }
-    if s.ssl_cert_path.as_deref().unwrap_or("").trim().is_empty() {
-        return Err("SSL is enabled but no certificate file is configured".to_string());
-    }
-    if s.ssl_key_path.as_deref().unwrap_or("").trim().is_empty() {
-        return Err("SSL is enabled but no private key file is configured".to_string());
-    }
-    if s.port == s.ssl_port {
-        return Err(format!(
-            "HTTP port ({}) and HTTPS port ({}) must be different",
-            s.port, s.ssl_port
-        ));
-    }
-    Ok(())
 }
 
 fn gateway_client_host(listen_address: &str) -> String {
@@ -291,7 +246,7 @@ where
 
     let live_ports: Option<LivePorts> = {
         let gw = state.gateway.lock().await;
-        gw.as_ref().filter(|s| s.is_running()).map(|s| LivePorts {
+        gw.server.as_ref().filter(|s| s.is_running()).map(|s| LivePorts {
             http_port: s.http_addr().port(),
             https_port: s.https_addr().map(|a| a.port()),
             force_ssl: s.force_ssl(),
@@ -299,7 +254,7 @@ where
         // MutexGuard dropped here
     };
 
-    let settings = load_gateway_runtime_settings(state).await?;
+    let settings = load_gateway_runtime_settings(&state.sea_db).await?;
 
     match live_ports {
         Some(info) => build(
@@ -478,116 +433,22 @@ pub async fn get_gateway_metrics(state: State<'_, AppState>) -> Result<GatewayMe
 
 #[tauri::command]
 pub async fn start_gateway(state: State<'_, AppState>) -> Result<(), String> {
-    {
-        let gw = state.gateway.lock().await;
-        if gw.as_ref().map_or(false, |s| s.is_running()) {
-            return Err("Gateway is already running".to_string());
-        }
-    }
-
-    let settings = load_gateway_runtime_settings(&state).await?;
-    validate_ssl_settings(&settings)?;
-
-    let mut gw = state.gateway.lock().await;
-    if gw.as_ref().map_or(false, |s| s.is_running()) {
-        return Err("Gateway is already running".to_string());
-    }
-    // Drop any stale stopped server before storing the new one.
-    if gw.is_some() {
-        *gw = None;
-    }
-
-    let ssl_config = if settings.ssl_enabled {
-        // cert/key paths are validated non-empty by validate_ssl_settings above.
-        Some(aqbot_gateway::server::GatewaySslConfig {
-            ssl_port: settings.ssl_port,
-            tls: aqbot_gateway::server::GatewayTlsConfig {
-                cert_path: settings.ssl_cert_path.unwrap_or_default(),
-                key_path: settings.ssl_key_path.unwrap_or_default(),
-            },
-        })
-    } else {
-        None
-    };
-
-    let start_config = aqbot_gateway::server::GatewayStartConfig {
-        listen_address: settings.listen_address,
-        http_port: settings.port,
-        ssl: ssl_config,
-        force_ssl: settings.force_ssl,
-    };
-
-    let server = aqbot_gateway::server::GatewayServer::start(
-        state.sea_db.clone(),
-        state.master_key,
-        start_config,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    *gw = Some(server);
-    Ok(())
+    state
+        .gateway
+        .lock()
+        .await
+        .start(&state.sea_db, state.master_key)
+        .await
 }
 
 #[tauri::command]
 pub async fn stop_gateway(state: State<'_, AppState>) -> Result<(), String> {
-    let mut gw = state.gateway.lock().await;
-    if let Some(mut server) = gw.take() {
-        server.stop().await.map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    state.gateway.lock().await.stop().await
 }
 
 #[tauri::command]
 pub async fn get_gateway_status(state: State<'_, AppState>) -> Result<GatewayStatus, String> {
-    // Extract live addresses while holding the lock, then drop it before the
-    // async settings fetch.
-    struct LiveInfo {
-        http_port: u16,
-        https_port: Option<u16>,
-        listen_ip: String,
-        force_ssl: bool,
-        started_at: i64,
-    }
-    let live: Option<LiveInfo> = {
-        let gw = state.gateway.lock().await;
-        gw.as_ref().filter(|s| s.is_running()).map(|s| LiveInfo {
-            http_port: s.http_addr().port(),
-            https_port: s.https_addr().map(|a| a.port()),
-            listen_ip: s.http_addr().ip().to_string(),
-            force_ssl: s.force_ssl(),
-            started_at: s.started_at(),
-        })
-        // MutexGuard dropped here
-    };
-
-    if let Some(info) = live {
-        Ok(GatewayStatus {
-            is_running: true,
-            listen_address: info.listen_ip,
-            port: info.http_port,
-            ssl_enabled: info.https_port.is_some(),
-            started_at: Some(info.started_at),
-            https_port: info.https_port,
-            force_ssl: info.force_ssl,
-        })
-    } else {
-        // Fall back to DB settings when the server is stopped.
-        let settings = load_gateway_runtime_settings(&state).await?;
-        Ok(GatewayStatus {
-            is_running: false,
-            listen_address: settings.listen_address,
-            port: settings.port,
-            ssl_enabled: settings.ssl_enabled,
-            started_at: None,
-            https_port: if settings.ssl_enabled {
-                Some(settings.ssl_port)
-            } else {
-                None
-            },
-            force_ssl: settings.force_ssl,
-        })
-    }
+    state.gateway.lock().await.status(&state.sea_db).await
 }
 
 #[tauri::command]
@@ -773,7 +634,7 @@ pub async fn generate_self_signed_cert(
     let cert_dir = state.app_data_dir.join("ssl");
     std::fs::create_dir_all(&cert_dir).map_err(|e| e.to_string())?;
 
-    let settings = load_gateway_runtime_settings(&state).await?;
+    let settings = load_gateway_runtime_settings(&state.sea_db).await?;
     let key_pair = KeyPair::generate().map_err(|e| e.to_string())?;
     let mut subject_alt_names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
     let listen_address = settings.listen_address.trim();

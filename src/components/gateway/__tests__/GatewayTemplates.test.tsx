@@ -52,6 +52,7 @@ function buildStoreState(overrides: Record<string, unknown> = {}) {
       started_at: null,
       https_port: 8443,
       force_ssl: false,
+      last_start_error: null,
     },
     cliTools: [
       {
@@ -247,6 +248,7 @@ describe('GatewayTemplates', () => {
         started_at: null,
         https_port: null,
         force_ssl: false,
+        last_start_error: null,
       },
       cliTools: [
         {
@@ -286,6 +288,7 @@ describe('GatewayTemplates', () => {
         started_at: null,
         https_port: 8443,
         force_ssl: true,
+        last_start_error: null,
       },
     });
 
@@ -391,6 +394,7 @@ describe('GatewayTemplates', () => {
         started_at: null,
         https_port: 8443,
         force_ssl: false,
+        last_start_error: null,
       },
     });
 

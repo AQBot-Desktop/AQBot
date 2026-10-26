@@ -344,6 +344,7 @@ describe('light module resource loading', () => {
       started_at: null,
       https_port: null,
       force_ssl: false,
+      last_start_error: null,
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_gateway_status') return Promise.resolve(status);
@@ -363,6 +364,28 @@ describe('light module resource loading', () => {
       'list_gateway_keys',
       'get_gateway_status',
     ]);
+  });
+
+  it('retains a queried startup failure across cached visits and polls until recovery', async () => {
+    const { useGatewayStore } = await import('../gatewayStore');
+    const failedStatus = {
+      ...useGatewayStore.getState().status,
+      last_start_error: 'Address already in use',
+    };
+    invokeMock.mockResolvedValue(failedStatus);
+    await useGatewayStore.getState().ensureStatusLoaded({ maxAgeMs: 5_000 });
+    expect(useGatewayStore.getState().status.last_start_error).toBe('Address already in use');
+    await useGatewayStore.getState().ensureStatusLoaded({ maxAgeMs: 5_000 });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    await useGatewayStore.getState().fetchStatus();
+    expect(useGatewayStore.getState().status.last_start_error).toBe('Address already in use');
+
+    invokeMock.mockResolvedValue({ ...failedStatus, is_running: true, last_start_error: null });
+    await useGatewayStore.getState().fetchStatus();
+    expect(useGatewayStore.getState().status.last_start_error).toBeNull();
+    invokeMock.mockResolvedValue({ ...failedStatus, last_start_error: null });
+    await useGatewayStore.getState().fetchStatus();
+    expect(useGatewayStore.getState().status.last_start_error).toBeNull();
   });
 
   it('reloads every gateway resource invalidated while an older request is in flight', async () => {
