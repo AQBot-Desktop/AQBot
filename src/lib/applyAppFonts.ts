@@ -8,6 +8,7 @@ import {
   normalizeFontStyle,
   type SystemFontFace,
 } from '@/lib/systemFonts';
+import type { FontSmoothing } from '@/types';
 
 const UI_FONT_FACE_STYLE_ID = 'aqbot-ui-font-faces';
 const CHAT_FONT_FACE_STYLE_ID = 'aqbot-chat-font-faces';
@@ -16,6 +17,7 @@ export interface ApplyAppFontsInput {
   fontFamily: string;
   fontWeight: number;
   fontStyle?: string;
+  fontSmoothing?: FontSmoothing;
   fontFaces?: SystemFontFace[];
   codeFontFamily: string;
   chatFontFamily: string;
@@ -48,6 +50,13 @@ export function applyAppFonts(input: ApplyAppFontsInput) {
 
   root.style.setProperty('--font-weight', String(input.fontWeight));
   root.style.setProperty('--font-style', fontStyle);
+  // Driven via a data attribute (same mechanism as `data-theme`) so the actual
+  // -webkit-font-smoothing rules live in index.css and stay testable in jsdom.
+  if (input.fontSmoothing === 'antialiased') {
+    root.dataset.fontSmoothing = 'antialiased';
+  } else {
+    delete root.dataset.fontSmoothing;
+  }
   if (input.fontFamily) {
     root.style.setProperty('--font-family', cssFontStack(input.fontFamily, DEFAULT_UI_FONT_FALLBACK));
   } else {

@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMemo } from 'react';
 import { useSettingsStore } from '@/stores';
-import type { SettingsSidebarDensity, TitlebarIconId, TitlebarToggleableIconId } from '@/types';
+import type { FontSmoothing, SettingsSidebarDensity, TitlebarIconId, TitlebarToggleableIconId } from '@/types';
 import { SHIKI_LIGHT_THEMES, SHIKI_DARK_THEMES, formatThemeName } from '@/constants/codeThemes';
 import {
   TITLEBAR_ICON_IDS,
@@ -258,6 +258,30 @@ export function DisplaySettings() {
             })}
             familyAriaLabel={t('settings.fontFamily')}
             styleAriaLabel={t('settings.fontStyle')}
+          />
+        </div>
+        <Divider style={{ margin: '4px 0' }} />
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <span id="settings-font-smoothing-label">
+              {t('settings.fontSmoothing')}
+            </span>
+            <div
+              id="settings-font-smoothing-description"
+              style={{ color: token.colorTextDescription, fontSize: token.fontSizeSM, marginTop: 2 }}
+            >
+              {t('settings.fontSmoothingDesc')}
+            </div>
+          </div>
+          <Segmented
+            aria-labelledby="settings-font-smoothing-label"
+            aria-describedby="settings-font-smoothing-description"
+            value={settings.font_smoothing}
+            onChange={(val) => saveSettings({ font_smoothing: val as FontSmoothing })}
+            options={[
+              { label: t('settings.fontSmoothingAuto'), value: 'auto' },
+              { label: t('settings.fontSmoothingAntialiased'), value: 'antialiased' },
+            ]}
           />
         </div>
         <Divider style={{ margin: '4px 0' }} />

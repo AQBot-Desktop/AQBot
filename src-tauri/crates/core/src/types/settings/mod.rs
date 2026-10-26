@@ -600,6 +600,17 @@ pub enum SettingsSidebarDensity {
     Spacious,
 }
 
+/// Text rendering mode. `Auto` keeps the platform default; `Antialiased`
+/// forces grayscale antialiasing (`-webkit-font-smoothing: antialiased`),
+/// which renders thinner, sharper glyphs — most noticeable on macOS Retina.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FontSmoothing {
+    #[default]
+    Auto,
+    Antialiased,
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TrayIconStyle {
@@ -644,6 +655,8 @@ pub struct AppSettings {
     /// CSS font-style for the interface font: "normal" | "italic" | "oblique".
     #[serde(default = "default_font_style")]
     pub font_style: String,
+    /// Interface font rendering mode: "auto" | "antialiased".
+    pub font_smoothing: FontSmoothing,
     pub code_font_family: String,
     /// Chat message content font size in px.
     pub chat_font_size: u8,
@@ -866,6 +879,7 @@ impl Default for AppSettings {
             font_weight: 400,
             font_family: String::new(),
             font_style: default_font_style(),
+            font_smoothing: FontSmoothing::Auto,
             code_font_family: String::new(),
             chat_font_size: 15,
             chat_line_height: 1.7,

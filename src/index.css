@@ -26,6 +26,14 @@ body,
   font-style: var(--font-style, normal);
 }
 
+/* Settings → Font Smoothing = "antialiased": grayscale (non-subpixel) AA renders
+ * thinner, sharper glyphs — most noticeable on macOS Retina. The property is
+ * inherited, so setting it on <html> covers antd popups portaled into <body>. */
+html[data-font-smoothing='antialiased'] {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   margin: 0;
   user-select: none;
