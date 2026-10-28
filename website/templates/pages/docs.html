@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{%- from "partials/icons.html" import icon with context -%}
+{% block main %}
+<div class="container docs-layout">
+  <nav class="docs-nav" aria-label="{{ t('docs.label') }}">
+    <p class="side-toc-title">{{ t("docs.sidebar_title") }}</p>
+    <ul>
+      {%- for g in guides %}
+      <li><a href="{{ href('/guide/' ~ g.slug) }}"{% if g.slug == guide.slug %} aria-current="page"{% endif %}>{{ g.title }}</a></li>
+      {%- endfor %}
+    </ul>
+  </nav>
+  <article class="docs-article">
+    {% include "partials/breadcrumb.html" %}
+    <h1>{{ guide.title }}</h1>
+    {%- if guide.updated %}
+    <p class="docs-meta"><time datetime="{{ guide.updated.isoformat() }}">{{ t("docs.updated", date=guide.updated.strftime('%Y-%m-%d')) }}</time></p>
+    {%- endif %}
+    <div class="prose" data-prose>
+      {{ guide.html | safe }}
+    </div>
+    <footer class="docs-footer">
+      <a class="text-link" href="{{ guide.edit_url }}" rel="noopener" target="_blank">{{ icon("pencil", size=15) }}{{ t("docs.edit") }}</a>
+      <nav class="docs-pager" aria-label="{{ t('docs.label') }}">
+        {%- if guide.prev %}
+        <a class="pager-link pager-prev" href="{{ href('/guide/' ~ guide.prev.slug) }}" rel="prev"><span class="pager-label">{{ icon("arrow-left", "icon flip-rtl", 15) }}{{ t("docs.previous") }}</span><span class="pager-title">{{ guide.prev.title }}</span></a>
+        {%- endif %}
+        {%- if guide.next %}
+        <a class="pager-link pager-next" href="{{ href('/guide/' ~ guide.next.slug) }}" rel="next"><span class="pager-label">{{ t("docs.next") }}{{ icon("arrow-right", "icon flip-rtl", 15) }}</span><span class="pager-title">{{ guide.next.title }}</span></a>
+        {%- endif %}
+      </nav>
+    </footer>
+  </article>
+  {%- if guide.toc %}
+  <nav class="docs-toc" aria-label="{{ t('docs.on_this_page') }}" data-scrollspy>
+    <p class="side-toc-title">{{ t("docs.on_this_page") }}</p>
+    <ol>
+      {%- for entry in guide.toc %}
+      <li class="toc-l{{ entry.level }}"><a href="#{{ entry.id }}">{{ entry.text }}</a></li>
+      {%- endfor %}
+    </ol>
+  </nav>
+  {%- endif %}
+</div>
+{% endblock %}

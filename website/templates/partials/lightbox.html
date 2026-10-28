@@ -1,0 +1,13 @@
+{%- from "partials/icons.html" import icon with context -%}
+<dialog class="lightbox" data-lightbox aria-label="{{ t('home.gallery_title') }}">
+  <div class="lightbox-inner">
+    <button type="button" class="lightbox-btn lightbox-close" data-lightbox-close aria-label="{{ t('common.close') }}">{{ icon("x", size=22) }}</button>
+    <button type="button" class="lightbox-btn lightbox-prev" data-lightbox-prev aria-label="{{ t('common.previous') }}">{{ icon("chevron-left", "icon flip-rtl", 26) }}</button>
+    <figure class="lightbox-figure">
+      <img data-lightbox-img alt="" decoding="async">
+      <figcaption data-lightbox-caption></figcaption>
+    </figure>
+    <button type="button" class="lightbox-btn lightbox-next" data-lightbox-next aria-label="{{ t('common.next') }}">{{ icon("chevron-right", "icon flip-rtl", 26) }}</button>
+  </div>
+  <script type="application/json" data-lightbox-items>{{ lightbox_items | safe }}</script>
+</dialog>

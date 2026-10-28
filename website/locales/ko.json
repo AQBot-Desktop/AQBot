@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "site_tagline": "로컬 우선 AI 데스크톱 클라이언트",
+    "home_title": "AQBot — 오픈소스 AI 데스크톱 클라이언트 및 로컬 API 게이트웨이",
+    "home_description": "macOS, Windows, Linux용 무료 오픈소스 AI 데스크톱 앱. OpenAI, Claude, Gemini, DeepSeek, Qwen과 대화하고 에이전트, MCP 도구, 로컬 지식 베이스, API 게이트웨이를 활용하세요.",
+    "features_title": "기능: 멀티 모델 채팅, 에이전트, MCP, API 게이트웨이",
+    "features_description": "AQBot의 모든 기능을 한곳에서: 멀티 제공업체 채팅, 내장 및 ACP 에이전트, 역할, Skills, MCP 도구, 웹 검색, sqlite-vec 지식 베이스, 로컬 API 게이트웨이, 가져오기, 암호화 백업.",
+    "download_title": "AQBot 무료 다운로드 — macOS, Windows, Linux",
+    "download_description": "macOS(Apple Silicon 및 Intel), Windows(x64 및 ARM64), Linux(AppImage, deb, rpm)용 최신 AQBot을 다운로드하세요. AGPL-3.0 기반의 무료 오픈소스입니다.",
+    "faq_title": "AQBot FAQ — 개인정보, 제공업체, 게이트웨이, 데이터",
+    "faq_description": "AQBot에 대한 답변: 가격과 라이선스, 지원 플랫폼과 모델 제공업체, 데이터 저장 위치, API 게이트웨이, MCP, ACP 에이전트, 가져오기, 백업, macOS 설치 경고 해결 방법.",
+    "docs_title_suffix": "AQBot 문서",
+    "notfound_title": "페이지를 찾을 수 없음"
+  },
+  "nav": {
+    "home": "홈",
+    "features": "기능",
+    "download": "다운로드",
+    "docs": "문서",
+    "faq": "자주 묻는 질문",
+    "github": "GitHub",
+    "github_stars": "GitHub 스타 {{count}}개",
+    "skip": "본문으로 건너뛰기",
+    "menu": "메뉴 열기",
+    "close_menu": "메뉴 닫기",
+    "language": "언어",
+    "primary": "주 메뉴",
+    "breadcrumb": "현재 위치"
+  },
+  "theme": {
+    "label": "색상 테마",
+    "auto": "자동",
+    "light": "라이트",
+    "dark": "다크"
+  },
+  "lang_banner": {
+    "text": "이 페이지는 한국어로도 제공됩니다.",
+    "action": "한국어로 보기",
+    "dismiss": "현재 언어 유지"
+  },
+  "common": {
+    "copy": "복사",
+    "copied": "복사됨",
+    "close": "닫기",
+    "previous": "이전",
+    "next": "다음",
+    "learn_more": "자세히 보기",
+    "read_guide": "가이드 읽기",
+    "enlarge": "스크린샷 확대: {{name}}",
+    "screenshot_alt": "AQBot 스크린샷: {{name}}",
+    "logo_alt": "AQBot 로고",
+    "callout_tip": "팁",
+    "callout_info": "참고",
+    "callout_warning": "주의",
+    "callout_danger": "중요"
+  },
+  "os": {
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "hero": {
+    "title": "모든 모델을 위한 오픈소스 AI 데스크톱 클라이언트",
+    "lede": "AQBot은 무료 오픈소스 AI 데스크톱 클라이언트입니다. 어떤 제공업체의 모델과도 대화하고, 작업을 에이전트에게 맡기고, 내 문서를 근거로 답변을 받고, 로컬 API 게이트웨이를 통해 코딩 도구와 모델을 공유하세요.",
+    "cta_download": "{{os}}용 다운로드",
+    "cta_download_generic": "AQBot 다운로드",
+    "cta_github": "GitHub에서 소스 보기",
+    "other_platforms": "다른 플랫폼 및 형식",
+    "meta_version": "버전 {{version}}",
+    "meta_released": "{{date}} 출시",
+    "meta_license": "AGPL-3.0 오픈소스"
+  },
+  "demo": {
+    "label": "AQBot 창 인터랙티브 미리보기",
+    "tabs_label": "미리보기 장면",
+    "tab_chat": "채팅",
+    "tab_agent": "에이전트",
+    "tab_knowledge": "지식",
+    "tab_gateway": "게이트웨이",
+    "sidebar_title": "대화",
+    "conv_1": "릴리스 노트 초안",
+    "conv_2": "파서 리팩터링",
+    "conv_3": "분기 보고서 요약",
+    "chat_title": "릴리스 노트 초안",
+    "chat_user": "이번 주 변경 사항을 사용자용 릴리스 노트로 정리해 줘.",
+    "chat_answer_a": "주요 변경 사항: 이제 어시스턴트에 기본 모델과 후보 모델을 지정할 수 있습니다. 게이트웨이가 앱과 함께 시작되며, 역할 관리 진입점도 찾기 쉬워졌습니다.",
+    "chat_answer_b": "이번 주 업데이트: 어시스턴트별 기본 및 후보 모델 지정, 게이트웨이 자동 시작 문제 수정, 채팅 내 모델 목록 정리.",
+    "chat_compare": "두 모델이 동시에 답변함",
+    "chat_input": "무엇이든 물어보세요…",
+    "agent_title": "파서 리팩터링",
+    "agent_task": "README 파서를 더 작은 함수로 나누고 테스트를 실행해 줘.",
+    "agent_step_read": "aqsite/readme.py 읽기",
+    "agent_step_edit": "함수 3개 수정",
+    "agent_step_run": "명령 실행",
+    "agent_permission": "에이전트가 작업 디렉터리에서 명령을 실행하려고 합니다.",
+    "agent_allow_once": "한 번만 허용",
+    "agent_allow_always": "이 세션에서 항상 허용",
+    "agent_deny": "거부",
+    "agent_done": "테스트를 통과했습니다. 함수 3개를 분리했으며 동작은 바뀌지 않았습니다.",
+    "agent_denied": "명령이 거부되었습니다. 에이전트가 멈추고 지시를 기다리고 있습니다.",
+    "kb_title": "분기 보고서 요약",
+    "kb_query": "지난 분기에 지원 티켓이 늘어난 원인은 무엇인가요?",
+    "kb_sources": "지식 베이스에서 검색됨",
+    "kb_doc_1": "3분기 지원 리뷰.pdf",
+    "kb_doc_2": "온보딩 설문.md",
+    "kb_doc_3": "릴리스 일정.xlsx",
+    "kb_answer": "새 티켓은 대부분 9월 릴리스 이후에 발생했으며, 주로 신규 사용자의 로그인 문의였습니다 [1][2]. 온보딩 가이드를 업데이트한 뒤 티켓 수가 정상 수준으로 돌아왔습니다 [3].",
+    "gw_title": "API 게이트웨이",
+    "gw_status": "실행 중",
+    "gw_endpoints": "호환 엔드포인트",
+    "gw_log": "최근 요청",
+    "gw_keys": "활성 키 2개",
+    "gw_requests": "오늘 요청 수"
+  },
+  "home": {
+    "capabilities_title": "AQBot으로 할 수 있는 일",
+    "capabilities_lede": "채팅, 작업 위임, 자료 조사, 다른 도구에 모델 제공까지. 보통 여러 앱이 필요한 일상적인 AI 작업을 하나의 앱으로 해결합니다.",
+    "cap_chat_title": "어떤 모델과도 대화",
+    "cap_chat_body": "OpenAI, Claude, Gemini, DeepSeek, Qwen 또는 OpenAI 호환 엔드포인트에 연결하세요. 여러 모델의 답변을 나란히 비교하고, 대화를 분기하고, 메시지 버전을 보관할 수 있습니다.",
+    "cap_agent_title": "작업을 에이전트에게",
+    "cap_agent_body": "채팅을 에이전트 모드로 전환하면 작업마다 승인하며 폴더 안의 코드를 읽고, 수정하고, 실행할 수 있습니다. ACP 워크벤치를 열어 Codex, Claude Agent, Gemini CLI 등 ACP 에이전트를 구동할 수도 있습니다.",
+    "cap_tools_title": "MCP와 Skills로 확장",
+    "cap_tools_body": "stdio, SSE, StreamableHTTP로 MCP 서버를 실행하고, @aqbot/fetch 같은 내장 도구를 사용하며, AQBot, Codex, Claude, Agents의 Skills 폴더를 한곳에서 관리하세요.",
+    "cap_knowledge_title": "내 문서를 근거로 답변",
+    "cap_knowledge_body": "개인 파일을 로컬 sqlite-vec 지식 베이스에 인덱싱하고, Tavily, Exa, Zhipu, Bocha 웹 검색을 추가하고, 메모리와 파일을 컨텍스트에 첨부하세요.",
+    "cap_gateway_title": "모델을 로컬에서 제공",
+    "cap_gateway_body": "설정한 제공업체를 OpenAI, Claude, Gemini 호환 엔드포인트로 노출합니다. 게이트웨이 키, TLS, 요청 로그, 사용량 통계를 갖춰 Claude Code, Codex CLI 같은 도구에서 사용할 수 있습니다.",
+    "cap_data_title": "데이터는 내 컴퓨터에",
+    "cap_data_body": "앱 상태는 ~/.aqbot에, 파일은 ~/Documents/aqbot에 저장됩니다. API 키는 AES-256으로 암호화되며, 백업은 로컬 폴더, WebDAV, S3 호환 스토리지에 저장할 수 있습니다.",
+    "gallery_title": "앱 둘러보기",
+    "gallery_lede": "현재 데스크톱 앱의 스크린샷입니다. 화면을 선택하면 크게 볼 수 있습니다.",
+    "gateway_title": "AQBot을 코딩 도구의 백엔드로",
+    "gateway_body": "게이트웨이를 한 번 시작하면 내 컴퓨터의 코딩 도구에서 이미 설정한 모든 모델을 사용할 수 있습니다. 키, 라우팅, 사용량을 한곳에서 관리하세요.",
+    "gateway_point_1": "OpenAI Chat Completions, OpenAI Responses, Claude 및 Gemini 네이티브 형식 지원",
+    "gateway_point_2": "별도의 게이트웨이 키, 자체 서명 또는 사용자 지정 TLS 인증서",
+    "gateway_point_3": "키, 제공업체, 날짜별 요청 로그와 토큰 사용량",
+    "gateway_snippets_label": "클라이언트 설정 예시",
+    "gateway_note": "YOUR_KEY를 API 게이트웨이 → 키에서 생성한 키로 바꾸세요. 8080은 기본 HTTP 포트입니다.",
+    "local_title": "로컬 우선 설계",
+    "local_body": "AQBot은 앱 상태와 사용자 파일을 예측 가능한 두 폴더에 보관하므로, 일반 도구로 내용을 확인하고 백업하거나 옮길 수 있습니다.",
+    "local_state": "데이터베이스, 암호화 키, 벡터 저장소, TLS 파일",
+    "local_files": "직접 열어볼 수 있는 이미지, 첨부 파일, 백업",
+    "local_point_1": "AES-256과 로컬 마스터 키로 보호되는 API 키",
+    "local_point_2": "로컬 폴더, WebDAV, S3 호환 스토리지로 백업",
+    "local_point_3": "ChatGPT 내보내기, Cherry Studio 및 Kelivo 백업 가져오기",
+    "languages_title": "11개 언어 지원",
+    "languages_body": "앱과 이 웹사이트 모두 다음 언어로 이용할 수 있습니다.",
+    "faq_title": "자주 묻는 질문",
+    "faq_more": "모든 질문 보기",
+    "cta_title": "AQBot 받기",
+    "cta_body": "macOS, Windows, Linux용 무료 오픈소스입니다.",
+    "cta_all": "모든 다운로드",
+    "gateway_quick": "빠른 연결을 사용하면 게이트웨이 주소와 키가 Claude Code, Codex, OpenCode, Gemini CLI, Cursor 설정에 자동으로 기록됩니다. 아래는 같은 내용을 수동으로 설정하는 예시입니다."
+  },
+  "features": {
+    "title": "기능",
+    "lede": "현재 AQBot이 제공하는 모든 기능을 분야별로 정리했습니다. 프로젝트 README를 기준으로 하며 릴리스마다 업데이트됩니다.",
+    "toc_label": "기능 분야",
+    "cta_title": "데스크톱에서 사용해 보기",
+    "cta_body": "AQBot을 설치하면 몇 분 안에 첫 번째 제공업체를 연결할 수 있습니다."
+  },
+  "download": {
+    "title": "AQBot 다운로드",
+    "lede": "무료 오픈소스입니다. 시스템에 맞는 설치 파일을 선택하세요. 모든 파일은 GitHub 공식 릴리스에서 제공됩니다.",
+    "recommended": "내 기기에 권장",
+    "detected": "감지된 OS: {{os}}",
+    "latest": "최신 릴리스",
+    "published": "{{date}} 게시",
+    "changelog": "릴리스 노트",
+    "all_releases": "모든 릴리스",
+    "build_source": "소스에서 빌드",
+    "table_format": "형식",
+    "table_arch": "아키텍처",
+    "table_size": "크기",
+    "table_file": "파일",
+    "action": "다운로드",
+    "arch_arm64": "ARM64",
+    "arch_x64": "x64",
+    "arch_mac_arm64": "Apple 실리콘",
+    "arch_mac_x64": "Intel 프로세서",
+    "kind_dmg": "디스크 이미지(.dmg)",
+    "kind_setup": "설치 프로그램(.exe)",
+    "kind_msi": "Windows 설치 관리자(.msi)",
+    "kind_portable": "포터블(.zip)",
+    "kind_appimage": "AppImage",
+    "kind_deb": "Debian / Ubuntu용(.deb)",
+    "kind_rpm": "Fedora / RHEL / openSUSE용(.rpm)",
+    "install_title": "설치 방법",
+    "install_macos_1": "다운로드한 .dmg 파일을 엽니다.",
+    "install_macos_2": "AQBot을 응용 프로그램 폴더로 드래그합니다.",
+    "install_macos_3": "처음 실행할 때 macOS가 차단하면 Control 키를 누른 채 AQBot.app을 클릭하고 열기를 선택합니다.",
+    "install_windows_1": ".exe 또는 .msi 설치 프로그램을 실행하거나, 포터블 .zip을 원하는 위치에 압축 해제합니다.",
+    "install_windows_2": "설치 마법사를 따라 설치한 뒤 시작 메뉴에서 AQBot을 실행합니다.",
+    "install_windows_3": "로그인 시 자동 실행과 전역 단축키는 설정에서 켤 수 있습니다.",
+    "install_linux_1": "Debian 및 Ubuntu",
+    "install_linux_2": "Fedora, RHEL 및 openSUSE",
+    "install_linux_3": "모든 배포판에서 AppImage 사용",
+    "requirements_title": "지원 시스템",
+    "req_macos": "Apple 실리콘(arm64) 및 Intel(x86_64)",
+    "req_windows": "Windows 10 및 11, x86_64 및 arm64",
+    "req_linux": "x86_64 및 arm64, AppImage·deb·rpm 패키지 제공",
+    "next_title": "설치 후에는",
+    "next_body": "시작 가이드에 따라 제공업체를 추가하고 첫 메시지를 보내 보세요."
+  },
+  "faq": {
+    "title": "자주 묻는 질문",
+    "lede": "AQBot이 무엇인지, 데이터를 어떻게 다루는지, 어떻게 시작하는지에 대한 간단한 답변입니다.",
+    "items": [
+      {
+        "q": "AQBot은 무엇인가요?",
+        "a": "AQBot은 macOS, Windows, Linux용 무료 오픈소스 AI 데스크톱 클라이언트입니다. 멀티 제공업체 채팅, 에이전트, MCP 도구, 로컬 지식 베이스, 로컬 API 게이트웨이를 하나의 앱에 담았으며, 앱 데이터와 사용자 파일은 사용자의 컴퓨터에 보관됩니다."
+      },
+      {
+        "q": "AQBot은 무료인가요?",
+        "a": "네. AQBot은 무료로 다운로드하고 사용할 수 있으며, 소스 코드는 AGPL-3.0 라이선스로 GitHub에 공개되어 있습니다. 비용은 직접 연결한 모델 제공업체에만 지불하면 되고, 로컬 모델을 사용하면 비용이 들지 않습니다."
+      },
+      {
+        "q": "어떤 AI 제공업체와 모델을 사용할 수 있나요?",
+        "a": "AQBot은 OpenAI, Claude, Gemini, DeepSeek, Qwen은 물론 Ollama 같은 로컬 서버를 포함한 모든 OpenAI 호환 엔드포인트에 연결할 수 있습니다. 제공업체마다 Base URL, API 경로, 헤더, 프록시를 따로 설정할 수 있고, aqbot:// 링크나 CC Switch에서 제공업체를 가져올 수도 있습니다."
+      },
+      {
+        "q": "어떤 운영체제를 지원하나요?",
+        "a": "Apple 실리콘 및 Intel 기반 macOS, x64 및 ARM64 기반 Windows 10과 11, 그리고 AppImage, deb, rpm 패키지를 통한 x64 및 ARM64 기반 Linux를 지원합니다."
+      },
+      {
+        "q": "AQBot은 데이터를 어디에 저장하나요?",
+        "a": "데이터베이스, 암호화 키, 벡터 저장소 같은 앱 상태는 ~/.aqbot에, 이미지, 첨부 파일, 백업은 ~/Documents/aqbot에 저장됩니다. API 키는 로컬 마스터 키를 사용해 AES-256으로 암호화됩니다."
+      },
+      {
+        "q": "Claude Code, Codex CLI, Gemini CLI에서 AQBot을 사용하려면 어떻게 하나요?",
+        "a": "AQBot에서 API 게이트웨이를 시작하고 게이트웨이 키를 생성하세요. 그러면 빠른 연결이 Claude Code, Codex, OpenCode, Gemini CLI, Cursor에 주소와 키를 대신 기록해 줍니다. 수동으로 설정하려면 Claude Code에 ANTHROPIC_BASE_URL=http://localhost:8080/v1을 지정하고 ANTHROPIC_AUTH_TOKEN을 게이트웨이 키로 설정하면 됩니다."
+      },
+      {
+        "q": "AQBot은 MCP를 지원하나요?",
+        "a": "네. AQBot은 MCP 클라이언트로서 stdio, SSE, StreamableHTTP로 Model Context Protocol 서버를 실행하며, @aqbot/fetch 같은 내장 도구도 제공합니다. 도구 호출의 최대 라운드 수는 설정에서 바꿀 수 있습니다."
+      },
+      {
+        "q": "채팅 에이전트와 ACP 워크벤치는 무엇이 다른가요?",
+        "a": "채팅 에이전트는 AQBot에 설정한 제공업체를 사용해, 선택한 폴더에서 파일을 읽고 수정하며 명령을 실행하고, 승인 모드를 지원합니다. 이 폴더는 작업 시작 디렉터리일 뿐 샌드박스가 아닙니다. ACP 워크벤치는 Codex, Claude Agent, Gemini CLI, Cline, OpenCode처럼 Agent Client Protocol을 지원하는 외부 에이전트를 실행합니다."
+      },
+      {
+        "q": "기존 대화를 가져올 수 있나요?",
+        "a": "네. AQBot은 ChatGPT 공식 내보내기, Cherry Studio 백업, Kelivo 백업을 가져올 수 있으며, 미리보기와 경고 표시, 중복 처리를 지원합니다. Cherry Studio와 Kelivo에서 가져올 때는 제공업체, API 키, 첨부 파일도 함께 옮길 수 있습니다."
+      },
+      {
+        "q": "백업은 어떻게 동작하나요?",
+        "a": "로컬 폴더, WebDAV 서버, S3 호환 스토리지로 수동 또는 예약 백업과 복원을 할 수 있습니다. 로컬 백업은 기본적으로 ~/Documents/aqbot/backups에 저장됩니다."
+      },
+      {
+        "q": "macOS에서 AQBot이 손상되었거나 확인할 수 없다고 나옵니다. 어떻게 해야 하나요?",
+        "a": "AQBot은 Apple Developer ID가 아닌 프로젝트 자체 인증서로 서명되어 있습니다. Finder에서 Control 키를 누른 채 AQBot.app을 클릭하고 열기를 선택하거나, 시스템 설정 → 개인정보 보호 및 보안에서 허용하세요. Gatekeeper를 끌 필요는 없습니다."
+      },
+      {
+        "q": "어떤 인터페이스 언어를 지원하나요?",
+        "a": "중국어 간체, 중국어 번체, 영어, 일본어, 한국어, 프랑스어, 독일어, 스페인어, 러시아어, 힌디어, 아랍어를 지원합니다."
+      }
+    ]
+  },
+  "docs": {
+    "label": "문서",
+    "sidebar_title": "가이드",
+    "on_this_page": "이 페이지의 내용",
+    "previous": "이전 글",
+    "next": "다음 글",
+    "edit": "GitHub에서 이 페이지 편집",
+    "updated": "최종 업데이트 {{date}}"
+  },
+  "footer": {
+    "about": "AQBot은 macOS, Windows, Linux용 무료 오픈소스, 로컬 우선 AI 데스크톱 클라이언트입니다.",
+    "product": "제품",
+    "resources": "리소스",
+    "community": "커뮤니티",
+    "releases": "릴리스",
+    "issues": "문제 신고",
+    "license": "라이선스",
+    "linuxdo": "LinuxDO",
+    "copyright": "© {{year}} AQBot. AGPL-3.0 라이선스로 배포됩니다.",
+    "languages": "언어"
+  },
+  "notfound": {
+    "title": "존재하지 않는 페이지입니다",
+    "body": "링크가 오래되었거나 페이지가 이동했을 수 있습니다.",
+    "home": "홈으로 돌아가기"
+  }
+}

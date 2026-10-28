@@ -1,0 +1,71 @@
+{%- from "partials/icons.html" import icon with context -%}
+
+{%- macro picture(shot, alt, sizes, lazy=True, cls="") -%}
+<picture>
+  <source type="image/webp" srcset="{{ shot.webp_srcset }}" sizes="{{ sizes }}">
+  <img class="{{ cls }}" src="{{ shot.src }}" width="{{ shot.width }}" height="{{ shot.height }}" alt="{{ alt }}"{% if lazy %} loading="lazy" decoding="async"{% else %} fetchpriority="high"{% endif %}>
+</picture>
+{%- endmacro -%}
+
+{%- macro arch_label(a) -%}
+{%- if a.os == "macos" -%}{{ t("download.arch_mac_" ~ a.arch) }}{%- else -%}{{ t("download.arch_" ~ a.arch) }}{%- endif -%}
+{%- endmacro -%}
+
+{%- macro asset_link(a, cls="asset-link") -%}
+<a class="{{ cls }}" href="{{ a.url }}" data-asset="{{ a.id }}" rel="nofollow">
+  <span class="asset-main">{{ t("download.kind_" ~ a.kind) }}</span>
+  <span class="asset-sub">{{ arch_label(a) }}{% if a.size_label %} · {{ a.size_label }}{% endif %}</span>
+  {{ icon("download", size=16) }}
+</a>
+{%- endmacro -%}
+
+{%- macro download_columns(primary_only=True) -%}
+<div class="dl-columns">
+  {%- for os_id in os_order %}
+  <div class="dl-col">
+    <h3>{{ t("os." ~ os_id) }}</h3>
+    <ul>
+      {%- for a in release.by_os(os_id) if (a.primary or not primary_only) %}
+      <li>{{ asset_link(a) }}</li>
+      {%- endfor %}
+    </ul>
+  </div>
+  {%- endfor %}
+</div>
+{%- endmacro -%}
+
+{%- macro faq_list(items, collapsible=False, heading="h3") -%}
+<div class="faq-list">
+  {%- for item in items %}
+  {%- if collapsible %}
+  <details class="faq-item" id="{{ item.id }}"{% if loop.first %} open{% endif %}>
+    <summary><{{ heading }} class="faq-q">{{ item.q }}</{{ heading }}>{{ icon("chevron-down", "icon chevron", 18) }}</summary>
+    <div class="faq-a"><p>{{ item.a }}</p></div>
+  </details>
+  {%- else %}
+  <section class="faq-item faq-static" id="{{ item.id }}">
+    <{{ heading }} class="faq-q"><a class="anchor" href="#{{ item.id }}">{{ item.q }}</a></{{ heading }}>
+    <div class="faq-a"><p>{{ item.a }}</p></div>
+  </section>
+  {%- endif %}
+  {%- endfor %}
+</div>
+{%- endmacro -%}
+
+{%- macro cta_band(title, body, show_assets=False) -%}
+<section class="cta-band" aria-labelledby="cta-title">
+  <div class="container">
+    <div class="cta-head">
+      <img class="cta-logo" src="/logo.svg" width="56" height="56" alt="{{ t('common.logo_alt') }}" loading="lazy">
+      <div>
+        <h2 id="cta-title">{{ title }}</h2>
+        <p>{{ body }}</p>
+      </div>
+      <a class="btn btn-primary" href="{{ href('/download') }}">{{ icon("download", size=17) }}<span>{{ t("home.cta_all") }}</span></a>
+    </div>
+    {%- if show_assets %}
+    {{ download_columns() }}
+    {%- endif %}
+  </div>
+</section>
+{%- endmacro -%}

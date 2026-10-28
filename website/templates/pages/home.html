@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{%- from "partials/icons.html" import icon with context -%}
+{%- from "partials/macros.html" import picture, download_columns, faq_list, cta_band with context -%}
+{% block main %}
+<section class="hero">
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <h1 class="hero-title">{{ t("hero.title") | phrases }}</h1>
+      <p class="hero-lede">{{ t("hero.lede") }}</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="{{ href('/download') }}" data-smart-download>{{ icon("download", size=18) }}<span data-smart-download-text>{{ t("hero.cta_download_generic") }}</span></a>
+        <a class="btn btn-secondary btn-lg" href="{{ site.repo }}" rel="noopener" target="_blank">{{ icon("github", size=18) }}<span>{{ t("hero.cta_github") }}</span></a>
+      </div>
+      <p class="hero-meta">
+        <a href="{{ release.url }}" rel="noopener" target="_blank">{{ t("hero.meta_version", version=release.version) }}</a>
+        {%- if release.published %}<span aria-hidden="true">·</span><span>{{ t("hero.meta_released", date=release.published.strftime('%Y-%m-%d')) }}</span>{% endif %}
+        <span aria-hidden="true">·</span><span>macOS / Windows / Linux</span>
+        <span aria-hidden="true">·</span><a href="{{ site.license_url }}" rel="noopener license" target="_blank">{{ t("hero.meta_license") }}</a>
+      </p>
+      <p class="hero-alt"><a href="{{ href('/download') }}">{{ t("hero.other_platforms") }}{{ icon("arrow-right", "icon flip-rtl", 15) }}</a></p>
+    </div>
+    <div class="hero-visual">
+      {% include "partials/demo.html" %}
+    </div>
+  </div>
+</section>
+
+<section class="section capabilities" aria-labelledby="cap-title">
+  <div class="container">
+    <header class="section-head reveal">
+      <h2 id="cap-title">{{ t("home.capabilities_title") }}</h2>
+      <p>{{ t("home.capabilities_lede") }}</p>
+    </header>
+    <ul class="cap-grid">
+      {%- for key, ico, anchor in [("chat", "message", "chat"), ("agent", "bot", "agent"), ("tools", "plug", "tools"), ("knowledge", "book", "knowledge"), ("gateway", "router", "gateway"), ("data", "shield", "desktop")] %}
+      <li class="cap reveal">
+        <span class="cap-icon">{{ icon(ico, size=22) }}</span>
+        <h3>{{ t('home.cap_' ~ key ~ '_title') }}</h3>
+        <p>{{ t('home.cap_' ~ key ~ '_body') }}</p>
+        <a class="text-link" href="{{ href('/features') }}#{{ anchor }}">{{ t("common.learn_more") }}{{ icon("arrow-right", "icon flip-rtl", 15) }}</a>
+      </li>
+      {%- endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="section gallery-section" aria-labelledby="gallery-title">
+  <div class="container">
+    <header class="section-head reveal">
+      <h2 id="gallery-title">{{ t("home.gallery_title") }}</h2>
+      <p>{{ t("home.gallery_lede") }}</p>
+    </header>
+    <div class="gallery reveal" data-gallery>
+      <div class="gallery-list" role="tablist" aria-label="{{ t('home.gallery_title') }}" aria-orientation="vertical">
+        {%- for shot in screenshots %}
+        <button type="button" role="tab" id="shot-tab-{{ loop.index }}" aria-controls="shot-{{ loop.index }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-gallery-tab="{{ loop.index0 }}">{{ shot.caption }}</button>
+        {%- endfor %}
+      </div>
+      <div class="gallery-stage">
+        {%- for shot in screenshots %}
+        <figure class="gallery-figure" id="shot-{{ loop.index }}" role="tabpanel" aria-labelledby="shot-tab-{{ loop.index }}" data-gallery-panel{% if not loop.first %} hidden{% endif %}>
+          <button type="button" class="zoomable" data-lightbox-open="{{ loop.index0 }}" aria-label="{{ t('common.enlarge', name=shot.caption) }}">
+            {{ picture(shot, t('common.screenshot_alt', name=shot.caption), "(min-width: 1100px) 760px, 100vw", lazy=not loop.first) }}
+            <span class="zoom-hint">{{ icon("expand", size=16) }}</span>
+          </button>
+          <figcaption>{{ shot.caption }}</figcaption>
+        </figure>
+        {%- endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section gateway-section" aria-labelledby="gw-title">
+  <div class="container split">
+    <div class="split-copy reveal">
+      <h2 id="gw-title">{{ t("home.gateway_title") }}</h2>
+      <p>{{ t("home.gateway_body") }}</p>
+      <p>{{ t("home.gateway_quick") }}</p>
+      <ul class="check-list">
+        {%- for n in [1, 2, 3] %}
+        <li>{{ icon("check", size=16) }}<span>{{ t('home.gateway_point_' ~ n) }}</span></li>
+        {%- endfor %}
+      </ul>
+      <a class="text-link" href="{{ href('/guide/gateway') }}">{{ t("common.read_guide") }}{{ icon("arrow-right", "icon flip-rtl", 15) }}</a>
+    </div>
+    <div class="split-aside reveal">
+      <div class="code-tabs" data-code-tabs>
+        <div class="code-tabs-list" role="tablist" aria-label="{{ t('home.gateway_snippets_label') }}">
+          {%- for snip in gateway_snippets %}
+          <button type="button" role="tab" id="snip-tab-{{ snip.id }}" aria-controls="snip-{{ snip.id }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-code-tab>{{ snip.label }}</button>
+          {%- endfor %}
+        </div>
+        {%- for snip in gateway_snippets %}
+        <div class="code-tab-panel" id="snip-{{ snip.id }}" role="tabpanel" aria-labelledby="snip-tab-{{ snip.id }}"{% if not loop.first %} hidden{% endif %}>{{ snip.html | safe }}</div>
+        {%- endfor %}
+      </div>
+      <p class="fine-print">{{ t("home.gateway_note") }}</p>
+    </div>
+  </div>
+</section>
+
+<section class="section local-section" aria-labelledby="local-title">
+  <div class="container split split-reverse">
+    <div class="split-copy reveal">
+      <h2 id="local-title">{{ t("home.local_title") }}</h2>
+      <p>{{ t("home.local_body") }}</p>
+      <ul class="check-list">
+        {%- for n in [1, 2, 3] %}
+        <li>{{ icon("check", size=16) }}<span>{{ t('home.local_point_' ~ n) }}</span></li>
+        {%- endfor %}
+      </ul>
+    </div>
+    <div class="split-aside reveal">
+      <div class="tree" dir="ltr">
+        <div class="tree-root">
+          <p class="tree-path">{{ icon("folder", size=16) }}<code>~/.aqbot/</code></p>
+          <p class="tree-desc" dir="{{ loc.dir }}">{{ t("home.local_state") }}</p>
+          <ul><li><code>aqbot.db</code></li><li><code>master.key</code></li><li><code>vector_db/</code></li><li><code>ssl/</code></li></ul>
+        </div>
+        <div class="tree-root">
+          <p class="tree-path">{{ icon("folder", size=16) }}<code>~/Documents/aqbot/</code></p>
+          <p class="tree-desc" dir="{{ loc.dir }}">{{ t("home.local_files") }}</p>
+          <ul><li><code>images/</code></li><li><code>files/</code></li><li><code>backups/</code></li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section faq-section" aria-labelledby="faq-title">
+  <div class="container narrow">
+    <header class="section-head reveal">
+      <h2 id="faq-title">{{ t("home.faq_title") }}</h2>
+    </header>
+    {{ faq_list(faq_preview, collapsible=True) }}
+    <p class="section-more"><a class="text-link" href="{{ href('/faq') }}">{{ t("home.faq_more") }}{{ icon("arrow-right", "icon flip-rtl", 15) }}</a></p>
+  </div>
+</section>
+
+<section class="section languages-section" aria-labelledby="lang-title">
+  <div class="container">
+    <header class="section-head reveal">
+      <h2 id="lang-title">{{ t("home.languages_title") }}</h2>
+      <p>{{ t("home.languages_body") }}</p>
+    </header>
+    <ul class="lang-cloud reveal">
+      {%- for alt in page.alternates_by_locale %}
+      <li><a href="{{ alt.href }}" hreflang="{{ alt.hreflang }}" lang="{{ alt.html_lang }}" data-lang-link="{{ alt.code }}"{% if alt.code == loc.code %} aria-current="true"{% endif %}>{{ alt.label }}</a></li>
+      {%- endfor %}
+    </ul>
+  </div>
+</section>
+
+{{ cta_band(t("home.cta_title"), t("home.cta_body"), show_assets=True) }}
+{% include "partials/lightbox.html" %}
+{% endblock %}

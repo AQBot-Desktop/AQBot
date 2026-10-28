@@ -1,0 +1,45 @@
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a class="brand" href="{{ href('/') }}"><img class="brand-logo" src="/logo.svg" width="28" height="28" alt=""><span class="brand-name">AQBot</span></a>
+        <p>{{ t("footer.about") }}</p>
+        <p class="footer-version"><a href="{{ release.url }}" rel="noopener" target="_blank">v{{ release.version }}</a>{% if release.published %} · <time datetime="{{ release.published.isoformat() }}">{{ release.published.strftime('%Y-%m-%d') }}</time>{% endif %}</p>
+      </div>
+      <nav class="footer-col" aria-label="{{ t('footer.product') }}">
+        <h2>{{ t("footer.product") }}</h2>
+        <ul>
+          <li><a href="{{ href('/features') }}">{{ t("nav.features") }}</a></li>
+          <li><a href="{{ href('/download') }}">{{ t("nav.download") }}</a></li>
+          <li><a href="{{ href('/faq') }}">{{ t("nav.faq") }}</a></li>
+          <li><a href="{{ site.releases }}" rel="noopener" target="_blank">{{ t("footer.releases") }}</a></li>
+        </ul>
+      </nav>
+      <nav class="footer-col" aria-label="{{ t('footer.resources') }}">
+        <h2>{{ t("footer.resources") }}</h2>
+        <ul>
+          {%- for g in guides %}
+          <li><a href="{{ href('/guide/' ~ g.slug) }}">{{ g.title }}</a></li>
+          {%- endfor %}
+        </ul>
+      </nav>
+      <nav class="footer-col" aria-label="{{ t('footer.community') }}">
+        <h2>{{ t("footer.community") }}</h2>
+        <ul>
+          <li><a href="{{ site.repo }}" rel="noopener" target="_blank">{{ t("nav.github") }}</a></li>
+          <li><a href="{{ site.issues }}" rel="noopener" target="_blank">{{ t("footer.issues") }}</a></li>
+          <li><a href="{{ site.community }}" rel="noopener" target="_blank">{{ t("footer.linuxdo") }}</a></li>
+          <li><a href="{{ site.license_url }}" rel="noopener license" target="_blank">{{ t("footer.license") }} · AGPL-3.0</a></li>
+        </ul>
+      </nav>
+    </div>
+    <nav class="footer-langs" aria-label="{{ t('footer.languages') }}">
+      <ul>
+        {%- for alt in page.alternates_by_locale %}
+        <li><a href="{{ alt.href }}" hreflang="{{ alt.hreflang }}" lang="{{ alt.html_lang }}" data-lang-link="{{ alt.code }}"{% if alt.code == loc.code %} aria-current="true"{% endif %}>{{ alt.label }}</a></li>
+        {%- endfor %}
+      </ul>
+    </nav>
+    <p class="footer-copy">{{ t("footer.copyright", year=year) }}</p>
+  </div>
+</footer>

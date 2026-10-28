@@ -1,0 +1,61 @@
+{%- from "partials/icons.html" import icon with context -%}
+<!doctype html>
+<html lang="{{ loc.html_lang }}" dir="{{ loc.dir }}" data-page="{{ page.key }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ page.title }}</title>
+<meta name="description" content="{{ page.description }}">
+<link rel="canonical" href="{{ page.canonical }}">
+{%- for alt in page.alternates %}
+<link rel="alternate" hreflang="{{ alt.hreflang }}" href="{{ alt.url }}">
+{%- endfor %}
+<link rel="alternate" hreflang="x-default" href="{{ page.x_default }}">
+{%- if page.markdown_url %}
+<link rel="alternate" type="text/markdown" href="{{ page.markdown_url }}" title="Markdown">
+{%- endif %}
+<meta name="robots" content="{{ page.robots }}">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f6f1">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1311">
+<meta name="application-name" content="AQBot">
+<meta name="author" content="AQBot">
+<meta name="generator" content="aqsite">
+<meta property="og:type" content="{{ page.og_type }}">
+<meta property="og:site_name" content="AQBot">
+<meta property="og:title" content="{{ page.og_title }}">
+<meta property="og:description" content="{{ page.description }}">
+<meta property="og:url" content="{{ page.canonical }}">
+<meta property="og:locale" content="{{ loc.og_locale }}">
+{%- for other in locales if other.code != loc.code %}
+<meta property="og:locale:alternate" content="{{ other.og_locale }}">
+{%- endfor %}
+<meta property="og:image" content="{{ page.og_image }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{ page.og_title }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ page.og_title }}">
+<meta name="twitter:description" content="{{ page.description }}">
+<meta name="twitter:image" content="{{ page.og_image }}">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<script>{{ theme_boot | safe }}</script>
+<!--AQ_FONTS-->
+<link rel="stylesheet" href="{{ assets.css }}">
+<script type="application/ld+json">{{ page.jsonld | safe }}</script>
+<script defer src="{{ assets.js }}"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">{{ t("nav.skip") }}</a>
+{% include "partials/header.html" %}
+<main id="main" tabindex="-1">
+{% block main %}{% endblock %}
+</main>
+{% include "partials/footer.html" %}
+{% include "partials/lang_banner.html" %}
+<script type="application/json" id="aq-data">{{ client_data | safe }}</script>
+</body>
+</html>

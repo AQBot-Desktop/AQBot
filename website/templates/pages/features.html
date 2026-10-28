@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{%- from "partials/icons.html" import icon with context -%}
+{%- from "partials/macros.html" import picture, cta_band with context -%}
+{% block main %}
+<section class="page-hero">
+  <div class="container">
+    {% include "partials/breadcrumb.html" %}
+    <h1>{{ t("features.title") }}</h1>
+    <p class="page-lede">{{ t("features.lede") }}</p>
+  </div>
+</section>
+<div class="container with-toc">
+  <nav class="side-toc" aria-label="{{ t('features.toc_label') }}" data-scrollspy>
+    <p class="side-toc-title">{{ t("features.toc_label") }}</p>
+    <ol>
+      {%- for group in readme.features %}
+      <li><a href="#{{ group.id }}">{{ group.title }}</a></li>
+      {%- endfor %}
+    </ol>
+  </nav>
+  <div class="feature-groups">
+    {%- for group in readme.features %}
+    <section class="feature-group" id="{{ group.id }}" aria-labelledby="{{ group.id }}-title">
+      <h2 id="{{ group.id }}-title"><a class="anchor" href="#{{ group.id }}">{{ group.title }}</a></h2>
+      <dl class="feature-items">
+        {%- for item in group.items %}
+        <div class="feature-item reveal">
+          <dt>{{ item.title }}</dt>
+          <dd>{{ item.html | safe }}</dd>
+        </div>
+        {%- endfor %}
+      </dl>
+      {%- set shot = feature_shots.get(group.id) %}
+      {%- if shot %}
+      <figure class="feature-shot reveal">
+        <button type="button" class="zoomable" data-lightbox-open="{{ shot.index }}" aria-label="{{ t('common.enlarge', name=shot.caption) }}">
+          {{ picture(shot, t('common.screenshot_alt', name=shot.caption), "(min-width: 1100px) 820px, 100vw") }}
+          <span class="zoom-hint">{{ icon("expand", size=16) }}</span>
+        </button>
+        <figcaption>{{ shot.caption }}</figcaption>
+      </figure>
+      {%- endif %}
+    </section>
+    {%- endfor %}
+  </div>
+</div>
+{{ cta_band(t("features.cta_title"), t("features.cta_body")) }}
+{% include "partials/lightbox.html" %}
+{% endblock %}

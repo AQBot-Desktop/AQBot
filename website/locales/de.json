@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "site_tagline": "Local-first KI-Desktop-Client",
+    "home_title": "AQBot — Open-Source-KI-Desktop-Client & lokales API-Gateway",
+    "home_description": "Kostenlose Open-Source-KI-App für macOS, Windows und Linux: OpenAI, Claude, Gemini, DeepSeek und Qwen mit Agenten, MCP, Wissensdatenbank und API-Gateway.",
+    "features_title": "Funktionen: Multi-Modell-Chat, Agenten, MCP und API-Gateway",
+    "features_description": "Alle AQBot-Funktionen: Multi-Anbieter-Chat, ACP-Agenten, Rollen, Skills, MCP-Tools, Websuche, sqlite-vec-Wissensdatenbanken, API-Gateway und verschlüsselte Backups.",
+    "download_title": "AQBot für macOS, Windows & Linux herunterladen — kostenlos",
+    "download_description": "Die neueste AQBot-Version für macOS (Apple Silicon und Intel), Windows (x64 und ARM64) und Linux (AppImage, deb, rpm). Kostenlos und Open Source unter AGPL-3.0.",
+    "faq_title": "AQBot-FAQ — Datenschutz, Anbieter, Gateway & Daten",
+    "faq_description": "Antworten zu AQBot: Preis und Lizenz, Plattformen und Anbieter, Datenspeicherung, API-Gateway, MCP, ACP-Agenten, Importe, Backups und macOS-Installation.",
+    "docs_title_suffix": "AQBot-Dokumentation",
+    "notfound_title": "Seite nicht gefunden"
+  },
+  "nav": {
+    "home": "Startseite",
+    "features": "Funktionen",
+    "download": "Herunterladen",
+    "docs": "Doku",
+    "faq": "Fragen",
+    "github": "GitHub",
+    "github_stars": "{{count}} Sterne auf GitHub",
+    "skip": "Zum Inhalt springen",
+    "menu": "Menü öffnen",
+    "close_menu": "Menü schließen",
+    "language": "Sprache",
+    "primary": "Hauptnavigation",
+    "breadcrumb": "Brotkrümelnavigation"
+  },
+  "theme": {
+    "label": "Farbschema",
+    "auto": "Automatisch",
+    "light": "Hell",
+    "dark": "Dunkel"
+  },
+  "lang_banner": {
+    "text": "Diese Seite ist auf Deutsch verfügbar.",
+    "action": "Auf Deutsch lesen",
+    "dismiss": "Aktuelle Sprache beibehalten"
+  },
+  "common": {
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "close": "Schließen",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "learn_more": "Mehr erfahren",
+    "read_guide": "Anleitung lesen",
+    "enlarge": "Screenshot vergrößern: {{name}}",
+    "screenshot_alt": "AQBot-Screenshot: {{name}}",
+    "logo_alt": "AQBot-Logo",
+    "callout_tip": "Tipp",
+    "callout_info": "Hinweis",
+    "callout_warning": "Warnung",
+    "callout_danger": "Wichtig"
+  },
+  "os": {
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "hero": {
+    "title": "Der Open-Source-KI-Desktop-Client für jedes Modell",
+    "lede": "AQBot ist ein kostenloser Open-Source-KI-Desktop-Client. Chatten Sie mit jedem Anbieter, übergeben Sie Aufgaben an Agenten, stützen Sie Antworten auf Ihre eigenen Dokumente und stellen Sie Ihre Modelle über ein lokales API-Gateway Ihren Coding-Tools bereit.",
+    "cta_download": "Für {{os}} herunterladen",
+    "cta_download_generic": "AQBot herunterladen",
+    "cta_github": "Quellcode auf GitHub",
+    "other_platforms": "Weitere Plattformen und Formate",
+    "meta_version": "Version: {{version}}",
+    "meta_released": "Veröffentlicht am {{date}}",
+    "meta_license": "Open Source unter AGPL-3.0"
+  },
+  "demo": {
+    "label": "Interaktive Vorschau des AQBot-Fensters",
+    "tabs_label": "Vorschauszenen",
+    "tab_chat": "Unterhaltung",
+    "tab_agent": "KI-Agent",
+    "tab_knowledge": "Wissen",
+    "tab_gateway": "API-Gateway",
+    "sidebar_title": "Unterhaltungen",
+    "conv_1": "Entwurf der Versionshinweise",
+    "conv_2": "Parser refaktorisieren",
+    "conv_3": "Zusammenfassung des Quartalsberichts",
+    "chat_title": "Entwurf der Versionshinweise",
+    "chat_user": "Fasse die Änderungen dieser Woche als Versionshinweise für Nutzer zusammen.",
+    "chat_answer_a": "Highlights: Assistenten können jetzt ein Standardmodell und Kandidatenmodelle zuordnen; das Gateway startet mit der App; der Rollen-Einstieg ist leichter erreichbar.",
+    "chat_answer_b": "Diese Woche: Standard- und Kandidatenmodelle pro Assistent, automatischer Gateway-Start behoben und eine übersichtlichere Modellliste im Chat.",
+    "chat_compare": "Zwei Modelle haben parallel geantwortet",
+    "chat_input": "Stellen Sie eine Frage…",
+    "agent_title": "Parser refaktorisieren",
+    "agent_task": "Teile den README-Parser in kleinere Funktionen auf und führe die Tests aus.",
+    "agent_step_read": "aqsite/readme.py lesen",
+    "agent_step_edit": "3 Funktionen bearbeiten",
+    "agent_step_run": "Befehl ausführen",
+    "agent_permission": "Der Agent möchte einen Befehl im Arbeitsverzeichnis ausführen.",
+    "agent_allow_once": "Einmal erlauben",
+    "agent_allow_always": "In dieser Sitzung immer erlauben",
+    "agent_deny": "Ablehnen",
+    "agent_done": "Tests bestanden. 3 Funktionen extrahiert, Verhalten unverändert.",
+    "agent_denied": "Befehl abgelehnt. Der Agent hat angehalten und wartet auf Anweisungen.",
+    "kb_title": "Zusammenfassung des Quartalsberichts",
+    "kb_query": "Was hat im letzten Quartal zum Anstieg der Support-Tickets geführt?",
+    "kb_sources": "Aus der Wissensdatenbank abgerufen",
+    "kb_doc_1": "Support-Rückblick Q3.pdf",
+    "kb_doc_2": "Onboarding-Umfrage.md",
+    "kb_doc_3": "Release-Kalender.xlsx",
+    "kb_answer": "Die meisten neuen Tickets kamen nach dem September-Release, vor allem Anmeldefragen neuer Nutzer [1][2]. Nach der Aktualisierung der Einführungsanleitung normalisierte sich das Aufkommen wieder [3].",
+    "gw_title": "API-Gateway",
+    "gw_status": "Läuft",
+    "gw_endpoints": "Kompatible Endpunkte",
+    "gw_log": "Letzte Anfragen",
+    "gw_keys": "2 aktive Schlüssel",
+    "gw_requests": "Anfragen heute"
+  },
+  "home": {
+    "capabilities_title": "Was Sie mit AQBot tun können",
+    "capabilities_lede": "Eine App für die tägliche KI-Arbeit, für die man sonst mehrere braucht: chatten, delegieren, recherchieren und Modelle für andere Tools bereitstellen.",
+    "cap_chat_title": "Mit jedem Modell chatten",
+    "cap_chat_body": "Verbinden Sie OpenAI, Claude, Gemini, DeepSeek, Qwen oder jeden OpenAI-kompatiblen Endpunkt. Vergleichen Sie Antworten mehrerer Modelle nebeneinander, verzweigen Sie Unterhaltungen und behalten Sie Nachrichtenversionen.",
+    "cap_agent_title": "Arbeit an Agenten übergeben",
+    "cap_agent_body": "Schalten Sie einen Chat in den Agent-Modus, um Code in einem Ordner zu lesen, zu bearbeiten und auszuführen – mit Freigabe jeder Aktion. Oder öffnen Sie die ACP-Workbench, um Codex, Claude Agent, Gemini CLI und andere ACP-Agenten zu steuern.",
+    "cap_tools_title": "Mit MCP und Skills erweitern",
+    "cap_tools_body": "Betreiben Sie MCP-Server über stdio, SSE oder StreamableHTTP, nutzen Sie integrierte Tools wie @aqbot/fetch und verwalten Sie Skills-Ordner für AQBot, Codex, Claude und Agents an einem Ort.",
+    "cap_knowledge_title": "Antworten aus Ihren Dokumenten",
+    "cap_knowledge_body": "Indexieren Sie private Dateien in einer lokalen sqlite-vec-Wissensdatenbank, ergänzen Sie Websuche über Tavily, Exa, Zhipu oder Bocha und fügen Sie dem Kontext Erinnerungen und Dateien hinzu.",
+    "cap_gateway_title": "Modelle lokal bereitstellen",
+    "cap_gateway_body": "Stellen Sie konfigurierte Anbieter als OpenAI-, Claude- und Gemini-kompatible Endpunkte bereit – mit Gateway-Schlüsseln, TLS, Anfrageprotokollen und Nutzungsstatistiken für Tools wie Claude Code und Codex CLI.",
+    "cap_data_title": "Daten bleiben auf Ihrem Rechner",
+    "cap_data_body": "Der App-Zustand liegt in ~/.aqbot, Ihre Dateien in ~/Documents/aqbot. API-Schlüssel werden mit AES-256 verschlüsselt, Backups landen in einem lokalen Ordner, auf WebDAV oder in S3-kompatiblem Speicher.",
+    "gallery_title": "Ein Blick hinein",
+    "gallery_lede": "Screenshots der aktuellen Desktop-App. Wählen Sie eine Ansicht, um sie zu vergrößern.",
+    "gateway_title": "AQBot als Backend für Ihre Coding-Tools",
+    "gateway_body": "Starten Sie das Gateway einmal, und die Coding-Tools auf Ihrem Rechner erreichen jedes bereits konfigurierte Modell. Schlüssel, Routing und Nutzung bleiben an einem Ort.",
+    "gateway_point_1": "Native Formate für OpenAI Chat Completions, OpenAI Responses, Claude und Gemini",
+    "gateway_point_2": "Eigene Gateway-Schlüssel, selbstsignierte oder eigene TLS-Zertifikate",
+    "gateway_point_3": "Anfrageprotokolle und Token-Verbrauch nach Schlüssel, Anbieter und Tag",
+    "gateway_snippets_label": "Beispiele für die Client-Konfiguration",
+    "gateway_note": "Ersetzen Sie YOUR_KEY durch einen Schlüssel, den Sie unter API-Gateway → Schlüssel erzeugt haben. 8080 ist der Standard-HTTP-Port.",
+    "local_title": "Konsequent local-first",
+    "local_body": "AQBot legt App-Zustand und Nutzerdateien in zwei vorhersehbaren Ordnern ab, sodass Sie sie mit gewöhnlichen Werkzeugen einsehen, sichern oder verschieben können.",
+    "local_state": "Datenbank, Verschlüsselungsschlüssel, Vektorspeicher und TLS-Dateien",
+    "local_files": "Bilder, Anhänge und Backups zum Durchsuchen",
+    "local_point_1": "API-Schlüssel geschützt mit AES-256 und einem lokalen Hauptschlüssel",
+    "local_point_2": "Backups in einen lokalen Ordner, auf WebDAV oder in S3-kompatiblen Speicher",
+    "local_point_3": "Import von ChatGPT-Exporten sowie Cherry-Studio- und Kelivo-Backups",
+    "languages_title": "In 11 Sprachen verfügbar",
+    "languages_body": "Die App und diese Website gibt es in den folgenden Sprachen.",
+    "faq_title": "Häufig gestellte Fragen",
+    "faq_more": "Alle Fragen ansehen",
+    "cta_title": "AQBot holen",
+    "cta_body": "Kostenlos und Open Source für macOS, Windows und Linux.",
+    "cta_all": "Alle Downloads",
+    "gateway_quick": "Die Schnellverbindung trägt Gateway-Adresse und Schlüssel in die Konfiguration von Claude Code, Codex, OpenCode, Gemini CLI und Cursor ein. Die folgenden Snippets sind das manuelle Gegenstück."
+  },
+  "features": {
+    "title": "Funktionen",
+    "lede": "Alles, was AQBot heute kann, nach Bereichen gruppiert. Die Liste folgt dem README des Projekts und wird mit jeder Version aktualisiert.",
+    "toc_label": "Funktionsbereiche",
+    "cta_title": "Probieren Sie es auf Ihrem Desktop aus",
+    "cta_body": "Installieren Sie AQBot und verbinden Sie Ihren ersten Anbieter in wenigen Minuten."
+  },
+  "download": {
+    "title": "AQBot herunterladen",
+    "lede": "Kostenlos und Open Source. Wählen Sie das Installationspaket für Ihr System; jede Datei stammt aus dem offiziellen GitHub-Release.",
+    "recommended": "Empfohlen für Ihr Gerät",
+    "detected": "Erkannt: {{os}}",
+    "latest": "Neueste Version",
+    "published": "Veröffentlicht am {{date}}",
+    "changelog": "Versionshinweise",
+    "all_releases": "Alle Versionen",
+    "build_source": "Aus dem Quellcode bauen",
+    "table_format": "Dateiformat",
+    "table_arch": "Architektur",
+    "table_size": "Größe",
+    "table_file": "Datei",
+    "action": "Herunterladen",
+    "arch_arm64": "ARM64",
+    "arch_x64": "x64",
+    "arch_mac_arm64": "Apple-Silicon-Chip",
+    "arch_mac_x64": "Intel-Prozessor",
+    "kind_dmg": "Disk-Image (.dmg)",
+    "kind_setup": "Installationsprogramm (.exe)",
+    "kind_msi": "Windows-Installer (.msi)",
+    "kind_portable": "Portable Version (.zip)",
+    "kind_appimage": "AppImage",
+    "kind_deb": "Debian-/Ubuntu-Paket (.deb)",
+    "kind_rpm": "Fedora-/RHEL-/openSUSE-Paket (.rpm)",
+    "install_title": "Installation",
+    "install_macos_1": "Öffnen Sie die heruntergeladene .dmg-Datei.",
+    "install_macos_2": "Ziehen Sie AQBot in den Ordner „Programme“.",
+    "install_macos_3": "Falls macOS den ersten Start blockiert, klicken Sie bei gedrückter Control-Taste auf AQBot.app und wählen Sie „Öffnen“.",
+    "install_windows_1": "Führen Sie das .exe- oder .msi-Installationsprogramm aus oder entpacken Sie das portable .zip an einen beliebigen Ort.",
+    "install_windows_2": "Folgen Sie dem Einrichtungsassistenten und starten Sie AQBot über das Startmenü.",
+    "install_windows_3": "Autostart bei der Anmeldung und globale Tastenkürzel lassen sich in den Einstellungen aktivieren.",
+    "install_linux_1": "Debian und Ubuntu",
+    "install_linux_2": "Fedora, RHEL und openSUSE",
+    "install_linux_3": "Jede Distribution per AppImage",
+    "requirements_title": "Unterstützte Systeme",
+    "req_macos": "Apple Silicon (arm64) und Intel (x86_64)",
+    "req_windows": "Windows 10 und 11, x86_64 und arm64",
+    "req_linux": "x86_64 und arm64; AppImage-, deb- und rpm-Pakete",
+    "next_title": "Nach der Installation",
+    "next_body": "Folgen Sie der Einstiegsanleitung, um einen Anbieter hinzuzufügen und Ihre erste Nachricht zu senden."
+  },
+  "faq": {
+    "title": "Häufig gestellte Fragen",
+    "lede": "Kurze Antworten darauf, was AQBot ist, wie es mit Ihren Daten umgeht und wie Sie es einrichten.",
+    "items": [
+      {
+        "q": "Was ist AQBot?",
+        "a": "AQBot ist ein kostenloser Open-Source-KI-Desktop-Client für macOS, Windows und Linux. Er vereint Chat mit mehreren Anbietern, Agenten, MCP-Tools, lokale Wissensdatenbanken und ein lokales API-Gateway in einer Anwendung und behält App-Daten und Nutzerdateien auf Ihrem Computer."
+      },
+      {
+        "q": "Ist AQBot kostenlos?",
+        "a": "Ja. AQBot kann kostenlos heruntergeladen und genutzt werden, der Quellcode ist auf GitHub unter der AGPL-3.0-Lizenz veröffentlicht. Sie zahlen nur die Modellanbieter, die Sie verbinden – oder nichts, wenn Sie lokale Modelle betreiben."
+      },
+      {
+        "q": "Welche KI-Anbieter und Modelle kann ich nutzen?",
+        "a": "AQBot verbindet sich mit OpenAI, Claude, Gemini, DeepSeek, Qwen und jedem OpenAI-kompatiblen Endpunkt, einschließlich lokaler Server wie Ollama. Pro Anbieter lassen sich eigene Base URL, API-Pfad, Header und Proxy festlegen; Anbieter können über aqbot://-Links oder aus CC Switch importiert werden."
+      },
+      {
+        "q": "Welche Betriebssysteme werden unterstützt?",
+        "a": "macOS auf Apple Silicon und Intel, Windows 10 und 11 auf x64 und ARM64 sowie Linux auf x64 und ARM64 über AppImage-, deb- und rpm-Pakete."
+      },
+      {
+        "q": "Wo speichert AQBot meine Daten?",
+        "a": "Der App-Zustand wie Datenbank, Verschlüsselungsschlüssel und Vektorspeicher liegt in ~/.aqbot. Ihre Bilder, Anhänge und Backups liegen in ~/Documents/aqbot. API-Schlüssel werden mit AES-256 und einem lokalen Hauptschlüssel verschlüsselt."
+      },
+      {
+        "q": "Wie nutze ich AQBot mit Claude Code, Codex CLI oder Gemini CLI?",
+        "a": "Starten Sie in AQBot das API-Gateway und erzeugen Sie einen Gateway-Schlüssel. Die Schnellverbindung trägt Adresse und Schlüssel dann für Sie in Claude Code, Codex, OpenCode, Gemini CLI oder Cursor ein; manuell benötigt Claude Code ANTHROPIC_BASE_URL=http://localhost:8080/v1 und ANTHROPIC_AUTH_TOKEN mit dem Gateway-Schlüssel als Wert."
+      },
+      {
+        "q": "Unterstützt AQBot MCP?",
+        "a": "Ja. AQBot ist ein MCP-Client, der Model-Context-Protocol-Server über stdio, SSE oder StreamableHTTP ausführt, und bringt integrierte Tools wie @aqbot/fetch mit. Die maximale Anzahl an Tool-Aufrufrunden ist einstellbar."
+      },
+      {
+        "q": "Was ist der Unterschied zwischen dem Chat-Agenten und der ACP-Workbench?",
+        "a": "Der Chat-Agent nutzt die in AQBot konfigurierten Anbieter, um in einem von Ihnen gewählten Ordner Dateien zu lesen und zu bearbeiten und Befehle auszuführen, mit verschiedenen Freigabemodi; dieser Ordner ist das anfängliche Arbeitsverzeichnis, keine Sandbox. Die ACP-Workbench führt externe Agenten aus, die das Agent Client Protocol sprechen, etwa Codex, Claude Agent, Gemini CLI, Cline und OpenCode."
+      },
+      {
+        "q": "Kann ich bestehende Unterhaltungen importieren?",
+        "a": "Ja. AQBot importiert offizielle ChatGPT-Exporte sowie Cherry-Studio- und Kelivo-Backups – mit Vorschau, Warnungen und Duplikatbehandlung. Bei Cherry Studio und Kelivo lassen sich auch Anbieter, API-Schlüssel und Anhänge übernehmen."
+      },
+      {
+        "q": "Wie funktionieren Backups?",
+        "a": "Sie können manuell oder zeitgesteuert sichern und wiederherstellen – in einen lokalen Ordner, auf einen WebDAV-Server oder in S3-kompatiblen Speicher. Lokale Backups landen standardmäßig in ~/Documents/aqbot/backups."
+      },
+      {
+        "q": "macOS meldet, AQBot sei beschädigt oder könne nicht überprüft werden. Was tun?",
+        "a": "AQBot ist mit dem projekteigenen Zertifikat signiert, nicht mit einer Apple Developer ID. Klicken Sie im Finder bei gedrückter Control-Taste auf AQBot.app und wählen Sie „Öffnen“, oder erlauben Sie die App unter Systemeinstellungen → Datenschutz & Sicherheit. Gatekeeper müssen Sie nicht deaktivieren."
+      },
+      {
+        "q": "Welche Oberflächensprachen gibt es?",
+        "a": "Vereinfachtes Chinesisch, traditionelles Chinesisch, Englisch, Japanisch, Koreanisch, Französisch, Deutsch, Spanisch, Russisch, Hindi und Arabisch."
+      }
+    ]
+  },
+  "docs": {
+    "label": "Dokumentation",
+    "sidebar_title": "Anleitungen",
+    "on_this_page": "Auf dieser Seite",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "edit": "Diese Seite auf GitHub bearbeiten",
+    "updated": "Zuletzt aktualisiert am {{date}}"
+  },
+  "footer": {
+    "about": "AQBot ist ein kostenloser, quelloffener Local-first-KI-Desktop-Client für macOS, Windows und Linux.",
+    "product": "Produkt",
+    "resources": "Ressourcen",
+    "community": "Gemeinschaft",
+    "releases": "Versionen",
+    "issues": "Problem melden",
+    "license": "Lizenz",
+    "linuxdo": "LinuxDO",
+    "copyright": "© {{year}} AQBot. Veröffentlicht unter der AGPL-3.0-Lizenz.",
+    "languages": "Sprachen"
+  },
+  "notfound": {
+    "title": "Diese Seite gibt es nicht",
+    "body": "Der Link ist möglicherweise veraltet oder die Seite wurde verschoben.",
+    "home": "Zurück zur Startseite"
+  }
+}

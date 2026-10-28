@@ -1,0 +1,67 @@
+{%- set nav_items = [
+  ("features", "/features", t("nav.features")),
+  ("download", "/download", t("nav.download")),
+  ("docs", "/guide/getting-started", t("nav.docs")),
+  ("faq", "/faq", t("nav.faq")),
+] -%}
+{%- macro theme_switch(id_prefix) -%}
+<div class="theme-switch" role="radiogroup" aria-label="{{ t('theme.label') }}" data-theme-switch>
+  {%- for mode, ico in [("auto", "monitor"), ("light", "sun"), ("dark", "moon")] %}
+  <button type="button" role="radio" aria-checked="false" data-theme-value="{{ mode }}" title="{{ t('theme.' ~ mode) }}" aria-label="{{ t('theme.' ~ mode) }}">{{ icon(ico, size=16) }}<span class="theme-switch-text">{{ t('theme.' ~ mode) }}</span></button>
+  {%- endfor %}
+</div>
+{%- endmacro -%}
+<header class="site-header" data-header>
+  <div class="container header-inner">
+    <a class="brand" href="{{ href('/') }}" aria-label="AQBot — {{ t('nav.home') }}">
+      <img class="brand-logo" src="/logo.svg" width="28" height="28" alt="">
+      <span class="brand-name">AQBot</span>
+    </a>
+    <nav class="primary-nav" aria-label="{{ t('nav.primary') }}">
+      <ul>
+        {%- for key, path, label in nav_items %}
+        <li><a href="{{ href(path) }}"{% if page.section == key %} aria-current="page"{% endif %}>{{ label }}</a></li>
+        {%- endfor %}
+      </ul>
+    </nav>
+    <div class="header-tools">
+      <a class="tool-link github-link" href="{{ site.repo }}" rel="noopener" target="_blank"{% if stars %} aria-label="{{ t('nav.github_stars', count=stars_label) }}"{% endif %}>
+        {{ icon("github", size=18) }}<span class="github-text">{{ t("nav.github") }}</span>{% if stars %}<span class="github-stars">{{ icon("star", size=13) }}{{ stars_label }}</span>{% endif %}
+      </a>
+      <details class="lang-menu" data-popover>
+        <summary class="tool-link" aria-label="{{ t('nav.language') }}: {{ loc.label }}">{{ icon("globe", size=18) }}<span class="lang-current">{{ loc.label }}</span>{{ icon("chevron-down", "icon chevron", 14) }}</summary>
+        <ul class="popover lang-list" role="list">
+          {%- for alt in page.alternates_by_locale %}
+          <li><a href="{{ alt.href }}" hreflang="{{ alt.hreflang }}" lang="{{ alt.html_lang }}" data-lang-link="{{ alt.code }}"{% if alt.code == loc.code %} aria-current="true"{% endif %}>{{ alt.label }}{% if alt.code == loc.code %}{{ icon("check", size=15) }}{% endif %}</a></li>
+          {%- endfor %}
+        </ul>
+      </details>
+      {{ theme_switch("h") }}
+      <a class="btn btn-primary btn-sm header-cta" href="{{ href('/download') }}">{{ icon("download", size=16) }}<span>{{ t("nav.download") }}</span></a>
+      <button class="tool-link menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-nav" data-menu-toggle data-label-open="{{ t('nav.menu') }}" data-label-close="{{ t('nav.close_menu') }}" aria-label="{{ t('nav.menu') }}">{{ icon("menu", "icon icon-open", 22) }}{{ icon("x", "icon icon-close", 22) }}</button>
+    </div>
+  </div>
+  <div class="mobile-nav" id="mobile-nav" data-mobile-nav hidden>
+    <div class="container">
+      <ul class="mobile-links">
+        <li><a href="{{ href('/') }}"{% if page.section == 'home' %} aria-current="page"{% endif %}>{{ t("nav.home") }}</a></li>
+        {%- for key, path, label in nav_items %}
+        <li><a href="{{ href(path) }}"{% if page.section == key %} aria-current="page"{% endif %}>{{ label }}</a></li>
+        {%- endfor %}
+        <li><a href="{{ site.repo }}" rel="noopener" target="_blank">{{ t("nav.github") }}{{ icon("external", size=15) }}</a></li>
+      </ul>
+      <div class="mobile-group">
+        <p class="mobile-label">{{ t("theme.label") }}</p>
+        {{ theme_switch("m") }}
+      </div>
+      <div class="mobile-group">
+        <p class="mobile-label">{{ t("nav.language") }}</p>
+        <ul class="mobile-langs">
+          {%- for alt in page.alternates_by_locale %}
+          <li><a href="{{ alt.href }}" hreflang="{{ alt.hreflang }}" lang="{{ alt.html_lang }}" data-lang-link="{{ alt.code }}"{% if alt.code == loc.code %} aria-current="true"{% endif %}>{{ alt.label }}</a></li>
+          {%- endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</header>

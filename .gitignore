@@ -48,10 +48,11 @@ docs/superpowers/*
 # Local git worktrees
 .worktrees/
 
-# Website (VitePress)
-website/node_modules/
-website/docs/.vitepress/cache/
-website/docs/.vitepress/dist/
+# Website (Python static site)
+website/.venv/
+website/.cache/
+website/dist/
+__pycache__/
 fix/
 autoresearch-*.json
 research-*.tsv

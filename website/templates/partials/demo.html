@@ -1,0 +1,135 @@
+{%- from "partials/icons.html" import icon with context -%}
+{%- set scenes = [("chat", "message"), ("agent", "bot"), ("knowledge", "book"), ("gateway", "router")] -%}
+<div class="demo" data-demo>
+  <div class="demo-tabs" role="tablist" aria-label="{{ t('demo.tabs_label') }}">
+    {%- for id, ico in scenes %}
+    <button type="button" role="tab" id="demo-tab-{{ id }}" aria-controls="demo-{{ id }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-demo-tab="{{ id }}">{{ icon(ico, size=16) }}<span>{{ t('demo.tab_' ~ id) }}</span></button>
+    {%- endfor %}
+  </div>
+  <div class="window" role="group" aria-label="{{ t('demo.label') }}">
+    <div class="window-bar" aria-hidden="true">
+      <span class="window-dots"><i></i><i></i><i></i></span>
+      <span class="window-name">AQBot</span>
+    </div>
+    <div class="window-body">
+      <div class="window-rail" aria-hidden="true">
+        {%- for id, ico in scenes %}
+        <span class="rail-item" data-rail="{{ id }}">{{ icon(ico, size=18) }}</span>
+        {%- endfor %}
+        <span class="rail-item">{{ icon("folder", size=18) }}</span>
+      </div>
+      <div class="window-sessions" aria-hidden="true">
+        <p class="sessions-title">{{ t("demo.sidebar_title") }}</p>
+        <ul>
+          <li class="is-active" data-session="chat">{{ t("demo.conv_1") }}</li>
+          <li data-session="agent">{{ t("demo.conv_2") }}</li>
+          <li data-session="knowledge">{{ t("demo.conv_3") }}</li>
+        </ul>
+      </div>
+      <div class="window-pane">
+
+        <section class="scene scene-chat" id="demo-chat" role="tabpanel" aria-labelledby="demo-tab-chat" data-scene="chat">
+          <header class="scene-head">
+            <span class="scene-title">{{ t("demo.chat_title") }}</span>
+            <span class="model-chips"><span class="chip">gpt-5.5</span><span class="chip">deepseek-chat</span></span>
+          </header>
+          <div class="scene-scroll">
+            <div class="msg msg-user"><p>{{ t("demo.chat_user") }}</p></div>
+            <p class="scene-note">{{ icon("layers", size=14) }}{{ t("demo.chat_compare") }}</p>
+            <div class="answers">
+              <div class="msg msg-ai">
+                <p class="msg-model"><span class="provider">OpenAI</span> gpt-5.5</p>
+                <p data-stream>{{ t("demo.chat_answer_a") }}</p>
+              </div>
+              <div class="msg msg-ai">
+                <p class="msg-model"><span class="provider">DeepSeek</span> deepseek-chat</p>
+                <p data-stream>{{ t("demo.chat_answer_b") }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="composer" aria-hidden="true"><span>{{ t("demo.chat_input") }}</span>{{ icon("send", size=16) }}</div>
+        </section>
+
+        <section class="scene scene-agent" id="demo-agent" role="tabpanel" aria-labelledby="demo-tab-agent" data-scene="agent" hidden>
+          <header class="scene-head">
+            <span class="scene-title">{{ t("demo.agent_title") }}</span>
+            <span class="model-chips"><span class="chip">{{ t("demo.tab_agent") }}</span></span>
+          </header>
+          <div class="scene-scroll">
+            <div class="msg msg-user"><p>{{ t("demo.agent_task") }}</p></div>
+            <ol class="steps">
+              <li class="step is-done">{{ icon("file", size=15) }}<span>{{ t("demo.agent_step_read") }}</span><span class="step-state">{{ icon("check", size=14) }}</span></li>
+              <li class="step is-done">{{ icon("pencil", size=15) }}<span>{{ t("demo.agent_step_edit") }}</span><span class="step-state">{{ icon("check", size=14) }}</span></li>
+              <li class="step is-pending" data-agent-step>{{ icon("terminal", size=15) }}<span>{{ t("demo.agent_step_run") }} <code>pnpm test</code></span><span class="step-state" data-agent-state></span></li>
+            </ol>
+            <div class="permission" data-agent-permission>
+              <p>{{ t("demo.agent_permission") }}</p>
+              <code class="permission-cmd">pnpm test</code>
+              <div class="permission-actions">
+                <button type="button" class="mini-btn mini-btn-primary" data-agent-choice="once">{{ t("demo.agent_allow_once") }}</button>
+                <button type="button" class="mini-btn" data-agent-choice="always">{{ t("demo.agent_allow_always") }}</button>
+                <button type="button" class="mini-btn" data-agent-choice="deny">{{ t("demo.agent_deny") }}</button>
+              </div>
+            </div>
+            <pre class="terminal" data-agent-output hidden><span>$ pnpm test</span>
+<span class="term-dim">✓ readme parser (12)</span>
+<span class="term-dim">✓ release assets (9)</span>
+<span class="term-ok">Test Files  2 passed</span></pre>
+            <div class="msg msg-ai" data-agent-done hidden><p>{{ t("demo.agent_done") }}</p></div>
+            <div class="msg msg-ai" data-agent-denied hidden><p>{{ t("demo.agent_denied") }}</p></div>
+            <button type="button" class="mini-btn replay" data-agent-reset hidden>{{ icon("rotate", size=14) }}</button>
+          </div>
+        </section>
+
+        <section class="scene scene-knowledge" id="demo-knowledge" role="tabpanel" aria-labelledby="demo-tab-knowledge" data-scene="knowledge" hidden>
+          <header class="scene-head">
+            <span class="scene-title">{{ t("demo.kb_title") }}</span>
+            <span class="model-chips"><span class="chip">{{ icon("book", size=12) }}sqlite-vec</span></span>
+          </header>
+          <div class="scene-scroll">
+            <div class="msg msg-user"><p>{{ t("demo.kb_query") }}</p></div>
+            <div class="sources">
+              <p class="scene-note">{{ icon("search", size=14) }}{{ t("demo.kb_sources") }}</p>
+              <ol>
+                {%- for n, score in [(1, 92), (2, 81), (3, 67)] %}
+                <li style="--score: {{ score }}%"><span class="src-index">{{ n }}</span><span class="src-name">{{ t('demo.kb_doc_' ~ n) }}</span><span class="src-bar" aria-hidden="true"><i></i></span><span class="src-score">0.{{ score }}</span></li>
+                {%- endfor %}
+              </ol>
+            </div>
+            <div class="msg msg-ai"><p data-stream>{{ t("demo.kb_answer") }}</p></div>
+          </div>
+        </section>
+
+        <section class="scene scene-gateway" id="demo-gateway" role="tabpanel" aria-labelledby="demo-tab-gateway" data-scene="gateway" hidden>
+          <header class="scene-head">
+            <span class="scene-title">{{ t("demo.gw_title") }}</span>
+            <span class="gw-status"><span class="gw-led" aria-hidden="true"></span>{{ t("demo.gw_status") }} · <code>127.0.0.1:8080</code></span>
+          </header>
+          <div class="scene-scroll">
+            <div class="gw-stats">
+              <div><span class="gw-num" data-gw-count>128</span><span class="gw-label">{{ t("demo.gw_requests") }}</span></div>
+              <div><span class="gw-num">4</span><span class="gw-label">{{ t("demo.gw_endpoints") }}</span></div>
+              <div><span class="gw-num">2</span><span class="gw-label">{{ t("demo.gw_keys") }}</span></div>
+            </div>
+            <p class="scene-note">{{ t("demo.gw_endpoints") }}</p>
+            <ul class="gw-endpoints">
+              <li><code>POST /v1/chat/completions</code><span>OpenAI Chat Completions</span></li>
+              <li><code>POST /v1/responses</code><span>OpenAI Responses</span></li>
+              <li><code>POST /v1/messages</code><span>Claude</span></li>
+              <li><code>POST /v1beta/models/…</code><span>Gemini</span></li>
+            </ul>
+            <p class="scene-note">{{ t("demo.gw_log") }}</p>
+            <table class="gw-log" data-gw-log>
+              <tbody>
+                <tr><td>claude-code</td><td>claude-sonnet</td><td class="ok">200</td><td>1.2s</td></tr>
+                <tr><td>codex</td><td>gpt-5.5</td><td class="ok">200</td><td>0.9s</td></tr>
+                <tr><td>gemini-cli</td><td>gemini-pro</td><td class="ok">200</td><td>1.4s</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>

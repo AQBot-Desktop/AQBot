@@ -5,6 +5,9 @@ on:
     branches: ["main"]
     paths:
       - "website/**"
+      - "README*.md"
+      - "package.json"
+      - ".github/workflows/deploy-website.yml"
 
   release:
     types: [released]
@@ -28,24 +31,33 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          # Full history so each page gets an accurate git-based lastmod.
+          fetch-depth: 0
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: website/pnpm-lock.yaml
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: website/requirements.txt
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: website
+        run: pip install -r website/requirements.txt
 
-      - name: Build VitePress site
-        run: pnpm build
-        working-directory: website
+      - name: Cache fonts and images
+        uses: actions/cache@v4
+        with:
+          path: |
+            website/.cache/fonts
+            website/.cache/subsets
+            website/.cache/images
+          key: website-cache-${{ hashFiles('website/aqsite/config.py', 'website/aqsite/fonts.py', 'website/aqsite/images.py') }}
+          restore-keys: website-cache-
+
+      - name: Build static site
+        run: python website/build.py build --out website/dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -53,7 +65,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website/docs/.vitepress/dist
+          path: website/dist
 
   deploy:
     environment:

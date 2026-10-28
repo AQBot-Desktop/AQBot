@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "site_tagline": "ローカルファーストの AI デスクトップクライアント",
+    "home_title": "AQBot — オープンソースの AI デスクトップクライアント＆ローカル API ゲートウェイ",
+    "home_description": "macOS・Windows・Linux 対応の無料オープンソース AI デスクトップアプリ。OpenAI、Claude、Gemini、DeepSeek、Qwen と対話でき、エージェント、MCP、ローカルナレッジベース、API ゲートウェイを搭載。",
+    "features_title": "機能：マルチモデルチャット、エージェント、MCP、API ゲートウェイ",
+    "features_description": "AQBot の全機能を一覧で紹介：マルチプロバイダーチャット、内蔵エージェントと ACP エージェント、ロール、Skills、MCP ツール、Web 検索、sqlite-vec ナレッジベース、ローカル API ゲートウェイ、インポート、暗号化バックアップ。",
+    "download_title": "AQBot を無料ダウンロード — macOS・Windows・Linux 対応",
+    "download_description": "AQBot の最新版をダウンロード：macOS（Apple Silicon・Intel）、Windows（x64・ARM64）、Linux（AppImage・deb・rpm）。AGPL-3.0 のオープンソースで無料です。",
+    "faq_title": "AQBot よくある質問 — プライバシー、プロバイダー、ゲートウェイ、データ",
+    "faq_description": "AQBot に関する質問への回答：料金とライセンス、対応プラットフォームとプロバイダー、データの保存場所、API ゲートウェイ、MCP、ACP エージェント、インポート、バックアップ、macOS のインストール時の警告。",
+    "docs_title_suffix": "AQBot ドキュメント",
+    "notfound_title": "ページが見つかりません"
+  },
+  "nav": {
+    "home": "ホーム",
+    "features": "機能",
+    "download": "ダウンロード",
+    "docs": "ドキュメント",
+    "faq": "よくある質問",
+    "github": "GitHub",
+    "github_stars": "GitHub のスター {{count}} 件",
+    "skip": "本文へスキップ",
+    "menu": "メニューを開く",
+    "close_menu": "メニューを閉じる",
+    "language": "言語",
+    "primary": "メインナビゲーション",
+    "breadcrumb": "パンくずリスト"
+  },
+  "theme": {
+    "label": "カラーテーマ",
+    "auto": "自動",
+    "light": "ライト",
+    "dark": "ダーク"
+  },
+  "lang_banner": {
+    "text": "このページは日本語でもご覧いただけます。",
+    "action": "日本語で読む",
+    "dismiss": "現在の言語のままにする"
+  },
+  "common": {
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "close": "閉じる",
+    "previous": "前へ",
+    "next": "次へ",
+    "learn_more": "詳しく見る",
+    "read_guide": "ガイドを読む",
+    "enlarge": "スクリーンショットを拡大：{{name}}",
+    "screenshot_alt": "AQBot のスクリーンショット：{{name}}",
+    "logo_alt": "AQBot のロゴ",
+    "callout_tip": "ヒント",
+    "callout_info": "補足",
+    "callout_warning": "注意",
+    "callout_danger": "重要"
+  },
+  "os": {
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "hero": {
+    "title": "あらゆるモデルに対応する、オープンソースの AI デスクトップクライアント",
+    "lede": "AQBot は無料のオープンソース AI デスクトップクライアントです。どのプロバイダーのモデルとも対話でき、タスクをエージェントに任せ、自分のドキュメントに基づいて回答させ、ローカル API ゲートウェイを通じてモデルをコーディングツールと共有できます。",
+    "cta_download": "{{os}} 版をダウンロード",
+    "cta_download_generic": "AQBot をダウンロード",
+    "cta_github": "GitHub でソースを見る",
+    "other_platforms": "その他のプラットフォームと形式",
+    "meta_version": "バージョン {{version}}",
+    "meta_released": "{{date}} リリース",
+    "meta_license": "AGPL-3.0 オープンソース"
+  },
+  "demo": {
+    "label": "AQBot ウィンドウのインタラクティブプレビュー",
+    "tabs_label": "プレビューシーン",
+    "tab_chat": "チャット",
+    "tab_agent": "エージェント",
+    "tab_knowledge": "ナレッジ",
+    "tab_gateway": "ゲートウェイ",
+    "sidebar_title": "会話",
+    "conv_1": "リリースノートの下書き",
+    "conv_2": "パーサーのリファクタリング",
+    "conv_3": "四半期レポートの要約",
+    "chat_title": "リリースノートの下書き",
+    "chat_user": "今週の変更点をユーザー向けのリリースノートにまとめて。",
+    "chat_answer_a": "主な変更点：アシスタントにデフォルトモデルと候補モデルを設定できるようになりました。ゲートウェイはアプリと同時に起動し、ロール管理の入口も見つけやすくなりました。",
+    "chat_answer_b": "今週の更新：アシスタントごとにデフォルトモデルと候補モデルを設定可能に。ゲートウェイの自動起動を修正し、チャットのモデル一覧もすっきりしました。",
+    "chat_compare": "2 つのモデルが並行して回答",
+    "chat_input": "何でも聞いてください…",
+    "agent_title": "パーサーのリファクタリング",
+    "agent_task": "README パーサーを小さな関数に分割して、テストを実行して。",
+    "agent_step_read": "aqsite/readme.py を読み込み",
+    "agent_step_edit": "3 つの関数を編集",
+    "agent_step_run": "コマンドを実行",
+    "agent_permission": "エージェントが作業ディレクトリでコマンドの実行を求めています。",
+    "agent_allow_once": "今回のみ許可",
+    "agent_allow_always": "このセッション中は常に許可",
+    "agent_deny": "拒否",
+    "agent_done": "テストに合格しました。3 つの関数を切り出し、動作に変更はありません。",
+    "agent_denied": "コマンドは拒否されました。エージェントは停止し、指示を待っています。",
+    "kb_title": "四半期レポートの要約",
+    "kb_query": "前四半期にサポートチケットが増えた要因は？",
+    "kb_sources": "ナレッジベースから取得",
+    "kb_doc_1": "Q3 サポートレビュー.pdf",
+    "kb_doc_2": "オンボーディング調査.md",
+    "kb_doc_3": "リリースカレンダー.xlsx",
+    "kb_answer": "新規チケットの多くは 9 月のリリース後に発生しており、主に新規ユーザーからのサインインに関する問い合わせでした [1][2]。オンボーディングガイドの更新後、件数は通常の水準に戻りました [3]。",
+    "gw_title": "API ゲートウェイ",
+    "gw_status": "稼働中",
+    "gw_endpoints": "互換エンドポイント",
+    "gw_log": "最近のリクエスト",
+    "gw_keys": "有効なキー 2 件",
+    "gw_requests": "本日のリクエスト"
+  },
+  "home": {
+    "capabilities_title": "AQBot でできること",
+    "capabilities_lede": "チャット、タスクの委任、調べもの、他ツールへのモデル提供。普段なら複数のアプリが必要な AI 作業を、ひとつのアプリでまかなえます。",
+    "cap_chat_title": "あらゆるモデルと対話",
+    "cap_chat_body": "OpenAI、Claude、Gemini、DeepSeek、Qwen、または任意の OpenAI 互換エンドポイントに接続。複数モデルの回答を並べて比較し、会話を分岐させ、メッセージのバージョンも保持できます。",
+    "cap_agent_title": "作業をエージェントに任せる",
+    "cap_agent_body": "チャットをエージェントモードに切り替えれば、操作ごとに承認しながらフォルダー内のコードを読み取り・編集・実行できます。ACP ワークベンチを開けば、Codex、Claude Agent、Gemini CLI などの ACP エージェントも操作できます。",
+    "cap_tools_title": "MCP と Skills で拡張",
+    "cap_tools_body": "stdio、SSE、StreamableHTTP で MCP サーバーを実行し、@aqbot/fetch などの内蔵ツールを利用。AQBot、Codex、Claude、Agents の Skills フォルダーもまとめて管理できます。",
+    "cap_knowledge_title": "自分のドキュメントから回答",
+    "cap_knowledge_body": "プライベートなファイルをローカルの sqlite-vec ナレッジベースにインデックス化。Tavily、Exa、Zhipu、Bocha による Web 検索を追加し、メモリーやファイルをコンテキストに添付できます。",
+    "cap_gateway_title": "モデルをローカルで提供",
+    "cap_gateway_body": "設定済みのプロバイダーを OpenAI・Claude・Gemini 互換のエンドポイントとして公開。ゲートウェイキー、TLS、リクエストログ、使用量統計を備え、Claude Code や Codex CLI などのツールから利用できます。",
+    "cap_data_title": "データは手元のマシンに",
+    "cap_data_body": "アプリの状態は ~/.aqbot に、ファイルは ~/Documents/aqbot に保存されます。API キーは AES-256 で暗号化され、バックアップはローカルフォルダー、WebDAV、S3 互換ストレージに保存できます。",
+    "gallery_title": "アプリの画面",
+    "gallery_lede": "現行のデスクトップアプリのスクリーンショットです。画面を選ぶと拡大表示されます。",
+    "gateway_title": "AQBot をコーディングツールのバックエンドに",
+    "gateway_body": "ゲートウェイを一度起動すれば、手元のコーディングツールから設定済みのすべてのモデルを利用できます。キー、ルーティング、使用量は一か所で管理できます。",
+    "gateway_point_1": "OpenAI Chat Completions、OpenAI Responses、Claude と Gemini のネイティブ形式に対応",
+    "gateway_point_2": "専用のゲートウェイキー、自己署名またはカスタムの TLS 証明書",
+    "gateway_point_3": "キー・プロバイダー・日付ごとのリクエストログとトークン使用量",
+    "gateway_snippets_label": "クライアント設定の例",
+    "gateway_note": "YOUR_KEY は「API ゲートウェイ → キー」で生成したキーに置き換えてください。8080 はデフォルトの HTTP ポートです。",
+    "local_title": "ローカルファーストの設計",
+    "local_body": "AQBot はアプリの状態とユーザーファイルを決まった 2 つのフォルダーに保存するため、普段使いのツールで中身を確認したり、バックアップや移動をしたりできます。",
+    "local_state": "データベース、暗号化キー、ベクトルストア、TLS ファイル",
+    "local_files": "閲覧可能な画像、添付ファイル、バックアップ",
+    "local_point_1": "API キーは AES-256 とローカルのマスターキーで保護",
+    "local_point_2": "ローカルフォルダー、WebDAV、S3 互換ストレージへのバックアップ",
+    "local_point_3": "ChatGPT のエクスポート、Cherry Studio と Kelivo のバックアップをインポート",
+    "languages_title": "11 言語に対応",
+    "languages_body": "アプリとこのウェブサイトは、以下の言語でご利用いただけます。",
+    "faq_title": "よくある質問",
+    "faq_more": "すべての質問を見る",
+    "cta_title": "AQBot を入手",
+    "cta_body": "macOS、Windows、Linux 向けに無料・オープンソースで提供しています。",
+    "cta_all": "すべてのダウンロード",
+    "gateway_quick": "クイック接続を使うと、ゲートウェイのアドレスとキーが Claude Code、Codex、OpenCode、Gemini CLI、Cursor の設定に書き込まれます。以下は同じ内容を手動で設定する例です。"
+  },
+  "features": {
+    "title": "機能",
+    "lede": "AQBot の現在の機能を分野別にまとめました。内容はプロジェクトの README に沿っており、リリースごとに更新されます。",
+    "toc_label": "機能の分類",
+    "cta_title": "デスクトップで試してみる",
+    "cta_body": "AQBot をインストールすれば、数分で最初のプロバイダーに接続できます。"
+  },
+  "download": {
+    "title": "AQBot をダウンロード",
+    "lede": "無料・オープンソース。お使いのシステムに合ったインストーラーを選んでください。すべてのファイルは GitHub の公式リリースから配布されています。",
+    "recommended": "お使いのデバイスにおすすめ",
+    "detected": "検出された OS：{{os}}",
+    "latest": "最新リリース",
+    "published": "{{date}} 公開",
+    "changelog": "リリースノート",
+    "all_releases": "すべてのリリース",
+    "build_source": "ソースからビルド",
+    "table_format": "形式",
+    "table_arch": "アーキテクチャ",
+    "table_size": "サイズ",
+    "table_file": "ファイル",
+    "action": "ダウンロード",
+    "arch_arm64": "ARM64",
+    "arch_x64": "x64",
+    "arch_mac_arm64": "Apple シリコン",
+    "arch_mac_x64": "Intel プロセッサ",
+    "kind_dmg": "ディスクイメージ（.dmg）",
+    "kind_setup": "インストーラー（.exe）",
+    "kind_msi": "Windows インストーラー（.msi）",
+    "kind_portable": "ポータブル版（.zip）",
+    "kind_appimage": "AppImage",
+    "kind_deb": "Debian / Ubuntu 用（.deb）",
+    "kind_rpm": "Fedora / RHEL / openSUSE 用（.rpm）",
+    "install_title": "インストール方法",
+    "install_macos_1": "ダウンロードした .dmg ファイルを開きます。",
+    "install_macos_2": "AQBot を「アプリケーション」フォルダーにドラッグします。",
+    "install_macos_3": "初回起動時に macOS にブロックされた場合は、AQBot.app を Control キーを押しながらクリックし、「開く」を選択します。",
+    "install_windows_1": ".exe または .msi のインストーラーを実行するか、ポータブル版の .zip を任意の場所に展開します。",
+    "install_windows_2": "セットアップウィザードに従ってインストールし、スタートメニューから AQBot を起動します。",
+    "install_windows_3": "ログイン時の自動起動やグローバルショートカットは設定で有効にできます。",
+    "install_linux_1": "Debian・Ubuntu",
+    "install_linux_2": "Fedora・RHEL・openSUSE",
+    "install_linux_3": "AppImage ならどのディストリビューションでも",
+    "requirements_title": "対応システム",
+    "req_macos": "Apple シリコン（arm64）と Intel（x86_64）",
+    "req_windows": "Windows 10 および 11、x86_64 と arm64",
+    "req_linux": "x86_64 と arm64。AppImage、deb、rpm パッケージを提供",
+    "next_title": "インストール後は",
+    "next_body": "スタートガイドに沿ってプロバイダーを追加し、最初のメッセージを送ってみましょう。"
+  },
+  "faq": {
+    "title": "よくある質問",
+    "lede": "AQBot とは何か、データをどう扱うか、どう使い始めるかについての簡潔な回答です。",
+    "items": [
+      {
+        "q": "AQBot とは何ですか？",
+        "a": "AQBot は macOS、Windows、Linux 向けの無料オープンソース AI デスクトップクライアントです。マルチプロバイダーチャット、エージェント、MCP ツール、ローカルナレッジベース、ローカル API ゲートウェイをひとつのアプリにまとめ、アプリのデータとユーザーファイルはお使いのコンピューター上に保存されます。"
+      },
+      {
+        "q": "AQBot は無料ですか？",
+        "a": "はい。AQBot は無料でダウンロード・利用でき、ソースコードは AGPL-3.0 ライセンスで GitHub に公開されています。費用がかかるのは接続を選んだモデルプロバイダーの利用料のみで、ローカルモデルを使う場合は一切かかりません。"
+      },
+      {
+        "q": "どの AI プロバイダーやモデルを使えますか？",
+        "a": "AQBot は OpenAI、Claude、Gemini、DeepSeek、Qwen のほか、Ollama などのローカルサーバーを含む任意の OpenAI 互換エンドポイントに接続できます。プロバイダーごとにカスタムの Base URL、API パス、ヘッダー、プロキシを設定でき、aqbot:// リンクや CC Switch からプロバイダーをインポートすることもできます。"
+      },
+      {
+        "q": "対応している OS は？",
+        "a": "Apple シリコンおよび Intel 搭載の macOS、x64 および ARM64 の Windows 10 と 11、x64 および ARM64 の Linux（AppImage、deb、rpm パッケージ）に対応しています。"
+      },
+      {
+        "q": "AQBot はデータをどこに保存しますか？",
+        "a": "データベース、暗号化キー、ベクトルストアなどのアプリの状態は ~/.aqbot に、画像、添付ファイル、バックアップは ~/Documents/aqbot に保存されます。API キーはローカルのマスターキーを使って AES-256 で暗号化されます。"
+      },
+      {
+        "q": "Claude Code、Codex CLI、Gemini CLI で AQBot を使うには？",
+        "a": "AQBot で API ゲートウェイを起動し、ゲートウェイキーを生成します。あとはクイック接続が Claude Code、Codex、OpenCode、Gemini CLI、Cursor にアドレスとキーを書き込みます。手動で設定する場合、Claude Code では ANTHROPIC_BASE_URL=http://localhost:8080/v1 を指定し、ANTHROPIC_AUTH_TOKEN にゲートウェイキーを設定します。"
+      },
+      {
+        "q": "AQBot は MCP に対応していますか？",
+        "a": "はい。AQBot は MCP クライアントとして、stdio、SSE、StreamableHTTP で Model Context Protocol サーバーを実行でき、@aqbot/fetch などの内蔵ツールも備えています。ツール呼び出しの最大ラウンド数は設定で変更できます。"
+      },
+      {
+        "q": "チャットのエージェントと ACP ワークベンチの違いは？",
+        "a": "チャットのエージェントは AQBot で設定したプロバイダーを使い、選択したフォルダー内でファイルの読み書きやコマンドの実行を行います。承認モードも選べます。このフォルダーは作業の開始ディレクトリであり、サンドボックスではありません。ACP ワークベンチは、Codex、Claude Agent、Gemini CLI、Cline、OpenCode など、Agent Client Protocol に対応した外部エージェントを実行します。"
+      },
+      {
+        "q": "既存の会話をインポートできますか？",
+        "a": "はい。AQBot は ChatGPT の公式エクスポート、Cherry Studio のバックアップ、Kelivo のバックアップをインポートでき、プレビューや警告の表示、重複の処理にも対応しています。Cherry Studio と Kelivo からは、プロバイダー、API キー、添付ファイルも移行できます。"
+      },
+      {
+        "q": "バックアップの仕組みは？",
+        "a": "ローカルフォルダー、WebDAV サーバー、S3 互換ストレージに対して、手動またはスケジュールでバックアップと復元を行えます。ローカルバックアップの保存先はデフォルトで ~/Documents/aqbot/backups です。"
+      },
+      {
+        "q": "macOS で AQBot が「壊れている」「検証できない」と表示されます。どうすればよいですか？",
+        "a": "AQBot は Apple Developer ID ではなく、プロジェクト独自の証明書で署名されています。Finder で AQBot.app を Control キーを押しながらクリックして「開く」を選ぶか、「システム設定 → プライバシーとセキュリティ」で許可してください。Gatekeeper を無効にする必要はありません。"
+      },
+      {
+        "q": "どの表示言語に対応していますか？",
+        "a": "簡体字中国語、繁体字中国語、英語、日本語、韓国語、フランス語、ドイツ語、スペイン語、ロシア語、ヒンディー語、アラビア語です。"
+      }
+    ]
+  },
+  "docs": {
+    "label": "ドキュメント",
+    "sidebar_title": "ガイド",
+    "on_this_page": "このページの内容",
+    "previous": "前のページ",
+    "next": "次のページ",
+    "edit": "GitHub でこのページを編集",
+    "updated": "最終更新日 {{date}}"
+  },
+  "footer": {
+    "about": "AQBot は macOS、Windows、Linux 向けの無料・オープンソースでローカルファーストな AI デスクトップクライアントです。",
+    "product": "製品",
+    "resources": "リソース",
+    "community": "コミュニティ",
+    "releases": "リリース",
+    "issues": "問題を報告",
+    "license": "ライセンス",
+    "linuxdo": "LinuxDO",
+    "copyright": "© {{year}} AQBot。AGPL-3.0 ライセンスで公開しています。",
+    "languages": "言語"
+  },
+  "notfound": {
+    "title": "このページは存在しません",
+    "body": "リンクが古いか、ページが移動した可能性があります。",
+    "home": "ホームに戻る"
+  }
+}

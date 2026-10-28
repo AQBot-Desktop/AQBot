@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{%- from "partials/icons.html" import icon with context -%}
+{% block main %}
+<section class="page-hero notfound">
+  <div class="container narrow">
+    <p class="notfound-code" aria-hidden="true">404</p>
+    <h1>{{ t("notfound.title") }}</h1>
+    <p class="page-lede">{{ t("notfound.body") }}</p>
+    <p><a class="btn btn-primary" href="{{ href('/') }}">{{ icon("arrow-left", "icon flip-rtl", 17) }}<span>{{ t("notfound.home") }}</span></a></p>
+    <ul class="lang-cloud">
+      {%- for other in locales %}
+      <li><a href="{{ other.href('/') }}" hreflang="{{ other.hreflang }}" lang="{{ other.html_lang }}">{{ other.label }}</a></li>
+      {%- endfor %}
+    </ul>
+  </div>
+</section>
+{% endblock %}

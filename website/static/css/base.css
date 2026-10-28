@@ -1,0 +1,245 @@
+/* Reset, typography, layout primitives, prose and code. */
+
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-h) + 16px);
+  background: var(--bg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-serif, "Iowan Old Style", Georgia, "Songti SC", "Noto Serif CJK SC", serif);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  font-optical-sizing: auto;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-wrap: break-word;
+}
+img, svg, video, picture { display: block; max-width: 100%; }
+img { height: auto; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+a { color: inherit; text-decoration: none; }
+ul[role="list"], ol[role="list"] { list-style: none; padding: 0; }
+table { border-collapse: collapse; }
+code, kbd, pre, samp { font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--brand-weak); color: var(--ink); }
+[hidden] { display: none !important; }
+main:focus { outline: none; }
+
+h1, h2, h3, h4 {
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+  color: var(--ink);
+}
+:lang(ja) :is(h1, h2, h3) { word-break: auto-phrase; }
+:lang(ko) { word-break: keep-all; }
+h1 { font-size: clamp(2.25rem, 1.4rem + 3.4vw, 4rem); }
+h2 { font-size: clamp(1.75rem, 1.3rem + 1.7vw, 2.5rem); }
+h3 { font-size: 1.25rem; letter-spacing: 0; line-height: 1.35; }
+p { text-wrap: pretty; }
+
+.container {
+  width: 100%;
+  max-width: calc(var(--container) + var(--gutter) * 2);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.container.narrow { max-width: calc(820px + var(--gutter) * 2); }
+
+.skip-link {
+  position: absolute;
+  inset-inline-start: 16px;
+  top: -100px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: var(--radius-sm);
+}
+.skip-link:focus { top: 12px; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.icon { flex: none; }
+[dir="rtl"] .flip-rtl { transform: scaleX(-1); }
+
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand-ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--dur) var(--ease), gap var(--dur) var(--ease);
+}
+.text-link:hover { text-decoration-color: currentColor; gap: 9px; }
+
+.fine-print { color: var(--ink-3); font-size: 0.875rem; line-height: 1.6; margin-top: 14px; }
+
+/* ── Prose (docs, README excerpts) ───────────────────────────────────── */
+
+.prose { color: var(--ink); }
+.prose > * + * { margin-top: 1.1em; }
+.prose h2 {
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 1.9rem);
+  margin-top: 2.4em;
+  padding-top: 1.1em;
+  border-top: 1px solid var(--line);
+}
+.prose h3 { font-size: 1.2rem; margin-top: 2em; }
+.prose h4 { font-size: 1.05rem; margin-top: 1.8em; }
+.prose h2 + *, .prose h3 + *, .prose h4 + * { margin-top: 0.7em; }
+.prose a { color: var(--brand-ink); text-decoration: underline; text-decoration-color: var(--brand-line); text-underline-offset: 3px; }
+.prose a:hover { text-decoration-color: currentColor; }
+.prose ul, .prose ol { padding-inline-start: 1.4em; }
+.prose li + li { margin-top: 0.35em; }
+.prose li > ul, .prose li > ol { margin-top: 0.35em; }
+.prose li::marker { color: var(--ink-3); }
+.prose strong { font-weight: 700; }
+.prose :not(pre) > code {
+  padding: 0.12em 0.4em;
+  border-radius: 5px;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  font-size: 0.84em;
+  white-space: break-spaces;
+}
+.prose kbd {
+  display: inline-block;
+  padding: 0 0.4em;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-elev);
+  font-size: 0.8em;
+  line-height: 1.6;
+}
+.prose blockquote { padding-inline-start: 1em; border-inline-start: 2px solid var(--line-strong); color: var(--ink-2); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-elev); }
+.prose table, .table-wrap table { width: 100%; font-size: 0.94rem; line-height: 1.55; }
+.table-wrap th, .table-wrap td { padding: 10px 14px; text-align: start; vertical-align: top; border-bottom: 1px solid var(--line); }
+.table-wrap tr:last-child td { border-bottom: 0; }
+.table-wrap th { font-weight: 700; background: var(--bg-sunk); color: var(--ink-2); font-size: 0.85rem; }
+
+/* Callouts: hairline box with a label, no colored side bar. */
+.callout {
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.callout > * + * { margin-top: 0.6em; }
+.callout-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+.callout-title::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  background: var(--brand);
+  flex: none;
+}
+.callout[data-kind="info"] .callout-title::before { background: var(--info); }
+.callout[data-kind="warning"] { background: var(--warn-weak); border-color: color-mix(in srgb, var(--warn) 25%, var(--line)); }
+.callout[data-kind="warning"] .callout-title::before { background: var(--warn); }
+.callout[data-kind="danger"] { background: var(--danger-weak); border-color: color-mix(in srgb, var(--danger) 25%, var(--line)); }
+.callout[data-kind="danger"] .callout-title::before { background: var(--danger); }
+
+/* ── Code blocks ─────────────────────────────────────────────────────── */
+
+.code {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  overflow: hidden;
+  direction: ltr;
+  text-align: left;
+}
+.code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  text-transform: lowercase;
+}
+.code pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  tab-size: 2;
+}
+.code pre code { font-size: inherit; }
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-family: var(--font-serif, serif);
+  font-size: 0.8rem;
+  text-transform: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.copy-btn:hover { background: var(--bg-hover); color: var(--ink); }
+.copy-btn.is-copied { color: var(--brand-ink); }
+
+/* Pygments token colors tuned to the paper/ink palette. */
+.code .c, .code .c1, .code .cm, .code .ch, .code .cs { color: var(--ink-3); font-style: normal; }
+.code .k, .code .kn, .code .kd, .code .kc, .code .nb { color: #8a3ffc; }
+.code .s, .code .s1, .code .s2, .code .sb, .code .se, .code .sh { color: #0e7a2c; }
+.code .nt, .code .nn, .code .nc, .code .nf { color: #1f5fbf; }
+.code .na, .code .nv, .code .no { color: #a04f00; }
+.code .m, .code .mi, .code .mf { color: #b3261e; }
+.code .o, .code .p { color: var(--ink-2); }
+:root[data-theme="dark"] .code .k, :root[data-theme="dark"] .code .kn, :root[data-theme="dark"] .code .kd, :root[data-theme="dark"] .code .kc, :root[data-theme="dark"] .code .nb { color: #c4a5ff; }
+:root[data-theme="dark"] .code .s, :root[data-theme="dark"] .code .s1, :root[data-theme="dark"] .code .s2, :root[data-theme="dark"] .code .sb, :root[data-theme="dark"] .code .se, :root[data-theme="dark"] .code .sh { color: #7fdc98; }
+:root[data-theme="dark"] .code .nt, :root[data-theme="dark"] .code .nn, :root[data-theme="dark"] .code .nc, :root[data-theme="dark"] .code .nf { color: #8fb8ff; }
+:root[data-theme="dark"] .code .na, :root[data-theme="dark"] .code .nv, :root[data-theme="dark"] .code .no { color: #f0b46c; }
+:root[data-theme="dark"] .code .m, :root[data-theme="dark"] .code .mi, :root[data-theme="dark"] .code .mf { color: #ff9b8f; }
+
+/* ── Reveal on scroll (only when JS runs and motion is allowed) ──────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .js .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 600ms var(--ease), transform 600ms var(--ease);
+  }
+  .js .reveal.is-visible { opacity: 1; transform: none; }
+}

@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "site_tagline": "本機優先的 AI 桌面用戶端",
+    "home_title": "AQBot — 開源 AI 桌面用戶端與本機 API 閘道",
+    "home_description": "AQBot 是免費開源的 AI 桌面用戶端，支援 macOS、Windows、Linux，整合 OpenAI、Claude、Gemini、DeepSeek、通義千問，內建 Agent、MCP、本機知識庫與 API 閘道。",
+    "features_title": "功能特色：多模型對話、Agent、MCP 與 API 閘道",
+    "features_description": "AQBot 完整功能一覽：多服務商對話、對話 Agent 與 ACP Agent、角色、Skills、MCP 工具、網路搜尋、sqlite-vec 本機知識庫、本機 API 閘道、資料匯入與加密備份。",
+    "download_title": "下載 AQBot — macOS / Windows / Linux 免費版",
+    "download_description": "下載最新版 AQBot：macOS（Apple Silicon 與 Intel）、Windows（x64 與 ARM64）、Linux（AppImage、deb、rpm）。以 AGPL-3.0 授權開源，免費使用。",
+    "faq_title": "AQBot 常見問題 — 隱私、服務商、閘道與資料",
+    "faq_description": "AQBot 常見問題：是否免費與授權條款、支援的系統與服務商、資料存放位置、API 閘道、MCP、ACP Agent、資料匯入、備份，以及 macOS 安裝提示的處理方式。",
+    "docs_title_suffix": "AQBot 文件",
+    "notfound_title": "找不到頁面"
+  },
+  "nav": {
+    "home": "首頁",
+    "features": "功能",
+    "download": "下載",
+    "docs": "文件",
+    "faq": "常見問題",
+    "github": "GitHub",
+    "github_stars": "GitHub 上有 {{count}} 顆星",
+    "skip": "跳至主要內容",
+    "menu": "開啟選單",
+    "close_menu": "關閉選單",
+    "language": "語言",
+    "primary": "主要導覽",
+    "breadcrumb": "導覽路徑"
+  },
+  "theme": {
+    "label": "色彩主題",
+    "auto": "跟隨系統",
+    "light": "淺色",
+    "dark": "深色"
+  },
+  "lang_banner": {
+    "text": "本頁面提供繁體中文版本。",
+    "action": "切換為繁體中文",
+    "dismiss": "維持目前語言"
+  },
+  "common": {
+    "copy": "複製",
+    "copied": "已複製",
+    "close": "關閉",
+    "previous": "上一張",
+    "next": "下一張",
+    "learn_more": "了解更多",
+    "read_guide": "閱讀使用指南",
+    "enlarge": "放大截圖：{{name}}",
+    "screenshot_alt": "AQBot 截圖：{{name}}",
+    "logo_alt": "AQBot 標誌",
+    "callout_tip": "提示",
+    "callout_info": "說明",
+    "callout_warning": "注意",
+    "callout_danger": "重要"
+  },
+  "os": {
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "hero": {
+    "title": "開源 AI 桌面用戶端，串接你使用的每一個模型",
+    "lede": "AQBot 是一款免費開源的 AI 桌面用戶端。與任何服務商的模型對話、把任務交給 Agent、根據自己的文件回答，還能透過本機 API 閘道把模型分享給各種程式開發工具。",
+    "cta_download": "下載 {{os}} 版",
+    "cta_download_generic": "下載 AQBot",
+    "cta_github": "GitHub 原始碼",
+    "other_platforms": "其他平台與安裝格式",
+    "meta_version": "版本 {{version}}",
+    "meta_released": "發布於 {{date}}",
+    "meta_license": "AGPL-3.0 開源"
+  },
+  "demo": {
+    "label": "AQBot 視窗互動預覽",
+    "tabs_label": "預覽情境",
+    "tab_chat": "對話",
+    "tab_agent": "代理",
+    "tab_knowledge": "知識庫",
+    "tab_gateway": "閘道",
+    "sidebar_title": "對話",
+    "conv_1": "撰寫版本說明",
+    "conv_2": "重構解析器",
+    "conv_3": "季度報告摘要",
+    "chat_title": "撰寫版本說明",
+    "chat_user": "把本週的變更整理成給使用者看的版本說明。",
+    "chat_answer_a": "本週重點：助理可以綁定預設模型與候選模型；閘道會隨應用程式自動啟動；角色管理入口更容易找到。",
+    "chat_answer_b": "本週更新：每個助理都能設定預設與候選模型，修正閘道自動啟動，對話中的模型清單也更清爽了。",
+    "chat_compare": "兩個模型同時作答",
+    "chat_input": "輸入訊息…",
+    "agent_title": "重構解析器",
+    "agent_task": "把 README 解析器拆成較小的函式，然後執行測試。",
+    "agent_step_read": "讀取 aqsite/readme.py",
+    "agent_step_edit": "編輯 3 個函式",
+    "agent_step_run": "執行指令",
+    "agent_permission": "Agent 要求在工作目錄中執行一道指令。",
+    "agent_allow_once": "允許一次",
+    "agent_allow_always": "本次工作階段一律允許",
+    "agent_deny": "拒絕",
+    "agent_done": "測試通過。已拆出 3 個函式，行為沒有改變。",
+    "agent_denied": "指令已被拒絕。Agent 已暫停，等候你的下一步指示。",
+    "kb_title": "季度報告摘要",
+    "kb_query": "上一季客服工單增加的主要原因是什麼？",
+    "kb_sources": "從知識庫中擷取",
+    "kb_doc_1": "第三季客服檢討.pdf",
+    "kb_doc_2": "新手使用者調查.md",
+    "kb_doc_3": "版本行事曆.xlsx",
+    "kb_answer": "新增工單大多出現在 9 月版本發布之後，主要是新使用者的登入問題 [1][2]。更新新手指南後，工單量已回到正常水準 [3]。",
+    "gw_title": "API 閘道",
+    "gw_status": "執行中",
+    "gw_endpoints": "相容端點",
+    "gw_log": "最近請求",
+    "gw_keys": "2 組有效金鑰",
+    "gw_requests": "今日請求數"
+  },
+  "home": {
+    "capabilities_title": "AQBot 能為你做什麼",
+    "capabilities_lede": "日常的 AI 工作往往得在好幾個工具間切換：對話、委派任務、查資料、為其他工具提供模型。AQBot 把這些都整合進同一個應用程式。",
+    "cap_chat_title": "與任何模型對話",
+    "cap_chat_body": "連接 OpenAI、Claude、Gemini、DeepSeek、通義千問或任何 OpenAI 相容端點。多個模型可並排作答，對話可以分支，訊息也會保留多個版本。",
+    "cap_agent_title": "把工作交給 Agent",
+    "cap_agent_body": "在對話中切換到 Agent 模式，在指定資料夾裡讀寫程式碼、執行指令，每個動作都能逐一核准；也可以開啟 ACP 工作台，驅動 Codex、Claude Agent、Gemini CLI 等 ACP Agent。",
+    "cap_tools_title": "以 MCP 與 Skills 擴充功能",
+    "cap_tools_body": "透過 stdio、SSE 或 StreamableHTTP 執行 MCP 伺服器，直接使用 @aqbot/fetch 等內建工具，並在同一處管理 AQBot、Codex、Claude 與 Agents 的 Skills 資料夾。",
+    "cap_knowledge_title": "根據你的文件回答",
+    "cap_knowledge_body": "將私人檔案建立索引，存入本機 sqlite-vec 知識庫；可串接 Tavily、Exa、智譜、博查等網路搜尋，並把記憶與檔案附加到對話上下文。",
+    "cap_gateway_title": "在本機提供模型服務",
+    "cap_gateway_body": "將已設定的服務商開放為 OpenAI、Claude、Gemini 相容端點，搭配閘道金鑰、TLS、請求記錄與用量統計，供 Claude Code、Codex CLI 等工具使用。",
+    "cap_data_title": "資料留在你的電腦上",
+    "cap_data_body": "應用程式狀態存放在 ~/.aqbot，你的檔案存放在 ~/Documents/aqbot。API 金鑰以 AES-256 加密，備份可存到本機資料夾、WebDAV 或 S3 相容儲存空間。",
+    "gallery_title": "實際介面一覽",
+    "gallery_lede": "以下皆為目前桌面版的截圖。點選任一畫面即可放大檢視。",
+    "gateway_title": "讓你的程式開發工具以 AQBot 為後端",
+    "gateway_body": "只要啟動一次閘道，本機上的程式開發工具就能使用你在 AQBot 中設定好的所有模型。金鑰、路由與用量都集中在一處管理。",
+    "gateway_point_1": "支援 OpenAI Chat Completions、OpenAI Responses、Claude 原生與 Gemini 原生格式",
+    "gateway_point_2": "獨立的閘道金鑰，可使用自簽或自訂 TLS 憑證",
+    "gateway_point_3": "依金鑰、服務商與日期檢視請求記錄和 Token 用量",
+    "gateway_snippets_label": "用戶端設定範例",
+    "gateway_note": "請將 YOUR_KEY 替換為在「API 閘道 → 金鑰」中產生的金鑰。8080 是預設的 HTTP 連接埠。",
+    "local_title": "從設計上就以本機為優先",
+    "local_body": "AQBot 將應用程式狀態與使用者檔案分別放在兩個固定的資料夾，你可以用一般工具檢視、備份或搬移。",
+    "local_state": "資料庫、加密金鑰、向量資料庫與 TLS 檔案",
+    "local_files": "可以直接瀏覽的圖片、附件與備份",
+    "local_point_1": "API 金鑰以 AES-256 與本機主金鑰保護",
+    "local_point_2": "備份到本機資料夾、WebDAV 或 S3 相容儲存空間",
+    "local_point_3": "可匯入 ChatGPT 官方匯出檔、Cherry Studio 與 Kelivo 備份",
+    "languages_title": "支援 11 種語言",
+    "languages_body": "應用程式與本網站都能以下列語言閱讀。",
+    "faq_title": "大家常問的問題",
+    "faq_more": "查看所有問題",
+    "cta_title": "取得 AQBot",
+    "cta_body": "免費開源，支援 macOS、Windows 與 Linux。",
+    "cta_all": "所有下載",
+    "gateway_quick": "「快速連接」會將閘道位址與金鑰直接寫入 Claude Code、Codex、OpenCode、Gemini CLI 和 Cursor 的設定；以下是對應的手動設定方式。"
+  },
+  "features": {
+    "title": "功能特色",
+    "lede": "AQBot 目前的所有功能，依領域分類列出。內容與專案 README 同步，隨每個版本更新。",
+    "toc_label": "功能分類",
+    "cta_title": "在你的電腦上試試看",
+    "cta_body": "安裝 AQBot，幾分鐘內就能連接第一個服務商。"
+  },
+  "download": {
+    "title": "下載 AQBot",
+    "lede": "免費開源。請選擇適合你系統的安裝檔，所有檔案皆來自 GitHub 官方 Release。",
+    "recommended": "推薦給你的裝置",
+    "detected": "偵測到：{{os}}",
+    "latest": "最新版本",
+    "published": "發布於 {{date}}",
+    "changelog": "版本資訊",
+    "all_releases": "所有版本",
+    "build_source": "從原始碼建置",
+    "table_format": "格式",
+    "table_arch": "架構",
+    "table_size": "大小",
+    "table_file": "檔案",
+    "action": "下載",
+    "arch_arm64": "ARM64",
+    "arch_x64": "x64",
+    "arch_mac_arm64": "Apple 晶片",
+    "arch_mac_x64": "Intel 晶片",
+    "kind_dmg": "磁碟映像檔（.dmg）",
+    "kind_setup": "安裝程式（.exe）",
+    "kind_msi": "Windows 安裝程式（.msi）",
+    "kind_portable": "免安裝版（.zip）",
+    "kind_appimage": "AppImage",
+    "kind_deb": "Debian / Ubuntu 套件（.deb）",
+    "kind_rpm": "Fedora / RHEL / openSUSE 套件（.rpm）",
+    "install_title": "安裝方式",
+    "install_macos_1": "開啟下載的 .dmg 檔案。",
+    "install_macos_2": "將 AQBot 拖曳到「應用程式」資料夾。",
+    "install_macos_3": "首次啟動時若遭 macOS 阻擋，請按住 Control 點按 AQBot.app，再選擇「打開」。",
+    "install_windows_1": "執行 .exe 或 .msi 安裝程式，或將免安裝版 .zip 解壓縮到任意位置。",
+    "install_windows_2": "依照安裝精靈完成安裝，再從「開始」選單啟動 AQBot。",
+    "install_windows_3": "可在設定中開啟開機自動啟動與全域快速鍵。",
+    "install_linux_1": "Debian 與 Ubuntu",
+    "install_linux_2": "Fedora、RHEL 與 openSUSE",
+    "install_linux_3": "任何發行版皆可使用 AppImage",
+    "requirements_title": "支援的系統",
+    "req_macos": "Apple 晶片（arm64）與 Intel 晶片（x86_64）",
+    "req_windows": "Windows 10 與 11，x86_64 與 arm64",
+    "req_linux": "x86_64 與 arm64，提供 AppImage、deb 與 rpm 套件",
+    "next_title": "安裝完成後",
+    "next_body": "依照快速入門指南新增服務商，傳送你的第一則訊息。"
+  },
+  "faq": {
+    "title": "常見問題",
+    "lede": "簡要說明 AQBot 是什麼、如何處理你的資料，以及如何開始使用。",
+    "items": [
+      {
+        "q": "AQBot 是什麼？",
+        "a": "AQBot 是一款免費開源的 AI 桌面用戶端，支援 macOS、Windows 與 Linux。它在單一應用程式中整合了多服務商對話、Agent、MCP 工具、本機知識庫與本機 API 閘道，應用程式資料與使用者檔案都保存在你自己的電腦上。"
+      },
+      {
+        "q": "AQBot 免費嗎？",
+        "a": "免費。AQBot 可免費下載與使用，原始碼以 AGPL-3.0 授權發布在 GitHub 上。你只需支付自己選擇串接的模型服務商費用；若使用本機模型，則完全不必付費。"
+      },
+      {
+        "q": "可以使用哪些 AI 服務商與模型？",
+        "a": "AQBot 支援 OpenAI、Claude、Gemini、DeepSeek、通義千問，以及任何 OpenAI 相容端點，包括 Ollama 這類本機伺服器。每個服務商都能個別設定 Base URL、API 路徑、請求標頭與代理伺服器，也能透過 aqbot:// 連結或 CC Switch 匯入服務商。"
+      },
+      {
+        "q": "支援哪些作業系統？",
+        "a": "支援 Apple 晶片與 Intel 晶片的 macOS、x64 與 ARM64 架構的 Windows 10 和 11，以及 x64 與 ARM64 架構的 Linux（提供 AppImage、deb 與 rpm 套件）。"
+      },
+      {
+        "q": "AQBot 把我的資料存放在哪裡？",
+        "a": "資料庫、加密金鑰、向量資料庫等應用程式狀態存放在 ~/.aqbot；圖片、附件與備份存放在 ~/Documents/aqbot。API 金鑰會以 AES-256 搭配本機主金鑰加密儲存。"
+      },
+      {
+        "q": "如何讓 Claude Code、Codex CLI 或 Gemini CLI 使用 AQBot？",
+        "a": "在 AQBot 中啟動 API 閘道並產生閘道金鑰，再用「快速連接」把位址與金鑰寫入 Claude Code、Codex、OpenCode、Gemini CLI 或 Cursor 的設定。若手動設定，Claude Code 需要設定 ANTHROPIC_BASE_URL=http://localhost:8080/v1，並將 ANTHROPIC_AUTH_TOKEN 設為閘道金鑰。"
+      },
+      {
+        "q": "AQBot 支援 MCP 嗎？",
+        "a": "支援。AQBot 是 MCP 用戶端，可透過 stdio、SSE 或 StreamableHTTP 執行 Model Context Protocol 伺服器，並內建 @aqbot/fetch 等工具。工具呼叫的最大輪數可以自行設定。"
+      },
+      {
+        "q": "對話 Agent 與 ACP 工作台有什麼不同？",
+        "a": "對話 Agent 使用你在 AQBot 中設定的服務商，在你選定的資料夾中讀寫檔案、執行指令，並提供多種核准模式；該資料夾只是起始工作目錄，並非沙箱。ACP 工作台則執行支援 Agent Client Protocol 的外部 Agent，例如 Codex、Claude Agent、Gemini CLI、Cline 與 OpenCode。"
+      },
+      {
+        "q": "可以匯入我現有的對話嗎？",
+        "a": "可以。AQBot 支援匯入 ChatGPT 官方匯出檔、Cherry Studio 備份與 Kelivo 備份，匯入前會顯示預覽與警告，並處理重複內容。匯入 Cherry Studio 與 Kelivo 時，還能一併移轉服務商、API 金鑰與附件。"
+      },
+      {
+        "q": "備份如何運作？",
+        "a": "你可以手動或排程備份與還原，目的地可以是本機資料夾、WebDAV 伺服器或 S3 相容儲存空間。本機備份預設存放在 ~/Documents/aqbot/backups。"
+      },
+      {
+        "q": "macOS 顯示 AQBot 已損毀或無法驗證，該怎麼辦？",
+        "a": "AQBot 使用專案自有的憑證簽署，而非 Apple Developer ID。請在 Finder 中按住 Control 點按 AQBot.app 並選擇「打開」，或到「系統設定 → 隱私權與安全性」中允許開啟，不需要關閉 Gatekeeper。"
+      },
+      {
+        "q": "介面支援哪些語言？",
+        "a": "簡體中文、繁體中文、英文、日文、韓文、法文、德文、西班牙文、俄文、印地文與阿拉伯文。"
+      }
+    ]
+  },
+  "docs": {
+    "label": "文件",
+    "sidebar_title": "使用指南",
+    "on_this_page": "本頁內容",
+    "previous": "上一篇",
+    "next": "下一篇",
+    "edit": "在 GitHub 上編輯此頁",
+    "updated": "最後更新於 {{date}}"
+  },
+  "footer": {
+    "about": "AQBot 是一款免費開源、本機優先的 AI 桌面用戶端，支援 macOS、Windows 與 Linux。",
+    "product": "產品",
+    "resources": "資源",
+    "community": "社群",
+    "releases": "版本發布",
+    "issues": "回報問題",
+    "license": "授權條款",
+    "linuxdo": "LinuxDO",
+    "copyright": "© {{year}} AQBot。以 AGPL-3.0 授權條款發布。",
+    "languages": "語言"
+  },
+  "notfound": {
+    "title": "這個頁面不存在",
+    "body": "連結可能已失效，或頁面已移至其他位置。",
+    "home": "返回首頁"
+  }
+}

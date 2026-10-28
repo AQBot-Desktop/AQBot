@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{%- from "partials/macros.html" import faq_list, cta_band with context -%}
+{% block main %}
+<section class="page-hero">
+  <div class="container narrow">
+    {% include "partials/breadcrumb.html" %}
+    <h1>{{ t("faq.title") }}</h1>
+    <p class="page-lede">{{ t("faq.lede") }}</p>
+    <nav class="faq-index" aria-label="{{ t('faq.title') }}">
+      <ol>
+        {%- for item in faq_items %}
+        <li><a href="#{{ item.id }}">{{ item.q }}</a></li>
+        {%- endfor %}
+      </ol>
+    </nav>
+  </div>
+</section>
+<section class="section-tight">
+  <div class="container narrow">
+    {{ faq_list(faq_items, collapsible=False, heading="h2") }}
+  </div>
+</section>
+{{ cta_band(t("home.cta_title"), t("home.cta_body")) }}
+{% endblock %}
