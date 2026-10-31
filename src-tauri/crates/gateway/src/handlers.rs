@@ -126,6 +126,25 @@ pub(crate) fn build_gateway_model_list(
     models
 }
 
+const CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
+
+/// Provider types `/v1/chat/completions` can route to.
+///
+/// Requests are translated through the provider adapter, so OpenAI Responses
+/// providers are served by converting to and from the Responses API.
+pub(crate) fn supports_chat_completions(provider_type: &ProviderType) -> bool {
+    matches!(
+        provider_type,
+        ProviderType::OpenAI
+            | ProviderType::OpenAIResponses
+            | ProviderType::DeepSeek
+            | ProviderType::XAI
+            | ProviderType::GLM
+            | ProviderType::SiliconFlow
+            | ProviderType::Custom
+    )
+}
+
 /// POST /v1/chat/completions — main proxy handler
 pub async fn chat_completions(
     State(state): State<GatewayAppState>,
@@ -147,18 +166,9 @@ pub async fn chat_completions(
     let public_id_map = build_provider_public_id_map(&all_providers);
     let known_public_ids: HashSet<String> = public_id_map.values().cloned().collect();
     let providers: Vec<ProviderConfig> = all_providers
-        .into_iter()
-        .filter(|p| {
-            matches!(
-                p.provider_type,
-                ProviderType::OpenAI
-                    | ProviderType::DeepSeek
-                    | ProviderType::XAI
-                    | ProviderType::GLM
-                    | ProviderType::SiliconFlow
-                    | ProviderType::Custom
-            )
-        })
+        .iter()
+        .filter(|p| supports_chat_completions(&p.provider_type))
+        .cloned()
         .collect();
 
     // Parse model field: supports "provider_public_id/model_id" (preferred),
@@ -170,9 +180,31 @@ pub async fn chat_completions(
         .unwrap_or_default();
     let auto_routing = global_settings.gateway_auto_model_routing;
 
-    let targets = match resolve_route_targets(&providers, &public_id_map, &parsed, auto_routing) {
+    let targets = match resolve_route_targets(&providers, &public_id_map, &parsed, auto_routing)
+        .map_err(|err| {
+            explain_unsupported_provider(
+                &all_providers,
+                &public_id_map,
+                &parsed,
+                supports_chat_completions,
+                CHAT_COMPLETIONS_PATH,
+            )
+            .unwrap_or(err)
+        }) {
         Ok(t) => t,
-        Err(resp) => return resp,
+        Err(err) => {
+            record_route_failure(
+                &state.db,
+                &gateway_key,
+                "POST",
+                CHAT_COMPLETIONS_PATH,
+                Some(&request.model),
+                &err,
+                start_time,
+            )
+            .await;
+            return err.into_response();
+        }
     };
 
     let registry = aqbot_providers::registry::ProviderRegistry::create_default();
@@ -313,7 +345,7 @@ pub async fn chat_completions(
                         &gateway_key.id,
                         &gateway_key.name,
                         "POST",
-                        "/v1/chat/completions",
+                        CHAT_COMPLETIONS_PATH,
                         Some(&model_id),
                         Some(&provider.id),
                         502,
@@ -375,7 +407,7 @@ async fn try_non_stream(
                 &gateway_key.id,
                 &gateway_key.name,
                 "POST",
-                "/v1/chat/completions",
+                CHAT_COMPLETIONS_PATH,
                 Some(model_id),
                 Some(provider_id),
                 200,
@@ -505,7 +537,7 @@ async fn handle_stream(
             &key_id,
             &key_name,
             "POST",
-            "/v1/chat/completions",
+            CHAT_COMPLETIONS_PATH,
             Some(&mod_id),
             Some(&prov_id),
             status_code,
@@ -738,7 +770,7 @@ pub(crate) fn resolve_provider_for_model(
     providers: &[ProviderConfig],
     public_id_map: &HashMap<String, String>,
     parsed: &ParsedModel,
-) -> Result<(ProviderConfig, String), axum::response::Response> {
+) -> Result<(ProviderConfig, String), RouteError> {
     let mut targets = resolve_route_targets(providers, public_id_map, parsed, false)?;
     // When auto_routing is false only one target is returned; take the first.
     let first = targets.remove(0);
@@ -756,7 +788,7 @@ pub(crate) fn resolve_route_targets(
     public_id_map: &HashMap<String, String>,
     parsed: &ParsedModel,
     auto_routing: bool,
-) -> Result<Vec<(ProviderConfig, String)>, axum::response::Response> {
+) -> Result<Vec<(ProviderConfig, String)>, RouteError> {
     use crate::auto_route::{
         candidates_for_attempt, collect_candidates, resolve_real_model_id, RouteCandidate,
     };
@@ -772,9 +804,9 @@ pub(crate) fn resolve_route_targets(
                 .find(|p| public_id_map.get(&p.id).map_or(false, |id| id == hint));
 
             let provider = provider_opt.ok_or_else(|| {
-                error_response(
+                RouteError::new(
                     StatusCode::NOT_FOUND,
-                    &format!("Provider '{}' not found", hint),
+                    format!("Provider '{}' not found", hint),
                 )
             })?;
 
@@ -784,9 +816,9 @@ pub(crate) fn resolve_route_targets(
                 .filter(|m| m.enabled)
                 .find_map(|m| resolve_real_model_id(m, &parsed.model_id))
                 .ok_or_else(|| {
-                    error_response(
+                    RouteError::new(
                         StatusCode::NOT_FOUND,
-                        &format!(
+                        format!(
                             "Model '{}' not found on provider '{}'",
                             parsed.model_id, hint
                         ),
@@ -798,9 +830,9 @@ pub(crate) fn resolve_route_targets(
         None => {
             let cands = collect_candidates(providers, &parsed.model_id);
             if cands.is_empty() {
-                return Err(error_response(
+                return Err(RouteError::new(
                     StatusCode::NOT_FOUND,
-                    &format!("Model '{}' not found", parsed.model_id),
+                    format!("Model '{}' not found", parsed.model_id),
                 ));
             }
 
@@ -818,14 +850,124 @@ pub(crate) fn resolve_route_targets(
                 }
             }
             if out.is_empty() {
-                return Err(error_response(
+                return Err(RouteError::new(
                     StatusCode::NOT_FOUND,
-                    &format!("Model '{}' not found", parsed.model_id),
+                    format!("Model '{}' not found", parsed.model_id),
                 ));
             }
             Ok(out)
         }
     }
+}
+
+/// A request that could not be routed to an upstream provider.
+#[derive(Debug)]
+pub(crate) struct RouteError {
+    pub(crate) status: StatusCode,
+    pub(crate) message: String,
+}
+
+impl RouteError {
+    pub(crate) fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn into_response(self) -> axum::response::Response {
+        error_response(self.status, &self.message)
+    }
+}
+
+/// Explain a routing miss caused by an endpoint/provider-type mismatch.
+///
+/// Endpoints only route to the provider types they can serve, while public IDs
+/// and `/v1/models` cover every provider.  When the requested provider (or the
+/// bare model) belongs to an enabled provider this endpoint cannot serve, a
+/// plain "not found" is misleading, so return a 400 that names the type.
+pub(crate) fn explain_unsupported_provider(
+    all_providers: &[ProviderConfig],
+    public_id_map: &HashMap<String, String>,
+    parsed: &ParsedModel,
+    supports: impl Fn(&ProviderType) -> bool,
+    endpoint: &str,
+) -> Option<RouteError> {
+    use crate::auto_route::resolve_real_model_id;
+
+    let mut unsupported = all_providers
+        .iter()
+        .filter(|p| p.enabled && !supports(&p.provider_type));
+    let provider = match &parsed.provider_hint {
+        Some(hint) => unsupported.find(|p| public_id_map.get(&p.id) == Some(hint))?,
+        None => unsupported.find(|p| {
+            p.models
+                .iter()
+                .filter(|m| m.enabled)
+                .any(|m| resolve_real_model_id(m, &parsed.model_id).is_some())
+        })?,
+    };
+
+    let provider_type = provider_type_to_str(&provider.provider_type);
+    let public_id = public_id_map
+        .get(&provider.id)
+        .map(String::as_str)
+        .unwrap_or(provider.name.as_str());
+    let mut message = format!(
+        "Provider '{}' (type '{}') is not supported on {}",
+        public_id, provider_type, endpoint
+    );
+    if let Some(native) = native_endpoint_for(&provider.provider_type) {
+        message.push_str(&format!("; use {} instead", native));
+    }
+    Some(RouteError::new(StatusCode::BAD_REQUEST, message))
+}
+
+/// Gateway endpoint that serves a provider type natively, if any.
+fn native_endpoint_for(provider_type: &ProviderType) -> Option<&'static str> {
+    match provider_type {
+        ProviderType::OpenAIResponses => Some("/v1/responses"),
+        ProviderType::Anthropic => Some("/v1/messages"),
+        ProviderType::Gemini => Some("/v1beta/models/{model}:generateContent"),
+        ProviderType::OpenAI
+        | ProviderType::DeepSeek
+        | ProviderType::XAI
+        | ProviderType::GLM
+        | ProviderType::SiliconFlow
+        | ProviderType::Custom => Some(CHAT_COMPLETIONS_PATH),
+        ProviderType::Jina
+        | ProviderType::Cohere
+        | ProviderType::Voyage
+        | ProviderType::Bedrock => None,
+    }
+}
+
+/// Record a request that failed before reaching any upstream provider, so it
+/// shows up in the gateway request log.
+pub(crate) async fn record_route_failure(
+    db: &sea_orm::DatabaseConnection,
+    gateway_key: &GatewayKey,
+    method: &str,
+    path: &str,
+    model: Option<&str>,
+    err: &RouteError,
+    start_time: Instant,
+) {
+    let _ = aqbot_core::repo::gateway_request_log::record_request_log(
+        db,
+        &gateway_key.id,
+        &gateway_key.name,
+        method,
+        path,
+        model,
+        None,
+        err.status.as_u16() as i32,
+        start_time.elapsed().as_millis() as i32,
+        0,
+        0,
+        Some(&err.message),
+    )
+    .await;
 }
 
 pub(crate) fn provider_type_to_str(pt: &ProviderType) -> &'static str {
@@ -883,6 +1025,7 @@ mod tests {
 
     #[derive(Clone, Debug)]
     struct CapturedChatRequest {
+        path: String,
         body: serde_json::Value,
     }
 
@@ -897,8 +1040,10 @@ mod tests {
         State(state): State<MockChatUpstreamState>,
         request: Request<Body>,
     ) -> Response<Body> {
+        let path = request.uri().path().to_string();
         let bytes = to_bytes(request.into_body(), usize::MAX).await.unwrap();
         state.captures.lock().unwrap().push(CapturedChatRequest {
+            path,
             body: serde_json::from_slice(&bytes).unwrap(),
         });
 
@@ -938,6 +1083,23 @@ mod tests {
     async fn seed_chat_router_with_duplicate_model(
         api_host: &str,
     ) -> (Router, DbHandle, String, GatewayAppState) {
+        seed_chat_router(
+            &[
+                ("DeepSeek", ProviderType::DeepSeek),
+                ("DeepSeek Backup", ProviderType::DeepSeek),
+            ],
+            api_host,
+            "deepseek-v4-pro",
+        )
+        .await
+    }
+
+    /// Seed enabled providers that all serve `model_id` from `api_host`.
+    async fn seed_chat_router(
+        providers: &[(&str, ProviderType)],
+        api_host: &str,
+        model_id: &str,
+    ) -> (Router, DbHandle, String, GatewayAppState) {
         let handle = create_test_pool().await.unwrap();
         let db = &handle.conn;
         let gateway_key = gateway::create_gateway_key(db, "Chat Test Key", None)
@@ -945,12 +1107,12 @@ mod tests {
             .unwrap();
         let master_key = [7u8; 32];
 
-        for provider_name in ["DeepSeek", "DeepSeek Backup"] {
+        for (provider_name, provider_type) in providers {
             let provider = provider::create_provider(
                 db,
                 CreateProviderInput {
-                    name: provider_name.into(),
-                    provider_type: ProviderType::DeepSeek,
+                    name: (*provider_name).into(),
+                    provider_type: provider_type.clone(),
                     api_host: api_host.into(),
                     api_path: None,
                     aws_region: None,
@@ -965,8 +1127,8 @@ mod tests {
                 &provider.id,
                 &[Model {
                     provider_id: provider.id.clone(),
-                    model_id: "deepseek-v4-pro".into(),
-                    name: "deepseek-v4-pro".into(),
+                    model_id: model_id.into(),
+                    name: model_id.into(),
                     group_name: None,
                     model_type: ModelType::Chat,
                     capabilities: vec![ModelCapability::TextChat],
@@ -1718,5 +1880,258 @@ mod tests {
         assert_eq!(upstream_messages[1]["tool_call_id"], "call_1");
 
         upstream_task.abort();
+    }
+
+    // ── Provider-type support (issue #233) ────────────────────────────────────
+
+    fn post_json(uri: &str, gateway_key: &str, body: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn response_json(response: axum::response::Response) -> serde_json::Value {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[test]
+    fn supports_chat_completions_covers_openai_responses() {
+        assert!(supports_chat_completions(&ProviderType::OpenAIResponses));
+        assert!(supports_chat_completions(&ProviderType::OpenAI));
+        assert!(!supports_chat_completions(&ProviderType::Anthropic));
+        assert!(!supports_chat_completions(&ProviderType::Gemini));
+    }
+
+    #[tokio::test]
+    async fn chat_completions_routes_openai_responses_provider_non_stream() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "resp_upstream",
+            "model": "mimo-v2.6-flash",
+            "output": [{
+                "type": "message",
+                "content": [{ "type": "output_text", "text": "ok" }]
+            }],
+            "usage": { "input_tokens": 3, "output_tokens": 2, "total_tokens": 5 }
+        })
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, _handle, gateway_key, _) = seed_chat_router(
+            &[("小米Mimo", ProviderType::OpenAIResponses)],
+            &upstream_base,
+            "mimo-v2.6-flash",
+        )
+        .await;
+
+        let response = app
+            .oneshot(post_json(
+                "/v1/chat/completions",
+                &gateway_key,
+                json!({
+                    "model": "mimo/mimo-v2.6-flash",
+                    "messages": [{ "role": "user", "content": "hi" }]
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["object"], "chat.completion");
+        assert_eq!(payload["choices"][0]["message"]["content"], "ok");
+        assert_eq!(payload["usage"]["total_tokens"], 5);
+
+        let captured = captures.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(
+            captured[0].path.ends_with("/responses"),
+            "{}",
+            captured[0].path
+        );
+        assert_eq!(captured[0].body["model"], "mimo-v2.6-flash");
+        assert!(captured[0].body.get("input").is_some());
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_routes_openai_responses_provider_stream() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
+        let upstream_body = concat!(
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_upstream\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}\n\n"
+        )
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, _handle, gateway_key, _) = seed_chat_router(
+            &[("小米Mimo", ProviderType::OpenAIResponses)],
+            &upstream_base,
+            "mimo-v2.6-flash",
+        )
+        .await;
+
+        let response = app
+            .oneshot(post_json(
+                "/v1/chat/completions",
+                &gateway_key,
+                json!({
+                    "model": "mimo/mimo-v2.6-flash",
+                    "messages": [{ "role": "user", "content": "hi" }],
+                    "stream": true
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        let chunks: Vec<serde_json::Value> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|data| serde_json::from_str(data).ok())
+            .collect();
+        let content: String = chunks
+            .iter()
+            .filter_map(|chunk| chunk["choices"][0]["delta"]["content"].as_str())
+            .collect();
+        assert_eq!(content, "ok", "stream: {text}");
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk["choices"][0]["finish_reason"] == "stop"));
+
+        let captured = captures.lock().unwrap();
+        assert!(
+            captured[0].path.ends_with("/responses"),
+            "{}",
+            captured[0].path
+        );
+        assert_eq!(captured[0].body["stream"], true);
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_explains_unsupported_provider_type_and_logs_it() {
+        let (app, handle, gateway_key, _) = seed_chat_router(
+            &[("Claude", ProviderType::Anthropic)],
+            "http://127.0.0.1:9",
+            "claude-x",
+        )
+        .await;
+
+        for model in ["claude/claude-x", "claude-x"] {
+            let response = app
+                .clone()
+                .oneshot(post_json(
+                    "/v1/chat/completions",
+                    &gateway_key,
+                    json!({ "model": model, "messages": [{ "role": "user", "content": "hi" }] }),
+                ))
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "model {model}");
+            let message = response_json(response).await["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(message.contains("'claude'"), "{message}");
+            assert!(message.contains("type 'anthropic'"), "{message}");
+            assert!(message.contains("use /v1/messages"), "{message}");
+        }
+
+        let logs = aqbot_core::repo::gateway_request_log::list_request_logs(&handle.conn, 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(logs.len(), 2);
+        assert!(logs.iter().all(|log| log.status_code == 400
+            && log.path == "/v1/chat/completions"
+            && log.provider_id.is_none()
+            && log
+                .error_message
+                .as_deref()
+                .is_some_and(|m| m.contains("anthropic"))));
+        let mut models: Vec<_> = logs.iter().filter_map(|log| log.model.clone()).collect();
+        models.sort();
+        assert_eq!(models, ["claude-x", "claude/claude-x"]);
+    }
+
+    #[tokio::test]
+    async fn chat_completions_logs_unknown_model() {
+        let (app, handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model("http://127.0.0.1:9").await;
+
+        let response = app
+            .oneshot(post_json(
+                "/v1/chat/completions",
+                &gateway_key,
+                json!({ "model": "missing-model", "messages": [{ "role": "user", "content": "hi" }] }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let logs = aqbot_core::repo::gateway_request_log::list_request_logs(&handle.conn, 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].status_code, 404);
+        assert_eq!(logs[0].model.as_deref(), Some("missing-model"));
+    }
+
+    #[tokio::test]
+    async fn native_messages_explains_unsupported_provider_type() {
+        let (app, handle, gateway_key, _) = seed_chat_router(
+            &[
+                ("Claude", ProviderType::Anthropic),
+                ("DeepSeek", ProviderType::DeepSeek),
+            ],
+            "http://127.0.0.1:9",
+            "shared-model",
+        )
+        .await;
+
+        let response = app
+            .oneshot(post_json(
+                "/v1/messages",
+                &gateway_key,
+                json!({
+                    "model": "deepseek/shared-model",
+                    "max_tokens": 16,
+                    "messages": [{ "role": "user", "content": "hi" }]
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let message = response_json(response).await["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            message.contains("not supported on /v1/messages"),
+            "{message}"
+        );
+        assert!(message.contains("use /v1/chat/completions"), "{message}");
+
+        let logs = aqbot_core::repo::gateway_request_log::list_request_logs(&handle.conn, 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].path, "/v1/messages");
+        assert_eq!(logs[0].status_code, 400);
     }
 }

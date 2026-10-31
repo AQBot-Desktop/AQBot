@@ -19,7 +19,8 @@ use crate::response_model::{
 use crate::{
     auth::AuthenticatedKey,
     handlers::{
-        build_provider_public_id_map, error_response, parse_model_field, resolve_route_targets,
+        build_provider_public_id_map, error_response, explain_unsupported_provider,
+        parse_model_field, record_route_failure, resolve_route_targets, RouteError,
     },
     server::GatewayAppState,
 };
@@ -46,6 +47,21 @@ impl NativeProtocol {
             | NativeProtocol::GeminiGenerateContent
             | NativeProtocol::GeminiStreamGenerateContent
             | NativeProtocol::GeminiCountTokens => "Gemini",
+        }
+    }
+
+    /// Gateway endpoint for this protocol, as shown in error messages.
+    fn endpoint(self) -> &'static str {
+        match self {
+            NativeProtocol::OpenAiResponses => "/v1/responses",
+            NativeProtocol::AnthropicMessages => "/v1/messages",
+            NativeProtocol::AnthropicCountTokens => "/v1/messages/count_tokens",
+            NativeProtocol::GeminiModels => "/v1beta/models",
+            NativeProtocol::GeminiGenerateContent => "/v1beta/models/{model}:generateContent",
+            NativeProtocol::GeminiStreamGenerateContent => {
+                "/v1beta/models/{model}:streamGenerateContent"
+            }
+            NativeProtocol::GeminiCountTokens => "/v1beta/models/{model}:countTokens",
         }
     }
 
@@ -525,23 +541,24 @@ async fn resolve_native_context(
     state: &GatewayAppState,
     protocol: NativeProtocol,
     model: Option<&str>,
-) -> Result<ResolvedNativeContext, axum::response::Response> {
+) -> Result<ResolvedNativeContext, RouteError> {
     let providers = aqbot_core::repo::provider::list_providers(&state.db)
         .await
-        .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+        .map_err(|e| RouteError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     // Public IDs come from the full provider list so they match `/v1/models`.
     let public_id_map = build_provider_public_id_map(&providers);
     let candidates: Vec<ProviderConfig> = providers
-        .into_iter()
+        .iter()
         .filter(|provider| {
             provider.enabled && protocol.matches_provider_type(&provider.provider_type)
         })
+        .cloned()
         .collect();
 
     if candidates.is_empty() {
-        return Err(error_response(
+        return Err(RouteError::new(
             StatusCode::BAD_GATEWAY,
-            &format!(
+            format!(
                 "No enabled {} provider is configured",
                 protocol.provider_family()
             ),
@@ -559,7 +576,17 @@ async fn resolve_native_context(
         // active key (compat with pre-routing behaviour). Failover across
         // sources for native protocols is gated by gateway_auto_model_routing
         // only after this selection path; for now we pin one upstream.
-        let targets = resolve_route_targets(&candidates, &public_id_map, &parsed, true)?;
+        let targets =
+            resolve_route_targets(&candidates, &public_id_map, &parsed, true).map_err(|err| {
+                explain_unsupported_provider(
+                    &providers,
+                    &public_id_map,
+                    &parsed,
+                    |provider_type| protocol.matches_provider_type(provider_type),
+                    protocol.endpoint(),
+                )
+                .unwrap_or(err)
+            })?;
 
         // Prefer a target with an active key when multiple are available.
         // When auto routing is disabled, still prefer keys but stay on first
@@ -598,14 +625,14 @@ async fn resolve_native_context(
     let provider_key = aqbot_core::repo::provider::get_active_key(&state.db, &provider.id)
         .await
         .map_err(|_| {
-            error_response(
+            RouteError::new(
                 StatusCode::BAD_GATEWAY,
-                &format!("No active API key for provider '{}'", provider.name),
+                format!("No active API key for provider '{}'", provider.name),
             )
         })?;
     let api_key = decrypt_key(&provider_key.key_encrypted, &state.master_key).map_err(|e| {
         tracing::error!("Failed to decrypt provider key: {}", e);
-        error_response(StatusCode::INTERNAL_SERVER_ERROR, "Internal key error")
+        RouteError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal key error")
     })?;
 
     let resolved_proxy = ProviderProxyConfig::resolve(&provider.proxy_config, &global_settings);
@@ -943,7 +970,19 @@ async fn handle_native_request(
 
     let resolved = match resolve_native_context(&state, protocol, model_hint.as_deref()).await {
         Ok(resolved) => resolved,
-        Err(response) => return response,
+        Err(err) => {
+            record_route_failure(
+                &state.db,
+                &gateway_key,
+                method.as_str(),
+                &path,
+                model_hint.as_deref(),
+                &err,
+                start_time,
+            )
+            .await;
+            return err.into_response();
+        }
     };
 
     let upstream_model = resolved.model_id.as_deref().or(gemini_model.as_deref());
