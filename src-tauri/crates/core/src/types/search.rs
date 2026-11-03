@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct SearchProvider {
     pub id: String,
     pub name: String,
-    pub provider_type: String, // tavily | zhipu | bocha | exa
+    pub provider_type: String, // tavily | zhipu | bocha | exa | keenable
     pub endpoint: Option<String>,
     pub has_api_key: bool,
     pub enabled: bool,

@@ -46,6 +46,7 @@ pub fn default_endpoint(provider_type: &str) -> &'static str {
         "zhipu" => "https://open.bigmodel.cn/api/paas/v4/web_search",
         "bocha" => "https://api.bochaai.com/v1/web-search",
         "exa" => "https://api.exa.ai/search",
+        "keenable" => "https://api.keenable.ai/v1/search",
         _ => "",
     }
 }
@@ -67,6 +68,7 @@ pub async fn execute_search(
         "zhipu" => search_zhipu(endpoint, api_key, query, max_results, timeout_ms).await,
         "bocha" => search_bocha(endpoint, api_key, query, max_results, timeout_ms).await,
         "exa" => search_exa(endpoint, api_key, query, max_results, timeout_ms).await,
+        "keenable" => search_keenable(endpoint, api_key, query, max_results, timeout_ms).await,
         _ => {
             return Err(AQBotError::Validation(format!(
                 "Unsupported provider type: {}",
@@ -196,6 +198,117 @@ async fn search_tavily(
         .map(|r| SearchResult {
             title: r.title.unwrap_or_else(|| "No title".to_string()),
             content: r.content.unwrap_or_default(),
+            url: r.url.unwrap_or_default(),
+        })
+        .collect())
+}
+
+// ── Keenable ──────────────────────────────────────────────
+// POST {endpoint}   (default: /v1/search with X-API-Key, or /v1/search/public without a key)
+// Body: { query, max_results }
+// Response: { results: [{ title, url, description, snippet }] }
+
+#[derive(Serialize)]
+struct KeenableRequest<'a> {
+    query: &'a str,
+    max_results: i32,
+}
+
+#[derive(Deserialize)]
+struct KeenableResponse {
+    #[serde(default)]
+    results: Vec<KeenableResult>,
+}
+
+#[derive(Deserialize)]
+struct KeenableResult {
+    title: Option<String>,
+    url: Option<String>,
+    description: Option<String>,
+    snippet: Option<String>,
+}
+
+const KEENABLE_SNIPPET_MAX_CHARS: usize = 2000;
+
+fn keenable_content(description: Option<String>, snippet: Option<String>) -> String {
+    match description.filter(|d| !d.trim().is_empty()) {
+        Some(d) => d,
+        None => {
+            let s = snippet.unwrap_or_default();
+            if s.chars().count() > KEENABLE_SNIPPET_MAX_CHARS {
+                let mut t: String = s.chars().take(KEENABLE_SNIPPET_MAX_CHARS).collect();
+                t.push('…');
+                t
+            } else {
+                s
+            }
+        }
+    }
+}
+
+async fn search_keenable(
+    endpoint: Option<&str>,
+    api_key: &str,
+    query: &str,
+    max_results: i32,
+    timeout_ms: i32,
+) -> Result<Vec<SearchResult>> {
+    let api_key = api_key.trim();
+    const KEYED: &str = "https://api.keenable.ai/v1/search";
+    const PUBLIC: &str = "https://api.keenable.ai/v1/search/public";
+    let url = match endpoint.map(str::trim).filter(|e| !e.is_empty()) {
+        // The default keyed endpoint needs a key; without one use the free public endpoint.
+        Some(e) if e.trim_end_matches('/') == KEYED && api_key.is_empty() => PUBLIC,
+        Some(e) => e,
+        None if api_key.is_empty() => PUBLIC,
+        None => KEYED,
+    };
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms as u64))
+        .build()
+        .map_err(|e| AQBotError::Provider(format!("HTTP client error: {e}")))?;
+
+    let body = KeenableRequest {
+        query,
+        max_results: max_results.max(1),
+    };
+
+    let mut req = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("X-Keenable-Title", "AQBot");
+    if !api_key.is_empty() {
+        req = req.header("X-API-Key", api_key);
+    }
+
+    let resp = req
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AQBotError::Provider(format!("Keenable request failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(AQBotError::Provider(format!(
+            "Keenable API error {status}: {text}"
+        )));
+    }
+
+    let data: KeenableResponse = resp
+        .json()
+        .await
+        .map_err(|e| AQBotError::Provider(format!("Keenable response parse error: {e}")))?;
+
+    Ok(data
+        .results
+        .into_iter()
+        .filter(|r| r.url.as_deref().is_some_and(|u| !u.is_empty()))
+        .take(max_results.max(1) as usize)
+        .map(|r| SearchResult {
+            title: r.title.unwrap_or_else(|| "No title".to_string()),
+            content: keenable_content(r.description, r.snippet),
             url: r.url.unwrap_or_default(),
         })
         .collect())

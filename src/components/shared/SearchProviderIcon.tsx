@@ -24,4 +24,5 @@ export const PROVIDER_TYPE_LABELS: Record<string, string> = {
   zhipu: '智谱',
   bocha: '博查',
   exa: 'Exa',
+  keenable: 'Keenable',
 };

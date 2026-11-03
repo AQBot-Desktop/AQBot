@@ -30,6 +30,7 @@ function providerSelectOptions(t: (key: string, fallback?: string) => string) {
     { value: 'zhipu', label: <span className="flex items-center gap-2"><ProviderIcon provider="zhipu" size={16} type="color" /> {t('settings.searchProviders.zhipu')}</span> },
     { value: 'bocha', label: <span className="flex items-center gap-2"><img src="/icons/bocha.ico" alt="" style={{ width: 16, height: 16 }} /> {t('settings.searchProviders.bocha')}</span> },
     { value: 'exa', label: <span className="flex items-center gap-2"><Exa.Color size={16} /> Exa</span> },
+    { value: 'keenable', label: <span className="flex items-center gap-2"><SearchProviderTypeIcon type="keenable" size={16} /> Keenable</span> },
   ];
 }
 
@@ -40,6 +41,7 @@ const DEFAULT_ENDPOINTS: Record<string, string> = {
   zhipu: 'https://open.bigmodel.cn/api/paas/v4/web_search',
   bocha: 'https://api.bochaai.com/v1/web-search',
   exa: 'https://api.exa.ai/search',
+  keenable: 'https://api.keenable.ai/v1/search',
 };
 
 // ── Left Sidebar: Provider List ───────────────────────────
